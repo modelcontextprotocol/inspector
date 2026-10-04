@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TasksListChangedNotificationSchema } from "@inspector/core/mcp/taskNotificationSchemas.js";
+import { TasksListChangedNotificationSchema } from "@inspector/core/extension/tasks/notificationSchemas.js";
 
 describe("TasksListChangedNotificationSchema", () => {
   it("parses a notification with no params", () => {

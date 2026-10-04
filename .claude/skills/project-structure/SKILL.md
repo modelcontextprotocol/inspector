@@ -39,12 +39,13 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 
 | Directory | Owns |
 | --- | --- |
-| `core/mcp/` | `InspectorClient`, transports, state stores, config import, URI templates, task/subscription/App-elicitation protocol helpers |
+| `core/mcp/` | `InspectorClient`, transports, state stores, config import, URI templates, subscription/App-elicitation protocol helpers |
 | `core/mcp/node/` | Node stdio transport factory; `proxyFetch.ts` (the shared HTTPS_PROXY/NO_PROXY fetch) |
 | `core/mcp/remote/` | Browser HTTP/SSE transport + remote logger/fetch, and (under `node/`) the Hono backend it talks to |
 | `core/mcp/state/` | The stores `core/react/` hooks read |
 | `core/auth/` | OAuth end to end — providers, discovery, storage, endpoint overrides, scopes, revocation, mid-session recovery — split into isomorphic logic plus `browser/`, `node/` and `remote/` backends |
 | `core/auth/node/` | Node OAuth storage + loopback callback server, **and** the `SecretStore` backends (keychain / file / memory) and their selection policy |
+| `core/extension/<name>/` | Host-side adapters for MCP extensions whose protocol an upstream SDK owns. `tasks/` wraps `@modelcontextprotocol/ext-tasks` with what that package leaves to its host: the raw `rawDispatch` channel, progress routing, error identity, and task-view conversions. Imports nothing from `InspectorClient`; host state arrives through narrow interfaces |
 | `core/client/` | Install-level client config (`client.json`): browser-safe parse plus Node load/save, remote backend, secrets, runner |
 | `core/json/` | JSON + parameter/argument conversion; the schema normalizations all three form builders share (nullable unions, root composition) and the tool-schema portability lint |
 | `core/react/` | React hooks over the state stores — consumed by both the web and TUI React trees. Every subscription reads its snapshot **during render** via `useSyncExternalStore` (#1955); `useStoreSnapshot.ts` caches the fresh-value-per-read getters |

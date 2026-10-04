@@ -6,33 +6,25 @@ import {
 } from "@modelcontextprotocol/client";
 import {
   createApplicationInputHandler,
-  createTaskSessionEndpointId,
   createTaskSessionFromClient,
-  DispatchError,
-  JsonRpcResponseError,
   resultFromTaskOutcome,
   taskViewFromExecutionEvent,
-  TaskFailedError,
   toolDeclarationFromMcpTool,
-  withRelatedTaskMetadata,
 } from "@modelcontextprotocol/ext-tasks/client";
 import type {
   ApplicationElicitContentValue,
   ApplicationSamplingContentBlock,
   ApplicationRoot,
-  DispatchOptions,
   JsonRpcResponse,
   RawClientDispatch,
   SerializedTaskReference,
   TaskCapabilities,
   TaskEnabledSession,
   TaskExecutionEvent,
-  TaskView,
 } from "@modelcontextprotocol/ext-tasks/client";
 import { bindTaskReceiver } from "@modelcontextprotocol/ext-tasks/receiver";
 import type { TaskReceiverBinding } from "@modelcontextprotocol/ext-tasks/receiver";
 import {
-  runtimeCodecFromStandardSchema,
   taskId as extTaskId,
   toJsonValue,
 } from "@modelcontextprotocol/ext-tasks/core";
@@ -167,10 +159,21 @@ import {
   CLIENT_INFO_META_KEY,
   PROTOCOL_VERSION_META_KEY,
 } from "@modelcontextprotocol/client";
+import { MODERN_PROTOCOL_VERSION } from "./types.js";
 import {
-  TASKS_EXTENSION_KEY,
-  MODERN_PROTOCOL_VERSION,
-} from "./modernTaskSchemas.js";
+  TasksListChangedNotificationSchema,
+  TaskProgressRouter,
+  RawWireChannel,
+  isTasksExtensionNegotiated,
+  jsonObject,
+  paramsWithRelatedTask,
+  taskInputOrigin,
+  taskSessionEndpointId,
+  taskToolResultCodec,
+  toInspectorTask,
+  toProtocolError,
+  unwrapTaskDispatchError,
+} from "../extension/tasks/index.js";
 import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
@@ -234,9 +237,7 @@ import {
   summarizeMalformed,
   type MalformedListItem,
 } from "./listSalvage.js";
-import { TasksListChangedNotificationSchema } from "./taskNotificationSchemas.js";
 import {
-  isSerializableJson,
   type JsonValue,
   convertToolParameters,
   convertPromptArguments,
@@ -281,7 +282,6 @@ import {
   findHeader,
   isLongLivedStreamResponse,
 } from "./fetchTracking.js";
-import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import {
   annotateRequestTimeout,
   isRequestTimeoutError,
@@ -301,11 +301,6 @@ interface TrackedNotificationStream extends NotificationStreamState {
   id: string;
 }
 
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error
-    ? signal.reason
-    : new DOMException("The operation was aborted", "AbortError");
-}
 /**
  * Cap on how many times a single `callTool` will surface URL elicitations and
  * retry after a `-32042` (UrlElicitationRequired) response. A spec-compliant
@@ -337,29 +332,6 @@ export function connectionTimeoutMessage(timeoutMs: number): string {
  */
 function createPendingAbortError(): Error {
   return new Error("Pending request aborted");
-}
-
-function jsonObject(value: unknown): Readonly<Record<string, TasksJsonValue>> {
-  const json = toJsonValue(value);
-  if (json === null || Array.isArray(json) || typeof json !== "object") {
-    throw new TypeError("Expected a JSON object");
-  }
-  const object: Record<string, TasksJsonValue> = {};
-  for (const [key, member] of Object.entries(json)) object[key] = member;
-  return object;
-}
-
-/** Restore host/transport and protocol error identity after ext-tasks policy. */
-function unwrapTaskDispatchError(error: unknown): unknown {
-  const unwrapped =
-    error instanceof DispatchError && error.cause instanceof Error
-      ? error.cause
-      : error;
-  if (unwrapped instanceof JsonRpcResponseError)
-    return new ProtocolError(unwrapped.code, unwrapped.message, unwrapped.data);
-  if (unwrapped instanceof TaskFailedError && unwrapped.code !== undefined)
-    return new ProtocolError(unwrapped.code, unwrapped.message, unwrapped.data);
-  return unwrapped;
 }
 
 /**
@@ -500,19 +472,6 @@ function dropInvalidReservedMeta(
   return cleaned;
 }
 
-const taskToolResultCodec = runtimeCodecFromStandardSchema<CallToolResult>({
-  "~standard": {
-    version: 1,
-    vendor: "mcp-inspector",
-    validate(value) {
-      const result = CallToolResultSchema.safeParse(value);
-      return result.success
-        ? { value: result.data as CallToolResult }
-        : { issues: result.error.issues.map(({ message }) => ({ message })) };
-    },
-  },
-});
-
 const MODERN_RECONNECT_BASE_MS = 500;
 const MODERN_RECONNECT_MAX_MS = 15_000;
 const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
@@ -533,25 +492,19 @@ export class InspectorClient extends InspectorClientEventTarget {
   private outputValidator: AjvJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
-  // Pending below-SDK requests. String ids cannot collide with the SDK's numeric ids;
-  // MessageTrackingTransport consumes their responses before they reach the SDK.
-  private pendingRawWireRequests = new Map<
-    string,
-    {
-      resolve: (response: JsonRpcResponse) => void;
-      reject: (error: Error) => void;
-      cleanup: () => void;
-      // Present when the request carries a progress token and
-      // resetTimeoutOnProgress is enabled: re-arms the request's timeout.
-      progressToken?: ProgressToken;
-      resetTimeout?: () => void;
-    }
-  >();
-  private rawWireRequestCounter = 0;
+  // The `rawDispatch` ext-tasks requires: below-SDK requests whose responses
+  // MessageTrackingTransport hands back before the SDK sees them.
+  private readonly rawWire = new RawWireChannel({
+    transport: () => this.transport,
+    defaultTimeoutMs: () => this.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
+    resetTimeoutOnProgress: () => this.resetTimeoutOnProgress,
+    annotateTimeout: (error, method) =>
+      annotateRequestTimeout(error, method, this.getConnectionDiagnostics()),
+  });
   private readonly dispatchTaskRequest: RawClientDispatch = (
     request,
     options,
-  ) => this.dispatchRawWireRequest(request, options);
+  ) => this.rawWire.dispatch(request, options);
   // Every outbound request still awaiting a response, keyed by JSON-RPC id.
   // Serves two readers: the `markResponseRejected` correlation (#1953), which
   // needs the method, and the connection diagnostics (#2318), which need the
@@ -717,15 +670,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   // site to the two failure handlers. Cleared by any user-initiated refresh (a
   // subscribe/unsubscribe is a fresh attempt, and the server may have changed).
   private modernNeverAcknowledged = false;
-  /**
-   * Correlates task-call progress tokens to task ids after the first snapshot.
-   * A Set per token because concurrent calls may reuse a caller-supplied
-   * token; collapsing them to one task id would cross-wire
-   * `requestorTaskProgress` between the calls.
-   */
-  private readonly taskProgressIds = new Map<ProgressToken, Set<string>>();
-  /** Active raw tools/call owners per progress token, before task correlation. */
-  private readonly rawCallProgressTokens = new Map<ProgressToken, number>();
+  /** Which in-flight task calls own each progress token (#2316). */
+  private readonly taskProgress = new TaskProgressRouter();
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
   // it hands the SDK the MCP cancellation flow for that request and rejects the
   // pending call, which `callTool` surfaces as a `ToolCallCancelledError`. Which
@@ -1238,19 +1184,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
     const progressToken = params.progressToken;
     if (progressToken === undefined) return;
-    const taskIds = this.taskProgressIds.get(progressToken);
     // Re-arm any pending raw request's timeout on progress because a
     // long-running immediate modern call that keeps reporting progress must
     // not time out (same contract as the SDK path's resetTimeoutOnProgress).
-    for (const pending of this.pendingRawWireRequests.values()) {
-      if (pending.progressToken === progressToken) pending.resetTimeout?.();
-    }
-    if (!taskIds?.size && !this.rawCallProgressTokens.has(progressToken))
-      return;
+    this.rawWire.noteProgress(progressToken);
+    const taskIds = this.taskProgress.route(progressToken);
+    if (taskIds === undefined) return;
     if (this.progress) this.dispatchTypedEvent("progressNotification", params);
-    // The wire cannot say which owner a shared token's progress belongs to, so
-    // every correlated task receives it rather than only the most recent one.
-    for (const taskId of taskIds ?? [])
+    for (const taskId of taskIds)
       this.dispatchTypedEvent("requestorTaskProgress", {
         taskId,
         progress: params,
@@ -1461,23 +1402,6 @@ export class InspectorClient extends InspectorClientEventTarget {
     );
   }
 
-  private paramsWithRelatedTask(
-    params: Readonly<Record<string, TasksJsonValue>>,
-    taskId: string,
-  ): Readonly<Record<string, TasksJsonValue>> {
-    const rawMetadata = params._meta;
-    const metadata =
-      rawMetadata !== null &&
-      !Array.isArray(rawMetadata) &&
-      typeof rawMetadata === "object"
-        ? (rawMetadata as Readonly<Record<string, TasksJsonValue>>)
-        : undefined;
-    return {
-      ...params,
-      _meta: withRelatedTaskMetadata(metadata, { taskId: extTaskId(taskId) }),
-    };
-  }
-
   /** Install package-owned receiver handlers for the current SDK client. */
   private bindReceiverTasks(): void {
     this.taskReceiverBinding?.close();
@@ -1496,7 +1420,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         const result = await this.enqueuePendingSample(
           {
             method: "sampling/createMessage",
-            params: this.paramsWithRelatedTask(request.params, context.taskId),
+            params: paramsWithRelatedTask(request.params, context.taskId),
           } as CreateMessageRequest,
           "server-request",
           context.signal,
@@ -1507,7 +1431,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         const result = await this.enqueuePendingElicitation(
           {
             method: "elicitation/create",
-            params: this.paramsWithRelatedTask(request.params, context.taskId),
+            params: paramsWithRelatedTask(request.params, context.taskId),
           } as ElicitRequest,
           "server-request",
           context.signal,
@@ -1681,8 +1605,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // (#1953).
     this.outstandingRequests.clear();
     this.lastAnsweredRequestByMethod.clear();
-    this.taskProgressIds.clear();
-    this.rawCallProgressTokens.clear();
+    this.taskProgress.clear();
     this.lastResponse = undefined;
     this.notificationStream = undefined;
     this.dispatchConnectionDiagnosticsChange();
@@ -2442,10 +2365,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * task store gate on the extension rather than the legacy capability.
    */
   isTasksExtensionNegotiated(): boolean {
-    return (
-      this.isModernEra() &&
-      this.capabilities?.extensions?.[TASKS_EXTENSION_KEY] !== undefined
-    );
+    return isTasksExtensionNegotiated(this.protocolEra, this.capabilities);
   }
 
   /**
@@ -2487,181 +2407,6 @@ export class InspectorClient extends InspectorClientEventTarget {
     };
   }
 
-  private async dispatchRawWireRequest(
-    request: TasksJsonValue,
-    options: DispatchOptions = {},
-    timeoutOverride?: number,
-  ): Promise<JsonRpcResponse> {
-    const transport = this.transport;
-    if (!transport)
-      throw new DispatchError("MCP client is not connected", true);
-    if (
-      request === null ||
-      Array.isArray(request) ||
-      typeof request !== "object"
-    ) {
-      throw new DispatchError("Raw MCP request must be a JSON object");
-    }
-    const record = request as Readonly<Record<string, JsonValue>>;
-    if (typeof record.method !== "string") {
-      throw new DispatchError("Raw MCP request method must be a string");
-    }
-    const params = record.params;
-    if (
-      params !== undefined &&
-      (params === null || Array.isArray(params) || typeof params !== "object")
-    ) {
-      throw new DispatchError("Raw MCP request params must be a JSON object");
-    }
-    const signal = options.signal;
-    if (signal?.aborted) throw abortError(signal);
-
-    const id = `inspector-ext-${(this.rawWireRequestCounter += 1)}`;
-    const message: JSONRPCRequest = {
-      jsonrpc: "2.0",
-      id,
-      method: record.method,
-      ...(params === undefined ? {} : { params }),
-    };
-    const timeoutMs =
-      timeoutOverride ??
-      options.context?.requestTimeoutMs ??
-      this.requestTimeout ??
-      DEFAULT_REQUEST_TIMEOUT_MSEC;
-
-    // Extract the request's progress token (if any) because
-    // notifications/progress uses it to re-arm this request's timeout,
-    // matching the SDK path's resetTimeoutOnProgress.
-    const meta = (params as Readonly<Record<string, JsonValue>> | undefined)?.[
-      "_meta"
-    ];
-    const progressToken =
-      meta !== null && typeof meta === "object" && !Array.isArray(meta)
-        ? (meta as { progressToken?: ProgressToken }).progressToken
-        : undefined;
-
-    return await new Promise<JsonRpcResponse>((resolve, reject) => {
-      let onAbort: (() => void) | undefined;
-      // The transport sees this controller's signal, not the caller's,
-      // because a timeout must also reach the wire: aborting it tears down a
-      // per-request stream (the 2026-era cancellation signal), which the
-      // caller's untouched signal cannot do. Caller aborts forward into it.
-      const wireController = new AbortController();
-      const forwardAbort = () => {
-        wireController.abort(signal?.reason);
-      };
-      signal?.addEventListener("abort", forwardAbort, { once: true });
-      const cleanup = () => {
-        clearTimeout(timer);
-        if (signal && onAbort) signal.removeEventListener("abort", onAbort);
-        signal?.removeEventListener("abort", forwardAbort);
-        this.pendingRawWireRequests.delete(id);
-      };
-      // Mirror the SDK's cancellation fork (#2140) for both local endings of
-      // a raw request: a per-request-stream transport (2026-era Streamable
-      // HTTP) treats the forwarded requestSignal abort as the wire
-      // cancellation, but stdio/SSE ignore requestSignal — and this path
-      // bypasses Client.request, so nothing else sends the
-      // notifications/cancelled frame they need. Without it a timed-out or
-      // aborted tools/call keeps running server-side (orphaning any task) and
-      // its late response is no longer consumed by this raw channel.
-      const sendWireCancellation = (reason?: string) => {
-        if (transport.hasPerRequestStream === true) return;
-        void transport
-          .send({
-            jsonrpc: "2.0",
-            method: "notifications/cancelled",
-            params: {
-              requestId: id,
-              ...(reason === undefined ? {} : { reason }),
-            },
-          })
-          .catch(() => {
-            // Best effort: the local rejection is authoritative.
-          });
-      };
-      const onTimeout = () => {
-        cleanup();
-        const timeoutReason = `Request timed out after ${String(timeoutMs)} ms`;
-        // Both wire paths, matching the abort fork: stream teardown for
-        // per-request-stream transports, notifications/cancelled otherwise.
-        wireController.abort(new DispatchError(timeoutReason));
-        sendWireCancellation(timeoutReason);
-        // The same error, with the same annotation, as an SDK request that
-        // times out: this path bypasses `Protocol.request`, so it builds the
-        // SDK's own timeout shape and runs it through the decorator's
-        // annotation by hand — a raw-wire caller sees one kind of timeout,
-        // not two (#2318). It rides as the DispatchError's cause, which
-        // `unwrapTaskDispatchError` restores once ext-tasks hands it back.
-        reject(
-          new DispatchError(
-            `Raw MCP request "${message.method}" timed out after ${timeoutMs} ms`,
-            false,
-            {
-              cause: annotateRequestTimeout(
-                new SdkError(SdkErrorCode.RequestTimeout, "Request timed out", {
-                  timeout: timeoutMs,
-                }),
-                message.method,
-                this.getConnectionDiagnostics(),
-              ),
-            },
-          ),
-        );
-      };
-      let timer = setTimeout(onTimeout, timeoutMs);
-      const resetTimeout =
-        progressToken !== undefined && this.resetTimeoutOnProgress
-          ? () => {
-              clearTimeout(timer);
-              timer = setTimeout(onTimeout, timeoutMs);
-            }
-          : undefined;
-
-      this.pendingRawWireRequests.set(id, {
-        resolve,
-        reject,
-        cleanup,
-        progressToken,
-        resetTimeout,
-      });
-      if (signal) {
-        onAbort = () => {
-          const pending = this.pendingRawWireRequests.get(id);
-          if (!pending) return;
-          pending.cleanup();
-          const reason = signal.reason;
-          sendWireCancellation(typeof reason === "string" ? reason : undefined);
-          reject(abortError(signal));
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }
-      transport
-        .send(message, {
-          ...(options.context?.headers === undefined
-            ? {}
-            : { headers: options.context.headers }),
-          requestSignal: wireController.signal,
-        })
-        .catch((error: unknown) => {
-          const pending = this.pendingRawWireRequests.get(id);
-          if (!pending) return;
-          pending.cleanup();
-          // The browser's remote transport awaits the response inside `send`,
-          // so its relay wait can expire here first, as the SDK's timeout
-          // shape; annotate it exactly as the local timer above does (a
-          // non-timeout error passes through untouched).
-          reject(
-            annotateRequestTimeout(
-              error instanceof Error ? error : new Error(String(error)),
-              message.method,
-              this.getConnectionDiagnostics(),
-            ),
-          );
-        });
-    });
-  }
-
   private async rawWireRequest<T>(
     method: string,
     params: Record<string, unknown>,
@@ -2673,7 +2418,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   ): Promise<T> {
     let response: JsonRpcResponse;
     try {
-      response = await this.dispatchRawWireRequest(
+      response = await this.rawWire.dispatch(
         toJsonValue({ method, params }),
         { signal: options.signal },
         options.timeoutMs,
@@ -2697,41 +2442,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private consumeRawWireResponse(
     message: JSONRPCResultResponse | JSONRPCErrorResponse,
   ): boolean {
-    const { id } = message;
-    if (typeof id !== "string" || !id.startsWith("inspector-ext-")) {
-      return false;
-    }
-    const pending = this.pendingRawWireRequests.get(id);
-    if (!pending) return false;
-
-    pending.cleanup();
-    if ("error" in message) {
-      const { error } = message;
-      pending.resolve({
-        kind: "error",
-        error: {
-          code: error.code,
-          message: error.message,
-          ...(isSerializableJson(error.data) ? { data: error.data } : {}),
-        },
-      });
-    } else if (!isSerializableJson(message.result)) {
-      pending.reject(
-        new DispatchError(`Raw MCP request ${id} returned a non-JSON result`),
-      );
-    } else {
-      pending.resolve({ kind: "result", result: message.result });
-    }
-    return true;
+    return this.rawWire.consume(message);
   }
 
   private rejectPendingRawWireRequests(reason: string): void {
-    const pendingRequests = [...this.pendingRawWireRequests.values()];
-    this.pendingRawWireRequests.clear();
-    for (const pending of pendingRequests) {
-      pending.cleanup();
-      pending.reject(new DispatchError(reason));
-    }
+    this.rawWire.rejectAll(reason);
   }
 
   /** Fetch a task created by this client and publish its latest state. */
@@ -2739,7 +2454,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const view = await this.runTaskSessionOperation((session) =>
       session.task(extTaskId(taskId)).snapshot(),
     );
-    const task = this.toInspectorTask(view);
+    const task = toInspectorTask(view);
     this.dispatchTypedEvent("requestorTaskUpdated", {
       taskId: task.taskId,
       task,
@@ -2822,7 +2537,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       session.listTasks(cursor),
     );
     return {
-      tasks: result.tasks.map((task) => this.toInspectorTask(task)),
+      tasks: result.tasks.map((task) => toInspectorTask(task)),
       nextCursor: result.nextCursor,
     };
   }
@@ -4210,12 +3925,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
     let outcomeEmitted = false;
-    if (progressToken !== undefined) {
-      this.rawCallProgressTokens.set(
-        progressToken,
-        (this.rawCallProgressTokens.get(progressToken) ?? 0) + 1,
-      );
-    }
+    if (progressToken !== undefined) this.taskProgress.acquire(progressToken);
     try {
       // On an auth-recovery rerun, resume the task the first attempt created
       // (its reference is captured below), because repeating tools/call would
@@ -4287,18 +3997,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       }
       throw operationError;
     } finally {
-      if (progressToken !== undefined) {
-        const owners = this.rawCallProgressTokens.get(progressToken) ?? 0;
-        if (owners <= 1) this.rawCallProgressTokens.delete(progressToken);
-        else this.rawCallProgressTokens.set(progressToken, owners - 1);
-        // Release only this call's own correlation; a concurrent call sharing
-        // the token keeps its entry in the set.
-        if (lastTask !== undefined) {
-          const taskIds = this.taskProgressIds.get(progressToken);
-          taskIds?.delete(lastTask.taskId);
-          if (taskIds?.size === 0) this.taskProgressIds.delete(progressToken);
-        }
-      }
+      if (progressToken !== undefined)
+        this.taskProgress.release(progressToken, lastTask?.taskId);
     }
   }
 
@@ -4510,26 +4210,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   private async attachTaskSession(): Promise<void> {
     const client = this.client;
     if (!client) return;
-    const endpointId = await createTaskSessionEndpointId(
-      "inspector",
-      this.transportConfig.type === "sse" ||
-        this.transportConfig.type === "streamable-http"
-        ? {
-            host: this.clientInfo,
-            transport: {
-              type: this.transportConfig.type,
-              url: new URL(this.transportConfig.url).toString(),
-            },
-          }
-        : {
-            host: this.clientInfo,
-            transport: {
-              type: "stdio",
-              command: this.transportConfig.command,
-              args: this.transportConfig.args,
-              cwd: this.transportConfig.cwd ?? null,
-            },
-          },
+    const endpointId = await taskSessionEndpointId(
+      this.transportConfig,
+      this.clientInfo,
     );
     await this.closeTaskSession();
     // Re-check session ownership because disconnect() (or a transport crash)
@@ -4568,7 +4251,7 @@ export class InspectorClient extends InspectorClientEventTarget {
               method: "elicitation/create",
               params: request.params,
             } as ElicitRequest,
-            this.taskInputOrigin(context.delivery),
+            taskInputOrigin(context.delivery),
             context.signal,
           );
           return {
@@ -4592,7 +4275,7 @@ export class InspectorClient extends InspectorClientEventTarget {
               method: "sampling/createMessage",
               params: request.params,
             } as CreateMessageRequest,
-            this.taskInputOrigin(context.delivery),
+            taskInputOrigin(context.delivery),
             context.signal,
           );
           return {
@@ -4644,41 +4327,21 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
   }
 
-  private taskInputOrigin(
-    delivery: "peer-request" | "request-retry" | "task-update",
-  ): PendingRequestOrigin {
-    if (delivery === "task-update") return "task-input-required";
-    if (delivery === "request-retry") return "input-required";
-    return "server-request";
-  }
-
-  private toInspectorTask(view: TaskView): InspectorTask {
-    const timestamp = view.createdAt ?? view.lastUpdatedAt ?? "";
-    return {
-      ...view,
-      createdAt: timestamp,
-      lastUpdatedAt: view.lastUpdatedAt ?? timestamp,
-    };
-  }
-
   private emitTaskExecutionEvent(
     event: TaskExecutionEvent<CallToolResult>,
     progressToken?: ProgressToken,
   ): InspectorTask | undefined {
     const view = taskViewFromExecutionEvent(event);
     if (view === undefined) return undefined;
-    const task = this.toInspectorTask(view);
-    if (progressToken !== undefined) {
-      const taskIds = this.taskProgressIds.get(progressToken) ?? new Set();
-      taskIds.add(task.taskId);
-      this.taskProgressIds.set(progressToken, taskIds);
-    }
+    const task = toInspectorTask(view);
+    if (progressToken !== undefined)
+      this.taskProgress.correlate(progressToken, task.taskId);
     const outcomeDetail =
       event.type !== "outcome" || event.outcome.status === "cancelled"
         ? {}
         : event.outcome.status === "completed"
           ? { result: event.outcome.result }
-          : { error: this.toProtocolError(event.outcome.error) };
+          : { error: toProtocolError(event.outcome.error) };
     const detail = { taskId: task.taskId, task, ...outcomeDetail };
     this.dispatchTypedEvent("toolCallTaskUpdated", detail);
     this.dispatchTypedEvent("requestorTaskUpdated", detail);
@@ -4691,18 +4354,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     try {
       return resultFromTaskOutcome(outcome);
     } catch (error) {
-      throw this.toProtocolError(error);
+      throw toProtocolError(error);
     }
-  }
-
-  private toProtocolError(reason: unknown): ProtocolError {
-    const normalized = unwrapTaskDispatchError(reason);
-    return normalized instanceof ProtocolError
-      ? normalized
-      : new ProtocolError(
-          ProtocolErrorCode.InternalError,
-          normalized instanceof Error ? normalized.message : String(normalized),
-        );
   }
 
   private emitTaskError(
@@ -4710,7 +4363,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     reason: unknown,
   ): void {
     if (!lastTask) return;
-    const error = this.toProtocolError(reason);
+    const error = toProtocolError(reason);
     const detail = { taskId: lastTask.taskId, task: lastTask, error };
     this.dispatchTypedEvent("toolCallTaskUpdated", detail);
     this.dispatchTypedEvent("requestorTaskUpdated", detail);

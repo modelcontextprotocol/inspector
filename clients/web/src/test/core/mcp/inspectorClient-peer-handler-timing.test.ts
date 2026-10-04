@@ -5,7 +5,7 @@ import type {
   Transport,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
-import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { GetTaskResultV2Schema as ModernGetTaskResultSchema } from "@modelcontextprotocol/ext-tasks/core/v2";
 
 /**
  * Regression coverage for #1797: a server may talk to us the instant it is

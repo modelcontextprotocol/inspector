@@ -615,7 +615,7 @@ will close out as part of that work.
 - **Location**: `groups/TaskCard/`
 - **Purpose**: Expandable card for a long-running task with progress and cancel.
 - **Current props**: `taskId`, `status`, `method`, `target?`, `progress?`, `progressDescription?`, `startedAt?`, `completedAt?`, `lastUpdated?`, `elapsed?`, `ttl?`, `error?`, `isListExpanded`, `onCancel`.
-- **MCP schema touch points**: `Task` (from `@modelcontextprotocol/sdk/types.js`) plus `ProgressNotification.params` (`progressToken`, `progress`, `total`, `message`) and `CancelledNotification.params`. The `notifications/tasks/list_changed` signal is an Inspector extension (no SDK schema) — see `core/mcp/taskNotificationSchemas.ts`.
+- **MCP schema touch points**: `Task` (from `@modelcontextprotocol/sdk/types.js`) plus `ProgressNotification.params` (`progressToken`, `progress`, `total`, `message`) and `CancelledNotification.params`. The `notifications/tasks/list_changed` signal is an Inspector extension (no SDK schema) — see `core/extension/tasks/notificationSchemas.ts`.
 - **Target props**: `task: Task` (SDK type), `isListExpanded`, `onCancel(taskId)`.
 - **Callbacks → core hook**: `useManagedRequestorTasks` (issues `notifications/cancelled`).
 - **Internal refactors**: Replace flat scalars with the wrapper; derive display fields.
@@ -887,7 +887,7 @@ v1.5 core hooks (confirmed in `core/react/`):
 - **`useManagedPrompts`** — `core/react/useManagedPrompts.ts`. Produces `{ prompts: Prompt[]; refresh }` and subscribes to `notifications/prompts/list_changed`.
 - **`useManagedResources`** — `core/react/useManagedResources.ts`. Produces `{ resources: Resource[]; refresh }` and subscribes to `notifications/resources/list_changed` + `notifications/resources/updated`.
 - **`useManagedResourceTemplates`** — `core/react/useManagedResourceTemplates.ts`. Produces `{ resourceTemplates: ResourceTemplate[]; refresh }`.
-- **`useManagedRequestorTasks`** — `core/react/useManagedRequestorTasks.ts`. Produces `{ tasks: Task[]; refresh }` where `Task` is the SDK type from `@modelcontextprotocol/sdk/types.js`. Correlates outbound requests with `notifications/progress`, `notifications/cancelled`, and `notifications/tasks/list_changed` (an Inspector-owned extension defined in `core/mcp/taskNotificationSchemas.ts`).
+- **`useManagedRequestorTasks`** — `core/react/useManagedRequestorTasks.ts`. Produces `{ tasks: Task[]; refresh }` where `Task` is the SDK type from `@modelcontextprotocol/sdk/types.js`. Correlates outbound requests with `notifications/progress`, `notifications/cancelled`, and `notifications/tasks/list_changed` (an Inspector-owned extension defined in `core/extension/tasks/notificationSchemas.ts`).
 - **`useMessageLog`** — `core/react/useMessageLog.ts`. JSON-RPC message buffer (`MessageEntry[]`). Serves *both* the History screen (replaces the speculative `useHistory`) *and* the Logging screen's wire view.
 - **`useStderrLog`** — `core/react/useStderrLog.ts`. Stdio stderr buffer (`StderrLogEntry[]`). Used by server-detail panels showing stderr output.
 - **`useFetchRequestLog`** — `core/react/useFetchRequestLog.ts`. Auth/transport HTTP fetch buffer (`FetchRequestEntry[]`). Used by OAuth/debug panels.

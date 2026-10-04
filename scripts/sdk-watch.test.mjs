@@ -159,11 +159,11 @@ test("isSweepAuthored requires both the automation author and the sweep's labels
     "app/github-actions", // newer `gh issue list --json author` — the #2377 miss
     "App/GitHub-Actions[bot]", // nothing promises a casing or one form at a time
   ]) {
-  assert.equal(
+    assert.equal(
       isSweepAuthored({ ...owned, author: { login } }),
-    true,
+      true,
       `login spelling ${JSON.stringify(login)} must be recognized as the sweep's own`,
-  );
+    );
   }
   // The prefix strip must not become a way in for an account that is NOT ours.
   // `/` is not legal in a GitHub username, so these cannot exist — but the

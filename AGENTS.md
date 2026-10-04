@@ -46,6 +46,8 @@ inspector/
 ├── core/             Shared code, consumed via the `@inspector/core` alias (no package.json)
 │   ├── auth/         OAuth end to end + the per-server SecretStore backends
 │   ├── client/       Install-level client config (`client.json`)
+│   ├── extension/    Host-side adapters for MCP extensions whose protocol an upstream SDK owns
+│   │   └── tasks/    The Inspector's glue around `@modelcontextprotocol/ext-tasks` (raw dispatch, progress routing)
 │   ├── json/         JSON/schema utilities shared by all three form builders
 │   ├── logging/      Silent pino logger singleton
 │   ├── mcp/          InspectorClient, transports, state stores, config import

@@ -11,7 +11,7 @@ import {
 import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { TaskWithOptionalCreatedAt } from "@inspector/core/mcp/inspectorClientEventTarget.js";
-import { ModernGetTaskResultSchema } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { GetTaskResultV2Schema as ModernGetTaskResultSchema } from "@modelcontextprotocol/ext-tasks/core/v2";
 
 /**
  * Unit coverage for the raw-wire request channel (#1631) that drives the modern
@@ -104,9 +104,6 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
         ) => Promise<{ outcome: unknown; lastTask?: unknown }>;
       }>;
     } | null;
-    taskInputOrigin: (
-      delivery: "peer-request" | "request-retry" | "task-update",
-    ) => "server-request" | "input-required" | "task-input-required";
     emitTaskExecutionEvent: (event: unknown) => unknown;
     emitTaskError: (lastTask: unknown, reason: unknown) => void;
     dispatchTaskProgress: (notification: unknown) => void;
@@ -1218,16 +1215,9 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     );
   });
 
-  it("projects every ext-tasks event and input-origin boundary", () => {
+  it("projects every ext-tasks event boundary", () => {
     const client = makeClient();
     const boundary = taskInternals(client);
-    expect(
-      ["peer-request", "request-retry", "task-update"].map((delivery) =>
-        boundary.taskInputOrigin(
-          delivery as "peer-request" | "request-retry" | "task-update",
-        ),
-      ),
-    ).toEqual(["server-request", "input-required", "task-input-required"]);
 
     const updates: Array<{
       task: TaskWithOptionalCreatedAt;
