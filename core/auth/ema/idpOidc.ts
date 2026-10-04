@@ -62,6 +62,7 @@ const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
  * genuinely unreachable.
  */
 async function fetchOpenIdConfiguration(
+  issuer: string,
   issuerUrl: URL,
   fetchFn?: typeof fetch,
 ): Promise<OAuthMetadata | undefined> {
@@ -77,13 +78,13 @@ async function fetchOpenIdConfiguration(
     const parsed = OAuthMetadataSchema.safeParse(await response.json());
     if (!parsed.success) return undefined;
     // OIDC Discovery 1.0 §4.3: the document's `issuer` MUST be identical to
-    // the issuer the document was fetched for. The SDK's RFC 8414 fallback
-    // enforces its own issuer-echo check, so this direct path must too — a
-    // mismatched document is treated as invalid, falling back to the SDK.
-    if (
-      stripTrailingSlash(parsed.data.issuer) !==
-      stripTrailingSlash(issuerUrl.href)
-    ) {
+    // the issuer the document was fetched for — an exact string match against
+    // the configured issuer, not a normalized one (`issuerUrl.href` won't do:
+    // URL canonicalization appends a trailing slash to an origin-only URL).
+    // The SDK's RFC 8414 fallback enforces its own issuer-echo check, so this
+    // direct path must too — a mismatched document is treated as invalid,
+    // falling back to the SDK.
+    if (parsed.data.issuer !== issuer) {
       return undefined;
     }
     return parsed.data;
@@ -92,16 +93,16 @@ async function fetchOpenIdConfiguration(
   }
 }
 
-function stripTrailingSlash(value: string): string {
-  return value.replace(/\/$/, "");
-}
-
 export async function discoverIdpMetadata(
   issuer: string,
   fetchFn?: typeof fetch,
 ): Promise<OAuthMetadata> {
   const issuerUrl = parseHttpUrl(issuer, "EMA IdP issuer (Client Settings)");
-  const oidcMetadata = await fetchOpenIdConfiguration(issuerUrl, fetchFn);
+  const oidcMetadata = await fetchOpenIdConfiguration(
+    issuer.trim(),
+    issuerUrl,
+    fetchFn,
+  );
   if (oidcMetadata) {
     return oidcMetadata;
   }
