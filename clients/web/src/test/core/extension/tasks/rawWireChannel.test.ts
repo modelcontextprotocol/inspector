@@ -58,9 +58,10 @@ describe("RawWireChannel", () => {
     const id = String(sent[0]!.id);
     expect(id.startsWith(RAW_WIRE_ID_PREFIX)).toBe(true);
     expect(channel.consume({ jsonrpc: "2.0", id: 7, result: {} })).toBe(false);
+    // A late answer to an id this channel issued is swallowed, not forwarded.
     expect(
-      channel.consume({ jsonrpc: "2.0", id: `${id}-other`, result: {} }),
-    ).toBe(false);
+      channel.consume({ jsonrpc: "2.0", id: `${id}-late`, result: {} }),
+    ).toBe(true);
     expect(channel.consume({ jsonrpc: "2.0", id, result: { ok: true } })).toBe(
       true,
     );

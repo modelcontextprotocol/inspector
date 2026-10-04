@@ -36,7 +36,7 @@ spec. After this work, every dumb component consumes either:
     `ResourceTemplateReadInvocation`, `PromptGetInvocation`,
     `ToolCallInvocation`, `InspectorClientEnvironment`, `InspectorClientOptions`,
     `CreateTransport`, `AppRendererClient`.
-  - `core/extension/tasks/notificationSchemas.ts` — Inspector's
+  - `core/mcp/taskNotificationSchemas.ts` — Inspector's
     `notifications/tasks/list_changed` zod extension (the SDK exports
     `Task` and `TaskStatusNotificationSchema` natively, but not the
     list-changed signal).
@@ -261,7 +261,7 @@ These are also `(likely)`-flavored claims that slipped past the spec:
   in the interfaces doc that proposes an `InspectorTask` wrapper to use
   `Task` directly. The list-changed signal **is** an Inspector extension
   (no SDK schema for `notifications/tasks/list_changed`); v1.5 defines it
-  in `core/extension/tasks/notificationSchemas.ts`. Cite that file rather than
+  in `core/mcp/taskNotificationSchemas.ts`. Cite that file rather than
   inventing.
 - **Appendix A line 854** asserts: "v1.5 monorepo bundles most
   primitive-specific logic inside `client/src/App.tsx`; hooks marked

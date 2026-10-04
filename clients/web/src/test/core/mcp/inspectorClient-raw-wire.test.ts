@@ -641,7 +641,9 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     let sentId = "";
     internals(client).transport = {
       send: vi.fn(async (message) => {
-        sentId = (message as { id: string }).id;
+        // Only the request carries an id; the abort's notifications/cancelled
+        // does not, and must not overwrite it.
+        sentId ||= (message as { id?: string }).id ?? "";
       }),
     };
     const controller = new AbortController();
@@ -653,9 +655,11 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     controller.abort(new Error("stop in flight"));
 
     await expect(promise).rejects.toThrow(/stop in flight/);
+    expect(sentId).toMatch(/^inspector-ext-/);
+    // Swallowed rather than forwarded: the SDK would report an unknown id.
     expect(
       internals(client).consumeRawWireResponse({ id: sentId, result: {} }),
-    ).toBe(false);
+    ).toBe(true);
   });
 
   it("forks cancellation by transport: notifications/cancelled without a per-request stream, requestSignal with one (#2140)", async () => {

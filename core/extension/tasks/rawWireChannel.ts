@@ -246,8 +246,11 @@ export class RawWireChannel {
 
   /**
    * Settle the raw request a response answers. Returns false — leaving the
-   * frame to the SDK — for any id this channel did not issue or no longer
-   * holds.
+   * frame to the SDK — only for an id this channel did not issue. A response
+   * to one it issued but no longer holds (the request timed out or was
+   * aborted, and the server answered anyway) is swallowed: the SDK only knows
+   * numeric ids, so forwarding it would surface a spurious "unknown message
+   * ID" error.
    */
   consume(message: JSONRPCResultResponse | JSONRPCErrorResponse): boolean {
     const { id } = message;
@@ -255,7 +258,7 @@ export class RawWireChannel {
       return false;
     }
     const pending = this.pending.get(id);
-    if (!pending) return false;
+    if (!pending) return true;
 
     pending.cleanup();
     if ("error" in message) {
