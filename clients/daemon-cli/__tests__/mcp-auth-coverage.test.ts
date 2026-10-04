@@ -22,8 +22,16 @@ vi.mock("../src/connection/authorize.js", () => ({
 
 vi.mock("../src/connection/auth-helper.js", () => ({
   AUTH_HELPER_COMMAND: "auth/complete-signin",
+  PENDING_AUTH_TTL_MS: 15 * 60 * 1000,
   runAuthHelper: vi.fn(),
   obtainPendingAuthUrl: (...args: unknown[]) => obtainPendingAuthUrl(...args),
+  // ema-login-helper.js (imported real by mcp.ts) also pulls these from the
+  // mocked module; stubs keep its import resolvable.
+  obtainPendingUrlForKey: vi.fn(),
+  pendingAuthMarkerPath: vi.fn(() => "/tmp/pending-auth-stub.json"),
+  readLivePendingAuthMarker: vi.fn(),
+  removeOwnPendingAuthMarker: vi.fn(),
+  writePendingAuthMarker: vi.fn(),
 }));
 
 describe("mcp.ts auth / daemon error paths", () => {

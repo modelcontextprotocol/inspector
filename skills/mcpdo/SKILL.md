@@ -100,6 +100,14 @@ more).
   `connections/list` stays read-only but reports `pendingAuthSignedIn: true`
   ("signed in — completing on next use") once the user's part is done.
   Never reconnect to fix a pending sign-in.
+- Enterprise-managed auth (EMA) works the same way. `mcpdo auth/ema-login`
+  from a non-TTY shell exits 0 immediately with `pendingLogin: true` and an
+  `authUrl`: relay that URL to the user verbatim, then poll
+  `mcpdo auth/ema-status` until `loginState` is `logged_in` — the sign-in
+  completes in the background. After that, connects to EMA servers mint
+  tokens silently with no further sign-in. Connecting to an EMA server
+  *without* a prior IdP login parks like any other pending sign-in, with the
+  IdP link as its `authUrl`.
 
 ## Elicitations (server asks a question mid-call)
 

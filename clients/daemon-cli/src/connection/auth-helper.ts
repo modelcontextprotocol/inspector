@@ -40,13 +40,14 @@ export type AuthHelperParams = {
 };
 
 /** One NDJSON line on the helper's stdout. */
-type AuthHelperEvent =
+export type AuthHelperEvent =
   | { event: "auth_url"; url: string }
   | { event: "done" }
   | { event: "error"; message: string };
 
 /**
- * Pending sign-in marker, one per server URL, in the daemon dir (0700).
+ * Pending sign-in marker, one per flow key (a server URL, or an
+ * `ema-idp:<issuer>` key for the EMA IdP login), in the daemon dir (0700).
  * A repeat `connect` while a helper is still waiting must reprint the SAME
  * URL rather than mint a second flow: the fixed loopback callback port makes
  * a second listener fail, and a fresh PKCE state would stale the link the
@@ -60,7 +61,7 @@ export type PendingAuthMarker = {
 };
 
 /** Matches the interactive flow's 15-minute loopback callback wait. */
-const PENDING_AUTH_TTL_MS = 15 * 60 * 1000;
+export const PENDING_AUTH_TTL_MS = 15 * 60 * 1000;
 
 /** Bound on the parent's wait for the helper to report the auth URL. */
 const AUTH_URL_WAIT_MS = 60 * 1000;
@@ -68,23 +69,20 @@ const AUTH_URL_WAIT_MS = 60 * 1000;
 /** Bound on the helper's wait for params on stdin (parent writes eagerly). */
 const HELPER_STDIN_TIMEOUT_MS = 30 * 1000;
 
-export function pendingAuthMarkerPath(serverUrl: string): string {
-  const hash = createHash("sha256")
-    .update(serverUrl)
-    .digest("hex")
-    .slice(0, 16);
+export function pendingAuthMarkerPath(key: string): string {
+  const hash = createHash("sha256").update(key).digest("hex").slice(0, 16);
   return path.join(getDaemonDir(), `pending-auth-${hash}.json`);
 }
 
 /**
- * Read the marker for `serverUrl` if it is still live: unexpired AND its
+ * Read the marker for `key` if it is still live: unexpired AND its
  * helper process is still running (a killed/crashed helper must not pin a
  * dead URL for up to 15 minutes). Stale markers are removed best-effort.
  */
 export function readLivePendingAuthMarker(
-  serverUrl: string,
+  key: string,
 ): PendingAuthMarker | undefined {
-  const markerPath = pendingAuthMarkerPath(serverUrl);
+  const markerPath = pendingAuthMarkerPath(key);
   let marker: PendingAuthMarker;
   try {
     const parsed = JSON.parse(fs.readFileSync(markerPath, "utf8")) as unknown;
@@ -141,7 +139,10 @@ export function removeOwnPendingAuthMarker(markerPath: string) {
   }
 }
 
-function writePendingAuthMarker(markerPath: string, marker: PendingAuthMarker) {
+export function writePendingAuthMarker(
+  markerPath: string,
+  marker: PendingAuthMarker,
+) {
   // Recreate exclusively (same symlink hardening as the daemon log): an
   // append/overwrite open would follow a planted symlink and only apply the
   // 0600 mode on create.
@@ -323,22 +324,44 @@ export async function obtainPendingAuthUrl(
   serverSettings: InspectorServerSettings | undefined,
   options?: { helperArgv1?: string; waitMs?: number; pollMs?: number },
 ): Promise<string> {
+  const serverUrl = "url" in serverConfig ? serverConfig.url : undefined;
+  return obtainPendingUrlForKey(
+    serverUrl,
+    AUTH_HELPER_COMMAND,
+    { serverConfig, serverSettings },
+    options,
+  );
+}
+
+/**
+ * Shared engine behind {@link obtainPendingAuthUrl} and the EMA login's
+ * non-TTY park (ema-login-helper.ts): marker reuse, flow reservation, helper
+ * spawn. `markerKey` is any stable string identifying the one flow callers
+ * must share (a server URL, an `ema-idp:<issuer>` key); `undefined` skips
+ * marker reuse entirely and always spawns (stdio configs have no URL to key
+ * on).
+ */
+export async function obtainPendingUrlForKey(
+  markerKey: string | undefined,
+  helperCommand: string,
+  helperParams: unknown,
+  options?: { helperArgv1?: string; waitMs?: number; pollMs?: number },
+): Promise<string> {
   const waitMs = options?.waitMs ?? AUTH_URL_WAIT_MS;
   let lockPath: string | undefined;
-  const serverUrl = "url" in serverConfig ? serverConfig.url : undefined;
-  if (serverUrl !== undefined) {
-    const marker = readLivePendingAuthMarker(serverUrl);
+  if (markerKey !== undefined) {
+    const marker = readLivePendingAuthMarker(markerKey);
     if (marker !== undefined) return marker.url;
-    lockPath = `${pendingAuthMarkerPath(serverUrl)}.lock`;
+    lockPath = `${pendingAuthMarkerPath(markerKey)}.lock`;
     if (!tryReserveAuthFlow(lockPath)) {
-      return waitForPendingAuthUrl(serverUrl, waitMs, options?.pollMs ?? 250);
+      return waitForPendingAuthUrl(markerKey, waitMs, options?.pollMs ?? 250);
     }
   }
 
   try {
     return await spawnAuthHelperForUrl(
-      serverConfig,
-      serverSettings,
+      helperCommand,
+      helperParams,
       waitMs,
       options?.helperArgv1,
     );
@@ -352,8 +375,8 @@ export async function obtainPendingAuthUrl(
 
 /** Spawn the detached helper and read the authorize URL off its stdout. */
 async function spawnAuthHelperForUrl(
-  serverConfig: MCPServerConfig,
-  serverSettings: InspectorServerSettings | undefined,
+  helperCommand: string,
+  helperParams: unknown,
   waitMs: number,
   helperArgv1?: string,
 ): Promise<string> {
@@ -366,13 +389,13 @@ async function spawnAuthHelperForUrl(
       { code: "usage" },
     );
   }
-  const child = spawn(process.execPath, [script, AUTH_HELPER_COMMAND], {
+  const child = spawn(process.execPath, [script, helperCommand], {
     detached: true,
     stdio: ["pipe", "pipe", "ignore"],
     env: process.env,
   });
   child.stdin.on("error", () => {});
-  child.stdin.write(JSON.stringify({ serverConfig, serverSettings }));
+  child.stdin.write(JSON.stringify(helperParams));
   child.stdin.end();
 
   try {

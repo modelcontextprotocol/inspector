@@ -56,6 +56,11 @@ import {
 import { isCliAutoOpenForced } from "@inspector/cli/cli-oauth-navigation.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
 import {
+  EMA_LOGIN_HELPER_COMMAND,
+  runEmaLoginHelper,
+  startPendingEmaLogin,
+} from "./ema-login-helper.js";
+import {
   assertJsonRoundTrips,
   parseToolCallPositionals,
   resolveToolCallArgs,
@@ -674,6 +679,14 @@ function registerAuthCommands(program: CommandType): void {
       await runAuthHelper();
     });
 
+  // Same park machinery for the EMA IdP login (see ema-login-helper.ts).
+  program
+    .command(EMA_LOGIN_HELPER_COMMAND, { hidden: true })
+    .description("Internal: complete an EMA IdP sign-in")
+    .action(async () => {
+      await runEmaLoginHelper();
+    });
+
   program
     .command("auth/list")
     .description(
@@ -781,7 +794,17 @@ function registerAuthCommands(program: CommandType): void {
     )
     .action(async (cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
-      const result = await emaLogin({ relogin: cmdOpts.relogin === true });
+      const relogin = cmdOpts.relogin === true;
+      // Same split as connect: with no TTY anywhere the blocking flow's IdP
+      // URL sits invisible in a buffered pipe — park the flow on a detached
+      // helper and exit with the link so the caller can relay it (then poll
+      // auth/ema-status). Forced auto-open keeps the blocking flow.
+      const humanPresent =
+        process.stdin.isTTY === true || process.stderr.isTTY === true;
+      const result =
+        !humanPresent && !isCliAutoOpenForced()
+          ? await startPendingEmaLogin({ relogin })
+          : await emaLogin({ relogin });
       await writeConnectionOutput(outOpts(opts), {
         kind: "auth/ema-login",
         result,

@@ -10,6 +10,7 @@ import {
   startIdpOidcAuthorization,
 } from "@inspector/core/auth/ema/idpOidc.js";
 import { MutableRedirectUrlProvider } from "@inspector/core/auth/index.js";
+import type { CallbackNavigation } from "@inspector/core/auth/index.js";
 import {
   NodeOAuthStorage,
   runRunnerInteractiveOAuth,
@@ -69,7 +70,7 @@ export type EmaStatus = {
 };
 
 /** Read install-level EMA config; the raw idp block, even when disabled. */
-async function loadEmaIdpConfig(): Promise<{
+export async function loadEmaIdpConfig(): Promise<{
   idp: EnterpriseManagedAuthIdpConfig | undefined;
   enabled: boolean;
 }> {
@@ -81,7 +82,7 @@ async function loadEmaIdpConfig(): Promise<{
   };
 }
 
-function requireIdp(
+export function requireIdp(
   idp: EnterpriseManagedAuthIdpConfig | undefined,
   enabled: boolean,
   options?: { allowDisabled?: boolean },
@@ -176,12 +177,6 @@ export async function emaLogin(options?: {
     return { issuer, loginState: "logged_in", alreadyLoggedIn: true };
   }
 
-  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(
-    process.env.MCP_OAUTH_CALLBACK_URL ?? DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
-  );
-  const redirectUrlProvider = new MutableRedirectUrlProvider();
-  redirectUrlProvider.redirectUrl =
-    formatRunnerOAuthRedirectUrl(callbackUrlConfig);
   // Armed from the start: unlike connect-time OAuth there is no SDK-internal
   // auth() phase to guard against — this flow owns its one authorize URL.
   const navigation = createCliOAuthNavigation({
@@ -192,6 +187,34 @@ export async function emaLogin(options?: {
         : "The user needs to sign in to the enterprise identity provider " +
           `(IdP) at this link: ${hrefDisplay}`,
   });
+  await runEmaIdpInteractiveFlow(active, storage, navigation);
+
+  return {
+    issuer,
+    loginState: await getEmaIdpLoginState(storage, active.issuer),
+    alreadyLoggedIn: false,
+  };
+}
+
+/**
+ * Run EMA leg 1 (the IdP OIDC authorization-code flow) to completion:
+ * loopback callback server, 15-minute wait, SIGINT/SIGTERM cancellation.
+ * `navigation` decides how the authorization URL reaches the user — the
+ * interactive path above prints a prompt line (and may auto-open a browser);
+ * the detached non-TTY helper reports it over its stdout pipe instead (see
+ * ema-login-helper.ts).
+ */
+export async function runEmaIdpInteractiveFlow(
+  active: EnterpriseManagedAuthIdpConfig,
+  storage: NodeOAuthStorage,
+  navigation: Pick<CallbackNavigation, "navigateToAuthorization">,
+): Promise<void> {
+  const callbackUrlConfig = parseRunnerOAuthCallbackUrl(
+    process.env.MCP_OAUTH_CALLBACK_URL ?? DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
+  );
+  const redirectUrlProvider = new MutableRedirectUrlProvider();
+  redirectUrlProvider.redirectUrl =
+    formatRunnerOAuthRedirectUrl(callbackUrlConfig);
 
   // Adapter over the server-bound runner-interactive-OAuth surface: EMA leg 1
   // is server-less, so authenticate/completeOAuthFlow map straight onto the
@@ -228,10 +251,4 @@ export async function emaLogin(options?: {
     handleSignals: true,
   });
   resetNodeOAuthStorageCache();
-
-  return {
-    issuer,
-    loginState: await getEmaIdpLoginState(storage, active.issuer),
-    alreadyLoggedIn: false,
-  };
 }

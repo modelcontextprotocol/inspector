@@ -132,7 +132,15 @@ export type ConnectionWriteKind =
     }
   | {
       kind: "auth/ema-login";
-      result: { issuer: string; loginState: string; alreadyLoggedIn: boolean };
+      result: {
+        issuer: string;
+        loginState: string;
+        alreadyLoggedIn: boolean;
+        /** Present when the login was parked on a detached helper (non-TTY). */
+        pendingLogin?: boolean;
+        /** IdP authorization URL to relay to the human. */
+        authUrl?: string;
+      };
     }
   | {
       kind: "auth/ema-logout";
@@ -327,6 +335,16 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
     case "auth/ema-login":
       if (payload.result.alreadyLoggedIn) {
         return `${style.green("Already signed in")} to \`${style.bold(payload.result.issuer)}\` ${style.dim("(use auth/ema-login --relogin for a fresh connection)")}`;
+      }
+      if (payload.result.pendingLogin === true && payload.result.authUrl) {
+        return [
+          "Sign-in required. The user needs to open this link in a browser to authenticate:",
+          // Same OSC 8 allowlist gate as the connection authUrl above.
+          `  ${isSafeLinkTarget(payload.result.authUrl) ? style.link(payload.result.authUrl) : payload.result.authUrl}`,
+          style.dim(
+            "The sign-in completes in the background — check with `auth/ema-status` (loginState becomes logged_in).",
+          ),
+        ].join("\n");
       }
       return `${style.green("Signed in")} to \`${style.bold(payload.result.issuer)}\``;
     case "auth/ema-logout":

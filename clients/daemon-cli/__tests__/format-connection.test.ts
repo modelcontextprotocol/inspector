@@ -821,6 +821,63 @@ describe("writeConnectionOutput", () => {
     expect(stdout).not.toContain("\u001b]8");
   });
 
+  it("pending ema-login renders relay guidance with the same link gate", async () => {
+    const authUrl = "https://idp.example.com/authorize?state=p1";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl,
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).toContain("auth/ema-status");
+
+    // JSON passthrough carries the pending fields verbatim.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl,
+        },
+      },
+    );
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.pendingLogin).toBe(true);
+    expect(parsed.authUrl).toBe(authUrl);
+
+    // Unsafe scheme renders as plain text, never a clickable OSC 8 link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
   it("connection without authUrl renders exactly as before (no sign-in block)", async () => {
     await writeConnectionOutput(
       { format: "text" },

@@ -5,6 +5,7 @@ import { formatEmaStatusHuman } from "../src/connection/format-human.js";
 const getEmaStatus = vi.fn();
 const emaLogin = vi.fn();
 const emaLogout = vi.fn();
+const startPendingEmaLogin = vi.fn();
 
 vi.mock("../src/connection/ema.js", () => ({
   getEmaStatus: (...args: unknown[]) => getEmaStatus(...args),
@@ -12,12 +13,26 @@ vi.mock("../src/connection/ema.js", () => ({
   emaLogout: (...args: unknown[]) => emaLogout(...args),
 }));
 
+// Mocked wholesale: the real module imports ema.js (mocked above, missing the
+// loadEmaIdpConfig/requireIdp/runEmaIdpInteractiveFlow exports it needs) and
+// auth-helper.js. EMA_LOGIN_HELPER_COMMAND must be the real string — mcp.ts
+// registers the hidden command under it.
+vi.mock("../src/connection/ema-login-helper.js", () => ({
+  EMA_LOGIN_HELPER_COMMAND: "auth/complete-ema-login",
+  runEmaLoginHelper: vi.fn(),
+  startPendingEmaLogin: (...args: unknown[]) => startPendingEmaLogin(...args),
+}));
+
 describe("auth/ema-* commands", () => {
   let stdout: string;
   let originalStdoutWrite: typeof process.stdout.write;
+  const originalStderrIsTTY = process.stderr.isTTY;
+  const originalStdinIsTTY = process.stdin.isTTY;
 
   beforeEach(() => {
     stdout = "";
+    // Interactive path by default; individual tests flip to the non-TTY park.
+    process.stderr.isTTY = true;
     originalStdoutWrite = process.stdout.write;
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       stdout += typeof chunk === "string" ? chunk : String(chunk);
@@ -30,9 +45,12 @@ describe("auth/ema-* commands", () => {
     getEmaStatus.mockReset();
     emaLogin.mockReset();
     emaLogout.mockReset();
+    startPendingEmaLogin.mockReset();
   });
 
   afterEach(() => {
+    process.stderr.isTTY = originalStderrIsTTY;
+    process.stdin.isTTY = originalStdinIsTTY;
     process.stdout.write = originalStdoutWrite;
   });
 
@@ -99,6 +117,63 @@ describe("auth/ema-* commands", () => {
     await runMcp(["node", "mcpdo", "auth/ema-logout"]);
     expect(stdout).toContain("Signed out");
     expect(stdout).toContain("https://idp.example.com");
+  });
+
+  it("auth/ema-login parks on a detached helper when no TTY is present", async () => {
+    process.stderr.isTTY = undefined as unknown as boolean;
+    process.stdin.isTTY = undefined as unknown as boolean;
+    startPendingEmaLogin.mockResolvedValue({
+      issuer: "https://idp.example.com",
+      loginState: "none",
+      alreadyLoggedIn: false,
+      pendingLogin: true,
+      authUrl: "https://idp.example.com/authorize?state=abc",
+    });
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp(["node", "mcpdo", "auth/ema-login"]);
+    expect(startPendingEmaLogin).toHaveBeenCalledWith({ relogin: false });
+    expect(emaLogin).not.toHaveBeenCalled();
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain("https://idp.example.com/authorize?state=abc");
+    expect(stdout).toContain("auth/ema-status");
+  });
+
+  it("auth/ema-login non-TTY forwards --relogin and emits JSON with the authUrl", async () => {
+    process.stderr.isTTY = undefined as unknown as boolean;
+    process.stdin.isTTY = undefined as unknown as boolean;
+    startPendingEmaLogin.mockResolvedValue({
+      issuer: "https://idp.example.com",
+      loginState: "none",
+      alreadyLoggedIn: false,
+      pendingLogin: true,
+      authUrl: "https://idp.example.com/authorize?state=abc",
+    });
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "auth/ema-login",
+      "--relogin",
+      "--format",
+      "json",
+    ]);
+    expect(startPendingEmaLogin).toHaveBeenCalledWith({ relogin: true });
+    const parsed = JSON.parse(stdout.trim());
+    expect(parsed.pendingLogin).toBe(true);
+    expect(parsed.authUrl).toBe("https://idp.example.com/authorize?state=abc");
+  });
+
+  it("auth/ema-login non-TTY short-circuit renders as already signed in", async () => {
+    process.stderr.isTTY = undefined as unknown as boolean;
+    process.stdin.isTTY = undefined as unknown as boolean;
+    startPendingEmaLogin.mockResolvedValue({
+      issuer: "https://idp.example.com",
+      loginState: "logged_in",
+      alreadyLoggedIn: true,
+    });
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp(["node", "mcpdo", "auth/ema-login"]);
+    expect(stdout).toContain("Already signed in");
   });
 });
 
