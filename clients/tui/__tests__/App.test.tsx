@@ -1009,6 +1009,29 @@ describe("App (status, layout, modals)", () => {
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
   });
 
+  it("mutes the global accelerators while a list filter is edited (#2430)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      sampleTool,
+      { ...sampleTool, name: "dpt-tool", description: "D" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/"]);
+    await expectFrame(r, "Enter keep");
+    // `d` disconnects, `p` switches to Prompts, Esc quits — none may fire
+    // while the keystrokes belong to the query.
+    await press(r, ["d", "p", "t"]);
+    await expectFrame(r, "Tools (1/2)");
+    expect(h.disconnect).not.toHaveBeenCalled();
+    expect(r.lastFrame() ?? "").toContain("/dpt");
+    // Esc clears the filter rather than quitting; the app still answers keys.
+    await press(r, [ESC]);
+    await expectFrame(r, "Tools (2)");
+    await press(r, ["d"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
   it("opens the tool details modal with '+' and closes it on ESC", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];

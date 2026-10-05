@@ -9,6 +9,12 @@ import type {
   GetPromptResult,
 } from "@modelcontextprotocol/client";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { useListFilter } from "../hooks/useListFilter.js";
+import {
+  ListFilterBar,
+  LIST_FILTER_ROWS,
+  filterCount,
+} from "./ListFilterBar.js";
 
 interface PromptsTabProps {
   prompts: Prompt[];
@@ -21,6 +27,13 @@ interface PromptsTabProps {
   onFetchPrompt?: (prompt: Prompt) => void;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
+  /** Told when the list filter starts or stops capturing keys (#2430). */
+  onFilterEditingChange?: (editing: boolean) => void;
+}
+
+/** What the `/` filter matches a prompt against (#2430). */
+function promptFilterFields(prompt: Prompt): ReadonlyArray<string | undefined> {
+  return [prompt.name, prompt.title];
 }
 
 export function PromptsTab({
@@ -33,12 +46,18 @@ export function PromptsTab({
   onFetchPrompt,
   onAuthRecoveryRequired,
   modalOpen = false,
+  onFilterEditingChange,
 }: PromptsTabProps) {
-  const visibleCount = Math.max(1, height - 7);
+  const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
+  const filter = useListFilter(prompts, promptFilterFields, {
+    enabled: !modalOpen && focusedPane === "list",
+    onEditingChange: onFilterEditingChange,
+  });
+  const shownPrompts = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    prompts.length,
+    shownPrompts.length,
     visibleCount,
-    { resetWhen: prompts },
+    { resetWhen: shownPrompts },
   );
   const [error, setError] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
@@ -46,6 +65,10 @@ export function PromptsTab({
   // Handle arrow key navigation when focused
   useInput(
     (input: string, key: Key) => {
+      // The filter goes first: while it is editing, Enter and letters belong
+      // to the query, not to the list.
+      if (filter.handleInput(input, key)) return;
+
       // Handle Enter key to fetch prompt (works from both list and details)
       if (key.return && selectedPrompt && inspectorClient && onFetchPrompt) {
         // If prompt has arguments, open modal to collect them
@@ -85,7 +108,7 @@ export function PromptsTab({
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < prompts.length - 1) {
+        } else if (key.downArrow && selectedIndex < shownPrompts.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -125,7 +148,7 @@ export function PromptsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
-  const selectedPrompt = prompts[selectedIndex] || null;
+  const selectedPrompt = shownPrompts[selectedIndex] || null;
 
   const listWidth = Math.floor(width * 0.4);
   const detailWidth = width - listWidth;
@@ -149,9 +172,15 @@ export function PromptsTab({
             bold
             backgroundColor={focusedPane === "list" ? "yellow" : undefined}
           >
-            Prompts ({prompts.length})
+            Prompts (
+            {filterCount(filter.active, shownPrompts.length, prompts.length)})
           </Text>
         </Box>
+        <ListFilterBar
+          query={filter.query}
+          editing={filter.editing}
+          focused={focusedPane === "list" && !modalOpen}
+        />
         {error ? (
           <Box paddingY={1}>
             <Text color="red">{error}</Text>
@@ -160,6 +189,10 @@ export function PromptsTab({
           <Box paddingY={1}>
             <Text dimColor>No prompts available</Text>
           </Box>
+        ) : shownPrompts.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No prompts match the filter</Text>
+          </Box>
         ) : (
           <Box
             flexDirection="column"
@@ -167,7 +200,7 @@ export function PromptsTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {prompts
+            {shownPrompts
               .slice(firstVisible, firstVisible + visibleCount)
               .map((prompt, i) => {
                 const index = firstVisible + i;
@@ -176,7 +209,7 @@ export function PromptsTab({
                   <Box key={prompt.name || index} paddingY={0} flexShrink={0}>
                     <Text>
                       {isSelected ? "▶ " : "  "}
-                      {prompt.name || `Prompt ${index + 1}`}
+                      {prompt.name || `Prompt ${filter.indices[index] + 1}`}
                     </Text>
                   </Box>
                 );
