@@ -588,6 +588,45 @@ describe("resolveServerConfigs — single mode", () => {
     ).toThrow(/Server 'bar' not found/);
   });
 
+  // #2537: the lookup must be an own-property read, so an absent server whose
+  // name is an inherited Object.prototype member reports "not found" instead
+  // of resolving to the inherited function and failing downstream.
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+    "reports an absent server named %s as not found",
+    (serverName) => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({ mcpServers: { real: { command: "node" } } }),
+      );
+      expect(() =>
+        resolveServerConfigs({ configPath, serverName }, "single"),
+      ).toThrow(
+        `Server '${serverName}' not found in config file. Available servers: real`,
+      );
+    },
+  );
+
+  it("resolves a server genuinely named constructor", () => {
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          constructor: { command: "node", args: ["ctor.js"] },
+          real: { command: "node" },
+        },
+      }),
+    );
+    const [config] = resolveServerConfigs(
+      { configPath, serverName: "constructor" },
+      "single",
+    );
+    expect(config).toEqual({
+      type: "stdio",
+      command: "node",
+      args: ["ctor.js"],
+    });
+  });
+
   it("applies env/cwd overrides when loading from config", () => {
     writeFileSync(
       configPath,
