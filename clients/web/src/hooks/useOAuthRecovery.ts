@@ -160,7 +160,8 @@ export function revocationSuffix(
     return " The grant was also revoked at the authorization server.";
   }
   if (outcome?.status === "failed") {
-    return ` Revoking the grant at the authorization server failed (${outcome.detail}), so it may still be valid there.`;
+    // The detail is a caught revocation/network error's text (#2490).
+    return ` Revoking the grant at the authorization server failed (${redactUrlsInText(outcome.detail)}), so it may still be valid there.`;
   }
   return "";
 }

@@ -1494,6 +1494,17 @@ describe("App (mid-session auth lifecycle events)", () => {
     await expectFrame(r, "unreachable");
   });
 
+  it("redacts URL query secrets in a failed revocation's detail (#2490)", async () => {
+    h.clientSpies.clearOAuthTokens.mockResolvedValue({
+      status: "failed",
+      detail: "at https://a.x/?token=s3cr3t",
+    });
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
+  });
+
   // The wiring is the contract here, not just `AuthTab`'s own behavior: a
   // `void`-ing arrow between them resolves instantly, which makes the pending
   // state, the repeat lock and the rejection path all inert while revocation
@@ -1846,6 +1857,39 @@ describe("App (OAuth result branches)", () => {
       challenge: { reason: "unauthorized" },
     });
     await expectFrame(r, "Authorization updated. Retry your action");
+  });
+
+  // #2490: an OAuth error quoting a secret-bearing URL is redacted on screen.
+  it("redacts a thrown OAuth error on an interactive reauth", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => {
+      throw new Error("cb https://a.x/?code=s3cr3t");
+    };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: { reason: "unauthorized" },
+    });
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
+  });
+
+  it("redacts a thrown OAuth error on a standard step-up authorize", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => {
+      throw new Error("cb https://a.x/?code=s3cr3t");
+    };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+    await press(r, ["a"]);
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
   });
 
   it("completes reauth when OAuth returns already_authorized", async () => {

@@ -839,8 +839,7 @@ function App({
             setOauthMessage("OAuth already in progress.");
           }
         } catch (authErr) {
-          const authMsg =
-            authErr instanceof Error ? authErr.message : String(authErr);
+          const authMsg = errorMessage(authErr);
           setOauthStatus("error");
           setOauthMessage(authMsg);
         }
@@ -1049,7 +1048,9 @@ function App({
     }
     setOauthStatus("idle");
     if (revocation.status === "failed") {
-      const warning = `Cleared locally, but revoking the grant at the authorization server failed: ${revocation.detail}. It may still be valid there.`;
+      // The detail is a caught revocation/network error's text, so it can quote
+      // a secret-bearing URL (#2490).
+      const warning = `Cleared locally, but revoking the grant at the authorization server failed: ${redactErrorText(revocation.detail)}. It may still be valid there.`;
       setOauthWarningText(warning);
       setOauthMessage(warning);
     } else {
@@ -1954,10 +1955,7 @@ function App({
                         setOauthMessage("OAuth already in progress.");
                       }
                     } catch (authErr) {
-                      const authMsg =
-                        authErr instanceof Error
-                          ? authErr.message
-                          : String(authErr);
+                      const authMsg = errorMessage(authErr);
                       setOauthStatus("error");
                       setOauthMessage(authMsg);
                     }
