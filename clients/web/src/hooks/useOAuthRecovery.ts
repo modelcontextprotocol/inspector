@@ -1725,7 +1725,9 @@ export function useOAuthRecovery({
           // Terminal, and this attempt's retry is already out of the shared
           // ref — so it dies with the attempt, and whatever a later prompt
           // has installed is left alone.
-          const failureMessage = emaStepUpFailureMessage(outcome.error.message);
+          const failureMessage = emaStepUpFailureMessage(
+            errorMessage(outcome.error),
+          );
           notifications.show({
             title: "Organization permissions",
             message: failureMessage,

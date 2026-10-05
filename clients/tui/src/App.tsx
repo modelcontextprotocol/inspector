@@ -915,12 +915,11 @@ function App({
             handleAuthRecoveryRequired(selectedServer, authErr);
             return;
           }
-          const authMsg =
-            authErr instanceof Error ? authErr.message : String(authErr);
+          const authMsg = errorMessage(authErr);
           setConnectError(authMsg);
           if (isEmaClientNotConfiguredError(authErr)) {
             setOauthStatus("error");
-            setOauthMessage(authErr.message);
+            setOauthMessage(authMsg);
             return;
           }
           setOauthStatus("error");

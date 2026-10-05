@@ -935,13 +935,16 @@ export function useConnectionLifecycle({
       if (deepLinkEnsureRef.current) return;
       deepLinkEnsureRef.current = true;
       void addServer(deepLink.serverId, deepLink.serverConfig).catch((err) => {
-        const message = errorMessage(err);
+        // Classify on the raw text; only the recorded (displayed) copy is
+        // redacted, so a phrase inside a redacted query value cannot flip it.
+        const raw = err instanceof Error ? err.message : String(err);
         // A 409 ("already exists") means the row is on disk and hydration will
         // surface it on a later render, so the connect phase still proceeds —
         // swallow it. Any other failure (read-only catalog, backend 5xx) would
         // otherwise leave the deep link permanently stuck at this guard with no
         // signal, so record it on the machine-readable error surface.
-        if (!message.includes("already exists")) recordConnectError(message);
+        if (!raw.includes("already exists"))
+          recordConnectError(errorMessage(err));
       });
       return;
     }

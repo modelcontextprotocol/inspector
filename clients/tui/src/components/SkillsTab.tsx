@@ -309,7 +309,7 @@ export function SkillsTab({
         </Box>
         {loadError ? (
           <Box paddingY={1}>
-            <Text color="red">{loadError.message}</Text>
+            <Text color="red">{errorMessage(loadError)}</Text>
           </Box>
         ) : skills.length === 0 ? (
           <Box paddingY={1}>

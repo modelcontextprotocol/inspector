@@ -1628,7 +1628,7 @@ export function SkillsScreen({
             </ControlsRow>
             {loadError && (
               <Alert color="red" title="Could not load skills">
-                {loadError.message}
+                {errorMessage(loadError)}
               </Alert>
             )}
             {filtered.length === 0 ? (

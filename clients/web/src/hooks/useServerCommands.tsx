@@ -869,7 +869,7 @@ export function useServerCommands({
             notifications.show({
               title:
                 "Pagination setting saved, but the server list did not reload",
-              message: err.message,
+              message: errorMessage(err),
               color: "red",
             });
             return;
