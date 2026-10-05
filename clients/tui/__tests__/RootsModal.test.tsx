@@ -29,6 +29,10 @@ afterEach(() => {
   delete (globalThis as Record<string, unknown>).__INK_FORM_SUBMIT_VALUE__;
 });
 
+// A deliberately partial fake: RootsModal calls only `setRoots` on the client,
+// and InspectorClient is a class with private members that no structural object
+// literal can satisfy, so a single `as` is refused. The double cast is confined
+// to this factory, and the intersection keeps `setRoots` typed as the spy.
 const fakeClient = (
   setRoots: ReturnType<typeof vi.fn> = vi.fn(async () => {}),
 ) =>

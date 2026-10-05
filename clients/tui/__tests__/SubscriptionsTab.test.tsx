@@ -46,6 +46,11 @@ interface FakeOps {
   unsubscribeFromResource: ReturnType<typeof vi.fn>;
 }
 
+// A deliberately partial fake: SubscriptionsTab calls only the two methods in
+// `FakeOps` on the client, and InspectorClient is a class with private members
+// that no structural object literal can satisfy, so a single `as` is refused.
+// The double cast is confined to this factory, and `FakeOps` keeps the methods
+// the tests assert on typed.
 const fakeClient = (over: Partial<FakeOps> = {}): FakeOps & InspectorClient =>
   ({
     subscribeToResource: vi.fn(async () => {}),
@@ -164,8 +169,12 @@ describe("SubscriptionsTab", () => {
       CHALLENGE,
     );
     const client = fakeClient({
+      // Thrown the way the real client throws it: wrapped, with the recovery
+      // error as `cause` (inspectorClient.ts subscribeToResource).
       subscribeToResource: vi.fn(async () => {
-        throw recovery;
+        throw new Error("Failed to subscribe to resource: auth", {
+          cause: recovery,
+        });
       }),
     });
     const onAuthRecoveryRequired = vi.fn();

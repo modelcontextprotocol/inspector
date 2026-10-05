@@ -23,7 +23,10 @@ import type {
   MessageEntry,
   ResourceSubscriptionStreamState,
 } from "@inspector/core/mcp/types.js";
-import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
+import {
+  AuthRecoveryRequiredError,
+  findNestedAuthError,
+} from "@inspector/core/auth/challenge.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 import {
   resourceUpdateFeed,
@@ -99,8 +102,12 @@ export function SubscriptionsTab({
         await inspectorClient.subscribeToResource(uri);
       }
     } catch (err) {
-      if (err instanceof AuthRecoveryRequiredError) {
-        onAuthRecoveryRequired?.(err);
+      // `subscribeToResource` / `unsubscribeFromResource` wrap every failure in
+      // a new Error with the original as `cause`, so the recovery signal has to
+      // be dug out of the chain rather than matched on the thrown value.
+      const authErr = findNestedAuthError(err);
+      if (authErr instanceof AuthRecoveryRequiredError) {
+        onAuthRecoveryRequired?.(authErr);
         return;
       }
       setError(err instanceof Error ? err.message : String(err));
