@@ -121,7 +121,7 @@ export function skillCatalogLimitParser(
     const n = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
     if (!isSkillCatalogLimit(n)) {
       throw new Error(
-        `Invalid ${flag}: ${value}. Expected a positive integer.`,
+        `Invalid ${flag}: ${value}. Expected a positive integer written as plain decimal digits, at most ${Number.MAX_SAFE_INTEGER}.`,
       );
     }
     return n;
