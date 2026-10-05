@@ -1,11 +1,21 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "./helpers/renderTui";
+import { BodyLines } from "../src/components/BodyLines.js";
 
 type RenderResult = ReturnType<typeof render>;
 
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 vi.mock("ink-form", () => import("./helpers/inkFormMock.js"));
+
+// Passthrough spy on the shared, capped body renderer, so a test can prove a
+// view routes its body through it even where the modal is too short to show
+// the cap marker (#2539).
+vi.mock("../src/components/BodyLines.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/components/BodyLines.js")>();
+  return { ...actual, BodyLines: vi.fn(actual.BodyLines) };
+});
 
 // ---------------------------------------------------------------------------
 // Controllable mock of the entire @inspector/core surface App.tsx depends on.
@@ -1092,6 +1102,41 @@ describe("App (status, layout, modals)", () => {
     const r = await mount(oneStdio());
     await press(r, ["p", TAB, TAB, "+"]);
     await expectFrame(r, "Response:");
+  });
+
+  // The zoom modal is bounded by the terminal, so a cap marker would sit below
+  // the visible frame. Assert instead that the zoom renders every body through
+  // the shared, capped BodyLines — the one the Network zoom uses (#2539). The
+  // `zoom-` key prefix tells the modal's calls apart from the Protocol pane's.
+  const zoomBodies = () =>
+    Object.fromEntries(
+      vi
+        .mocked(BodyLines)
+        .mock.calls.map(([props]) => [props.keyPrefix, props.body])
+        .filter(([key]) => key.startsWith("zoom-")),
+    );
+
+  it("renders Protocol zoom request and response bodies through the body cap (#2539)", async () => {
+    vi.mocked(BodyLines).mockClear();
+    h.ctrl.messages = [reqMessage];
+    const r = await mount(oneStdio());
+    await press(r, ["p", TAB, TAB, "+"]);
+    await expectFrame(r, "Response:");
+    expect(zoomBodies()).toEqual({
+      "zoom-req": JSON.stringify(reqMessage.message),
+      "zoom-resp": JSON.stringify(reqMessage.response),
+    });
+  });
+
+  it("renders a Protocol zoom response body through the body cap (#2539)", async () => {
+    vi.mocked(BodyLines).mockClear();
+    h.ctrl.messages = [respMessage];
+    const r = await mount(oneStdio());
+    await press(r, ["p", TAB, TAB, "+"]);
+    await expectFrame(r, "Response:");
+    expect(zoomBodies()).toEqual({
+      "zoom-msg": JSON.stringify(respMessage.message),
+    });
   });
 
   it("opens in-progress request details (no status, error, or bodies)", async () => {
