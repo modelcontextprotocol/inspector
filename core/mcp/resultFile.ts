@@ -13,7 +13,7 @@
  * exit code, a TUI status line) and the web client downloads rather than writes.
  *
  * - `json` is the whole result, pretty-printed with two-space indentation and a
- *   trailing newline — the shape every web export downloads.
+ *   trailing newline.
  * - `raw` is the result's payload as a consumer would want it on disk: the text
  *   of its text-bearing blocks joined by newlines, or — when it carries no text
  *   and exactly one binary block — that block's decoded bytes, so an image or

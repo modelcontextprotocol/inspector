@@ -61,10 +61,6 @@ export function ToolTestModal({
   const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
-  // Saves are serialized: while a write is in flight `w` opens no new prompt,
-  // so two writes can never race on one file or report out of order. A ref,
-  // not state, because the key handler must see it the instant a save starts.
-  const savingRef = React.useRef(false);
   const toolName = tool?.name || "tool";
 
   // Use full terminal dimensions instead of passed dimensions
@@ -159,10 +155,6 @@ export function ToolTestModal({
   );
 
   const openSavePrompt = () => {
-    if (savingRef.current) {
-      setSaveStatus({ ok: false, message: "Still saving the last result…" });
-      return;
-    }
     if (!result?.callResult) {
       setSaveStatus({
         ok: false,
@@ -221,7 +213,8 @@ export function ToolTestModal({
   };
 
   const saveCurrentResult = async (prompt: SavePrompt) => {
-    savingRef.current = true;
+    // saveResultToFile queues saves process-wide, so they settle in the order
+    // they started and the last status written is always the latest save's.
     setSaveStatus({ ok: true, message: `Saving to ${prompt.path}…` });
     try {
       const saved = await saveResultToFile(
@@ -238,8 +231,6 @@ export function ToolTestModal({
         ok: false,
         message: err instanceof Error ? err.message : String(err),
       });
-    } finally {
-      savingRef.current = false;
     }
   };
 
