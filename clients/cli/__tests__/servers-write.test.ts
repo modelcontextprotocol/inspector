@@ -199,6 +199,22 @@ describe("addCatalogServer", () => {
     ).rejects.toThrow(/--rename is only valid/);
   });
 
+  it("rejects -e / --cwd for a URL target instead of dropping them", async () => {
+    await expect(
+      addCatalogServer({
+        server: "web",
+        catalog,
+        serverUrl: "https://example.com/mcp",
+        env: { A: "1" },
+        cwd: "/x",
+        secretStore: store,
+      }),
+    ).rejects.toThrow(
+      "-e and --cwd apply to stdio servers; this target is streamable-http.",
+    );
+    expect(fs.existsSync(catalog)).toBe(false);
+  });
+
   it("refuses -e values on a store that dies with the process", async () => {
     await expect(
       addCatalogServer({
@@ -413,6 +429,32 @@ describe("editCatalogServer", () => {
         secretStore: store,
       }),
     ).rejects.toThrow(/apply to stdio servers; 'web' is streamable-http/);
+  });
+
+  it("rejects a blank --rename", async () => {
+    await expect(
+      editCatalogServer({
+        server: "demo",
+        rename: "  ",
+        catalog,
+        cwd: "/x",
+        secretStore: store,
+      }),
+    ).rejects.toThrow("--rename requires a non-empty name.");
+  });
+
+  it("rejects -e / --cwd alongside a new URL target", async () => {
+    await expect(
+      editCatalogServer({
+        server: "demo",
+        catalog,
+        serverUrl: "https://example.com/mcp",
+        cwd: "/x",
+        secretStore: store,
+      }),
+    ).rejects.toThrow(
+      "--cwd apply to stdio servers; this target is streamable-http.",
+    );
   });
 
   it("refuses a rename on a session store", async () => {

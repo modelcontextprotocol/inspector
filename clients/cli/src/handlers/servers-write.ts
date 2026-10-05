@@ -164,7 +164,21 @@ function buildTransportConfig(options: CatalogWriteOptions): MCPServerConfig {
     env: options.env,
   };
   // "single" with no catalog/config source always resolves the ad-hoc target.
-  return resolveServerConfigs(adHoc, "single")[0]!;
+  const config = resolveServerConfigs(adHoc, "single")[0]!;
+  // The shared builder drops env/cwd for a URL target; reject them instead so
+  // a write never reports success for flags it did not store.
+  if (config.type === "sse" || config.type === "streamable-http") {
+    const stdioOnly = [
+      Object.keys(options.env ?? {}).length > 0 && "-e",
+      Boolean(options.cwd?.trim()) && "--cwd",
+    ].filter((flag): flag is string => typeof flag === "string");
+    if (stdioOnly.length > 0) {
+      throw new Error(
+        `${stdioOnly.join(" and ")} apply to stdio servers; this target is ${config.type}.`,
+      );
+    }
+  }
+  return config;
 }
 
 /** A settings node at product defaults, for an entry that had none. */
@@ -339,6 +353,9 @@ export async function editCatalogServer(
 ): Promise<CatalogWriteResult> {
   const name = requireServerName("servers/edit", options.server);
   const catalog = resolveWritableCatalogPath(options);
+  if (options.rename !== undefined && !options.rename.trim()) {
+    throw new Error("--rename requires a non-empty name.");
+  }
   const newName = options.rename?.trim() || name;
   const replacesTarget = hasTransportTarget(options);
   const patchesStdio =
