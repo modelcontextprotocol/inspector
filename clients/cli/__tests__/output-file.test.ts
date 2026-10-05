@@ -167,6 +167,20 @@ describe("renderRaw", () => {
     }
   });
 
+  it("refuses a single binary block that is not valid base64", () => {
+    try {
+      renderRaw(
+        { content: [{ type: "image", data: "not!base64!?", mimeType: "x" }] },
+        "tools/call",
+      );
+      expect.unreachable();
+    } catch (err) {
+      expect(err).toBeInstanceOf(CliExitCodeError);
+      expect((err as CliExitCodeError).envelope?.code).toBe("output_not_raw");
+      expect((err as Error).message).toContain("not valid base64");
+    }
+  });
+
   it("refuses several binaries with no text", () => {
     expect(() =>
       renderRaw(

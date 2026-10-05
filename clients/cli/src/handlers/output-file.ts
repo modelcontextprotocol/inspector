@@ -21,6 +21,7 @@
  * with a file encoding would make `--format json --output x` ambiguous.
  */
 import { writeFile } from "node:fs/promises";
+import { base64ToBytes } from "@inspector/core/mcp/skills.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import type { McpResponse } from "./method-types.js";
 
@@ -135,7 +136,20 @@ export function renderRaw(
   const binaries = payloads.flatMap((p) =>
     p.binary !== undefined ? [p.binary] : [],
   );
-  if (binaries.length === 1) return Buffer.from(binaries[0]!, "base64");
+  if (binaries.length === 1) {
+    // Strict decode: `Buffer.from(…, "base64")` silently drops invalid
+    // characters, so a malformed payload would be "written successfully" as
+    // unrelated bytes. `base64ToBytes` goes through `atob`, which throws.
+    try {
+      return Buffer.from(base64ToBytes(binaries[0]!));
+    } catch {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `The ${method} result's binary content is not valid base64, so it has no raw form; use --output-format json.`,
+        { code: "output_not_raw" },
+      );
+    }
+  }
   throw new CliExitCodeError(
     EXIT_CODES.USAGE,
     binaries.length === 0
