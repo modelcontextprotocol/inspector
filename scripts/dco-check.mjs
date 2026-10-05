@@ -4,7 +4,8 @@
 // Replaces the probot DCO app, which was suspended and whose check simply
 // stopped appearing after #1981 (2026-08-12). Nothing failed when it vanished,
 // because it was never a required check — so this is a check the repo owns,
-// run by `.github/workflows/dco.yml` on every pull request, and meant to be
+// run by `.github/workflows/dco.yml` on every PR targeting `v2/main` (v1 and
+// milestone PRs into `main` are out of its scope), and meant to be
 // made REQUIRED so a future outage blocks merges instead of passing silently.
 //
 // The rule is the app's: every commit in `base..head` must carry a
@@ -31,10 +32,12 @@
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 
-// Field and record separators that cannot appear in a commit's metadata, and
-// in practice never in a message body either.
+// Records are NUL-separated (`git log -z`): `git commit` refuses a NUL in a
+// message, so no body can split a record. Fields use \x1f, and the message
+// is the LAST field and is re-joined, so a body that happens to contain \x1f
+// still parses whole.
 const FS = "\x1f";
-const RS = "\x1e";
+const RS = "\0";
 const LOG_FORMAT = ["%H", "%P", "%an", "%ae", "%cn", "%ce", "%B"].join("%x1f");
 
 const SIGNOFF = /^\s*Signed-off-by:\s*(.+?)\s*<([^<>]+)>\s*$/gim;
@@ -51,11 +54,10 @@ export function parseDcoArgs(argv) {
   return { base: values.base, head: values.head ?? "HEAD" };
 }
 
-/** Split `git log --format=<LOG_FORMAT>%x1e` output into commit records. */
+/** Split `git log -z --format=<LOG_FORMAT>` output into commit records. */
 export function parseLog(stdout) {
   return stdout
     .split(RS)
-    .map((record) => record.replace(/^\n/, ""))
     .filter((record) => record.trim() !== "")
     .map((record) => {
       const [sha, parents, an, ae, cn, ce, ...body] = record.split(FS);
@@ -127,7 +129,7 @@ export function classify(commits) {
 function readRange(spawn, base, head) {
   const result = spawn(
     "git",
-    ["log", `--format=${LOG_FORMAT}%x1e`, `${base}..${head}`],
+    ["log", "-z", `--format=${LOG_FORMAT}`, `${base}..${head}`],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.error) throw result.error;

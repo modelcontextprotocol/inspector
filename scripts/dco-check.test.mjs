@@ -233,6 +233,22 @@ test("main exempts a merge commit and a bot-authored commit", () => {
   );
 });
 
+test("main parses a message containing the old separators intact", () => {
+  const dir = makeRepo();
+  git(dir, [
+    "commit",
+    "-q",
+    "-s",
+    "--allow-empty",
+    "-m",
+    "odd \x1e record \x1f field bytes\n\nbody \x1e\x1f too",
+  ]);
+  git(dir, ["commit", "-q", "-s", "--allow-empty", "-m", "next"]);
+  const { code, out } = runMain(dir);
+  assert.equal(code, 0);
+  assert.match(out, /2 commit\(s\) signed off/);
+});
+
 test("main throws on a revision git cannot resolve", () => {
   const dir = makeRepo();
   assert.throws(
