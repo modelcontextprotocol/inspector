@@ -1,3 +1,20 @@
+/**
+ * Tests for the web backend's `GET /healthz` probe (#2438).
+ *
+ * Two layers: the pure helpers in `server/health.ts` (the request matcher and
+ * the response builder, which the dev Vite middleware and the prod Hono route
+ * both build on), and the route as the production server actually serves it,
+ * started for real via `startHonoServer`. The second layer is what pins the
+ * contract the route exists for: unauthenticated, answered ahead of the SPA
+ * fallback, disclosing nothing but `{"status":"ok"}` (never the API token that
+ * `GET /` embeds), and leaving every `/api/*` route behind its auth check.
+ *
+ * It lives in the `integration` project because it binds real listeners (the
+ * HTTP server plus the sandbox and app-origin servers it starts). The dev
+ * middleware branch is not driven here, since `vite-hono-plugin.ts` is
+ * excluded from coverage as runtime glue that needs a live Vite server.
+ */
+
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
