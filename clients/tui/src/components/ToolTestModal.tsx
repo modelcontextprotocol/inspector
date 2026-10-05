@@ -12,6 +12,16 @@ import {
 } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { inlineLocalRefs } from "@inspector/core/json/localRefs.js";
+import type { ResultFileFormat } from "@inspector/core/mcp/resultFile.js";
+import {
+  defaultResultFileName,
+  saveResultToFile,
+} from "../utils/saveResult.js";
+import {
+  SaveResultBar,
+  type SavePrompt,
+  type SaveStatus,
+} from "./SaveResultBar.js";
 
 interface ToolTestModalProps {
   tool: Tool;
@@ -30,6 +40,12 @@ interface ToolResult {
   error?: string;
   errorDetails?: unknown;
   duration: number;
+  /**
+   * The server's own `CallToolResult`, whether it succeeded or carried
+   * `isError` — what `w` saves. Absent when no result came back at all (a
+   * thrown call, a failed invocation, a missing-argument refusal).
+   */
+  callResult?: CallToolResult;
 }
 
 export function ToolTestModal({
@@ -42,7 +58,10 @@ export function ToolTestModal({
 }: ToolTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
   const [result, setResult] = useState<ToolResult | null>(null);
+  const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
+  const toolName = tool?.name || "tool";
 
   // Use full terminal dimensions instead of passed dimensions
   const [terminalDimensions, setTerminalDimensions] = React.useState({
@@ -90,6 +109,13 @@ export function ToolTestModal({
   // When in results mode, handle scrolling keys
   useInput(
     (input: string, key: Key) => {
+      // While the save prompt is open it owns every key, Escape included —
+      // Escape cancels the prompt rather than closing the whole modal.
+      if (savePrompt) {
+        handleSavePromptInput(savePrompt, input, key);
+        return;
+      }
+
       // Always handle escape to close modal
       if (key.escape) {
         setState("form");
@@ -105,6 +131,10 @@ export function ToolTestModal({
       }
 
       if (state === "results") {
+        if (input === "w") {
+          openSavePrompt();
+          return;
+        }
         // Allow scrolling in results view
         if (key.downArrow) {
           scrollViewRef.current?.scrollBy(1);
@@ -123,6 +153,82 @@ export function ToolTestModal({
     },
     { isActive: true },
   );
+
+  const openSavePrompt = () => {
+    if (!result?.callResult) {
+      setSaveStatus({
+        ok: false,
+        message: "No tool result to save — the call returned none.",
+      });
+      return;
+    }
+    setSaveStatus(null);
+    setSavePrompt({
+      path: defaultResultFileName(toolName, "json", result.callResult),
+      format: "json",
+      edited: false,
+    });
+  };
+
+  const handleSavePromptInput = (
+    prompt: SavePrompt,
+    input: string,
+    key: Key,
+  ) => {
+    if (key.escape) {
+      setSavePrompt(null);
+      return;
+    }
+    if (key.return) {
+      setSavePrompt(null);
+      // A key handler cannot await; saveCurrentResult owns its failures and
+      // surfaces them on the status line.
+      void saveCurrentResult(prompt);
+      return;
+    }
+    if (key.tab) {
+      const format: ResultFileFormat =
+        prompt.format === "json" ? "raw" : "json";
+      setSavePrompt({
+        ...prompt,
+        format,
+        path: prompt.edited
+          ? prompt.path
+          : defaultResultFileName(toolName, format, result?.callResult),
+      });
+      return;
+    }
+    if (key.backspace || key.delete) {
+      setSavePrompt({
+        ...prompt,
+        path: prompt.path.slice(0, -1),
+        edited: true,
+      });
+      return;
+    }
+    if (input && !key.ctrl && !key.meta) {
+      setSavePrompt({ ...prompt, path: prompt.path + input, edited: true });
+    }
+  };
+
+  const saveCurrentResult = async (prompt: SavePrompt) => {
+    try {
+      const saved = await saveResultToFile(
+        result?.callResult,
+        prompt.path,
+        prompt.format,
+      );
+      setSaveStatus({
+        ok: true,
+        message: `Saved ${saved.format} result to ${saved.path} (${saved.bytes} bytes)`,
+      });
+    } catch (err) {
+      setSaveStatus({
+        ok: false,
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
 
   const handleFormSubmit = async (rawValues: Record<string, JsonValue>) => {
     if (!inspectorClient || !tool) return;
@@ -182,6 +288,7 @@ export function ToolTestModal({
           error: isError ? "Tool returned an error" : undefined,
           errorDetails: isError ? result : undefined,
           duration,
+          callResult: result,
         });
       }
       setState("results");
@@ -238,7 +345,11 @@ export function ToolTestModal({
             {formStructure.title}
           </Text>
           <Text> </Text>
-          <Text dimColor>(Press ESC to close)</Text>
+          <Text dimColor>
+            {state === "results" && result?.callResult
+              ? "(w to save result, ESC to close)"
+              : "(Press ESC to close)"}
+          </Text>
         </Box>
 
         {/* Content Area */}
@@ -321,6 +432,8 @@ export function ToolTestModal({
               </ScrollView>
             </Box>
           )}
+
+          <SaveResultBar prompt={savePrompt} status={saveStatus} />
         </Box>
       </Box>
     </Box>
