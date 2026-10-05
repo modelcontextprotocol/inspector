@@ -3,6 +3,7 @@ import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { MessageEntry } from "@inspector/core/mcp/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { BodyLines } from "./BodyLines.js";
 
 interface HistoryTabProps {
   serverName: string | null;
@@ -237,18 +238,10 @@ export function HistoryTab({
                   </Box>
 
                   {/* Request content */}
-                  {JSON.stringify(selectedMessage.message, null, 2)
-                    .split("\n")
-                    .map((line: string, idx: number) => (
-                      <Box
-                        key={`req-${idx}`}
-                        marginTop={idx === 0 ? 1 : 0}
-                        paddingLeft={2}
-                        flexShrink={0}
-                      >
-                        <Text dimColor>{line}</Text>
-                      </Box>
-                    ))}
+                  <BodyLines
+                    body={JSON.stringify(selectedMessage.message)}
+                    keyPrefix="req"
+                  />
 
                   {/* Response section */}
                   {selectedMessage.response ? (
@@ -256,18 +249,10 @@ export function HistoryTab({
                       <Box marginTop={1} flexShrink={0}>
                         <Text bold>Response:</Text>
                       </Box>
-                      {JSON.stringify(selectedMessage.response, null, 2)
-                        .split("\n")
-                        .map((line: string, idx: number) => (
-                          <Box
-                            key={`resp-${idx}`}
-                            marginTop={idx === 0 ? 1 : 0}
-                            paddingLeft={2}
-                            flexShrink={0}
-                          >
-                            <Text dimColor>{line}</Text>
-                          </Box>
-                        ))}
+                      <BodyLines
+                        body={JSON.stringify(selectedMessage.response)}
+                        keyPrefix="resp"
+                      />
                     </>
                   ) : (
                     <Box marginTop={1} flexShrink={0}>
@@ -289,18 +274,10 @@ export function HistoryTab({
                   </Box>
 
                   {/* Message content */}
-                  {JSON.stringify(selectedMessage.message, null, 2)
-                    .split("\n")
-                    .map((line: string, idx: number) => (
-                      <Box
-                        key={`msg-${idx}`}
-                        marginTop={idx === 0 ? 1 : 0}
-                        paddingLeft={2}
-                        flexShrink={0}
-                      >
-                        <Text dimColor>{line}</Text>
-                      </Box>
-                    ))}
+                  <BodyLines
+                    body={JSON.stringify(selectedMessage.message)}
+                    keyPrefix="msg"
+                  />
                 </>
               )}
             </ScrollView>

@@ -5,8 +5,8 @@ import { layoutBody } from "../utils/bodyLines.js";
 /**
  * Renders a request/response body as indented, dimmed lines with a bounded
  * component count (#2407) — see `utils/bodyLines.ts` for the caps and why both
- * exist. Shared by the Requests tab and the App details view, which previously
- * carried four copies of an uncapped line map.
+ * exist. Shared by the Requests tab, the Protocol tab (#2539) and both of
+ * their App zoom views, which previously each carried an uncapped copy.
  */
 export function BodyLines({
   body,
