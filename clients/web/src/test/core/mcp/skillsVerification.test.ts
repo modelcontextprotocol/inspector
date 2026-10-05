@@ -793,6 +793,11 @@ describe("verifySkills (#2248)", () => {
     for (const report of past) {
       expect(report.outcome).toBe("incomplete");
       expect(report.incomplete).toMatch(/catalog budget/);
+      // The escape hatch names THIS skill and the `--verify` that produces a
+      // verdict — `--uri` alone fetches the skill and checks nothing (#2428).
+      expect(report.incomplete).toContain(
+        `\`--method skills/get --uri ${report.uri} --verify\``,
+      );
       expect(report.files).toHaveLength(0);
     }
     expect(reports[0].outcome).toBe("verified");
