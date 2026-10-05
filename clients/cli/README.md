@@ -10,7 +10,7 @@ You can run the CLI via `npx`:
 npx @modelcontextprotocol/inspector --cli node build/index.js
 ```
 
-Supports tools, resources, and prompts (plus `--method servers/list` / `servers/show` for catalog entries without connecting).
+Supports tools, resources, and prompts (plus `--method servers/list` / `servers/show` to read catalog entries, and `servers/add` / `servers/edit` / `servers/remove` to change them, without connecting).
 
 > Coming from the v1 CLI? See the [v1 → v2 migration guide](../../docs/v1-to-v2-migration.md) — every v1 flag still exists, but exit codes, argument ordering, and the `--` separator changed.
 
@@ -108,7 +108,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, plus catalog-only `servers/list` / `servers/show` (no MCP connect). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, plus catalog-only `servers/list` / `servers/show` and `servers/add` / `servers/edit` / `servers/remove` (no MCP connect; see [Editing the server catalog](#editing-the-server-catalog)). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
+| `--rename <name>`             | New name for the entry, with `--method servers/edit` only. Secrets stored under the old name move with it. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                                                                                                                                                                                                                                                                                                                                                        |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number).                                                                                                                                                                                                                                                                             |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`.                                                                                                                                                                                                                                       |
@@ -148,6 +149,26 @@ mcp-inspector --cli --server-url https://example.com/mcp --relogin --no-revoke -
 ```
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers, sensitive `settings.metadata` keys whose whole value is replaced whether or not it is structured, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
+
+#### Editing the server catalog
+
+`servers/add`, `servers/edit` and `servers/remove` write the same catalog file the web and TUI clients use — `--catalog <path>`, else `MCP_CATALOG_PATH`, else `~/.mcp-inspector/mcp.json` — through the web backend's own `/api/servers` write path, run in-process. So the file comes out exactly as the web UI would write it: the atomic write, name validation, and the split of secret values (stdio `env` values) out of `mcp.json` into the secret store (OS keychain, or the [fallback store](../../docs/secret-storage.md)). A web backend that is already running picks the change up through its file watcher. The server entry is named with `--server <name>` and described with the same flags an ad-hoc run takes: a positional command or URL, `--server-url`, `--transport`, `-e`, `--cwd`, `--header`, `--protocol-era`.
+
+```bash
+# Add a stdio server (its -e values go to the secret store, not mcp.json) and an HTTP one.
+mcp-inspector --cli node build/index.js --method servers/add --server my-server -e API_KEY=…
+mcp-inspector --cli --method servers/add --server remote --server-url https://example.com/mcp --header "X-Team: a"
+
+# Edit: -e merges into the env and --cwd replaces it; a new command/URL replaces the
+# transport; --header replaces the headers; --protocol-era sets the era; --rename renames.
+# Anything not named (OAuth, timeouts, metadata, roots) is kept.
+mcp-inspector --cli --method servers/edit --server my-server -e OTHER=1 --rename my-server-2
+
+# Remove the entry and its stored secrets.
+mcp-inspector --cli --method servers/remove --server remote
+```
+
+Each prints `{ ok, action, server, catalog }` (plus `previousName` on a rename); `--format json` wraps it in `{ "result": … }`. `--config` is refused, since it names a read-only session file. `servers/add` fails on a name that already exists, and `servers/edit` / `servers/remove` fail on one that does not. `servers/remove` takes only `--server`, and `servers/edit` with nothing to change is an error. When the secret store is in-memory only (a container with no keychain and nothing durable mounted), a write that supplies `-e` values is refused rather than losing them when the CLI exits — set `MCP_INSPECTOR_SECRET_STORE=file` to keep them.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
