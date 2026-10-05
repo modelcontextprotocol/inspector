@@ -41,6 +41,11 @@ interface FakeOps {
   getRequestorTaskResult: ReturnType<typeof vi.fn>;
 }
 
+// A deliberately partial fake: TasksTab calls only the two methods in
+// `FakeOps` on the client, and InspectorClient is a class with private members
+// that no structural object literal can satisfy, so a single `as` is refused.
+// The double cast is confined to this factory, and `FakeOps` keeps the methods
+// the tests assert on typed.
 const fakeClient = (over: Partial<FakeOps> = {}): FakeOps & InspectorClient =>
   ({
     cancelRequestorTask: vi.fn(async () => {}),

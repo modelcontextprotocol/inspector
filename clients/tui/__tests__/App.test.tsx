@@ -2250,6 +2250,16 @@ describe("App (keybinding help, #2436)", () => {
   });
 });
 
+/**
+ * The FakeClient App built for the first server. `clientInstances` is typed by
+ * the narrow config/options shape the mount-option tests read, while the
+ * instance is the hoisted `FakeClient`, which `vi.hoisted` cannot export as a
+ * type; the double cast bridges exactly that gap, and `InstanceType` keeps the
+ * spies typed against the real class rather than an ad-hoc shape.
+ */
+const firstFakeClient = () =>
+  h.clientInstances[0] as unknown as InstanceType<typeof h.FakeClient>;
+
 describe("App (tasks, subscriptions, roots — #2432)", () => {
   const task = {
     taskId: "task-1",
@@ -2278,9 +2288,7 @@ describe("App (tasks, subscriptions, roots — #2432)", () => {
     await expectFrame(r, "Subscriptions (1)");
     await press(r, ["u", TAB, ENTER]);
     await expectFrame(r, "Subscriptions (1/1)");
-    const client = h.clientInstances[0] as unknown as {
-      unsubscribeFromResource: ReturnType<typeof vi.fn>;
-    };
+    const client = firstFakeClient();
     await waitUntil(() => client.unsubscribeFromResource.mock.calls.length > 0);
     expect(client.unsubscribeFromResource).toHaveBeenCalledWith("file:///a");
   });
@@ -2295,9 +2303,7 @@ describe("App (tasks, subscriptions, roots — #2432)", () => {
     await expectFrame(r, "task-1");
     // Fetch the result, then zoom the details pane into the modal.
     await press(r, [ENTER, TAB]);
-    const client = h.clientInstances[0] as unknown as {
-      getRequestorTaskResult: ReturnType<typeof vi.fn>;
-    };
+    const client = firstFakeClient();
     await waitUntil(() => client.getRequestorTaskResult.mock.calls.length > 0);
     await press(r, ["+"]);
     await press(r, ["f", "l"]);
@@ -2377,9 +2383,7 @@ describe("App (tasks, subscriptions, roots — #2432)", () => {
     // are InfoTab's to render (covered in InfoTab.test.tsx).
     await expectFrame(r, "Roots (1)");
     await press(r, ["i", TAB, "e", "x"]);
-    const client = h.clientInstances[0] as unknown as {
-      setRoots: ReturnType<typeof vi.fn>;
-    };
+    const client = firstFakeClient();
     await waitUntil(() => client.setRoots.mock.calls.length > 0);
     expect(client.setRoots).toHaveBeenCalledWith([]);
     // Esc closes the modal rather than exiting the app, and `e` reopens it.
