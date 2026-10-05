@@ -73,6 +73,21 @@ export interface ContentViewerProps {
    * and takes no name.
    */
   jsonLabel?: string;
+  /**
+   * Rows a JSON payload grows to before the Ace editor starts scrolling
+   * internally. Defaults to {@link JSON_DISPLAY_MAX_LINES}.
+   *
+   * Pass `Infinity` when the host already scrolls the payload itself and shows
+   * only one at a time — the Tools result panel (#2525). With the default cap a
+   * payload longer than it gets an Ace scrollbar *inside* the host's, two
+   * vertical scrollbars over the same content. The default stays capped for
+   * the hosts the cap exists for: the Protocol and Network lists, which keep
+   * every entry's payload mounted, and where an uncapped editor would put
+   * every row of every response in the DOM.
+   *
+   * Reaches the JSON branch only, like `jsonLabel`.
+   */
+  jsonMaxLines?: number;
 }
 
 /**
@@ -203,6 +218,7 @@ function JsonContent({
   formatted,
   copyable,
   label,
+  maxLines,
 }: {
   /** The original payload — what the copy button copies. */
   text: string;
@@ -210,6 +226,8 @@ function JsonContent({
   formatted: string;
   copyable: boolean;
   label: string;
+  /** Row cap before Ace scrolls internally — see `ContentViewerProps.jsonMaxLines`. */
+  maxLines: number;
 }) {
   return (
     <CopyableWrapper copyable={copyable} copyValue={text}>
@@ -234,9 +252,11 @@ function JsonContent({
         //   editor would put a whole 10k-line response in the DOM per entry.
         //
         // 200 is chosen so essentially no real payload nests a scrollbar while
-        // the pathological one stays bounded.
+        // the pathological one stays bounded. It is the *default*: a host that
+        // mounts a single payload at a time and owns the scroll container can
+        // lift it via `jsonMaxLines` (the Tools result panel does, #2525).
         minLines={1}
-        maxLines={JSON_DISPLAY_MAX_LINES}
+        maxLines={maxLines}
       />
     </CopyableWrapper>
   );
@@ -247,11 +267,13 @@ function PlainTextContent({
   copyable,
   wrap,
   jsonLabel,
+  jsonMaxLines,
 }: {
   text: string;
   copyable: boolean;
   wrap: boolean;
   jsonLabel: string;
+  jsonMaxLines: number;
 }) {
   // Untyped text that really parses as JSON gets the JSON renderer too — the
   // heuristic is how a server that sent no MIME type still reads well. Not when
@@ -268,6 +290,7 @@ function PlainTextContent({
         formatted={asJson}
         copyable={copyable}
         label={jsonLabel}
+        maxLines={jsonMaxLines}
       />
     );
   }
@@ -301,12 +324,14 @@ function TextualContent({
   copyable,
   wrap,
   jsonLabel,
+  jsonMaxLines,
 }: {
   text: string;
   mimeType: string | undefined;
   copyable: boolean;
   wrap: boolean;
   jsonLabel: string;
+  jsonMaxLines: number;
 }) {
   const kind = mimeType ? getMimeKind(mimeType) : "text";
   switch (kind) {
@@ -327,6 +352,7 @@ function TextualContent({
           formatted={formatJson(text)}
           copyable={copyable}
           label={jsonLabel}
+          maxLines={jsonMaxLines}
         />
       ) : (
         <PlainTextContent
@@ -334,6 +360,7 @@ function TextualContent({
           copyable={copyable}
           wrap={wrap}
           jsonLabel={jsonLabel}
+          jsonMaxLines={jsonMaxLines}
         />
       );
     case "xml":
@@ -373,6 +400,7 @@ function TextualContent({
           copyable={copyable}
           wrap={wrap}
           jsonLabel={jsonLabel}
+          jsonMaxLines={jsonMaxLines}
         />
       );
   }
@@ -403,12 +431,14 @@ function ResourceContent({
   copyable,
   wrap,
   jsonLabel,
+  jsonMaxLines,
 }: {
   contents: TextResourceContents | BlobResourceContents;
   mimeType: string;
   copyable: boolean;
   wrap: boolean;
   jsonLabel: string;
+  jsonMaxLines: number;
 }) {
   if ("text" in contents) {
     return (
@@ -418,6 +448,7 @@ function ResourceContent({
         copyable={copyable}
         wrap={wrap}
         jsonLabel={jsonLabel}
+        jsonMaxLines={jsonMaxLines}
       />
     );
   }
@@ -447,6 +478,7 @@ function ResourceContent({
         copyable={copyable}
         wrap={wrap}
         jsonLabel={jsonLabel}
+        jsonMaxLines={jsonMaxLines}
       />
     );
   }
@@ -460,12 +492,14 @@ function BlockContent({
   copyable,
   wrap,
   jsonLabel,
+  jsonMaxLines,
 }: {
   block: ContentBlock;
   mimeType: string | undefined;
   copyable: boolean;
   wrap: boolean;
   jsonLabel: string;
+  jsonMaxLines: number;
 }) {
   switch (block.type) {
     case "text":
@@ -476,6 +510,7 @@ function BlockContent({
           copyable={copyable}
           wrap={wrap}
           jsonLabel={jsonLabel}
+          jsonMaxLines={jsonMaxLines}
         />
       );
     case "image":
@@ -503,6 +538,7 @@ function BlockContent({
             copyable={copyable}
             wrap={wrap}
             jsonLabel={jsonLabel}
+            jsonMaxLines={jsonMaxLines}
           />
         );
       }
@@ -539,6 +575,7 @@ export function ContentViewer({
   mimeType,
   wrap = true,
   jsonLabel = "JSON content",
+  jsonMaxLines = JSON_DISPLAY_MAX_LINES,
 }: ContentViewerProps) {
   if (contents) {
     const effective =
@@ -550,6 +587,7 @@ export function ContentViewer({
         copyable={copyable}
         wrap={wrap}
         jsonLabel={jsonLabel}
+        jsonMaxLines={jsonMaxLines}
       />
     );
   }
@@ -561,6 +599,7 @@ export function ContentViewer({
       copyable={copyable}
       wrap={wrap}
       jsonLabel={jsonLabel}
+      jsonMaxLines={jsonMaxLines}
     />
   );
 }
