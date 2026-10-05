@@ -98,6 +98,25 @@ Because undici's `Response` is a different class from `globalThis.Response`, the
 
 `undici` is declared **only** in the root `package.json`, and every client's tsup config lists it as `external`. Both halves matter: tsup auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
 
+### Shell completion
+
+`--completion <bash|zsh|fish>` prints a completion script for `mcp-inspector` on stdout and exits without connecting to anything. The first word completes the launcher's mode flags (`--cli`, `--web`, `--tui`); after `--cli` it completes every CLI flag, the `--method` names (`tools/list`, `tools/call`, `servers/list`, …) and the finite values of `--transport`, `--log-level`, `--format` and `--protocol-era`. Path flags (`--catalog`, `--config`, `--cwd`, `--client-config`) and the stdio target command fall back to file completion.
+
+```bash
+# bash — current shell, or persist it
+source <(mcp-inspector --cli --completion bash)
+mcp-inspector --cli --completion bash > ~/.local/share/bash-completion/completions/mcp-inspector
+
+# zsh — current shell (after compinit), or save it on your $fpath
+source <(mcp-inspector --cli --completion zsh)
+mcp-inspector --cli --completion zsh > "${fpath[1]}/_mcp-inspector"
+
+# fish
+mcp-inspector --cli --completion fish > ~/.config/fish/completions/mcp-inspector.fish
+```
+
+The flag list is read from the CLI's own commander definition when the script is generated, so it cannot drift from `--help`; regenerate the script after upgrading to pick up new flags. Only `--cli` mode is completed — web and TUI flags are not.
+
 ## Options
 
 ### MCP server (which server to connect to)
@@ -127,9 +146,11 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
+| `-q`, `--quiet`               | Print only the result payload on stdout, or the error envelope on stderr on failure. Drops status lines, warnings, advisory summaries and a stdio server's own stderr; OAuth prompts a human must answer still print. See [Quiet output](#quiet-output---quiet). |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
+| `--completion <shell>`        | Print a `bash`, `zsh` or `fish` completion script and exit (no server connection). See [Shell completion](#shell-completion). |
 
 #### Revoking on `--relogin`
 
@@ -169,6 +190,38 @@ mcp-inspector --cli --method servers/remove --server remote
 ```
 
 Each prints `{ ok, action, server, catalog }` (plus `previousName` on a rename); `--format json` wraps it in `{ "result": … }`. `--config` is refused, since it names a read-only session file. `servers/add` fails on a name that already exists, and `servers/edit` / `servers/remove` fail on one that does not. `servers/remove` rejects the entry-describing flags (a command/URL, `--transport`, `-e`, `--cwd`, `--header`, `--protocol-era`, `--rename`), and `servers/edit` with nothing to change is an error. When the secret store is in-memory only (a container with no keychain and nothing durable mounted), a write that supplies `-e` values is refused rather than losing them when the CLI exits, and so is `--rename`, since this process cannot see secrets held in another process's memory — set `MCP_INSPECTOR_SECRET_STORE=file` to keep them.
+
+#### Quiet output (`--quiet`)
+
+`-q` / `--quiet` reduces a run to its result: the payload on stdout on success, and the
+single-line [error envelope](#exit-codes--error-envelopes) on stderr on failure. It
+composes with `--format`: `--format` shapes stdout, and `--quiet` strips stderr of everything non-essential (the exceptions are in the table below).
+
+```bash
+mcp-inspector --cli node build/index.js -q --method tools/list | jq '.tools[].name'
+```
+
+What it suppresses:
+
+| Output                                                                         | Under `--quiet` |
+| ------------------------------------------------------------------------------ | --------------- |
+| A stdio server's own stderr (startup banners, logs)                            | Dropped         |
+| `Schema portability: … Re-run with --strict for details.` (`tools/list`)       | Dropped         |
+| The `--verify` one-line summary                                                | Dropped — a failing run's envelope carries the same text |
+| `Authorization complete.` / `Authorization complete. Retrying…`                | Dropped         |
+| `Warning: could not revoke the OAuth grant …` (`--relogin`)                    | Dropped         |
+| Advisory warnings from shared Inspector code: the `[mcp-inspector] …` secret-store notice (keychain fallback, `memory` caveat), ignored `roots` / OAuth-endpoint settings, lock and persistence trouble | Dropped (all of `console.warn` is muted for the run). See [secret storage](../../docs/secret-storage.md) for what the store notice would have said. |
+| The result payload / NDJSON on stdout                                          | Kept            |
+| The error envelope on a non-zero exit                                          | Kept            |
+| The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |
+| The OAuth authorization URL, the step-up `[y/N]` prompt, "open it by hand"     | Kept — interactive login cannot finish without them |
+
+So a quiet run that needs an interactive login still shows what it must; for a run
+that must never prompt, combine `--quiet` with `--stored-auth-only`.
+
+⚠️ Dropping the server's stderr and the advisory warnings also drops their explanation when something goes wrong.
+The CLI still exits non-zero with an envelope, but if the reason is not obvious,
+re-run without `--quiet`.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 

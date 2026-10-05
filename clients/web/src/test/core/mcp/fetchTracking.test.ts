@@ -9,6 +9,7 @@ import {
   redactSensitiveHeaders,
   redactBody,
   redactUrlQuery,
+  redactUrlsInText,
   REDACTED_HEADER_VALUE,
   REDACTED_VALUE,
 } from "@inspector/core/mcp/fetchTracking.js";
@@ -861,6 +862,70 @@ describe("redactUrlQuery", () => {
     expect(redactUrlQuery("https://x.example/p?code=a&code=b")).toBe(
       `https://x.example/p?code=${encodeURIComponent(REDACTED_VALUE)}`,
     );
+  });
+});
+
+describe("redactUrlsInText", () => {
+  const R = encodeURIComponent(REDACTED_VALUE);
+
+  it("redacts a URL embedded in prose, keeping trailing punctuation", () => {
+    expect(
+      redactUrlsInText(
+        "Request to https://srv.example/mcp?code=abc&tenant=acme. Retry later",
+      ),
+    ).toBe(
+      `Request to https://srv.example/mcp?code=${R}&tenant=acme. Retry later`,
+    );
+  });
+
+  it("keeps a punctuation run inside the URL and splits only the trailing one", () => {
+    // A long run that does not end the match was quadratic under an unanchored
+    // /[…]+$/ (#2540); the backward scan must still stop at `x`.
+    const run = "!".repeat(50_000);
+    const out = redactUrlsInText(
+      `see https://srv.example/cb?note=${run}x&code=abc123!?`,
+    );
+    expect(out).toMatch(new RegExp(`x&code=${R}!\\?$`));
+    expect(out).not.toContain("abc123");
+  });
+
+  it("redacts a URL whose scheme is upper- or mixed-case", () => {
+    expect(
+      redactUrlsInText(
+        "a HTTP://s.example/cb?access_token=t b HttpS://s.example/cb?code=c",
+      ),
+    ).toBe(
+      `a HTTP://s.example/cb?access_token=${R} b HttpS://s.example/cb?code=${R}`,
+    );
+  });
+
+  it("redacts each of two comma-joined URLs separately", () => {
+    expect(
+      redactUrlsInText(
+        "https://one.example/cb?state=ok,https://two.example/cb?code=secret",
+      ),
+    ).toBe(`https://one.example/cb?state=ok,https://two.example/cb?code=${R}`);
+  });
+
+  it("redacts through an apostrophe and keeps a closing quote", () => {
+    expect(redactUrlsInText("at https://s.example/cb?code=abc'def now")).toBe(
+      `at https://s.example/cb?code=${R} now`,
+    );
+    expect(redactUrlsInText("at 'https://s.example/cb?code=abc123'.")).toBe(
+      `at 'https://s.example/cb?code=${R}'.`,
+    );
+  });
+
+  it("stops at a double quote, so a URL inside serialized JSON is redacted", () => {
+    expect(
+      redactUrlsInText(JSON.stringify({ url: "https://s.example/?token=t" })),
+    ).toBe(`{"url":"https://s.example/?token=${R}"}`);
+  });
+
+  it("leaves text without a sensitive URL untouched", () => {
+    const text = "Failed at https://srv.example/mcp?tenant=acme and nowhere";
+    expect(redactUrlsInText(text)).toBe(text);
+    expect(redactUrlsInText("no url here")).toBe("no url here");
   });
 });
 

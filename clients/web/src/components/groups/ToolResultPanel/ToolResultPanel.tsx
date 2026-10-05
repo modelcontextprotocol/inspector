@@ -94,6 +94,15 @@ const ResultScroll = ScrollArea.withProps({
   offsetScrollbars: true,
 });
 
+// Every scroll region in this panel (`ResultScroll`, `NonLinkCap`) already
+// scrolls a JSON block whole, so the block's Ace editor must grow to its full
+// height rather than stop at `ContentViewer`'s default row cap and scroll
+// inside — which is what put two vertical scrollbars side by side on a long
+// result (#2525). Lifting the cap is affordable here because the panel shows
+// one result at a time; the cap exists for the Protocol and Network lists,
+// which keep every payload mounted.
+const UNCAPPED_JSON_LINES = Infinity;
+
 const ResultStack = Stack.withProps({
   gap: "md",
 });
@@ -253,6 +262,7 @@ export function ToolResultPanel({
         key={segment.index}
         block={segment.block}
         copyable={segment.block.type === "text"}
+        jsonMaxLines={UNCAPPED_JSON_LINES}
       />
     );
     // Alongside a Resource Links box, cap the block at half the height (and let

@@ -4,6 +4,7 @@ import { within } from "@testing-library/react";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import { getAceText, setAceText } from "../../../test/aceEditor";
+import { redirectUrlProvider } from "../../../lib/authToken";
 import {
   ServerSettingsForm,
   type ServerSettingsSection,
@@ -1564,6 +1565,54 @@ describe("ServerSettingsForm", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText("mcp tools:read env:read"),
+    ).toBeInTheDocument();
+  });
+
+  // #2524 — a pre-registered client must register the redirect URI on its
+  // authorization server, so the form shows the exact value the flow sends.
+  it("shows the read-only OAuth redirect URI with a copy control (#2524)", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    const expected = redirectUrlProvider.getRedirectUrl();
+    expect(expected).toBe(`${window.location.origin}/oauth/callback`);
+    const input = screen.getByLabelText("Redirect URI");
+    expect(input).toHaveValue(expected);
+    expect(input).toHaveAttribute("readonly");
+    expect(
+      screen.getByText(/depends on the origin the Inspector is opened from/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/when using a pre-registered client ID/i),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy Redirect URI" }));
+    expect(writeText).toHaveBeenCalledWith(expected);
+  });
+
+  it("still shows the redirect URI when EMA is on (#2524)", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, enterpriseManaged: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Redirect URI")).toHaveValue(
+      redirectUrlProvider.getRedirectUrl(),
+    );
+    // Under EMA the URI is registered on the IdP client, not the Resource AS.
+    expect(
+      screen.getByText(/enterprise IdP client configured in Client Settings/i),
     ).toBeInTheDocument();
   });
 

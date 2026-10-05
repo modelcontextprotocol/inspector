@@ -63,6 +63,12 @@ export type CliOAuthConnectOptions = {
    * Default: {@link STEP_UP_PIPE_TIMEOUT_MS}.
    */
   stepUpPromptTimeoutMs?: number;
+  /**
+   * `--quiet`: drop the "Authorization complete" status lines (#2435). The
+   * authorization URL and the step-up [y/N] still print — a human has to act
+   * on those for the flow to finish at all.
+   */
+  quiet?: boolean;
 };
 
 function authRequiredFailure(message: string): never {
@@ -205,6 +211,7 @@ export async function runCliInteractiveOAuth(
     authorizationUrl?: URL;
     authChallenge?: AuthChallenge;
     autoOpenControl?: CliOAuthAutoOpenControl;
+    quiet?: boolean;
   },
 ): Promise<void> {
   const result = await withArmedAutoOpen(options?.autoOpenControl, () =>
@@ -221,7 +228,7 @@ export async function runCliInteractiveOAuth(
   if (result.kind === "insufficient_scope") {
     throw new Error(stepUpInsufficientScopeMessage(result.challenge));
   }
-  if (result.kind === "success") {
+  if (result.kind === "success" && !options?.quiet) {
     process.stderr.write("Authorization complete.\n");
   }
 }
@@ -258,6 +265,7 @@ export async function handleCliAuthRecoveryRequired(
   await runCliInteractiveOAuth(client, redirectUrlProvider, callbackUrlConfig, {
     authorizationUrl: error.authorizationUrl,
     autoOpenControl: options?.autoOpenControl,
+    quiet: options?.quiet,
     ...(error.authChallenge.reason === "insufficient_scope" && {
       authChallenge: error.authChallenge,
     }),
@@ -323,7 +331,7 @@ export async function connectInspectorWithOAuth(
         inspectorClient,
         redirectUrlProvider,
         callbackUrlConfig,
-        { autoOpenControl: options?.autoOpenControl },
+        { autoOpenControl: options?.autoOpenControl, quiet: options?.quiet },
       );
       await inspectorClient.connect();
       return;
@@ -381,7 +389,9 @@ export async function withCliAuthRecoveryRetry<T>(
       // Belt-and-braces: this branch never disconnects today, so connect() is
       // usually a no-op (already connected). See connectInspectorWithOAuth.
       await inspectorClient.connect();
-      process.stderr.write("Authorization complete. Retrying…\n");
+      if (!options?.quiet) {
+        process.stderr.write("Authorization complete. Retrying…\n");
+      }
       return await fn();
     }
 
@@ -399,12 +409,14 @@ export async function withCliAuthRecoveryRetry<T>(
         inspectorClient,
         redirectUrlProvider,
         callbackUrlConfig,
-        { autoOpenControl: options?.autoOpenControl },
+        { autoOpenControl: options?.autoOpenControl, quiet: options?.quiet },
       );
       // Load-bearing: disconnect() above closed the session.
       // connect() is a no-op when already connected.
       await inspectorClient.connect();
-      process.stderr.write("Authorization complete. Retrying…\n");
+      if (!options?.quiet) {
+        process.stderr.write("Authorization complete. Retrying…\n");
+      }
       return await fn();
     }
 

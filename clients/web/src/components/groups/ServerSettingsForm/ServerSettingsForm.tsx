@@ -15,6 +15,8 @@ import {
 } from "@mantine/core";
 import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { JsonObjectInput } from "../../elements/JsonObjectInput/JsonObjectInput";
+import { CopyButton } from "../../elements/CopyButton/CopyButton";
+import { redirectUrlProvider } from "../../../lib/authToken";
 import type { ChangeEvent } from "react";
 import type { ProtocolEra } from "@modelcontextprotocol/client";
 import type {
@@ -189,6 +191,13 @@ function isModernLogLevelValue(value: string | null): value is ModernLogLevel {
 // `rightSectionPointerEvents="auto"` keeps the ClearButton clickable inside the
 // input's right section; shared by every clearable field in this form.
 const ClearableTextInput = TextInput.withProps({
+  rightSectionPointerEvents: "auto",
+});
+
+// Read-only display of the OAuth redirect URI (#2524). `rightSectionPointerEvents`
+// keeps the CopyButton in the right section clickable, as for ClearableTextInput.
+const RedirectUriInput = TextInput.withProps({
+  readOnly: true,
   rightSectionPointerEvents: "auto",
 });
 
@@ -523,6 +532,19 @@ export function ServerSettingsForm({
   const clientSecretLabel = enterpriseManaged
     ? "Resource AS Client Secret"
     : "Client Secret";
+  // The exact redirect URI the connect path sends (#2524). Read from the same
+  // `redirectUrlProvider` the OAuth flow uses, so this field cannot drift from
+  // the value the authorization server actually receives. It follows the
+  // address bar's origin, which is why it is computed rather than hard-coded.
+  const oauthRedirectUri = redirectUrlProvider.getRedirectUrl();
+  // Under EMA the authorization request carrying this URI goes to the
+  // enterprise IdP, so it is registered on the IdP client from Client Settings
+  // — not on the Resource AS client named by the fields beside it.
+  const redirectUriOriginNote =
+    "It depends on the origin the Inspector is opened from — localhost vs 127.0.0.1, a different port or host each change it.";
+  const redirectUriDescription = enterpriseManaged
+    ? `Register this exact URI on the enterprise IdP client configured in Client Settings — the IdP authorization request carries it, not the Resource AS client above. ${redirectUriOriginNote}`
+    : `Register this exact URI with your authorization server when using a pre-registered client ID. ${redirectUriOriginNote}`;
   const resourceAsDescription = enterpriseManaged
     ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
     : undefined;
@@ -1003,6 +1025,14 @@ export function ServerSettingsForm({
                       }
                     />
                   ) : null
+                }
+              />
+              <RedirectUriInput
+                label="Redirect URI"
+                description={redirectUriDescription}
+                value={oauthRedirectUri}
+                rightSection={
+                  <CopyButton value={oauthRedirectUri} label="Redirect URI" />
                 }
               />
               <ClearableTextInput
