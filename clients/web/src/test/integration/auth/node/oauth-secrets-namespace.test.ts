@@ -756,7 +756,51 @@ describe("namespace ledger: superseded namespaces are purged (#2560)", () => {
       await writeOAuthSections(fileA, snapshotFor("two"), undefined, keyring);
       await flushStoreFileWrites(fileA);
       expect(hasNs1()).toBe(false);
-      expect(ledgerNamespaces(fileA)).toEqual([namespaceOf(fileA)]);
+    } finally {
+      if (savedFileEnv === undefined) delete process.env[SECRET_FILE_ENV];
+      else process.env[SECRET_FILE_ENV] = savedFileEnv;
+    }
+  });
+
+  it("keeps tracking hand-off copies through a file-backed re-adoption, until the keychain returns", async () => {
+    // File-backed save → strip → hand-off copies into the keychain → the
+    // next run is file-backed again and re-adopts → back on the keychain.
+    // The file run's purge must not be the end of the keychain copies.
+    const secretsFile = join(tempDir, "secrets.json");
+    const savedFileEnv = process.env[SECRET_FILE_ENV];
+    process.env[SECRET_FILE_ENV] = secretsFile;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fileStore = () =>
+        new FileSecretStore({ filePath: secretsFile, passphrase: "" });
+      await writeOAuthSections(
+        fileA,
+        snapshotFor("one"),
+        undefined,
+        fileStore(),
+      );
+      await flushStoreFileWrites(fileA);
+      const ns1 = namespaceOf(fileA);
+      await stripStamp(fileA);
+
+      const keyring = new KeyringSecretStore();
+      await absorbFileSecretsIntoKeyring(keyring);
+      const hasNs1 = () =>
+        [...keyringMocks.password.keys()].some((a) => a.includes(ns1));
+      expect(hasNs1()).toBe(true);
+
+      await writeOAuthSections(
+        fileA,
+        snapshotFor("two"),
+        undefined,
+        fileStore(),
+      );
+      await flushStoreFileWrites(fileA);
+      expect(hasNs1()).toBe(true);
+
+      await writeOAuthSections(fileA, snapshotFor("three"), undefined, keyring);
+      await flushStoreFileWrites(fileA);
+      expect(hasNs1()).toBe(false);
     } finally {
       if (savedFileEnv === undefined) delete process.env[SECRET_FILE_ENV];
       else process.env[SECRET_FILE_ENV] = savedFileEnv;

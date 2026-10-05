@@ -28,7 +28,9 @@
  * succeeds against nothing, and dropping the record on that "success"
  * would strand the real entries for good. So a record is dropped only by a
  * purge in the location it was written to, and survives every other run
- * until one of those comes along.
+ * until one of those comes along — except that a `secrets.json` record is
+ * handed to the keychain record rather than dropped, because a
+ * file-to-keychain hand-off may already have copied its entries there.
  *
  * Everything here is best-effort and never throws: the ledger is a cleanup
  * aid, not part of the credential path, so a failure warns once and the
@@ -38,7 +40,6 @@
  * entries.
  */
 
-import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   deleteStoreFile,
@@ -80,33 +81,33 @@ export async function secretStoreLocation(store: SecretStore): Promise<string> {
 }
 
 /**
- * The recorded locations a purge from `location` covers. Always its own.
- * A keychain run also covers every `secrets.json` record, because the
+ * The recorded locations a purge from `location` covers: always its own,
+ * and — for a keychain run — every `secrets.json` record too, because the
  * file-to-keychain hand-off (`absorbFileSecretsIntoKeyring`) copies a
- * file's entries — superseded namespaces included — into the keychain
- * without telling any ledger; deleting ids that were never copied is a
- * no-op. Only the keychain's own record is certain to be fully purged,
- * though: a file's record is dropped only once the file itself is gone
- * (absorbed or removed), since until then it may still hold the entries.
+ * file's entries, superseded namespaces included, into the keychain
+ * without telling any ledger. Deleting ids that were never copied is a
+ * no-op.
+ *
+ * Only the run's own record is ever dropped. A keychain run cannot know
+ * whether a hand-off is still copying, was interrupted, or left the file
+ * in place, so a `file:` record it purges stays recorded and is purged
+ * again on the next locked save; it is consumed only by a run against that
+ * file — and then folded into the keychain record rather than forgotten
+ * (see {@link purgeSupersededNamespaces}), since copies may already sit in
+ * the keychain.
  */
 function coveredLocations(
   location: string,
   byLocation: Map<string, LedgerKeys>,
-): Array<{ location: string; keys: LedgerKeys; drop: boolean }> {
-  const covered: Array<{ location: string; keys: LedgerKeys; drop: boolean }> =
-    [];
-  for (const [recorded, keys] of byLocation) {
-    if (recorded === location) {
-      covered.push({ location: recorded, keys, drop: true });
-    } else if (
-      location === KEYRING_LOCATION &&
-      recorded.startsWith(FILE_LOCATION_PREFIX)
-    ) {
-      const filePath = recorded.slice(FILE_LOCATION_PREFIX.length);
-      covered.push({ location: recorded, keys, drop: !existsSync(filePath) });
-    }
-  }
-  return covered;
+): Array<{ location: string; keys: LedgerKeys }> {
+  return [...byLocation]
+    .filter(
+      ([recorded]) =>
+        recorded === location ||
+        (location === KEYRING_LOCATION &&
+          recorded.startsWith(FILE_LOCATION_PREFIX)),
+    )
+    .map(([recorded, keys]) => ({ location: recorded, keys }));
 }
 
 /** The keys one namespace has had store entries written under. */
@@ -288,7 +289,7 @@ export async function purgeSupersededNamespaces(
   let changed = false;
   for (const [namespace, byLocation] of ledger) {
     if (namespace === current) continue;
-    for (const { location: recorded, keys, drop } of coveredLocations(
+    for (const { location: recorded, keys } of coveredLocations(
       location,
       byLocation,
     )) {
@@ -312,8 +313,19 @@ export async function purgeSupersededNamespaces(
           warnLedgerFailure("purge an orphaned namespace recorded in", error);
         }
       }
-      if (!purged || !drop) continue;
+      if (!purged || recorded !== location) continue;
       byLocation.delete(recorded);
+      // A file's entries may also have been copied into the keychain by a
+      // hand-off this ledger never saw; keep tracking them there.
+      if (recorded.startsWith(FILE_LOCATION_PREFIX)) {
+        const keyring = byLocation.get(KEYRING_LOCATION) ?? {
+          servers: new Set<string>(),
+          idpSessions: new Set<string>(),
+        };
+        for (const url of keys.servers) keyring.servers.add(url);
+        for (const issuer of keys.idpSessions) keyring.idpSessions.add(issuer);
+        byLocation.set(KEYRING_LOCATION, keyring);
+      }
       changed = true;
     }
     if (byLocation.size === 0) ledger.delete(namespace);

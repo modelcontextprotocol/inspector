@@ -328,27 +328,17 @@ describe("purgeSupersededNamespaces", () => {
     });
   });
 
-  it("from the keychain, also purges a secrets file's records — the hand-off may have copied them", async () => {
+  it("from the keychain, also purges a secrets file's records but keeps them", async () => {
+    // The hand-off may have copied them in — or may still be copying, or
+    // was interrupted — so the keychain run purges and keeps the record
+    // for the next save rather than guessing that it is finished.
     const keyring = new FakeKeyring();
-    const liveFile = join(tempDir, "live-secrets.json");
-    writeFileSync(liveFile, "{}");
-    const goneFile = join(tempDir, "absorbed-secrets.json");
-    const fileStore = (filePath: string) =>
-      new FileSecretStore({ filePath, passphrase: "" });
-    await recordNamespaceKeys(
-      stateFile,
-      fileStore(liveFile),
-      NS1,
-      [SERVER],
-      [],
-    );
-    await recordNamespaceKeys(
-      stateFile,
-      fileStore(goneFile),
-      NS2,
-      [SERVER],
-      [],
-    );
+    const fileStore = new FileSecretStore({
+      filePath: join(tempDir, "secrets.json"),
+      passphrase: "",
+    });
+    await recordNamespaceKeys(stateFile, fileStore, NS1, [SERVER], []);
+    await recordNamespaceKeys(stateFile, keyring, NS2, [SERVER], []);
 
     await purgeSupersededNamespaces(stateFile, keyring, undefined);
     expect(keyring.deleted.sort()).toEqual(
@@ -357,11 +347,47 @@ describe("purgeSupersededNamespaces", () => {
         oauthSecretServerId(SERVER, NS2),
       ].sort(),
     );
-    // The absorbed (gone) file's record is done with; the live file may
-    // still hold its entries, so its record waits for a run against it.
+    // The keychain's own record is done; the file's record stays.
     expect(readLedger()).toEqual({
-      [NS1]: { [`file:${liveFile}`]: { servers: [SERVER], idpSessions: [] } },
+      [NS1]: {
+        [`file:${fileStore.filePath}`]: { servers: [SERVER], idpSessions: [] },
+      },
     });
+  });
+
+  it("a secrets file's own purge hands its record to the keychain instead of forgetting it", async () => {
+    // Its entries may already have been copied into the keychain by a
+    // hand-off, so the keys stay tracked there for a keychain run.
+    const fileStore = new FileSecretStore({
+      filePath: join(tempDir, "secrets.json"),
+      passphrase: "",
+    });
+    const fileDel = vi
+      .spyOn(fileStore, "deleteAllForServer")
+      .mockResolvedValue(undefined);
+    await recordNamespaceKeys(stateFile, fileStore, NS1, [SERVER], [ISSUER]);
+    await recordNamespaceKeys(
+      stateFile,
+      new FakeKeyring(),
+      NS1,
+      ["https://b.example"],
+      [],
+    );
+
+    await purgeSupersededNamespaces(stateFile, fileStore, undefined);
+    expect(fileDel).toHaveBeenCalledTimes(2);
+    expect(readLedger()).toEqual({
+      [NS1]: {
+        keyring: {
+          servers: ["https://b.example", SERVER],
+          idpSessions: [ISSUER],
+        },
+      },
+    });
+
+    const keyring = new FakeKeyring();
+    await purgeSupersededNamespaces(stateFile, keyring, undefined);
+    expect(existsSync(ledgerFile)).toBe(false);
   });
 
   it("does not extend a secrets file's or memory run to another file's records", async () => {
