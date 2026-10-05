@@ -289,3 +289,39 @@ describe("PromptsTab", () => {
     expect(onFetchPrompt).not.toHaveBeenCalled();
   });
 });
+
+describe("PromptsTab list filter (#2430)", () => {
+  it("narrows the list by name or title and shows a no-match state", async () => {
+    const filterable: Prompt[] = [
+      makePrompt({ name: "alpha" }),
+      makePrompt({ name: "", title: "Gamma Title", description: "G desc" }),
+      makePrompt({ name: "delta" }),
+    ];
+    const { lastFrame, stdin } = render(
+      <PromptsTab
+        prompts={filterable}
+        inspectorClient={null}
+        width={120}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "g", "a", "m"]) {
+      stdin.write(k);
+      await tick();
+    }
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("Prompts (1/3)");
+    expect(frame).toContain("Prompt 2");
+    expect(frame).toContain("G desc");
+    stdin.write("z");
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("No prompts match the filter");
+    expect(frame).toContain("Select a prompt to view details");
+    stdin.write(ESC);
+    await tick();
+    expect(lastFrame()).toContain("Prompts (3)");
+  });
+});

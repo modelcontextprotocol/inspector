@@ -410,3 +410,44 @@ describe("ResourcesTab", () => {
     expect(frame).toContain("[Enter to Fetch Resource]");
   });
 });
+
+describe("ResourcesTab list filter (#2430)", () => {
+  it("narrows resources and templates by name or URI", async () => {
+    const onCountChange = vi.fn();
+    const { lastFrame, stdin } = render(
+      <ResourcesTab
+        resources={resources}
+        resourceTemplates={templates}
+        inspectorClient={null}
+        width={120}
+        height={30}
+        focusedPane="list"
+        onCountChange={onCountChange}
+      />,
+    );
+    await tick();
+    for (const k of ["/", "{", "i", "d"]) {
+      stdin.write(k);
+      await tick();
+    }
+    let frame = lastFrame() ?? "";
+    // Only the template's URI carries "{id}".
+    expect(frame).toContain("Resources (1/5)");
+    expect(frame).toContain("tmpl-alpha");
+    expect(frame).not.toContain("res-alpha");
+
+    for (const k of ["\x7f", "\x7f", "\x7f", "/", "b"]) {
+      stdin.write(k);
+      await tick();
+    }
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("Resources (1/5)");
+    expect(frame).toContain("file:///b");
+
+    stdin.write("q");
+    await tick();
+    expect(lastFrame()).toContain("No resources match the filter");
+    // The tab count reports the unfiltered total, never the filtered view.
+    expect(onCountChange).not.toHaveBeenCalled();
+  });
+});

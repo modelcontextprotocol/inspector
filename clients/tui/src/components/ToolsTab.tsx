@@ -8,6 +8,12 @@ import {
   type SchemaFinding,
 } from "@inspector/core/json/schemaLint.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { useListFilter } from "../hooks/useListFilter.js";
+import {
+  ListFilterBar,
+  LIST_FILTER_ROWS,
+  filterCount,
+} from "./ListFilterBar.js";
 
 /**
  * How each severity renders in the terminal (#1005). One table, read by both
@@ -48,6 +54,13 @@ interface ToolsTabProps {
   onTestTool?: (tool: Tool) => void;
   onViewDetails?: (tool: Tool) => void;
   modalOpen?: boolean;
+  /** Told when the list filter starts or stops capturing keys (#2430). */
+  onFilterEditingChange?: (editing: boolean) => void;
+}
+
+/** What the `/` filter matches a tool against (#2430). */
+function toolFilterFields(tool: Tool): ReadonlyArray<string | undefined> {
+  return [tool.name, tool.title, tool.annotations?.title];
 }
 
 export function ToolsTab({
@@ -59,19 +72,26 @@ export function ToolsTab({
   onTestTool,
   onViewDetails,
   modalOpen = false,
+  onFilterEditingChange,
 }: ToolsTabProps) {
-  const visibleCount = Math.max(1, height - 7);
+  const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
+  const filter = useListFilter(tools, toolFilterFields, {
+    enabled: !modalOpen && focusedPane === "list",
+    onEditingChange: onFilterEditingChange,
+  });
+  const shownTools = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    tools.length,
+    shownTools.length,
     visibleCount,
-    { resetWhen: tools },
+    { resetWhen: shownTools },
   );
   const [error] = useState<string | null>(null);
   // Tool-schema portability findings, one entry per tool, same order (#1005).
   // Pure walk over data already in memory, so it is recomputed only when the
   // list itself changes rather than on every keypress.
+  // Keyed by the tool object so a filtered view still finds each row's entry.
   const findingsByTool = useMemo(
-    () => tools.map((tool) => lintToolSchemas(tool)),
+    () => new Map(tools.map((tool) => [tool, lintToolSchemas(tool)])),
     [tools],
   );
   const scrollViewRef = useRef<ScrollViewRef>(null);
@@ -81,6 +101,10 @@ export function ToolsTab({
   // Handle arrow key navigation when focused
   useInput(
     (input: string, key: Key) => {
+      // The filter goes first: while it is editing, Enter and letters belong
+      // to the query, not to the list.
+      if (filter.handleInput(input, key)) return;
+
       // Handle Enter key to test tool (works from both list and details)
       if (key.return && selectedTool && isConnected && onTestTool) {
         onTestTool(selectedTool);
@@ -90,7 +114,7 @@ export function ToolsTab({
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < tools.length - 1) {
+        } else if (key.downArrow && selectedIndex < shownTools.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -130,8 +154,9 @@ export function ToolsTab({
     scrollViewRef.current?.scrollTo(0);
   }, [selectedIndex]);
 
-  const selectedTool = tools[selectedIndex] || null;
-  const selectedFindings = findingsByTool[selectedIndex] ?? [];
+  const selectedTool = shownTools[selectedIndex] || null;
+  const selectedFindings =
+    (selectedTool && findingsByTool.get(selectedTool)) || [];
 
   return (
     <Box flexDirection="row" width={width} height={height}>
@@ -152,9 +177,15 @@ export function ToolsTab({
             bold
             backgroundColor={focusedPane === "list" ? "yellow" : undefined}
           >
-            Tools ({tools.length})
+            Tools ({filterCount(filter.active, shownTools.length, tools.length)}
+            )
           </Text>
         </Box>
+        <ListFilterBar
+          query={filter.query}
+          editing={filter.editing}
+          focused={focusedPane === "list" && !modalOpen}
+        />
         {error ? (
           <Box paddingY={1}>
             <Text color="red">{error}</Text>
@@ -163,6 +194,10 @@ export function ToolsTab({
           <Box paddingY={1}>
             <Text dimColor>No tools available</Text>
           </Box>
+        ) : shownTools.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No tools match the filter</Text>
+          </Box>
         ) : (
           <Box
             flexDirection="column"
@@ -170,17 +205,17 @@ export function ToolsTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {tools
+            {shownTools
               .slice(firstVisible, firstVisible + visibleCount)
               .map((tool, i) => {
                 const index = firstVisible + i;
                 const isSelected = index === selectedIndex;
-                const marker = schemaMarker(findingsByTool[index]);
+                const marker = schemaMarker(findingsByTool.get(tool));
                 return (
                   <Box key={tool.name || index} paddingY={0} flexShrink={0}>
                     <Text>
                       {isSelected ? "▶ " : "  "}
-                      {tool.name || `Tool ${index + 1}`}
+                      {tool.name || `Tool ${filter.indices[index] + 1}`}
                       {marker && (
                         <Text color={marker.color}> {marker.glyph}</Text>
                       )}
