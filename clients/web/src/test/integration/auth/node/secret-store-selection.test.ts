@@ -27,6 +27,7 @@ import {
   isOnMountPoint,
   parseSecretStoreEnv,
   SECRET_STORAGE_DOCS_URL,
+  setSecretStorageWarningsQuiet,
   warnAboutSecretStorage,
 } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
@@ -544,6 +545,46 @@ describe("warnAboutSecretStorage", () => {
     expect(warn.mock.calls.flat().join("\n")).toContain(
       "MCP_INSPECTOR_SECRET_KEY",
     );
+  });
+});
+
+describe("setSecretStorageWarningsQuiet", () => {
+  const fallback: SecretStorageInfo = {
+    kind: "file",
+    reason: "fallback",
+    durable: true,
+    path: "/home/u/.mcp-inspector/secrets.json",
+    plaintext: true,
+    detail: "no Secret Service",
+  };
+
+  afterEach(() => {
+    // The flag is process-wide; never leak quiet into a later test.
+    setSecretStorageWarningsQuiet(false);
+  });
+
+  it("suppresses the automatic warning when quiet", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    warnAboutSecretStorage(fallback);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still prints when quiet is cleared again", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    setSecretStorageWarningsQuiet(false);
+    warnAboutSecretStorage(fallback);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("force bypasses quiet so connect can re-surface it once", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    warnAboutSecretStorage(fallback, { force: true });
+    const output = warn.mock.calls.flat().join("\n");
+    expect(output).toContain("Secrets are stored unencrypted");
+    expect(output).toContain(SECRET_STORAGE_DOCS_URL);
   });
 });
 

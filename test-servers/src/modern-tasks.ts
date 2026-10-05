@@ -60,17 +60,24 @@ interface ModernTaskEntry {
   inputSatisfied?: boolean;
   /** The `inputResponses` the client submitted, echoed back in the result. */
   inputResponses?: Record<string, unknown>;
+  /** How many input rounds this task has already surfaced. Loops key their
+   * `inputRequests` by this so each round is a *distinct* request — the
+   * ext-tasks SDK fingerprints request keys and skips a recurring one, so a
+   * reused key would be read as the already-answered round and the loop would
+   * never advance past round 1. */
+  inputRound: number;
 }
 
 /** The embedded elicitation an `input_required` modern task surfaces. Shaped as
  * a standalone `elicitation/create` request so the client's pending-request UI
- * (reused from the MRTR path) renders it and returns an `ElicitResult`. */
-function confirmInputRequests(): Record<string, unknown> {
+ * (reused from the MRTR path) renders it and returns an `ElicitResult`. The
+ * request is keyed by the current round so successive rounds are distinct. */
+function confirmInputRequests(round: number): Record<string, unknown> {
   return {
-    confirm: {
+    [`confirm_${round}`]: {
       method: "elicitation/create",
       params: {
-        message: "Approve this task before it continues?",
+        message: `Approve step ${round + 1} of this task before it continues?`,
         requestedSchema: {
           type: "object",
           properties: {
@@ -127,6 +134,7 @@ export class ModernTaskRuntime {
       lastUpdatedAt: now,
       args,
       pollsRemaining: SIMPLE_WORKING_POLLS,
+      inputRound: 0,
     };
     this.tasks.set(entry.taskId, entry);
     return {
@@ -152,6 +160,10 @@ export class ModernTaskRuntime {
     const entry = this.requireTask(taskId);
     entry.inputSatisfied = true;
     if (inputResponses) entry.inputResponses = inputResponses;
+    // A loop never completes: advance the round so its next poll surfaces a
+    // fresh, distinct input request (a reused key would be deduped by the SDK
+    // and the loop would wedge at round 1).
+    if (entry.kind === "loop") entry.inputRound += 1;
     this.touch(entry);
     return { resultType: "complete" };
   }
@@ -196,8 +208,10 @@ export class ModernTaskRuntime {
         entry.status = "completed";
       }
     } else if (entry.kind === "loop") {
-      // Never advances: stays input_required every poll (ignores tasks/update),
-      // so a client is re-prompted indefinitely — exercises its round cap.
+      // Never completes: stays input_required every poll. Each answered round
+      // bumps inputRound (in updateTask) so the next poll surfaces a distinct
+      // input request — the client is genuinely re-prompted until its own
+      // round cap trips, rather than wedging on a deduped repeat key.
       entry.status = "input_required";
     } else {
       // input task: request input, then complete once the client has answered.
@@ -222,7 +236,7 @@ export class ModernTaskRuntime {
       base.pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
     }
     if (entry.status === "input_required") {
-      base.inputRequests = confirmInputRequests();
+      base.inputRequests = confirmInputRequests(entry.inputRound);
     }
     if (entry.status === "completed") {
       base.result = this.completedResult(entry);

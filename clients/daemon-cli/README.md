@@ -147,18 +147,29 @@ that to work. Two things are mcpdo-specific:
   ...
   ```
 
-A paused modern (SEP-2663) task — one whose `tasks/get` shows
-`status: "input_required"` — can be resumed with `tasks/update`:
+A modern (SEP-2663) task that reaches `status: "input_required"` is **not**
+resumed with `tasks/update` from mcpdo. Core polls the task to a terminal
+state, so the input round surfaces as an **elicitation** instead — prompted
+inline on an interactive TTY, or **parked** (the RPC returns an
+`elicitationPending` payload) otherwise. Answer it with `elicitation/respond`,
+exactly like any other parked elicitation (see [Elicitation
+support](#elicitation-support) below):
 
 ```bash
-mcpdo tasks/update <taskId> --input-responses '{"<requestId>":{"approved":true}}'
+mcpdo elicitation/respond <elicitationId> approved:=true
 ```
+
+The `elicitationPending` payload carries no `taskId`, and `tasks/list` is
+refused while a call is parked, so there is no task id to pass to
+`tasks/update` — `elicitation/respond` is the only path that works.
 
 ## Elicitation support
 
-mcpdo can prompt interactively for both elicitation delivery mechanisms —
-legacy server→client `elicitation/create` requests and modern non-task MRTR
-(multi-round tool response) rounds — and both modes a server may ask for:
+mcpdo can prompt interactively for every elicitation delivery mechanism —
+legacy server→client `elicitation/create` requests, modern non-task MRTR
+(multi-round tool response) rounds, and modern SEP-2663 **task** input rounds
+(a task that reaches `status: "input_required"`) — and both modes a server may
+ask for:
 
 - **URL mode**: mcpdo prints the URL and waits for you to confirm you've
   finished out-of-band (there's no "decline", only accept-that-you-finished

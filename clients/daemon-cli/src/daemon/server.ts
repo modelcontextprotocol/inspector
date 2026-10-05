@@ -620,18 +620,28 @@ export class DaemonServer {
       );
     }
     const unwire = wireElicitationBridge(client, elicitation, requestId);
-    // When the caller's socket closes mid-call, cancel the in-flight tool
-    // call so the per-client rpc queue isn't wedged behind work nobody is
-    // waiting for. `cancelToolCall` is a no-op for non-tool methods — those
-    // are quick lists/reads that settle on their own.
+    // When the caller's socket closes mid-call, cancel the in-flight request so
+    // the per-client rpc queue isn't wedged behind work nobody is waiting for.
+    // Two mechanisms, because a tool call and a plain read cancel differently:
+    //   - `cancelToolCall()` runs the MCP cancellation flow for a tool call (it
+    //     sends `notifications/cancelled` with a reason) — a no-op otherwise.
+    //   - the ambient request signal (#1783) covers *every other* method. A
+    //     `resources/read`, a `prompts/get`, any `*/list` the server never
+    //     answers would otherwise hold the queue slot forever, wedging the whole
+    //     connection for all later commands until a reconnect. Making the
+    //     caller's signal the client's ambient request signal threads it into
+    //     that request's options, so a caller disconnect aborts it and the slot
+    //     frees.
     const onAbort = () => {
       client.cancelToolCall();
     };
     signal?.addEventListener("abort", onAbort, { once: true });
+    const clearAmbientSignal = client.setAmbientRequestSignal(signal);
     let outcome;
     try {
       outcome = await runMethod(client, methodArgs);
     } finally {
+      clearAmbientSignal();
       signal?.removeEventListener("abort", onAbort);
       unwire();
     }

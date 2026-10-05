@@ -98,4 +98,57 @@ describe("PromptReader", () => {
     const second = getSharedPromptReader();
     expect(second).not.toBe(first);
   });
+
+  describe("TTY cooked/raw mode", () => {
+    function makeTty(): {
+      reader: PromptReader;
+      input: PassThrough;
+      rawModes: boolean[];
+    } {
+      const input = new PassThrough() as PassThrough & {
+        isTTY?: boolean;
+        setRawMode?: (mode: boolean) => void;
+      };
+      const rawModes: boolean[] = [];
+      input.isTTY = true;
+      input.setRawMode = (mode: boolean) => {
+        rawModes.push(mode);
+      };
+      // A non-TTY output keeps readline's own raw-mode toggling out of the
+      // picture, so the recorded calls are exactly the reader's park/engage.
+      const out = new PassThrough();
+      reader = new PromptReader(
+        input as unknown as NodeJS.ReadStream,
+        out as unknown as NodeJS.WriteStream,
+      );
+      return { reader, input, rawModes };
+    }
+
+    it("leaves a TTY in cooked mode while parked, raw only while a question is pending", async () => {
+      const { reader, input, rawModes } = makeTty();
+      // The constructor parks immediately: the terminal must start cooked so
+      // Ctrl-C (SIGINT) works before the first prompt.
+      expect(rawModes.at(-1)).toBe(false);
+
+      const pending = reader.question("Name: ");
+      // Engaging a pending question re-enters raw mode for line editing.
+      expect(rawModes.at(-1)).toBe(true);
+
+      input.write("octocat\n");
+      await expect(pending).resolves.toBe("octocat");
+      // Answering parks again — back to cooked mode between rounds.
+      expect(rawModes.at(-1)).toBe(false);
+    });
+
+    it("restores cooked mode when disposed", () => {
+      const { reader, rawModes } = makeTty();
+      // Dangling on purpose: dispose() rejects it via close — swallow so it
+      // doesn't surface as an unhandled rejection.
+      reader.question("Name: ").catch(() => {});
+      expect(rawModes.at(-1)).toBe(true);
+      reader.dispose();
+      // dispose() closes the interface; the terminal must not be left raw.
+      expect(rawModes.at(-1)).toBe(false);
+    });
+  });
 });

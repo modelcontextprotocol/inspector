@@ -32,9 +32,11 @@ function deferred<T>() {
 function fakeClient(): {
   client: InspectorClient;
   cancelToolCall: ReturnType<typeof vi.fn>;
+  getAmbientSignal: () => AbortSignal | undefined;
 } {
   const target = new EventTarget();
   const cancelToolCall = vi.fn().mockReturnValue(true);
+  let ambientSignal: AbortSignal | undefined;
   const client = {
     addEventListener: (type: string, listener: EventListener) =>
       target.addEventListener(type, listener),
@@ -42,8 +44,14 @@ function fakeClient(): {
       target.removeEventListener(type, listener),
     getStatus: () => "connected",
     cancelToolCall,
+    setAmbientRequestSignal: (signal: AbortSignal | undefined) => {
+      ambientSignal = signal;
+      return () => {
+        ambientSignal = undefined;
+      };
+    },
   } as unknown as InspectorClient;
-  return { client, cancelToolCall };
+  return { client, cancelToolCall, getAmbientSignal: () => ambientSignal };
 }
 
 describe("daemon rpc abort on caller disconnect", () => {
@@ -51,6 +59,7 @@ describe("daemon rpc abort on caller disconnect", () => {
   let server: DaemonServer;
   let client: InspectorClient;
   let cancelToolCall: ReturnType<typeof vi.fn>;
+  let getAmbientSignal: () => AbortSignal | undefined;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-rpc-abort-"));
@@ -58,6 +67,7 @@ describe("daemon rpc abort on caller disconnect", () => {
     const fake = fakeClient();
     client = fake.client;
     cancelToolCall = fake.cancelToolCall;
+    getAmbientSignal = fake.getAmbientSignal;
     const registry = server.registry as unknown as Record<string, unknown>;
     registry.connectionFor = () => ({ name: "srv", client });
     registry.liveClientFor = async () => client;
@@ -68,9 +78,9 @@ describe("daemon rpc abort on caller disconnect", () => {
     vi.restoreAllMocks();
   });
 
-  function rpc(id: string, signal?: AbortSignal) {
+  function rpc(id: string, signal?: AbortSignal, method = "tools/call") {
     return server.handle(
-      { id, op: "rpc", params: { method: "tools/call", name: "srv" } },
+      { id, op: "rpc", params: { method, name: "srv" } },
       undefined,
       signal,
     );
@@ -136,5 +146,57 @@ describe("daemon rpc abort on caller disconnect", () => {
       expect(response.error?.code).toBe("caller_gone");
     }
     expect(runMethodCalls).toHaveLength(0);
+  });
+
+  it("frees the connection when a non-tool request's caller aborts (R2)", async () => {
+    // Reproduces the wedge: the daemon serializes every method on a connection,
+    // so a non-tool request the server never answers (e.g. `resources/read`)
+    // held the queue slot forever once the caller hung up — `cancelToolCall()`
+    // is a no-op for it. The fix makes the caller's signal the client's ambient
+    // request signal, so core aborts the in-flight request and the slot frees.
+    // This stub stands in for core honoring that ambient signal: it settles
+    // only when the signal aborts, and never otherwise. If the daemon failed to
+    // wire the ambient signal, `getAmbientSignal()` is undefined and the call
+    // hangs forever — the wedge this test guards against.
+    const firstRunning = deferred<void>();
+    runMethodMock.impl = async (_clientArg, args) => {
+      const method = (args as { method?: string } | undefined)?.method;
+      if (method === "resources/read") {
+        firstRunning.resolve();
+        const ambient = getAmbientSignal();
+        return new Promise((_resolve, reject) => {
+          ambient?.addEventListener(
+            "abort",
+            () => reject(new Error("Pending request aborted")),
+            { once: true },
+          );
+        });
+      }
+      // The follow-up command settles normally once it gets to run.
+      return { kind: "result", result: { ok: true } };
+    };
+
+    const abort = new AbortController();
+    const first = rpc("r5", abort.signal, "resources/read");
+    await firstRunning.promise;
+
+    // The caller's signal must be the client's ambient request signal while the
+    // call runs — that is what threads cancellation into the in-flight request.
+    expect(getAmbientSignal()).toBe(abort.signal);
+
+    // A second command queues behind the hung first; it must not be wedged.
+    const second = rpc("r6", undefined, "tools/list");
+
+    // The caller hangs up → the ambient signal aborts the in-flight request.
+    abort.abort();
+    const firstResponse = await first;
+    expect(firstResponse.ok).toBe(false);
+
+    // The queue slot freed, so the follow-up runs and settles normally.
+    const secondResponse = await second;
+    expect(secondResponse.ok).toBe(true);
+
+    // The ambient signal is cleared once the call settles (disposer ran).
+    expect(getAmbientSignal()).toBeUndefined();
   });
 });

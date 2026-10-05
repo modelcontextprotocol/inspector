@@ -24,6 +24,10 @@ import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import {
+  getSecretStorageInfo,
+  warnAboutSecretStorage,
+} from "@inspector/core/auth/node/secret-store-selection.js";
 import { callDaemon, ensureDaemon } from "../daemon/index.js";
 import type {
   ConnectionInfo,
@@ -223,6 +227,38 @@ export function expandConnAlias(argv: string[]): string[] {
  * IPC for connect/disconnect/connections and MCP RPCs; `servers/list` and
  * `servers/show` are local (no daemon).
  */
+/**
+ * Surface the secret-storage state once, at `connect`.
+ *
+ * The automatic store-selection banner is quieted process-wide in the
+ * front-end (see mcp-bin.ts) so it does not print on every command; this
+ * re-emits it exactly here, with `force`, so an agent still learns once —
+ * when a connection is being established — that secrets are in a plaintext
+ * fallback file (R5).
+ *
+ * It also catches the mcpdo-specific memory-store trap (R4): an explicit
+ * `MCP_INSPECTOR_SECRET_STORE=memory` keeps secrets in this process's RAM
+ * only, but mcpdo runs the daemon and the OAuth sign-in helper as separate
+ * processes — so a token one of them saves is invisible to the others and a
+ * sign-in that looked successful fails later with an opaque refresh error.
+ * Core's generic "lost on exit" caveat does not explain that, so we add a
+ * line that does, up front.
+ */
+export async function surfaceSecretStorageAtConnect(): Promise<void> {
+  const info = await getSecretStorageInfo();
+  warnAboutSecretStorage(info, { force: true });
+  if (info.kind === "memory") {
+    process.stderr.write(
+      `[mcpdo] MCP_INSPECTOR_SECRET_STORE=memory keeps secrets only in this ` +
+        `process's memory. mcpdo runs the daemon and the OAuth sign-in helper ` +
+        `as separate processes, so a token saved by one is invisible to the ` +
+        `others and sign-in cannot complete (you will see a credential-refresh ` +
+        `failure after signing in). Use "file" or "keyring" to persist across ` +
+        `mcpdo's processes.\n`,
+    );
+  }
+}
+
 /**
  * Pin a stdio config's cwd, command, and environment to the CALLER's shell
  * before it crosses the socket to the daemon.
@@ -525,6 +561,8 @@ function registerConnect(program: CommandType): void {
           { code: "usage" },
         );
       }
+
+      await surfaceSecretStorageAtConnect();
 
       const relogin = cmdOpts.relogin === true;
       if (relogin && opts.storedAuthOnly) {

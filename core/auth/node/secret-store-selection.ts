@@ -476,6 +476,26 @@ export function disallowMemorySecretStoreFallback(): void {
   memoryFallbackAllowed = false;
 }
 
+let secretStorageWarningsQuiet = false;
+
+/**
+ * Silence the automatic {@link warnAboutSecretStorage} output for this
+ * process.
+ *
+ * For the same multi-process consumers as
+ * {@link disallowMemorySecretStoreFallback}: mcpdo runs a fresh front-end
+ * process for every command, and each one that touches a stored secret
+ * resolves the store and prints this banner — so an agent driving mcpdo
+ * sees the full fallback/caveat warning on *every* command (connect,
+ * `auth/list`, …). The front-end quiets it globally and re-surfaces it once,
+ * deliberately, on `connect` (passing `force`); the persistent daemon stays
+ * unquiet so the warning still lands once in its stderr log. A no-op for
+ * web/cli/tui, which never call this.
+ */
+export function setSecretStorageWarningsQuiet(quiet: boolean): void {
+  secretStorageWarningsQuiet = quiet;
+}
+
 /**
  * Print the fallback / plaintext warnings.
  *
@@ -483,8 +503,16 @@ export function disallowMemorySecretStoreFallback(): void {
  * who needs this is watching a terminal or `docker logs`, and store
  * selection happens before (and independently of) any logger being
  * configured.
+ *
+ * Suppressed when {@link setSecretStorageWarningsQuiet} is on, unless
+ * `force` is passed — the mcpdo front-end quiets the automatic (lazy) calls
+ * and re-emits once with `force` on `connect`.
  */
-export function warnAboutSecretStorage(info: SecretStorageInfo): void {
+export function warnAboutSecretStorage(
+  info: SecretStorageInfo,
+  opts?: { force?: boolean },
+): void {
+  if (secretStorageWarningsQuiet && opts?.force !== true) return;
   if (info.reason === "fallback") {
     console.warn(
       `\n[mcp-inspector] The OS keychain is not available, so secrets will be kept in: ${secretStorageSummary(info)}.` +

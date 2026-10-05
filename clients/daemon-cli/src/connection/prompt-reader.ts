@@ -111,8 +111,11 @@ export class PromptReader implements PromptInput {
     return this;
   }
 
-  /** Tear down the underlying interface (tests / process cleanup). */
+  /** Tear down the underlying interface (tests / process cleanup). Restores
+   * cooked mode first so a disposed/exiting reader never leaves the terminal
+   * raw (where Ctrl-C would stay dead in the user's next shell). */
   dispose(): void {
+    if (this.input.isTTY) this.input.setRawMode?.(false);
     this.rl.close();
   }
 
@@ -124,15 +127,22 @@ export class PromptReader implements PromptInput {
     for (const listener of listeners) listener();
   }
 
-  /** Actively waiting for a line: let the stream flow and hold the loop. */
+  /** Actively waiting for a line: let the stream flow and hold the loop. On a
+   * TTY, re-enter raw mode so readline can do line editing while a question is
+   * pending (the counterpart to {@link park} restoring cooked mode). */
   private engage(): void {
     this.input.ref?.();
+    if (this.input.isTTY) this.input.setRawMode?.(true);
     this.rl.resume();
   }
 
-  /** Idle between questions: stop reading and release the event loop. */
+  /** Idle between questions: stop reading and release the event loop. On a TTY,
+   * restore cooked mode so the terminal is not left raw between prompts — raw
+   * mode disables the kernel's Ctrl-C (SIGINT), and a persistent reader that
+   * stayed raw while parked left Ctrl-C dead in the gap between rounds. */
   private park(): void {
     this.rl.pause();
+    if (this.input.isTTY) this.input.setRawMode?.(false);
     this.input.unref?.();
   }
 }
