@@ -159,7 +159,9 @@ rules in `AGENTS.md` cover:
 
 - **Branch names carry the target version first** — `v2/fix/2071-…`,
   `v1/fix/…` — cut from the matching `*/main`.
-- **DCO signoff is a hard merge gate** (`git commit -s`).
+- **DCO signoff is checked on every PR** (`git commit -s`) by a repo-owned
+  workflow (`.github/workflows/dco.yml`), which replaced the suspended probot
+  DCO app.
 - **UI changes require before/after screenshots**, staged in a gitignored
   `pr-screenshots/` folder.
 - **A code review is requested and answered per-thread**, with a PR-level

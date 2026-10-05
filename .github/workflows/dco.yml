@@ -1,0 +1,56 @@
+# DCO signoff check (#2566), replacing the probot DCO app.
+#
+# The app was suspended and its check silently stopped appearing after #1981
+# (2026-08-12). Nothing went red, because it was never a required check — so
+# for two months "the DCO check is a hard merge gate" was true only by habit.
+# This job is the repo-owned replacement: `scripts/dco-check.mjs` fails the PR
+# unless every commit in it carries a `Signed-off-by:` matching its author or
+# committer (merge and bot-authored commits exempt — the app's rule).
+#
+# ⚠️ A job only GATES when its check is required. Making `DCO` a required
+# status check is a ruleset change in repo settings (one covering `v2/main`
+# does not exist yet), not something a workflow file can do — without it, this
+# job going missing would pass as silently as the app did.
+#
+# Its own workflow because it needs the PR's base, which `main.yml` (push
+# only) never sees. `base_ref..head` is read from a full-history checkout, so
+# the job needs nothing beyond `contents: read` and holds no credential —
+# which keeps it on moving action tags (#2235; see verify:action-pins, #2484).
+name: DCO
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    # A git log and a node script; expected to finish well inside a minute.
+    # Not yet observed on a runner — revisit with the measured range per the
+    # rule in main.yml (#2333) once it has a history.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout the PR head with full history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+
+      - name: Check every commit is signed off
+        # The base is the branch as it stands now (`origin/<base_ref>`), not
+        # the event's `base.sha`, so commits that have since landed on the
+        # base are excluded exactly as the PR's own commit list excludes them.
+        # Passed through `env:` rather than interpolated into the script.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/dco-check.mjs --base "origin/$BASE_REF" --head "$HEAD_SHA"

@@ -93,12 +93,27 @@ previous one, not all cut from `v2/main`.
 
 ## 3. Sign off every commit
 
-**The DCO check is a hard merge gate.** The [probot DCO
-app](https://probot.github.io/apps/dco/) fails the PR unless each commit carries
-a `Signed-off-by: Name <email>` trailer whose name **and** email match either the
-commit's author or its committer. Its only exemptions are merge commits and
+**The `DCO` check fails the PR on any unsigned commit.** It is this repo's own
+job (`.github/workflows/dco.yml` → `scripts/dco-check.mjs`, #2566), run on every
+pull request, and it requires each commit to carry a `Signed-off-by: Name <email>`
+trailer whose name **and** email match either the commit's author or its
+committer (case-insensitively). Its only exemptions are merge commits and
 bot-authored commits; there is no partial credit — one unsigned commit out of six
-fails the whole check.
+fails the whole check, and the job's output names each offending commit and the
+repair below.
+
+⚠️ **It is a merge gate only because it is a _required_ status check** — a
+ruleset setting, not something the workflow file can declare. The probot DCO app
+it replaced was never required, so when the app was suspended its check simply
+stopped appearing (after #1981) and nothing went red for two months. If the
+`DCO` check is ever missing from a PR, treat that as the outage it is.
+
+**Check before you push** — the same script runs locally against the range the
+PR will show:
+
+```sh
+npm run dco:check -- --base origin/v2/main
+```
 
 **Prevent it with `git commit -s`.** Two things that look like automation and are
 not:
@@ -115,16 +130,14 @@ not:
 **Repairing already-pushed commits** means rewriting them:
 
 ```sh
-git rebase HEAD~<n> --signoff
+git rebase --signoff origin/v2/main   # the base the PR targets
 git push --force-with-lease
 ```
 
 Use `--force-with-lease` rather than `--force`, and only rewrite when you are the
-sole author and nobody else has based work on the branch. The two apparent
-alternatives are not alternatives: the app's empty "remediation commit" flow
-requires `allowRemediationCommits.individual` and this repo ships no
-`.github/dco.yml`, so it runs disabled; and the override button anyone with write
-access sees only silences the check without anyone certifying anything.
+sole author and nobody else has based work on the branch. There is no
+remediation-commit or override path: the check reads each commit's own message,
+so a later commit cannot certify an earlier one.
 
 The signoff is a [Developer Certificate of
 Origin](https://developercertificate.org/) assertion made in **your own name**. It
