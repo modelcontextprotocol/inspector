@@ -41,6 +41,7 @@ import {
   type SkillVerifyReport,
 } from "@inspector/core/mcp/skillsVerification.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
 
 interface SkillsTabProps {
   skills: SkillEntry[];
@@ -202,7 +203,7 @@ export function SkillsTab({
              visible message. Exercising it would mean faking a throw the walk
              cannot make, which tests the fake rather than the code. */
           setError(
-            err instanceof Error ? err.message : "Failed to verify skill",
+            err instanceof Error ? errorMessage(err) : "Failed to verify skill",
           );
           /* v8 ignore stop */
         } finally {

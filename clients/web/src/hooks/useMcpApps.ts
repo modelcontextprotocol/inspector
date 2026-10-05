@@ -22,6 +22,7 @@ import {
   type AppElicitationSession,
 } from "../lib/appElicitationController";
 import { getAuthToken } from "../lib/authToken";
+import { errorMessage } from "../utils/errorFormat";
 
 export interface UseMcpAppsOptions {
   /** The live client. Null while disconnected; the bridges read it lazily. */
@@ -156,7 +157,7 @@ export function useMcpApps({
         onResourceError: (err) => {
           notifications.show({
             title: "App resource failed to load",
-            message: err.message,
+            message: errorMessage(err),
             color: "red",
           });
         },
@@ -207,7 +208,7 @@ export function useMcpApps({
         onResourceError: (err) => {
           notifications.show({
             title: "Elicitation app failed to load",
-            message: err.message,
+            message: errorMessage(err),
             color: "red",
           });
         },

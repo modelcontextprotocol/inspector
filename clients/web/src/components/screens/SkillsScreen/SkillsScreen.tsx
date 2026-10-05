@@ -56,6 +56,7 @@ import {
   isMarkdownMime,
 } from "../../../utils/inferMimeFromUri";
 import { tryDecodeBase64ToUtf8 } from "../../elements/ContentViewer/contentViewerUtils";
+import { errorMessage } from "../../../utils/errorFormat";
 
 /**
  * How many skill files are read at once by "Verify all". A conforming manifest
@@ -1012,7 +1013,7 @@ export function SkillsScreen({
         write({
           attempt,
           status: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: errorMessage(err),
         });
       }
     },
@@ -1121,7 +1122,7 @@ export function SkillsScreen({
         .catch((err: unknown) => {
           writePreview({
             uri,
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           });
         });
     },
@@ -1269,7 +1270,7 @@ export function SkillsScreen({
             ...(cursor === undefined
               ? {}
               : { children: prev.children, nextCursor: cursor }),
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
           }));
         });
     },
@@ -1321,7 +1322,7 @@ export function SkillsScreen({
       })
       .catch((err: unknown) => {
         writeFetched({
-          message: err instanceof Error ? err.message : String(err),
+          message: errorMessage(err),
         });
       });
   }, [manifestKey, onGetSkill, openConformance, selected]);

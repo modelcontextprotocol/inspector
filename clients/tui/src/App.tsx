@@ -93,6 +93,7 @@ import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
+import { errorMessage, redactErrorText } from "./utils/errorText.js";
 
 // Header branding. The version is the single source of truth — the root
 // package.json — read via the shared core reader; the name/description are the
@@ -882,12 +883,12 @@ function App({
     try {
       await finishConnect();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       setConnectError(msg);
 
       if (isEmaClientNotConfiguredError(err)) {
         setOauthStatus("error");
-        setOauthMessage(err.message);
+        setOauthMessage(errorMessage(err));
         return;
       }
 
@@ -970,10 +971,7 @@ function App({
       };
       const onOAuthError = (event: TypedEvent<"oauthError">): void => {
         if (selectedServerRef.current !== serverName) return;
-        const message =
-          event.detail.error instanceof Error
-            ? event.detail.error.message
-            : String(event.detail.error);
+        const message = errorMessage(event.detail.error);
         setOauthStatus("error");
         setOauthMessage(message);
       };
@@ -1023,7 +1021,7 @@ function App({
       ) {
         return;
       }
-      setDisconnectError(err instanceof Error ? err.message : String(err));
+      setDisconnectError(errorMessage(err));
     }
   }, [selectedServer, disconnectInspector]);
 
@@ -1067,7 +1065,7 @@ function App({
       try {
         await disconnectInspector();
       } catch (err) {
-        setDisconnectError(err instanceof Error ? err.message : String(err));
+        setDisconnectError(errorMessage(err));
       }
       // Revalidate: the disconnect is a second await, and a switch during it
       // would make the revision bump below land on the new selection.
@@ -1092,7 +1090,12 @@ function App({
     if (!selectedServer) return null;
     return {
       status: inspectorStatus,
-      error: connectError ?? inspectorLastError ?? null,
+      // `connectError` is already redacted where it is set; `lastError` comes
+      // from core's client event untouched, so it is redacted here, at the one
+      // place it reaches the screen (#2490).
+      error:
+        connectError ??
+        (inspectorLastError ? redactErrorText(inspectorLastError) : null),
       capabilities: inspectorCapabilities,
       serverInfo: inspectorServerInfo,
       instructions: inspectorInstructions,
@@ -1923,7 +1926,9 @@ function App({
                         if (outcome.kind === "failed") {
                           setOauthStatus("error");
                           setOauthMessage(
-                            emaStepUpFailureMessage(outcome.error.message),
+                            emaStepUpFailureMessage(
+                              errorMessage(outcome.error),
+                            ),
                           );
                           return;
                         }

@@ -54,6 +54,7 @@ import { OAUTH_CALLBACK_PATH, isUnauthorizedError } from "../utils/oauthFlow";
 import { authRecoveryRestoredMessage } from "../utils/oauthUx";
 import { deepLinkConfigEquals } from "../utils/deepLink";
 import type { DeepLink } from "../utils/deepLink";
+import { errorMessage } from "../utils/errorFormat";
 
 /**
  * Client identity name the web client reports to servers. It matches core's
@@ -736,10 +737,7 @@ export function useConnectionLifecycle({
               return;
             }
             setFailedServerId(id);
-            const message =
-              recoveryErr instanceof Error
-                ? recoveryErr.message
-                : String(recoveryErr);
+            const message = errorMessage(recoveryErr);
             setConnectErrorMessage(message);
             notifications.show({
               title: `Failed to connect to "${target.name}"`,
@@ -805,8 +803,7 @@ export function useConnectionLifecycle({
             // `disconnect()` above settles it at `"disconnected"`), so this
             // flag is the only signal the view has that a connect attempt died.
             setFailedServerId(id);
-            const message =
-              authErr instanceof Error ? authErr.message : String(authErr);
+            const message = errorMessage(authErr);
             setConnectErrorMessage(message);
             notifications.show({
               title: `OAuth authorization failed for "${target.name}"`,
@@ -821,7 +818,7 @@ export function useConnectionLifecycle({
         // instead of the ConnectionToggle silently reverting to
         // "disconnected", and flag the card with a red border (#1621).
         setFailedServerId(id);
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         setConnectErrorMessage(message);
         notifications.show({
           title: `Failed to connect to "${target.name}"`,
@@ -938,7 +935,7 @@ export function useConnectionLifecycle({
       if (deepLinkEnsureRef.current) return;
       deepLinkEnsureRef.current = true;
       void addServer(deepLink.serverId, deepLink.serverConfig).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         // A 409 ("already exists") means the row is on disk and hydration will
         // surface it on a later render, so the connect phase still proceeds —
         // swallow it. Any other failure (read-only catalog, backend 5xx) would
@@ -957,7 +954,7 @@ export function useConnectionLifecycle({
         deepLink.serverId,
         deepLink.serverConfig,
       ).catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         recordConnectError(message);
       });
       return;
@@ -985,7 +982,7 @@ export function useConnectionLifecycle({
       void onToggleConnection(deepLink.serverId).catch((err) => {
         // The toast fires from inside `onToggleConnection` for the common
         // cases; this catch covers the rest (surfaced on `data-error-message`).
-        const message = err instanceof Error ? err.message : String(err);
+        const message = errorMessage(err);
         recordConnectError(message);
       });
     }
@@ -1018,7 +1015,7 @@ export function useConnectionLifecycle({
       try {
         await onToggleConnection(serverId);
       } catch (err) {
-        recordConnectError(err instanceof Error ? err.message : String(err));
+        recordConnectError(errorMessage(err));
       }
     },
     [onToggleConnection, recordConnectError],
@@ -1059,7 +1056,7 @@ export function useConnectionLifecycle({
           } catch (err) {
             notifications.show({
               title: "Could not clear the stored authorization state",
-              message: err instanceof Error ? err.message : String(err),
+              message: errorMessage(err),
               color: "red",
               // The banner is already dismissed and the flow is dead, so this
               // is the only remaining explanation — don't time it out.
@@ -1115,7 +1112,7 @@ export function useConnectionLifecycle({
           ) {
             return;
           }
-          const message = err instanceof Error ? err.message : String(err);
+          const message = errorMessage(err);
           notifications.show({
             title: server
               ? `OAuth authorization failed for "${server.name}"`

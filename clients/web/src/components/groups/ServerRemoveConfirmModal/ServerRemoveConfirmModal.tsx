@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button, Group, Modal, Paper, Stack, Text } from "@mantine/core";
 import type { ServerEntry } from "@inspector/core/mcp/types.js";
+import { errorMessage } from "../../../utils/errorFormat";
 
 export interface ServerRemoveConfirmModalProps {
   opened: boolean;
@@ -55,7 +56,7 @@ export function ServerRemoveConfirmModal({
     try {
       await onConfirm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setSubmitting(false);
     }
