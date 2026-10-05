@@ -2,9 +2,9 @@
  * Writing a tool call result to a file from the TUI's result view — the `w`
  * keybinding (#2571).
  *
- * The bytes come from core's `renderResultForFile`, the same `raw` / `json`
- * encodings the CLI's `--output` writes (#2431), so a result saved from either
- * client is byte-identical. What lives here is the TUI-only half: the default
+ * The bytes come from core's `renderResultForFile`: the `raw` / `json`
+ * encodings planned for the CLI's `--output` (#2431), kept in `core/` so that
+ * once it lands both clients render a result through the same code. What lives here is the TUI-only half: the default
  * filename the prompt opens with, and the write itself, which resolves a
  * relative path against the working directory the TUI was launched from and
  * reports a failure as a message rather than letting it reach Ink.
