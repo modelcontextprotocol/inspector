@@ -91,6 +91,7 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
+import { toCopyText } from "./utils/clipboard.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 import { errorMessage, redactErrorText } from "./utils/errorText.js";
@@ -233,6 +234,8 @@ function App({
   const [detailsModal, setDetailsModal] = useState<{
     title: string;
     content: React.ReactNode;
+    /** Raw value behind `content`, for the modal's copy keys (#2421). */
+    copyText: string;
   } | null>(null);
 
   // InspectorClient instances for each server
@@ -2027,6 +2030,7 @@ function App({
                   setDetailsModal({
                     title: `Resource: ${"uri" in resource ? resource.name || resource.uri || "Unknown" : "Resource content"}`,
                     content: renderResourceDetails(resource),
+                    copyText: toCopyText(resource),
                   })
                 }
                 onFetchResource={() => {
@@ -2100,6 +2104,7 @@ function App({
                   setDetailsModal({
                     title: `Prompt: ${prompt.name || "Unknown"}`,
                     content: renderPromptDetails(prompt),
+                    copyText: toCopyText(prompt),
                   })
                 }
                 onFetchPrompt={(prompt) => {
@@ -2147,6 +2152,7 @@ function App({
                   setDetailsModal({
                     title: `Tool: ${tool.name || "Unknown"}`,
                     content: renderToolDetails(tool),
+                    copyText: toCopyText(tool),
                   })
                 }
                 modalOpen={!!(toolTestModal || detailsModal)}
@@ -2182,6 +2188,7 @@ function App({
                   setDetailsModal({
                     title: `Message: ${label}`,
                     content: renderMessageDetails(message),
+                    copyText: toCopyText(message),
                   });
                 }}
               />
@@ -2209,6 +2216,7 @@ function App({
                   setDetailsModal({
                     title: `Request: ${request.method} ${request.url}`,
                     content: renderRequestDetails(request),
+                    copyText: toCopyText(request),
                   });
                 }}
               />
@@ -2281,6 +2289,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setDetailsModal(null)}
+          copyText={detailsModal.copyText}
         />
       )}
     </Box>
