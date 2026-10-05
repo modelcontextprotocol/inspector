@@ -205,11 +205,17 @@ export function PromptsTab({
               .map((prompt, i) => {
                 const index = firstVisible + i;
                 const isSelected = index === selectedIndex;
+                // Unfiltered position: unique even across repeated names.
+                const ordinal = filter.indices[index];
                 return (
-                  <Box key={prompt.name || index} paddingY={0} flexShrink={0}>
+                  <Box
+                    key={`${ordinal}:${prompt.name}`}
+                    paddingY={0}
+                    flexShrink={0}
+                  >
                     <Text>
                       {isSelected ? "▶ " : "  "}
-                      {prompt.name || `Prompt ${filter.indices[index] + 1}`}
+                      {prompt.name || `Prompt ${ordinal + 1}`}
                     </Text>
                   </Box>
                 );

@@ -344,3 +344,31 @@ describe("ToolsTab list filter (#2430)", () => {
     expect(onFilterEditingChange).toHaveBeenLastCalledWith(false);
   });
 });
+
+describe("ToolsTab list filter — duplicate names (#2430)", () => {
+  it("renders both copies of a repeated tool name, filtered or not", async () => {
+    const dupes: Tool[] = [
+      makeTool({ name: "dup", description: "first copy" }),
+      makeTool({ name: "other" }),
+      makeTool({ name: "dup", description: "second copy" }),
+    ];
+    const { lastFrame, stdin } = render(
+      <ToolsTab
+        tools={dupes}
+        isConnected={false}
+        width={120}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "d", "u", "p", "\r", DOWN]) {
+      stdin.write(k);
+      await tick();
+    }
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Tools (2/3)");
+    expect(frame.match(/dup/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(frame).toContain("second copy");
+  });
+});

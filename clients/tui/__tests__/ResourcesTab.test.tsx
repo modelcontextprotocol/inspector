@@ -451,3 +451,34 @@ describe("ResourcesTab list filter (#2430)", () => {
     expect(onCountChange).not.toHaveBeenCalled();
   });
 });
+
+describe("ResourcesTab list filter — template titles (#2430)", () => {
+  it("matches a resource template by its title", async () => {
+    const { lastFrame, stdin } = render(
+      <ResourcesTab
+        resources={[]}
+        resourceTemplates={[
+          {
+            name: "rows",
+            title: "Database Table Row",
+            uriTemplate: "db://{id}",
+          },
+          { name: "other", uriTemplate: "x://{id}" },
+        ]}
+        inspectorClient={null}
+        width={120}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "t", "a", "b", "l", "e"]) {
+      stdin.write(k);
+      await tick();
+    }
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Resources (1/2)");
+    expect(frame).toContain("rows");
+    expect(frame).not.toContain("other");
+  });
+});
