@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { SelectableItem } from "./SelectableItem.js";
+import { copyStatusColor, useCopyKeys } from "../hooks/useCopyKeys.js";
 import type {
   MCPServerConfig,
   InspectorClient,
@@ -174,6 +175,14 @@ export function AuthTab({
     };
   }, [inspectorClient, refreshOAuthState]);
 
+  const accessToken = oauthState?.tokens?.access_token;
+  // Y / W copy or save the full access token — the row below shows only a
+  // prefix, and terminal mouse-selection cannot reach the rest (#2421).
+  const { handleCopyKey, status: copyStatus } = useCopyKeys(
+    accessToken,
+    "access token",
+  );
+
   useInput(
     (input: string, key: Key) => {
       if (!focused) return;
@@ -205,6 +214,8 @@ export function AuthTab({
         }
         return;
       }
+
+      if (handleCopyKey(input)) return;
 
       if (key.upArrow && scrollViewRef.current) {
         scrollViewRef.current.scrollBy(-1);
@@ -274,7 +285,6 @@ export function AuthTab({
   }
 
   const scopes = oauthState ? formatScopes(oauthState) : undefined;
-  const accessToken = oauthState?.tokens?.access_token;
 
   return (
     <Box width={width} height={height} flexDirection="column" paddingX={1}>
@@ -407,6 +417,11 @@ export function AuthTab({
                     value={`${accessToken.slice(0, 24)}…`}
                   />
                 )}
+                {accessToken && copyStatus && (
+                  <Text color={copyStatusColor(copyStatus.tone)}>
+                    {copyStatus.message}
+                  </Text>
+                )}
               </Box>
             </Box>
           ) : (
@@ -455,7 +470,7 @@ export function AuthTab({
           <Text bold color="white">
             {pendingStepUp
               ? "↑/↓ select, Enter confirm, A authorize, C cancel"
-              : `S ${isLiveConnection ? "clear+disconnect" : "clear"}, ↑/↓ scroll`}
+              : `S ${isLiveConnection ? "clear+disconnect" : "clear"}, ${accessToken ? "Y copy token, W save token, " : ""}↑/↓ scroll`}
           </Text>
         </Box>
       )}

@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import { copyStatusColor, useCopyKeys } from "../hooks/useCopyKeys.js";
 
 interface DetailsModalProps {
   title: string;
@@ -8,6 +9,11 @@ interface DetailsModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * The raw text behind `content`, offered to Y (copy via OSC 52) and W (save
+   * to a file) — #2421. Omit it and the modal offers no copy affordance.
+   */
+  copyText?: string;
 }
 
 export function DetailsModal({
@@ -16,8 +22,13 @@ export function DetailsModal({
   width,
   height,
   onClose,
+  copyText,
 }: DetailsModalProps) {
   const scrollViewRef = useRef<ScrollViewRef>(null);
+  const { handleCopyKey, status: copyStatus } = useCopyKeys(
+    copyText,
+    "details",
+  );
 
   // Use full terminal dimensions
   const [terminalDimensions, setTerminalDimensions] = React.useState({
@@ -44,6 +55,8 @@ export function DetailsModal({
     (input: string, key: Key) => {
       if (key.escape) {
         onClose();
+      } else if (handleCopyKey(input)) {
+        return;
       } else if (key.downArrow) {
         scrollViewRef.current?.scrollBy(1);
       } else if (key.upArrow) {
@@ -89,8 +102,20 @@ export function DetailsModal({
             {title}
           </Text>
           <Text> </Text>
-          <Text dimColor>(Press ESC to close)</Text>
+          <Text dimColor>
+            {copyText === undefined
+              ? "(Press ESC to close)"
+              : "(Press ESC to close, Y to copy, W to save to a file)"}
+          </Text>
         </Box>
+
+        {copyStatus && (
+          <Box flexShrink={0} marginBottom={1}>
+            <Text color={copyStatusColor(copyStatus.tone)}>
+              {copyStatus.message}
+            </Text>
+          </Box>
+        )}
 
         {/* Content Area */}
         <Box flexGrow={1} flexDirection="column" overflow="hidden">

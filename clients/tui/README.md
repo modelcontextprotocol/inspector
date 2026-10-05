@@ -90,6 +90,15 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
 - Press **Escape** or `Ctrl+C` to exit the application.
 
+## Copying values
+
+Any details view (opened from Resources, Prompts, Tools, Protocol or Network) and the **Auth** tab's access token can be copied out of the TUI ([#2421](https://github.com/modelcontextprotocol/inspector/issues/2421)):
+
+- **Y** copies the value to your clipboard with an [OSC 52](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Operating-System-Commands) escape sequence. The sequence asks the _terminal emulator_ to set its clipboard, so it reaches the machine you are sitting at even when the TUI runs over SSH. A details view copies the entry's raw JSON; the Auth tab copies the full token, not the truncated prefix it displays.
+- **W** saves the value to a private temp file (`mcp-inspector-copy-*/value.txt`, mode `0600`) and shows its path — the fallback when OSC 52 does not work.
+
+OSC 52 is fire-and-forget: a terminal that does not support it (or has it disabled) fails silently, which is why the status line after **Y** points at **W**. Most modern terminals support it — iTerm2 (enable _Applications in terminal may access clipboard_), kitty, WezTerm, Alacritty, Windows Terminal, foot, and xterm with `allowWindowOps`. Inside **tmux**, set `set -g set-clipboard on` so tmux forwards the sequence. Some terminals cap the payload (often around 100 KB); a copy above that is flagged in the status line, and **W** has no such limit.
+
 ## Development
 
 Like the other clients, the TUI self-validates from its own folder:
