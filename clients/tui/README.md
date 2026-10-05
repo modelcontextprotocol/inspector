@@ -90,6 +90,7 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - Use the **Arrow Keys** (Left/Right) or **Tab** to switch between the main tabs (Resources, Tools, Prompts, Skills, etc.).
 - Use the **Arrow Keys** (Up/Down) to scroll through lists of items.
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
+- Press **`/`** on a focused Resources, Prompts, Skills or Tools list to filter it as you type (case-insensitive, by name or title — and URI, for resources). **Enter** keeps the filter and returns the keys to the list; **Escape** clears it. While the filter is being typed, the tab accelerators and Escape-to-exit are paused, so a query can contain any letter. To clear a kept filter, press `/` then **Escape**.
 - Press **Escape** or `Ctrl+C` to exit the application.
 
 ## Copying values

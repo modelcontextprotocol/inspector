@@ -897,3 +897,31 @@ describe("SkillsTab (#2248)", () => {
     );
   });
 });
+
+describe("SkillsTab list filter (#2430)", () => {
+  it("narrows the catalog by skill name", async () => {
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={skills}
+        pageCount={1}
+        inspectorClient={null}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "r", "i", "g", "h", "t"]) {
+      stdin.write(k);
+      await tick();
+    }
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("Skills (1/4)");
+    expect(frame).toContain("skill://wrong-folder/SKILL.md");
+    stdin.write("!");
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("No skills match the filter");
+    expect(frame).toContain("Select a skill to view details");
+  });
+});
