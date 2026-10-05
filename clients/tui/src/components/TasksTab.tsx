@@ -100,8 +100,15 @@ export function TasksTab({
       ? result.value
       : null;
 
+  // One operation at a time. A ref rather than `busy`, because two keypresses
+  // can land before the state update re-renders, and overlapping refreshes
+  // walk the store's paginated list concurrently and duplicate rows.
+  const inFlightRef = useRef(false);
+
   /** Run one task operation, routing auth recovery and errors uniformly. */
   const run = async (label: string, op: () => Promise<void>) => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setBusy(label);
     setError(null);
     try {
@@ -113,6 +120,7 @@ export function TasksTab({
       }
       setError(errorMessage(err));
     } finally {
+      inFlightRef.current = false;
       setBusy(null);
     }
   };
@@ -128,6 +136,9 @@ export function TasksTab({
         return;
       }
       if (input === "l") {
+        // Not during a refresh: the store has already emptied its list for the
+        // page walk, so a clear now is lost and the tasks reappear after it.
+        if (inFlightRef.current) return;
         onClearCompleted();
         return;
       }

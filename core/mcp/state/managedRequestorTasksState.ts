@@ -55,11 +55,19 @@ export class ManagedRequestorTasksState extends TypedEventTarget<ManagedRequesto
   constructor(client: InspectorClientProtocol) {
     super();
     this.client = client;
+    // An event listener cannot await, so the automatic refreshes own their
+    // rejection here: a failed `tasks/list` (server error, auth challenge, the
+    // page cap) would otherwise escape as an unhandled rejection, which kills a
+    // Node host such as the TUI. The list keeps its last committed value; a
+    // caller-initiated `refresh()` still rejects to its caller.
+    const refreshQuietly = (): void => {
+      this.refresh().catch(() => {});
+    };
     const onConnect = (): void => {
-      void this.refresh();
+      refreshQuietly();
     };
     const onTasksListChanged = (): void => {
-      void this.refresh();
+      refreshQuietly();
     };
     const onStatusChange = (): void => {
       if (isTerminalStatus(this.client?.getStatus())) {

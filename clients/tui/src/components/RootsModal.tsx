@@ -12,7 +12,7 @@
  * save takes. The change is for this session only: the TUI does not write
  * `mcp.json`, so the configured roots return on the next launch.
  */
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form, type FormStructure } from "ink-form";
 import type { Root } from "@modelcontextprotocol/client";
@@ -75,8 +75,14 @@ export function RootsModal({
     visibleCount,
   );
 
+  // `saving` drives the status line; this ref is the guard, because two keys
+  // can land before React re-renders and both would save from the same stale
+  // `roots`, announcing roots/list_changed twice for one edit.
+  const savingRef = useRef(false);
+
   const save = async (next: Root[]) => {
-    if (!inspectorClient) return;
+    if (!inspectorClient || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     setError(null);
     try {
@@ -85,6 +91,7 @@ export function RootsModal({
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

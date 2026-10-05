@@ -175,6 +175,8 @@ describe("RootsModal", () => {
     );
     const { stdin } = renderModal({ inspectorClient: fakeClient(setRoots) });
     await tick();
+    // Two keys in one burst, before any re-render, still save once.
+    stdin.write("x");
     stdin.write("x");
     await tick();
     stdin.write("x");

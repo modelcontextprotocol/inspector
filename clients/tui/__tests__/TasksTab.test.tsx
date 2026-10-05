@@ -175,10 +175,17 @@ describe("TasksTab", () => {
     const pending = new Promise<never[]>((resolve) => {
       release = () => resolve([]);
     });
-    const { stdin, lastFrame } = renderTab({ onRefresh: () => pending });
+    const onRefresh = vi.fn(() => pending);
+    const { stdin, lastFrame } = renderTab({ onRefresh });
     stdin.write("f");
     await tick();
     expect(lastFrame()).toContain("Refreshing…");
+    // A second press while the first is in flight starts nothing.
+    stdin.write("f");
+    stdin.write("x");
+    stdin.write("l");
+    await tick();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
     release();
     await tick();
     expect(lastFrame()).not.toContain("Refreshing…");
