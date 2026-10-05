@@ -160,6 +160,28 @@ describe("ToolTestModal save serialization (#2571)", () => {
     api.unmount();
   });
 
+  it("Ctrl+W and Meta+W do not open the save prompt", async () => {
+    const { api, callTool } = renderModal();
+    await submitAndOpenPrompt(api, callTool);
+    api.stdin.write("\u001b"); // close the prompt; the result view stays up
+    await waitUntil(() => !promptOpen());
+    // Negative assertions: each chord gets a few macrotasks to open the
+    // prompt (it would within one) before checking it did not.
+    const settle = async () => {
+      for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 4));
+    };
+    api.stdin.write("\u0017"); // Ctrl+W
+    await settle();
+    expect(promptOpen()).toBe(false);
+    api.stdin.write("\u001bw"); // Meta+W
+    await settle();
+    expect(promptOpen()).toBe(false);
+    // A plain w still opens it.
+    api.stdin.write("w");
+    await waitUntil(promptOpen);
+    api.unmount();
+  });
+
   it("reports a non-Error rejection as text", async () => {
     const { api, callTool } = renderModal();
     await submitAndOpenPrompt(api, callTool);
