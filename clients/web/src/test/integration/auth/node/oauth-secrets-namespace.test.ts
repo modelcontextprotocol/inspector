@@ -666,6 +666,64 @@ describe("namespace ledger: superseded namespaces are purged (#2560)", () => {
     expect(ledgerNamespaces(fileA)).toEqual([namespaceOf(fileA)]);
   });
 
+  it("retries a failed purge on the next ordinary save, without another strip", async () => {
+    const store = new InMemorySecretStore();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await writeOAuthSections(fileA, snapshotFor("one"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    const id1 = oauthSecretServerId(SERVER, namespaceOf(fileA));
+
+    const realDelete = store.deleteAllForServer.bind(store);
+    const del = vi
+      .spyOn(store, "deleteAllForServer")
+      .mockImplementation(async (id) => {
+        if (id === id1) throw new Error("keychain locked");
+        return realDelete(id);
+      });
+    await stripStamp(fileA);
+    await writeOAuthSections(fileA, snapshotFor("two"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    expect(await store.get(id1, LEGACY_TOKENS_FIELD)).not.toBeNull();
+
+    // The store recovers; the file keeps its new stamp.
+    del.mockRestore();
+    const ns2 = namespaceOf(fileA);
+    await writeOAuthSections(fileA, snapshotFor("three"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    expect(namespaceOf(fileA)).toBe(ns2);
+    expect(await store.get(id1, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(ledgerNamespaces(fileA)).toEqual([ns2]);
+  });
+
+  it("a run on another backend leaves the keychain's record for a keychain run", async () => {
+    // Saved to the keychain, stamp stripped, then a run that fell back to
+    // a different store re-adopts: its no-op purge must not consume the
+    // keychain record. The next keychain run cleans up.
+    const keyring = new KeyringSecretStore();
+    await writeOAuthSections(fileA, snapshotFor("one"), undefined, keyring);
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    const hasNs1 = () =>
+      [...keyringMocks.password.keys()].some((a) => a.includes(ns1));
+    expect(hasNs1()).toBe(true);
+
+    await stripStamp(fileA);
+    await writeOAuthSections(
+      fileA,
+      snapshotFor("fallback"),
+      undefined,
+      new InMemorySecretStore(),
+    );
+    await flushStoreFileWrites(fileA);
+    expect(hasNs1()).toBe(true);
+    expect(ledgerNamespaces(fileA)).toContain(ns1);
+
+    await writeOAuthSections(fileA, snapshotFor("back"), undefined, keyring);
+    await flushStoreFileWrites(fileA);
+    expect(hasNs1()).toBe(false);
+    expect(ledgerNamespaces(fileA)).not.toContain(ns1);
+  });
+
   it("removing a stripped file purges the namespace it lost, and the ledger with it", async () => {
     const store = new InMemorySecretStore();
     await writeOAuthSections(fileA, snapshotFor("one"), undefined, store);

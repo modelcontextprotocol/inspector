@@ -34,8 +34,14 @@ import {
   purgeSupersededNamespaces,
   recordNamespaceKeys,
   resetNamespaceLedgerWarnings,
+  secretStoreLocation,
 } from "@inspector/core/auth/node/oauth-namespace-ledger.js";
-import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
+import {
+  InMemorySecretStore,
+  KeyringSecretStore,
+  SessionSecretStore,
+} from "@inspector/core/auth/node/secret-store.js";
+import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import {
   LEGACY_TOKENS_FIELD,
   IDP_SESSION_FIELD,
@@ -66,14 +72,14 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-function readLedger(): Record<
+type LedgerJson = Record<
   string,
-  { servers: string[]; idpSessions: string[] }
-> {
+  Record<string, { servers: string[]; idpSessions: string[] }>
+>;
+
+function readLedger(): LedgerJson {
   return (
-    JSON.parse(readFileSync(ledgerFile, "utf8")) as {
-      namespaces: Record<string, { servers: string[]; idpSessions: string[] }>;
-    }
+    JSON.parse(readFileSync(ledgerFile, "utf8")) as { namespaces: LedgerJson }
   ).namespaces;
 }
 
@@ -87,22 +93,33 @@ describe("namespaceLedgerPath", () => {
 
 describe("recordNamespaceKeys", () => {
   it("creates the ledger and accumulates keys per namespace", async () => {
-    await recordNamespaceKeys(stateFile, NS1, [SERVER], []);
-    await recordNamespaceKeys(stateFile, NS1, ["https://b.example"], [ISSUER]);
-    await recordNamespaceKeys(stateFile, NS2, [SERVER], []);
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
+    await recordNamespaceKeys(
+      stateFile,
+      store,
+      NS1,
+      ["https://b.example"],
+      [ISSUER],
+    );
+    await recordNamespaceKeys(stateFile, store, NS2, [SERVER], []);
     expect(readLedger()).toEqual({
-      [NS1]: { servers: [SERVER, "https://b.example"], idpSessions: [ISSUER] },
-      [NS2]: { servers: [SERVER], idpSessions: [] },
+      [NS1]: {
+        memory: {
+          servers: [SERVER, "https://b.example"],
+          idpSessions: [ISSUER],
+        },
+      },
+      [NS2]: { memory: { servers: [SERVER], idpSessions: [] } },
     });
   });
 
   it("does not rewrite the ledger when every key is already recorded", async () => {
-    await recordNamespaceKeys(stateFile, NS1, [SERVER], [ISSUER]);
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], [ISSUER]);
     const before = readFileSync(ledgerFile, "utf8");
     // A sentinel the rewrite would replace.
     writeFileSync(ledgerFile, before.replace("{", "{ "));
     const sentinel = readFileSync(ledgerFile, "utf8");
-    await recordNamespaceKeys(stateFile, NS1, [SERVER], [ISSUER]);
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], [ISSUER]);
     expect(readFileSync(ledgerFile, "utf8")).toBe(sentinel);
   });
 
@@ -111,9 +128,9 @@ describe("recordNamespaceKeys", () => {
     // A directory where the ledger should be: every read fails (EISDIR).
     mkdirSync(ledgerFile);
     await expect(
-      recordNamespaceKeys(stateFile, NS1, [SERVER], []),
+      recordNamespaceKeys(stateFile, store, NS1, [SERVER], []),
     ).resolves.toBeUndefined();
-    await recordNamespaceKeys(stateFile, NS1, [SERVER], []);
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toContain(
       "Could not update the OAuth secrets-namespace ledger",
@@ -123,7 +140,7 @@ describe("recordNamespaceKeys", () => {
   it("warns with a non-Error rejection's string form", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // Purge's per-id failure path receives whatever the store threw.
-    await recordNamespaceKeys(stateFile, NS1, [SERVER], []);
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
     vi.spyOn(store, "deleteAllForServer").mockRejectedValue("plain string");
     await purgeSupersededNamespaces(stateFile, store, undefined);
     expect(warn.mock.calls[0][0]).toContain("(plain string)");
@@ -154,9 +171,10 @@ describe("tolerant parse", () => {
     await purgeAllFrom(
       JSON.stringify({
         namespaces: {
-          "bad+ns": { servers: [SERVER] },
-          [NS1]: { servers: [SERVER, 7], idpSessions: "nope" },
+          "bad+ns": { memory: { servers: [SERVER] } },
+          [NS1]: { memory: { servers: [SERVER, 7], idpSessions: "nope" } },
           [NS2]: "not-an-object",
+          "33333333-3333-4333-8333-333333333333": { memory: ["array"] },
         },
       }),
     );
@@ -166,11 +184,36 @@ describe("tolerant parse", () => {
     // Both valid namespaces purged cleanly, so the ledger is gone.
     expect(existsSync(ledgerFile)).toBe(false);
   });
+
+  it("keeps a `__proto__` location an own key through a rewrite", async () => {
+    writeFileSync(
+      ledgerFile,
+      `{"namespaces":{"${NS1}":{"__proto__":{"servers":["${SERVER}"]}},"${NS2}":{"memory":{"servers":["${SERVER}"]}}}}`,
+    );
+    await purgeSupersededNamespaces(stateFile, store, NS1);
+    // NS2 purged and rewritten out; NS1's odd location survives as data.
+    expect(
+      Object.getOwnPropertyNames(readLedger()[NS1] ?? {}).includes("__proto__"),
+    ).toBe(true);
+  });
+});
+
+describe("secretStoreLocation", () => {
+  it("names the keychain, a specific secrets file, or memory", () => {
+    expect(secretStoreLocation(new KeyringSecretStore())).toBe("keyring");
+    expect(
+      secretStoreLocation(
+        new FileSecretStore({ filePath: "rel/secrets.json", passphrase: "" }),
+      ),
+    ).toBe(`file:${join(process.cwd(), "rel/secrets.json")}`);
+    expect(secretStoreLocation(new InMemorySecretStore())).toBe("memory");
+    expect(secretStoreLocation(new SessionSecretStore())).toBe("memory");
+  });
 });
 
 describe("purgeSupersededNamespaces", () => {
   async function seed(namespace: string): Promise<void> {
-    await recordNamespaceKeys(stateFile, namespace, [SERVER], [ISSUER]);
+    await recordNamespaceKeys(stateFile, store, namespace, [SERVER], [ISSUER]);
     await store.set(
       oauthSecretServerId(SERVER, namespace),
       LEGACY_TOKENS_FIELD,
@@ -227,6 +270,52 @@ describe("purgeSupersededNamespaces", () => {
     ).toBeNull();
     expect(Object.keys(readLedger())).toEqual([NS1]);
     expect(warn.mock.calls[0][0]).toContain("keychain locked");
+  });
+
+  it("leaves another location's record for a run that uses that store", async () => {
+    // Entries written to the keychain; this run fell back to another
+    // store. Deleting there "succeeds" against nothing, so the keychain
+    // record must survive for a later keychain run.
+    const keyring = new KeyringSecretStore();
+    await recordNamespaceKeys(stateFile, keyring, NS1, [SERVER], []);
+    const del = vi.spyOn(store, "deleteAllForServer");
+    await purgeSupersededNamespaces(stateFile, store, undefined);
+    expect(del).not.toHaveBeenCalled();
+    expect(readLedger()[NS1]).toEqual({
+      keyring: { servers: [SERVER], idpSessions: [] },
+    });
+  });
+
+  it("drops only the purged location's record, keeping the namespace for the rest", async () => {
+    await seed(NS1);
+    await recordNamespaceKeys(
+      stateFile,
+      new KeyringSecretStore(),
+      NS1,
+      [SERVER],
+      [],
+    );
+    await purgeSupersededNamespaces(stateFile, store, undefined);
+    expect(Object.keys(readLedger()[NS1])).toEqual(["keyring"]);
+  });
+
+  it("survives a key whose id cannot be built, purging the rest and keeping the record", async () => {
+    // JSON-escaped unpaired surrogate: parses to a string that makes
+    // `encodeURIComponent` throw URIError.
+    writeFileSync(
+      ledgerFile,
+      `{"namespaces":{"${NS1}":{"memory":{"servers":["\\ud800","${SERVER}"]}}}}`,
+    );
+    await store.set(oauthSecretServerId(SERVER, NS1), LEGACY_TOKENS_FIELD, "t");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(
+      purgeSupersededNamespaces(stateFile, store, undefined),
+    ).resolves.toBeUndefined();
+    expect(
+      await store.get(oauthSecretServerId(SERVER, NS1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(Object.keys(readLedger())).toEqual([NS1]);
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 
   it("warns and gives up when the ledger cannot be read", async () => {

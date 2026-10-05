@@ -21,6 +21,15 @@
  * written; recording extra is harmless (purging an id that holds nothing
  * is a no-op), recording too little is the leak this exists to close.
  *
+ * Why keys are recorded per store *location*: the backend is selected per
+ * run, and a run can land on a different one than the run that wrote the
+ * entries (a locked keychain falling back to `secrets.json`, an explicit
+ * `MCP_INSPECTOR_SECRET_STORE` switch). Deleting from the wrong backend
+ * succeeds against nothing, and dropping the record on that "success"
+ * would strand the real entries for good. So a record is dropped only by a
+ * purge in the location it was written to, and survives every other run
+ * until one of those comes along.
+ *
  * Everything here is best-effort and never throws: the ledger is a cleanup
  * aid, not part of the credential path, so a failure warns once and the
  * save or removal it rides on carries on. Purging deletes credentials, so
@@ -29,13 +38,15 @@
  * entries.
  */
 
+import { resolve } from "node:path";
 import {
   deleteStoreFile,
   readStoreFile,
   writeStoreFile,
 } from "../../storage/store-io.js";
 import { serializeStore } from "../../storage/store-serialize.js";
-import type { SecretStore } from "./secret-store.js";
+import { KeyringSecretStore, type SecretStore } from "./secret-store.js";
+import { FileSecretStore } from "./file-secret-store.js";
 import {
   isValidSecretsNamespace,
   oauthIdpSecretServerId,
@@ -46,14 +57,31 @@ import {
 export const namespaceLedgerPath = (stateFilePath: string): string =>
   `${stateFilePath}.namespaces.json`;
 
+/**
+ * Where a store's entries live, as a stable string another process can
+ * compare: the OS keychain, one particular `secrets.json`, or RAM (the
+ * test doubles and the session-scoped container fallback — entries there
+ * die with the process, so purging them from any memory store is moot).
+ */
+export function secretStoreLocation(store: SecretStore): string {
+  if (store instanceof KeyringSecretStore) return "keyring";
+  if (store instanceof FileSecretStore)
+    return `file:${resolve(store.filePath)}`;
+  return "memory";
+}
+
 /** The keys one namespace has had store entries written under. */
 interface LedgerKeys {
   servers: Set<string>;
   idpSessions: Set<string>;
 }
 
-/** Namespace → its keys. Namespaces are validated, so no prototype keys. */
-type Ledger = Map<string, LedgerKeys>;
+/**
+ * Namespace → store location → its keys. Namespaces are validated, and
+ * both maps serialize through `Object.fromEntries`, so a hostile key such
+ * as `__proto__` stays an own property rather than touching a prototype.
+ */
+type Ledger = Map<string, Map<string, LedgerKeys>>;
 
 const warnedLedgerFailures = new Set<string>();
 
@@ -70,6 +98,10 @@ function warnLedgerFailure(what: string, error: unknown): void {
 /** Test seam: forget which ledger-failure warnings have been emitted. */
 export function resetNamespaceLedgerWarnings(): void {
   warnedLedgerFailures.clear();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function stringsOf(value: unknown): string[] {
@@ -95,36 +127,35 @@ function parseLedger(raw: string | null): Ledger {
   } catch {
     return ledger;
   }
-  const namespaces =
-    typeof parsed === "object" && parsed !== null
-      ? (parsed as { namespaces?: unknown }).namespaces
-      : undefined;
-  if (typeof namespaces !== "object" || namespaces === null) return ledger;
-  for (const [namespace, entry] of Object.entries(namespaces)) {
-    if (!isValidSecretsNamespace(namespace)) continue;
-    const keys =
-      typeof entry === "object" && entry !== null
-        ? (entry as { servers?: unknown; idpSessions?: unknown })
-        : {};
-    ledger.set(namespace, {
-      servers: new Set(stringsOf(keys.servers)),
-      idpSessions: new Set(stringsOf(keys.idpSessions)),
-    });
+  const namespaces = isRecord(parsed) ? parsed.namespaces : undefined;
+  if (!isRecord(namespaces)) return ledger;
+  for (const [namespace, locations] of Object.entries(namespaces)) {
+    if (!isValidSecretsNamespace(namespace) || !isRecord(locations)) continue;
+    const byLocation = new Map<string, LedgerKeys>();
+    for (const [location, keys] of Object.entries(locations)) {
+      if (!isRecord(keys)) continue;
+      byLocation.set(location, {
+        servers: new Set(stringsOf(keys.servers)),
+        idpSessions: new Set(stringsOf(keys.idpSessions)),
+      });
+    }
+    if (byLocation.size > 0) ledger.set(namespace, byLocation);
   }
   return ledger;
 }
 
 function serializeLedger(ledger: Ledger): string {
-  const namespaces: Record<
-    string,
-    { servers: string[]; idpSessions: string[] }
-  > = {};
-  for (const [namespace, keys] of ledger) {
-    namespaces[namespace] = {
-      servers: [...keys.servers],
-      idpSessions: [...keys.idpSessions],
-    };
-  }
+  const namespaces = Object.fromEntries(
+    [...ledger].map(([namespace, byLocation]) => [
+      namespace,
+      Object.fromEntries(
+        [...byLocation].map(([location, keys]) => [
+          location,
+          { servers: [...keys.servers], idpSessions: [...keys.idpSessions] },
+        ]),
+      ),
+    ]),
+  );
   return serializeStore({ namespaces });
 }
 
@@ -139,13 +170,14 @@ async function writeLedger(
 
 /**
  * Record that store entries for these keys are about to be written under
- * `namespace`. Call it *before* the store writes, so a crash between the
- * two leaves an over-recorded ledger rather than an unrecorded entry.
- * Rewrites the ledger only when a key is new, so a steady-state save costs
- * one small read.
+ * `namespace` in `secretStore`. Call it *before* the store writes, so a
+ * crash between the two leaves an over-recorded ledger rather than an
+ * unrecorded entry. Rewrites the ledger only when a key is new, so a
+ * steady-state save costs one small read.
  */
 export async function recordNamespaceKeys(
   stateFilePath: string,
+  secretStore: SecretStore,
   namespace: string,
   servers: Iterable<string>,
   idpSessions: Iterable<string>,
@@ -154,11 +186,17 @@ export async function recordNamespaceKeys(
     const ledger = parseLedger(
       await readStoreFile(namespaceLedgerPath(stateFilePath)),
     );
-    let keys = ledger.get(namespace);
+    const location = secretStoreLocation(secretStore);
+    let byLocation = ledger.get(namespace);
+    if (!byLocation) {
+      byLocation = new Map();
+      ledger.set(namespace, byLocation);
+    }
+    let keys = byLocation.get(location);
     let changed = false;
     if (!keys) {
       keys = { servers: new Set(), idpSessions: new Set() };
-      ledger.set(namespace, keys);
+      byLocation.set(location, keys);
       changed = true;
     }
     for (const url of servers) {
@@ -178,12 +216,14 @@ export async function recordNamespaceKeys(
 }
 
 /**
- * Purge every recorded namespace other than `current` — the namespace the
- * state file actually carries, or `undefined` when it carries none (a
- * stripped stamp, a file deleted by hand, a whole-file removal), in which
- * case every recorded namespace is superseded. A namespace is dropped from
- * the ledger only once all its ids are purged; one whose purge failed stays
- * recorded, so the next adoption or removal retries it.
+ * Purge, from `secretStore`, every recorded namespace other than `current`
+ * — the namespace the state file actually carries, or `undefined` when it
+ * carries none (a stripped stamp, a file deleted by hand, a whole-file
+ * removal), in which case every recorded namespace is superseded. Only the
+ * keys recorded for this store's location are purged, and a location's
+ * record is dropped only once all its ids are gone; one whose purge failed
+ * stays recorded, so the next locked save or removal retries it. Records
+ * for other locations are left for a run that uses them.
  *
  * Only call this under the real file lock: it deletes credentials, and an
  * unlocked caller could be racing an adopter whose namespace is recorded
@@ -203,30 +243,36 @@ export async function purgeSupersededNamespaces(
     warnLedgerFailure("read", error);
     return;
   }
+  const location = secretStoreLocation(secretStore);
   let changed = false;
-  for (const [namespace, keys] of ledger) {
+  for (const [namespace, byLocation] of ledger) {
     if (namespace === current) continue;
-    const ids = [
-      ...[...keys.servers].map((url) => oauthSecretServerId(url, namespace)),
-      ...[...keys.idpSessions].map((issuer) =>
-        oauthIdpSecretServerId(issuer, namespace),
+    const keys = byLocation.get(location);
+    if (!keys) continue;
+    const purges = [
+      ...[...keys.servers].map(
+        (url) => () => oauthSecretServerId(url, namespace),
+      ),
+      ...[...keys.idpSessions].map(
+        (issuer) => () => oauthIdpSecretServerId(issuer, namespace),
       ),
     ];
     let purged = true;
     // Per-id catch, like adoption's legacy purge: one failure must not
-    // abandon the remaining ids.
-    for (const id of ids) {
+    // abandon the remaining ids. The id is built inside it too — a key with
+    // an unpaired surrogate makes `encodeURIComponent` throw.
+    for (const idOf of purges) {
       try {
-        await secretStore.deleteAllForServer(id);
+        await secretStore.deleteAllForServer(idOf());
       } catch (error) {
         purged = false;
         warnLedgerFailure("purge an orphaned namespace recorded in", error);
       }
     }
-    if (purged) {
-      ledger.delete(namespace);
-      changed = true;
-    }
+    if (!purged) continue;
+    byLocation.delete(location);
+    if (byLocation.size === 0) ledger.delete(namespace);
+    changed = true;
   }
   if (!changed) return;
   try {

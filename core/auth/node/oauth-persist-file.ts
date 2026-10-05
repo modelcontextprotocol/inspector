@@ -357,7 +357,9 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * Under the lock, adoption first purges every namespace the ledger records
  * (#2560): reaching this point means the file carries none, so each
  * recorded one is superseded — most often a stamp an older Inspector's save
- * stripped, whose entries nothing else would ever find. Unlocked, the purge
+ * stripped, whose entries nothing else would ever find. A stamped file's
+ * locked saves purge every recorded namespace but its own, which is how a
+ * purge that failed here is retried once the store recovers. Unlocked, the purge
  * is skipped: a concurrent adopter's namespace can be recorded before it is
  * stamped, and purging it would delete live credentials.
  */
@@ -368,7 +370,14 @@ async function adoptSecretsNamespace(
 ): Promise<string> {
   const raw = await readStoreFile(filePath);
   const existing = parseSecretsNamespace(raw);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    // An ordinary save also retries any superseded namespace whose purge
+    // failed at adoption — the new stamp means adoption will not run again.
+    if (locked) {
+      await purgeSupersededNamespaces(filePath, secretStore, existing);
+    }
+    return existing;
+  }
   const snapshot = parseOAuthPersistBlob(raw);
   if (raw !== null && snapshot === null) {
     throw new OAuthStateFileUnrecognizedError(filePath, "save");
@@ -405,6 +414,7 @@ async function adoptSecretsNamespace(
   // findable if this namespace is later superseded.
   await recordNamespaceKeys(
     filePath,
+    secretStore,
     namespace,
     Object.keys(snapshot.servers),
     Object.keys(snapshot.idpSessions),
@@ -817,6 +827,7 @@ export async function writeOAuthSections(
         // namespace must be findable once the namespace is superseded.
         await recordNamespaceKeys(
           filePath,
+          secretStore,
           namespace,
           Object.keys(merged.servers),
           Object.keys(merged.idpSessions),
@@ -1116,6 +1127,7 @@ async function migratePlaintextSecrets(
   if (namespace !== undefined) {
     await recordNamespaceKeys(
       filePath,
+      secretStore,
       namespace,
       Object.keys(fresh.servers),
       Object.keys(fresh.idpSessions),

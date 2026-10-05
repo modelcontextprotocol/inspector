@@ -181,7 +181,7 @@ describe("namespace-ledger purge under a degraded (unlocked) file lock (#2560)",
 
   /** A recorded namespace holding a live entry, as a racing adopter leaves it. */
   async function seedRecordedNamespace(): Promise<string> {
-    await recordNamespaceKeys(filePath, OTHER_NS, [SERVER], []);
+    await recordNamespaceKeys(filePath, store, OTHER_NS, [SERVER], []);
     const id = oauthSecretServerId(SERVER, OTHER_NS);
     await store.set(id, LEGACY_TOKENS_FIELD, JSON.stringify(TOKENS));
     return id;
