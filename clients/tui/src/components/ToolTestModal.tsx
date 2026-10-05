@@ -12,6 +12,7 @@ import {
 } from "../utils/schemaToForm.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { inlineLocalRefs } from "@inspector/core/json/localRefs.js";
+import { redactErrorText, redactedJson } from "../utils/errorText.js";
 
 interface ToolTestModalProps {
   tool: Tool;
@@ -289,7 +290,9 @@ export function ToolTestModal({
                       Error:
                     </Text>
                     <Box paddingLeft={2}>
-                      <Text color="red">{String(result.error)}</Text>
+                      <Text color="red">
+                        {redactErrorText(String(result.error))}
+                      </Text>
                     </Box>
                     {result.errorDetails != null ? (
                       <>
@@ -300,7 +303,7 @@ export function ToolTestModal({
                         </Box>
                         <Box paddingLeft={2}>
                           <Text dimColor>
-                            {JSON.stringify(result.errorDetails, null, 2)}
+                            {redactedJson(result.errorDetails)}
                           </Text>
                         </Box>
                       </>

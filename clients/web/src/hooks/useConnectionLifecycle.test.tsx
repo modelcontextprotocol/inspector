@@ -1206,6 +1206,38 @@ describe("useConnectionLifecycle", () => {
       );
     });
 
+    // #2490: the recorded message is redacted for display, but the 409
+    // classification reads the raw text — so a phrase that only survives in
+    // the unredacted message still swallows, and the record is redacted.
+    it("classifies on the raw message and records the redacted one", async () => {
+      const swallow = vi
+        .fn()
+        .mockRejectedValue(
+          new Error("rejected https://s.example/?token=already exists"),
+        );
+      const h1 = harness({
+        servers: [],
+        deepLink: deepLink(),
+        addServerImpl: swallow,
+      });
+      await waitFor(() => expect(swallow).toHaveBeenCalled());
+      expect(h1.api().connectErrorMessage).toBeUndefined();
+
+      const record = vi
+        .fn()
+        .mockRejectedValue(new Error("rejected https://s.example/?code=abc"));
+      const h2 = harness({
+        servers: [],
+        deepLink: deepLink(),
+        addServerImpl: record,
+      });
+      await waitFor(() =>
+        expect(h2.api().connectErrorMessage).toBe(
+          "rejected https://s.example/?code=%5BREDACTED%5D",
+        ),
+      );
+    });
+
     it("records an update failure", async () => {
       const link = deepLink();
       const updateServerImpl = vi.fn().mockRejectedValue("backend 500");

@@ -79,6 +79,8 @@ import {
 } from "../utils/stepUp";
 import type { SessionRef } from "./useSessionRef";
 import type { TabUiState, TabUiStateSetters } from "./useTabUiState";
+import { errorMessage } from "../utils/errorFormat";
+import { redactUrlsInText } from "@inspector/core/mcp/fetchTracking.js";
 
 /** The banner raised when a session needs the user to authorize again. */
 export interface ReAuthBannerState {
@@ -158,7 +160,8 @@ export function revocationSuffix(
     return " The grant was also revoked at the authorization server.";
   }
   if (outcome?.status === "failed") {
-    return ` Revoking the grant at the authorization server failed (${outcome.detail}), so it may still be valid there.`;
+    // The detail is a caught revocation/network error's text (#2490).
+    return ` Revoking the grant at the authorization server failed (${redactUrlsInText(outcome.detail)}), so it may still be valid there.`;
   }
   return "";
 }
@@ -436,7 +439,9 @@ export function useOAuthRecovery({
       const message = reAuthBannerMessage({
         serverName: server?.name,
         detail:
-          detail !== undefined ? formatOAuthFailureDetail(detail) : undefined,
+          detail !== undefined
+            ? redactUrlsInText(formatOAuthFailureDetail(detail))
+            : undefined,
       });
       const reason = options?.reason;
       if (reason !== undefined && !isReAuthBannerReason(reason)) {
@@ -916,7 +921,7 @@ export function useOAuthRecovery({
           if (!errorTitle) return;
           notifications.show({
             title: errorTitle,
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             color: "red",
           });
         },
@@ -1037,7 +1042,7 @@ export function useOAuthRecovery({
         if (stillThisSession) {
           setPendingReauth((prev) => prev ?? pending);
         }
-        const detail = err instanceof Error ? err.message : String(err);
+        const detail = errorMessage(err);
         notifications.show({
           title: "Could not continue authorization",
           // The copy has to match what actually happens. When the session is
@@ -1594,7 +1599,7 @@ export function useOAuthRecovery({
           // cleared-successfully toast below still goes out.
           notifications.show({
             title: "Cleared, but the session did not disconnect cleanly",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             color: "yellow",
           });
         } finally {
@@ -1692,7 +1697,7 @@ export function useOAuthRecovery({
               // command and is reported as that command's — routed to the
               // panel that issued it rather than dressed up as a step-up
               // failure (#2165).
-              const message = err instanceof Error ? err.message : String(err);
+              const message = errorMessage(err);
               notifications.show({
                 title: "Retry failed",
                 message,
@@ -1721,7 +1726,9 @@ export function useOAuthRecovery({
           // Terminal, and this attempt's retry is already out of the shared
           // ref — so it dies with the attempt, and whatever a later prompt
           // has installed is left alone.
-          const failureMessage = emaStepUpFailureMessage(outcome.error.message);
+          const failureMessage = emaStepUpFailureMessage(
+            errorMessage(outcome.error),
+          );
           notifications.show({
             title: "Organization permissions",
             message: failureMessage,
@@ -1736,9 +1743,7 @@ export function useOAuthRecovery({
         // latch and the prompt is already dismissed, leaving the panel that
         // asked for the permissions never told (#2165). Reported exactly as
         // the `failed` outcome above is, so the two cannot disagree.
-        const failureMessage = emaStepUpFailureMessage(
-          err instanceof Error ? err.message : String(err),
-        );
+        const failureMessage = emaStepUpFailureMessage(errorMessage(err));
         notifications.show({
           title: "Organization permissions",
           message: failureMessage,

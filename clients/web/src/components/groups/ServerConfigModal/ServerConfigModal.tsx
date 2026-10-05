@@ -17,6 +17,7 @@ import type {
   MCPServerConfig,
   StdioServerConfig,
 } from "@inspector/core/mcp/types.js";
+import { errorMessage } from "../../../utils/errorFormat";
 
 /** Allowed id pattern — mirrors validateStoreId in core/storage/store-io.ts */
 const ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
@@ -304,7 +305,7 @@ export function ServerConfigModal({
       await onSubmit(trimmedId, built.config);
       onClose();
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : String(err));
+      setSubmitError(errorMessage(err));
     } finally {
       setSubmitting(false);
     }

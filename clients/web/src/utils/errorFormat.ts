@@ -2,9 +2,17 @@
 // Deliberately duck-typed rather than coupled to the SDK's error classes: the
 // values reaching here come off a `catch`, so their only guaranteed type is
 // `unknown`.
+//
+// Everything these return is for DISPLAY, so it is URL-query-redacted (#2490):
+// a server or SDK error quoting `https://…?code=…` would otherwise land in a
+// toast verbatim — a screenshot or screen-share away from leaking. Routing every
+// on-screen error through `errorMessage` makes that one boundary rather than a
+// rule each call site has to remember.
+
+import { redactUrlsInText } from "@inspector/core/mcp/fetchTracking.js";
 
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  return redactUrlsInText(err instanceof Error ? err.message : String(err));
 }
 
 // The numeric JSON-RPC code of a thrown protocol error (e.g. a `ProtocolError`
@@ -26,10 +34,12 @@ export function formatErrorDetails(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as { code?: unknown; message?: unknown; data?: unknown };
     if (e.code !== undefined || e.data !== undefined) {
-      return JSON.stringify(
-        { code: e.code, message: e.message, data: e.data },
-        null,
-        2,
+      return redactUrlsInText(
+        JSON.stringify(
+          { code: e.code, message: e.message, data: e.data },
+          null,
+          2,
+        ),
       );
     }
   }
