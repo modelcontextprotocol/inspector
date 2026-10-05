@@ -178,6 +178,14 @@ ${FUNCTION_NAME}() {
     return 0
   fi
   [ "\${COMP_WORDS[1]}" = "--cli" ] || return 0
+  # \`--opt=value\`: "=" is in COMP_WORDBREAKS, so bash splits it into
+  # \`--opt\`, \`=\`, \`value\`. Readline only replaces the text after the "=",
+  # so complete the bare value against the option before it.
+  if [ "$cur" = "=" ]; then
+    cur=""
+  elif [ "$prev" = "=" ] && [ "$COMP_CWORD" -ge 3 ]; then
+    prev="\${COMP_WORDS[COMP_CWORD-2]}"
+  fi
   case "$prev" in
 ${cases}
   esac
@@ -231,9 +239,19 @@ ${FUNCTION_NAME}() {
     _files
     return
   fi
+  # \`--opt=value\` stays one word: split it, and move \`--opt=\` into IPREFIX
+  # so only the value is replaced.
+  local inline=0
+  if [[ $cur == --*=* ]]; then
+    prev=\${cur%%=*}
+    compset -P '*='
+    cur=\${cur#*=}
+    inline=1
+  fi
   case $prev in
 ${cases}
   esac
+  (( inline )) && return
   if [[ $cur == -* ]]; then
     local -a opts
     opts=(

@@ -238,6 +238,20 @@ describe.skipIf(!hasShell("bash"))("bash script", () => {
     // Non-CLI modes are out of scope.
     expect(await complete(["mcp-inspector", "--web", "--meth"])).toEqual([]);
   });
+
+  it("completes the value of --opt=value (split on '=' by COMP_WORDBREAKS)", async () => {
+    // Cursor right after `--method=`: the current word is "=".
+    expect(
+      await complete(["mcp-inspector", "--cli", "--method", "="]),
+    ).toContain("tools/list");
+    // `--method=tools/`: the value is the current word, "=" the previous.
+    expect(
+      await complete(["mcp-inspector", "--cli", "--method", "=", "tools/"]),
+    ).toEqual(["tools/list", "tools/call"]);
+    expect(
+      await complete(["mcp-inspector", "--cli", "--format", "=", "j"]),
+    ).toEqual(["json"]);
+  });
 });
 
 describe.skipIf(!hasShell("zsh"))("zsh script", () => {
@@ -254,6 +268,7 @@ describe.skipIf(!hasShell("zsh"))("zsh script", () => {
       "_files() { print -r -- _files }",
       '_message() { print -r -- "_message $*" }',
       '_describe() { print -r -- "_describe ${(P)4}" }',
+      'compset() { print -r -- "compset $*" }',
     ].join("\n");
     const res = spawnSync(
       "zsh",
@@ -296,6 +311,24 @@ describe.skipIf(!hasShell("zsh"))("zsh script", () => {
       "_files",
     );
   });
+
+  it("completes the value of --opt=value, moving the option into IPREFIX", async () => {
+    const method = await complete([
+      "mcp-inspector",
+      "--cli",
+      "--method=tools/",
+    ]);
+    expect(method).toContain("compset -P *=");
+    expect(method).toContain("compadd initialize tools/list tools/call");
+    expect(method).not.toContain("_describe");
+    expect(await complete(["mcp-inspector", "--cli", "--config=./"])).toContain(
+      "_files",
+    );
+    // A boolean flag given `=`: nothing to offer, and no option list either.
+    expect(
+      await complete(["mcp-inspector", "--cli", "--strict="]),
+    ).not.toContain("_describe");
+  });
 });
 
 describe.skipIf(!hasShell("fish"))("fish script", () => {
@@ -326,5 +359,9 @@ describe.skipIf(!hasShell("fish"))("fish script", () => {
     ).toEqual(["tools/call", "tools/list"]);
     expect(await complete("mcp-inspector --cli -")).toContain("-e");
     expect(await complete("mcp-inspector --web --meth")).toEqual([]);
+    // fish splits `--opt=value` natively.
+    expect(
+      (await complete("mcp-inspector --cli --method=tools/")).sort(),
+    ).toEqual(["--method=tools/call", "--method=tools/list"]);
   });
 });
