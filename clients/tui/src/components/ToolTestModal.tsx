@@ -135,7 +135,8 @@ export function ToolTestModal({
       }
 
       if (state === "results") {
-        if (input === "w") {
+        // Plain w only: Ink reports a chord's letter in `input` too.
+        if (input === "w" && !key.ctrl && !key.meta) {
           openSavePrompt();
           return;
         }
