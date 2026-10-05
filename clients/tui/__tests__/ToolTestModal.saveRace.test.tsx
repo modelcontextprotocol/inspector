@@ -128,6 +128,38 @@ describe("ToolTestModal save serialization (#2571)", () => {
     api.unmount();
   });
 
+  it("an older save settling does not replace the newer one's status", async () => {
+    const { api, callTool } = renderModal();
+    await submitAndOpenPrompt(api, callTool);
+    api.stdin.write("\r");
+    await waitUntil(() => pending.length === 1);
+    api.stdin.write("w");
+    await waitUntil(promptOpen);
+    // Edit the path so the two saves are told apart in the status.
+    for (const len of [16, 15, 14, 13]) {
+      api.stdin.write("\b");
+      await waitUntil(() => prompts.at(-1)?.path.length === len);
+    }
+    api.stdin.write("newer");
+    await waitUntil(() => prompts.at(-1)?.path === "alpha-result.newer");
+    api.stdin.write("\r");
+    await waitUntil(() => pending.length === 2);
+    await waitUntil(
+      () => lastStatus()?.message === "Saving to alpha-result.newer…",
+    );
+    pending[0]!.resolve({ path: "/old.json", format: "json", bytes: 3 });
+    // A negative assertion has no condition to wait on, so the stale
+    // completion gets a few macrotasks to land (it would within one).
+    for (let i = 0; i < 10; i++) await new Promise((r) => setTimeout(r, 4));
+    expect(lastStatus()?.message).toBe("Saving to alpha-result.newer…");
+    pending[1]!.resolve({ path: "/new.json", format: "json", bytes: 2 });
+    await waitUntil(
+      () =>
+        lastStatus()?.message === "Saved json result to /new.json (2 bytes)",
+    );
+    api.unmount();
+  });
+
   it("reports a non-Error rejection as text", async () => {
     const { api, callTool } = renderModal();
     await submitAndOpenPrompt(api, callTool);

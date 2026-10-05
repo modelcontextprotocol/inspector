@@ -61,6 +61,10 @@ export function ToolTestModal({
   const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
+  // Numbers this view's saves so only the latest may report. The queue in
+  // saveResultToFile keeps the writes themselves ordered; this keeps an older
+  // save settling from replacing the newer one's "Saving…" with its "Saved".
+  const saveAttemptRef = React.useRef(0);
   const toolName = tool?.name || "tool";
 
   // Use full terminal dimensions instead of passed dimensions
@@ -213,8 +217,10 @@ export function ToolTestModal({
   };
 
   const saveCurrentResult = async (prompt: SavePrompt) => {
-    // saveResultToFile queues saves process-wide, so they settle in the order
-    // they started and the last status written is always the latest save's.
+    const attempt = ++saveAttemptRef.current;
+    const report = (status: SaveStatus) => {
+      if (attempt === saveAttemptRef.current) setSaveStatus(status);
+    };
     setSaveStatus({ ok: true, message: `Saving to ${prompt.path}…` });
     try {
       const saved = await saveResultToFile(
@@ -222,12 +228,12 @@ export function ToolTestModal({
         prompt.path,
         prompt.format,
       );
-      setSaveStatus({
+      report({
         ok: true,
         message: `Saved ${saved.format} result to ${saved.path} (${saved.bytes} ${saved.bytes === 1 ? "byte" : "bytes"})`,
       });
     } catch (err) {
-      setSaveStatus({
+      report({
         ok: false,
         message: err instanceof Error ? err.message : String(err),
       });

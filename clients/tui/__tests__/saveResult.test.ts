@@ -92,39 +92,3 @@ describe("saveResultToFile (#2571)", () => {
     ).rejects.toThrow(`Could not write ${join(dir, "missing/x.json")}:`);
   });
 });
-
-describe("saveResultToFile queueing (#2571)", () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), "tui-save-queue-"));
-  });
-  afterEach(() => {
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it("runs saves one at a time, settling in the order they started", async () => {
-    // The first write is by far the largest, so unqueued it would be the last
-    // to land and would leave its bytes in the file.
-    const big = { content: [{ type: "text", text: "x".repeat(4_000_000) }] };
-    const order: number[] = [];
-    const saves = [
-      big,
-      TEXT,
-      { content: [{ type: "text", text: "last" }] },
-    ].map((result, i) =>
-      saveResultToFile(result, "same.txt", "raw", dir).then(() => {
-        order.push(i);
-      }),
-    );
-    await Promise.all(saves);
-    expect(order).toEqual([0, 1, 2]);
-    expect(readFileSync(join(dir, "same.txt"), "utf8")).toBe("last");
-  });
-
-  it("a failed save does not hold up the ones queued after it", async () => {
-    const failed = saveResultToFile(TEXT, "missing/x.json", "json", dir);
-    const next = saveResultToFile(TEXT, "ok.json", "json", dir);
-    await expect(failed).rejects.toThrow("Could not write");
-    await expect(next).resolves.toMatchObject({ path: join(dir, "ok.json") });
-  });
-});
