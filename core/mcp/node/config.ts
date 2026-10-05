@@ -9,6 +9,7 @@ import type {
   StreamableHttpServerConfig,
 } from "../types.js";
 import { isProtocolEra, normalizeServerType } from "../serverList.js";
+import { isSkillCatalogLimit } from "../skills.js";
 import type { ServerProtocolEra } from "../types.js";
 import { toRecord } from "../../json/jsonUtils.js";
 import { getOwnEntry } from "../../storage/own-entry.js";
@@ -100,6 +101,31 @@ export function parseProtocolEra(value: string): ServerProtocolEra {
     );
   }
   return value;
+}
+
+/**
+ * Build the Commander coerce for a skills-catalog budget flag
+ * (`--skill-catalog-max-skills` / `--skill-catalog-max-bytes`), so the CLI and
+ * TUI can set the per-server budget the web exposes in Server Settings (#2420).
+ * Accepts only a plain run of decimal digits denoting a positive safe integer —
+ * the values {@link isSkillCatalogLimit} keeps when it reads `mcp.json` — so
+ * `0`, `-1`, `1.5`, `1e3` and `0x10` are rejected up front, rather than falling
+ * back to the default the way a hand-edited file value does. `flag` names the
+ * option in the error. Pure function; no Commander dependency.
+ */
+export function skillCatalogLimitParser(
+  flag: string,
+): (value: string) => number {
+  return (value: string): number => {
+    const trimmed = value.trim();
+    const n = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
+    if (!isSkillCatalogLimit(n)) {
+      throw new Error(
+        `Invalid ${flag}: ${value}. Expected a positive integer.`,
+      );
+    }
+    return n;
+  };
 }
 
 /** On-disk contents of a freshly seeded empty catalog (pretty-printed). */

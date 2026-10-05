@@ -299,6 +299,69 @@ describe("--protocol-era", () => {
   });
 });
 
+describe("--skill-catalog-max-skills / --skill-catalog-max-bytes (#2420)", () => {
+  // The flags must reach `verifySkills`' run-level budget, not just parse. A
+  // budget of one skill leaves every later skill unread, which the report
+  // records as an `incomplete` outcome — without the flag the fixture's whole
+  // catalog fits the default budget and no skill is incomplete.
+  it("caps the --verify run at the flag's skill budget", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo(),
+      skills: true,
+    });
+    try {
+      await server.start();
+      const verify = [
+        server.url,
+        "--transport",
+        "http",
+        "--method",
+        "skills/list",
+        "--verify",
+      ];
+
+      const unbounded = await runCli(verify);
+      expect(reportOutcomes(unbounded.stdout)).not.toContain("incomplete");
+
+      const capped = await runCli([
+        ...verify,
+        "--skill-catalog-max-skills",
+        "1",
+      ]);
+      expect(reportOutcomes(capped.stdout)).toContain("incomplete");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it.each([
+    ["--skill-catalog-max-skills", "0"],
+    ["--skill-catalog-max-bytes", "1.5"],
+  ])("rejects %s %s before connecting", async (flag, value) => {
+    const { command, args } = getTestMcpServerCommand();
+    const result = await runCli([
+      command,
+      ...args,
+      flag,
+      value,
+      "--method",
+      "tools/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toContain(
+      `Invalid ${flag}: ${value}. Expected a positive integer.`,
+    );
+  });
+});
+
+/** The `outcome` of each NDJSON `--verify` report line. */
+function reportOutcomes(stdout: string): string[] {
+  return stdout
+    .trim()
+    .split("\n")
+    .map((line) => (JSON.parse(line) as { outcome: string }).outcome);
+}
+
 describe("MCP_CATALOG_PATH with an ad-hoc target", () => {
   it("does not conflict with an ad-hoc target (env catalog is ignored)", async () => {
     const { command, args } = getTestMcpServerCommand();
