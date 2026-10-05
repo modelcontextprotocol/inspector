@@ -57,17 +57,39 @@ export function defaultResultFileName(
 }
 
 /**
- * Render `result` in `format` and write it to `path` (relative paths resolve
- * against `cwd`). An existing file is replaced and the parent directory must
- * already exist, as with the CLI's `--output`. Any failure — a result with no
- * raw form, or the write itself — rejects with an `Error` whose message is fit
- * to show in the TUI.
+ * The tail of every save started in this process. Saves run strictly one after
+ * another, so two writes can never overlap on one file and they settle in the
+ * order they were started — whichever reports last is the latest. It lives at
+ * module scope rather than in the result view because a save outlives the view
+ * that started it: closing the modal mid-write and saving again from a fresh
+ * one must still queue behind the first write.
  */
-export async function saveResultToFile(
+let saveQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Render `result` in `format` and write it to `path` (relative paths resolve
+ * against `cwd`), queued behind any save already in flight. An existing file is
+ * replaced and the parent directory must already exist. Any failure — a result
+ * with no raw form, or the write itself — rejects with an `Error` whose message
+ * is fit to show in the TUI, and does not hold up the saves queued after it.
+ */
+export function saveResultToFile(
   result: unknown,
   path: string,
   format: ResultFileFormat,
   cwd: string = process.cwd(),
+): Promise<SavedResult> {
+  const run = saveQueue.then(() => writeResult(result, path, format, cwd));
+  // The queue only orders saves; each caller handles its own rejection.
+  saveQueue = run.catch(() => undefined);
+  return run;
+}
+
+async function writeResult(
+  result: unknown,
+  path: string,
+  format: ResultFileFormat,
+  cwd: string,
 ): Promise<SavedResult> {
   const trimmed = path.trim();
   if (trimmed === "") throw new Error("Enter a file path to save to.");
@@ -77,7 +99,7 @@ export async function saveResultToFile(
     data = renderResultForFile(result, "tools/call", format);
   } catch (err) {
     throw new Error(
-      `${errorMessage(err)} Save it as json instead (w, then Tab).`,
+      `${errorMessage(err)} Save it as json instead (w, then Enter).`,
       { cause: err },
     );
   }

@@ -3,7 +3,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "./helpers/renderTui";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { Tool } from "@modelcontextprotocol/client";
-import type { SaveStatus } from "../src/components/SaveResultBar.js";
+import type {
+  SavePrompt,
+  SaveStatus,
+} from "../src/components/SaveResultBar.js";
 import type { SavedResult } from "../src/utils/saveResult.js";
 
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
@@ -26,8 +29,16 @@ vi.mock("../src/utils/saveResult.js", () => ({
 // The modal's frame is empty under ink-testing-library (position="absolute"),
 // so the status it hands the bar is captured from the bar's props instead.
 const statuses: Array<SaveStatus | null> = [];
+const prompts: Array<SavePrompt | null> = [];
 vi.mock("../src/components/SaveResultBar.js", () => ({
-  SaveResultBar: ({ status }: { status: SaveStatus | null }) => {
+  SaveResultBar: ({
+    prompt,
+    status,
+  }: {
+    prompt: SavePrompt | null;
+    status: SaveStatus | null;
+  }) => {
+    prompts.push(prompt);
     statuses.push(status);
     return null;
   },
@@ -40,99 +51,91 @@ import { ToolTestModal } from "../src/components/ToolTestModal.js";
 const client = (callTool: unknown) =>
   ({ callTool }) as unknown as InspectorClient;
 
-const tick = async () => {
-  for (let i = 0; i < 8; i++)
+// Condition waits rather than fixed sleeps: each step waits for the state it
+// needs, bounded so a regression fails instead of hanging.
+const waitUntil = async (predicate: () => boolean) => {
+  for (let i = 0; i < 500 && !predicate(); i++)
     await new Promise((resolve) => setTimeout(resolve, 4));
+  expect(predicate()).toBe(true);
+};
+const lastStatus = () => statuses.at(-1);
+const promptOpen = () => prompts.at(-1) != null;
+
+type Api = ReturnType<typeof render>;
+
+// Submit the form and open the save prompt. `w` only opens it once the result
+// view is up, so it is re-pressed — but only while no prompt is open, so a
+// stray press can never be typed into the path.
+const submitAndOpenPrompt = async (api: Api, callTool: () => unknown) => {
+  // Enter is likewise re-pressed only until the call goes out, since the form
+  // ignores it until its input handler has subscribed.
+  await waitUntil(() => {
+    if (vi.mocked(callTool).mock.calls.length === 0) api.stdin.write("\r");
+    return vi.mocked(callTool).mock.calls.length > 0;
+  });
+  await waitUntil(() => {
+    if (!promptOpen()) api.stdin.write("w");
+    return promptOpen();
+  });
+};
+
+const renderModal = () => {
+  const callTool = vi.fn().mockResolvedValue({
+    success: true,
+    result: { content: [{ type: "text", text: "hello" }] },
+  });
+  const api = render(
+    <ToolTestModal
+      tool={{ name: "alpha", inputSchema: { type: "object" } } as Tool}
+      inspectorClient={client(callTool)}
+      width={80}
+      height={24}
+      onClose={vi.fn()}
+    />,
+  );
+  return { api, callTool };
 };
 
 afterEach(() => {
   pending.length = 0;
   statuses.length = 0;
+  prompts.length = 0;
   delete (globalThis as Record<string, unknown>).__INK_FORM_SUBMIT_VALUE__;
 });
 
 describe("ToolTestModal save serialization (#2571)", () => {
-  it("serializes saves: no second write starts while one is in flight", async () => {
-    const callTool = vi.fn().mockResolvedValue({
-      success: true,
-      result: { content: [{ type: "text", text: "hello" }] },
-    });
-    const api = render(
-      <ToolTestModal
-        tool={{ name: "alpha", inputSchema: { type: "object" } } as Tool}
-        inspectorClient={client(callTool)}
-        width={80}
-        height={24}
-        onClose={vi.fn()}
-      />,
+  it("shows progress, then a confirmation with the right byte unit", async () => {
+    const { api, callTool } = renderModal();
+    await submitAndOpenPrompt(api, callTool);
+    api.stdin.write("\r");
+    await waitUntil(() => pending.length === 1);
+    await waitUntil(
+      () => lastStatus()?.message === "Saving to alpha-result.json…",
     );
-    await tick();
-    api.stdin.write("\r");
-    await tick();
-    api.stdin.write("w");
-    await tick();
-    api.stdin.write("\r");
-    await tick();
-    expect(statuses.at(-1)).toEqual({
-      ok: true,
-      message: "Saving to alpha-result.json…",
-    });
-    // A second w while the first write is pending opens no prompt, so the
-    // Enter after it starts nothing.
-    api.stdin.write("w");
-    await tick();
-    expect(statuses.at(-1)).toEqual({
-      ok: false,
-      message: "Still saving the last result…",
-    });
-    api.stdin.write("\r");
-    await tick();
-    expect(pending).toHaveLength(1);
     pending[0]!.resolve({ path: "/a.json", format: "json", bytes: 1 });
-    await tick();
-    expect(statuses.at(-1)).toEqual({
-      ok: true,
-      message: "Saved json result to /a.json (1 byte)",
-    });
-    // Once it settles, w saves again.
+    await waitUntil(
+      () => lastStatus()?.message === "Saved json result to /a.json (1 byte)",
+    );
+    // A second save from the same view, reported with the plural unit.
     api.stdin.write("w");
-    await tick();
+    await waitUntil(promptOpen);
     api.stdin.write("\r");
-    await tick();
-    expect(pending).toHaveLength(2);
+    await waitUntil(() => pending.length === 2);
     pending[1]!.resolve({ path: "/a.json", format: "json", bytes: 2 });
-    await tick();
-    expect(statuses.at(-1)).toEqual({
-      ok: true,
-      message: "Saved json result to /a.json (2 bytes)",
-    });
+    await waitUntil(
+      () => lastStatus()?.message === "Saved json result to /a.json (2 bytes)",
+    );
     api.unmount();
   });
 
   it("reports a non-Error rejection as text", async () => {
-    const callTool = vi.fn().mockResolvedValue({
-      success: true,
-      result: { content: [{ type: "text", text: "hello" }] },
-    });
-    const api = render(
-      <ToolTestModal
-        tool={{ name: "alpha", inputSchema: { type: "object" } } as Tool}
-        inspectorClient={client(callTool)}
-        width={80}
-        height={24}
-        onClose={vi.fn()}
-      />,
-    );
-    await tick();
+    const { api, callTool } = renderModal();
+    await submitAndOpenPrompt(api, callTool);
     api.stdin.write("\r");
-    await tick();
-    api.stdin.write("w");
-    await tick();
-    api.stdin.write("\r");
-    await tick();
+    await waitUntil(() => pending.length === 1);
     pending[0]!.reject("plain string");
-    await tick();
-    expect(statuses.at(-1)).toEqual({ ok: false, message: "plain string" });
+    await waitUntil(() => lastStatus()?.message === "plain string");
+    expect(lastStatus()?.ok).toBe(false);
     api.unmount();
   });
 });
