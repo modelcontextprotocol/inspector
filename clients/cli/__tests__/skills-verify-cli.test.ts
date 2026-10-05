@@ -254,11 +254,19 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
  * verdict.
  */
 describe("the catalog-budget escape hatch (#2428)", () => {
-  /** The backticked command in an `incomplete` message, as argv. */
-  function suggestedArgs(incomplete: string | undefined): string[] {
-    const command = /`([^`]+)`/.exec(incomplete ?? "")?.[1];
-    if (!command) throw new Error(`no command in: ${incomplete}`);
-    return command.split(/\s+/);
+  /**
+   * The backticked command in a report's `incomplete` message, as argv, with
+   * its `<uri>` placeholder filled from the report's own `uri`. Substituted as
+   * one argv element — the way a user's quoting would — because the message
+   * deliberately never splices the server-controlled URI into the command.
+   */
+  function suggestedArgs(report: SkillVerifyReport): string[] {
+    const command = /`([^`]+)`/.exec(report.incomplete ?? "")?.[1];
+    if (!command) throw new Error(`no command in: ${report.incomplete}`);
+    const args = command.split(/\s+/);
+    if (!args.includes("<uri>"))
+      throw new Error(`no <uri> placeholder in: ${command}`);
+    return args.map((arg) => (arg === "<uri>" ? report.uri : arg));
   }
 
   /**
@@ -313,7 +321,7 @@ describe("the catalog-budget escape hatch (#2428)", () => {
       if (!skipped) throw new Error(`no skipped skill in: ${listed.stdout}`);
       expect(skipped.files).toHaveLength(0);
 
-      const suggested = suggestedArgs(skipped.incomplete);
+      const suggested = suggestedArgs(skipped);
       const got = await runCliCaptured([...target, ...suggested]);
 
       // A verdict for exactly the skipped skill, from files actually read —

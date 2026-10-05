@@ -386,13 +386,18 @@ export async function verifySkills(
     // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
     // total, by definition) is never truncated.
     const manifest = withinBudget ? boundedManifest(declared) : [];
-    // ⚠️ The suggested command is the whole runnable one, `--verify` and the
-    // entry's own URI included. It named only `--method skills/get --uri`,
-    // which on its own prints the skill and checks nothing — so the escape
-    // hatch this message advertises returned no verdict at all (#2428).
-    // `skills-verify-cli.test.ts` runs the command back through the CLI.
+    // ⚠️ The suggested command carries `--verify`. It named only
+    // `--method skills/get --uri`, which on its own prints the skill and
+    // checks nothing — so the escape hatch this message advertises returned
+    // no verdict at all (#2428). `skills-verify-cli.test.ts` runs the command
+    // back through the CLI.
+    //
+    // ⚠️ The URI is a `<uri>` placeholder, never `entry.uri` spliced in. The
+    // URI is server-controlled and shell metacharacters are legal in one, so
+    // a command built from it is a command a server wrote for the user to
+    // paste (Copilot). The report already carries the URI in its own `uri`.
     let incomplete = !withinBudget
-      ? `Not read: this run already reached its catalog budget of ${budget.maxSkills} skills / ${budget.maxBytes} bytes (raise it in the server's Skills settings). Nothing about this skill's files has been checked — verify it on its own with \`--method skills/get --uri ${entry.uri} --verify\` to get a verdict.`
+      ? `Not read: this run already reached its catalog budget of ${budget.maxSkills} skills / ${budget.maxBytes} bytes (raise it in the server's Skills settings). Nothing about this skill's files has been checked — verify it on its own with \`--method skills/get --uri <uri> --verify\`, where <uri> is this report's uri, to get a verdict.`
       : manifest.length < declared.length
         ? `Only ${manifest.length} of ${declared.length} manifest entries were read: the skill exceeds the ${SKILL_MAX_RESOURCE_ENTRIES}-entry / ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limits, so the rest were not fetched and cannot be reported on.`
         : undefined;
