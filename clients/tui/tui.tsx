@@ -51,12 +51,12 @@ export async function runTui(args?: string[]): Promise<void> {
     )
     .option(
       "--skill-catalog-max-skills <n>",
-      "Skills catalog budget for verification: the most skills one run reads (positive integer; overrides the file's skillCatalogMaxSkills; default 256)",
+      "Skills catalog budget: the most skills one multi-skill verification run reads (positive integer; overrides the file's skillCatalogMaxSkills; default 256). The Skills pane verifies one skill at a time, so it is not bounded by this today (#2590)",
       skillCatalogLimitParser("--skill-catalog-max-skills"),
     )
     .option(
       "--skill-catalog-max-bytes <n>",
-      "Skills catalog budget for verification: the most bytes one run reads (positive integer; overrides the file's skillCatalogMaxBytes; default 64 MiB)",
+      "Skills catalog budget: the most bytes one multi-skill verification run reads (positive integer; overrides the file's skillCatalogMaxBytes; default 64 MiB). Not applied by the one-skill-at-a-time Skills pane today (#2590)",
       skillCatalogLimitParser("--skill-catalog-max-bytes"),
     )
     .option(
