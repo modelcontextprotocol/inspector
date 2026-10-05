@@ -83,6 +83,32 @@ function validateServerUrl(raw: string): string | undefined {
 }
 
 /**
+ * Compare a caller-supplied `candidate` against the `secret` in time that does
+ * not depend on where the two first differ (#2429). A plain `===` on strings
+ * returns at the first mismatched character, so in principle the time it takes
+ * leaks how long a correct prefix a guessed token has.
+ *
+ * The browser has no `crypto.timingSafeEqual` (that is Node-only — the backend
+ * uses it for the `x-mcp-remote-auth` header), and `crypto.subtle` is async and
+ * absent on non-secure origins, so this is a synchronous XOR accumulator: every
+ * UTF-16 code unit of `secret` is visited whatever `candidate` holds, and a
+ * length mismatch is folded into the result rather than returned early. Only
+ * the secret's length drives the loop, so the time reveals nothing about the
+ * candidate beyond what the caller already chose. The secret's length itself
+ * is not hidden; it is a fixed property of the launch-time token format, not
+ * of its value.
+ */
+export function constantTimeEqual(candidate: string, secret: string): boolean {
+  let diff = candidate.length ^ secret.length;
+  for (let i = 0; i < secret.length; i++) {
+    // Past the candidate's end charCodeAt is NaN, which `| 0` maps to 0; the
+    // length term above has already recorded that mismatch.
+    diff |= (candidate.charCodeAt(i) | 0) ^ secret.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/**
  * Shallow equality for the subset of {@link MCPServerConfig} a deep link can
  * produce. Used by the auto-connect effect to decide whether the persisted
  * `deep-link` catalog row needs updating before connecting — comparing only
@@ -149,7 +175,9 @@ export function parseDeepLink(
   const autoConnect = params.get("autoConnect");
   if (!rawServerUrl || !autoConnect) return undefined;
 
-  if (!authToken || autoConnect !== authToken) return undefined;
+  if (!authToken || !constantTimeEqual(autoConnect, authToken)) {
+    return undefined;
+  }
 
   const serverUrl = validateServerUrl(rawServerUrl);
   if (!serverUrl) return undefined;
@@ -165,10 +193,11 @@ export function parseDeepLink(
 
   const openApp = params.get("openApp") ?? undefined;
   const appArgs = decodeAppArgs(params.get("appArgs"));
-  // autoOpen is gated on the same per-launch token as autoConnect (already
-  // validated above), so the mere presence of the param is sufficient here —
-  // a link that reached this line has already proven knowledge of the token.
-  const autoOpen = params.get("autoOpen") === authToken;
+  // autoOpen is gated on the same per-launch token as autoConnect, and
+  // compared the same constant-time way (#2429).
+  const autoOpenParam = params.get("autoOpen");
+  const autoOpen =
+    autoOpenParam !== null && constantTimeEqual(autoOpenParam, authToken);
 
   return {
     serverId: DEEP_LINK_SERVER_ID,

@@ -3,6 +3,7 @@ import {
   parseDeepLink,
   deepLinkConfigEquals,
   deepLinkParseStatus,
+  constantTimeEqual,
   DEEP_LINK_SERVER_ID,
 } from "./deepLink";
 
@@ -78,6 +79,22 @@ describe("parseDeepLink", () => {
       TOKEN,
     );
     expect(wrong?.autoOpen).toBe(false);
+    const prefix = parseDeepLink(
+      `?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=${TOKEN}&autoOpen=${TOKEN.slice(0, -1)}`,
+      TOKEN,
+    );
+    expect(prefix?.autoOpen).toBe(false);
+  });
+
+  it("rejects an autoConnect that is a strict prefix or extension of the token", () => {
+    for (const guess of [TOKEN.slice(0, -1), TOKEN + "x", "Xok-abc"]) {
+      expect(
+        parseDeepLink(
+          `?serverUrl=https%3A%2F%2Fexample.com%2Fmcp&autoConnect=${guess}`,
+          TOKEN,
+        ),
+      ).toBeUndefined();
+    }
   });
 
   it("honors transport=sse and ignores unknown transport values", () => {
@@ -195,5 +212,36 @@ describe("deepLinkConfigEquals", () => {
         { type: "streamable-http", url: URL_B },
       ),
     ).toBe(false);
+  });
+});
+
+describe("constantTimeEqual", () => {
+  it("is true only for identical strings", () => {
+    expect(constantTimeEqual("tok-abc", "tok-abc")).toBe(true);
+    expect(constantTimeEqual("", "")).toBe(true);
+    expect(constantTimeEqual("tok-abd", "tok-abc")).toBe(false);
+    expect(constantTimeEqual("Xok-abc", "tok-abc")).toBe(false);
+  });
+
+  it("rejects a length mismatch in either direction, including prefixes", () => {
+    expect(constantTimeEqual("tok-ab", "tok-abc")).toBe(false);
+    expect(constantTimeEqual("tok-abcd", "tok-abc")).toBe(false);
+    expect(constantTimeEqual("", "tok-abc")).toBe(false);
+    expect(constantTimeEqual("tok-abc", "")).toBe(false);
+  });
+
+  it("does not mistake a missing code unit for a NUL one", () => {
+    // charCodeAt past the candidate's end is NaN -> 0, the same value as
+    // "\0"; the length term is what must reject this.
+    expect(constantTimeEqual("ab", "ab\0")).toBe(false);
+  });
+
+  it("compares UTF-16 code units, so unnormalized forms differ", () => {
+    // Built from code points so the two spellings stay visibly distinct in
+    // source: U+00E9 (precomposed) vs "e" + U+0301 (combining acute).
+    const precomposed = "caf" + String.fromCharCode(0xe9);
+    const decomposed = "cafe" + String.fromCharCode(0x301);
+    expect(constantTimeEqual(precomposed, precomposed)).toBe(true);
+    expect(constantTimeEqual(decomposed, precomposed)).toBe(false);
   });
 });
