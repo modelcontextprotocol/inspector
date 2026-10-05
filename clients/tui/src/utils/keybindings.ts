@@ -63,7 +63,13 @@ const DETAILS_SCROLL: readonly KeyBinding[] = [
   { keys: "↑/↓", action: "Scroll the details pane (details focused)" },
   { keys: "PgUp/PgDn", action: "Scroll the details pane a page" },
   { keys: "+", action: "Open the details full screen (details focused)" },
+  { keys: "y / w", action: "In a details dialog: copy / save the value" },
 ];
+
+const LIST_FILTER: KeyBinding = {
+  keys: "/",
+  action: "Filter the list (Enter keeps it, Esc clears it)",
+};
 
 const PANE_SCROLL: readonly KeyBinding[] = [
   { keys: "↑/↓", action: "Scroll (content focused)" },
@@ -72,33 +78,45 @@ const PANE_SCROLL: readonly KeyBinding[] = [
 
 /** Bindings specific to one tab, shown only while that tab is active. */
 export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
-  info: PANE_SCROLL,
+  info: [
+    ...PANE_SCROLL,
+    { keys: "e", action: "Edit the advertised roots (content focused)" },
+  ],
   auth: [
     ...PANE_SCROLL,
     { keys: "s", action: "Clear OAuth state (disconnects if connected)" },
     { keys: "↑/↓ + Enter", action: "Choose Authorize or Cancel (step-up)" },
     { keys: "a", action: "Authorize a pending step-up" },
     { keys: "c", action: "Cancel a pending step-up" },
+    { keys: "y / w", action: "Copy / save the access token" },
   ],
   resources: [
     { keys: "↑/↓", action: "Select a resource (list focused)" },
     { keys: "Enter", action: "Fetch the resource, or fill in a template" },
+    LIST_FILTER,
     ...DETAILS_SCROLL,
   ],
   prompts: [
     { keys: "↑/↓", action: "Select a prompt (list focused)" },
     { keys: "Enter", action: "Get the prompt (asks for arguments if any)" },
+    LIST_FILTER,
     ...DETAILS_SCROLL,
   ],
   skills: [
     { keys: "↑/↓", action: "Select a skill (list focused)" },
     { keys: "Enter", action: "Verify the skill's digests and frontmatter" },
+    LIST_FILTER,
     { keys: "↑/↓", action: "Scroll the details pane (details focused)" },
     { keys: "PgUp/PgDn", action: "Scroll the details pane a page" },
   ],
   tools: [
     { keys: "↑/↓", action: "Select a tool (list focused)" },
     { keys: "Enter", action: "Test the tool" },
+    LIST_FILTER,
+    {
+      keys: "w",
+      action: "In the tool's result view: save the result to a file",
+    },
     ...DETAILS_SCROLL,
   ],
   messages: [
@@ -112,6 +130,19 @@ export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
     ...DETAILS_SCROLL,
   ],
   logging: PANE_SCROLL,
+  subscriptions: [
+    { keys: "↑/↓", action: "Select a resource (list focused)" },
+    { keys: "Enter", action: "Subscribe to or unsubscribe from the resource" },
+    ...PANE_SCROLL,
+  ],
+  tasks: [
+    { keys: "↑/↓", action: "Select a task (list focused)" },
+    { keys: "Enter", action: "Fetch the task's result" },
+    { keys: "x", action: "Cancel the selected task" },
+    { keys: "f", action: "Refresh the task list" },
+    { keys: "l", action: "Clear finished tasks" },
+    ...DETAILS_SCROLL,
+  ],
 };
 
 /** Bindings inside the help overlay itself. */
