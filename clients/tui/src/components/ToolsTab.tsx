@@ -211,11 +211,18 @@ export function ToolsTab({
                 const index = firstVisible + i;
                 const isSelected = index === selectedIndex;
                 const marker = schemaMarker(findingsByTool.get(tool));
+                // The unfiltered position keeps the key unique when a server
+                // repeats a tool name and the filter hides one copy (Copilot).
+                const ordinal = filter.indices[index];
                 return (
-                  <Box key={tool.name || index} paddingY={0} flexShrink={0}>
+                  <Box
+                    key={`${ordinal}:${tool.name}`}
+                    paddingY={0}
+                    flexShrink={0}
+                  >
                     <Text>
                       {isSelected ? "▶ " : "  "}
-                      {tool.name || `Tool ${filter.indices[index] + 1}`}
+                      {tool.name || `Tool ${ordinal + 1}`}
                       {marker && (
                         <Text color={marker.color}> {marker.glyph}</Text>
                       )}

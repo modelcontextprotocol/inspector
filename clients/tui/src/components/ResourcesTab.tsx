@@ -18,6 +18,7 @@ import {
 
 interface ResourceTemplate {
   name: string;
+  title?: string;
   uriTemplate: string;
   description?: string;
 }
@@ -54,7 +55,7 @@ function resourceFilterFields(
 ): ReadonlyArray<string | undefined> {
   return item.type === "resource"
     ? [item.data.name, item.data.title, item.data.uri]
-    : [item.data.name, item.data.uriTemplate];
+    : [item.data.name, item.data.title, item.data.uriTemplate];
 }
 
 export function ResourcesTab({
@@ -300,10 +301,14 @@ export function ResourcesTab({
                       `Resource ${ordinal + 1}`
                     : item.data.name ||
                       `Template ${ordinal - resources.length + 1}`;
-                const key =
+                // Keyed by the unfiltered position too: a server can repeat a
+                // URI, and colliding keys would let React reuse the wrong row
+                // once a filter hides one of the duplicates (Copilot).
+                const key = `${ordinal}:${
                   item.type === "resource"
-                    ? item.data.uri || index
-                    : item.data.uriTemplate || index;
+                    ? item.data.uri
+                    : item.data.uriTemplate
+                }`;
                 return (
                   <Box key={key} paddingY={0} flexShrink={0}>
                     <Text>
