@@ -92,6 +92,8 @@ import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
 import { toCopyText } from "./utils/clipboard.js";
+import { HelpOverlay } from "./components/HelpOverlay.js";
+import { keybindingSections } from "./utils/keybindings.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 import { errorMessage, redactErrorText } from "./utils/errorText.js";
@@ -121,7 +123,11 @@ type FocusArea =
   | "messagesDetail"
   // Used only when activeTab === 'requests'
   | "requestsList"
-  | "requestsDetail";
+  | "requestsDetail"
+  // What `focus` reads while the `?` help overlay is open (#2436). No pane
+  // matches it, so every tab's own key handler goes inert underneath. Never
+  // stored in `paneFocus`.
+  | "help";
 
 interface AppProps {
   mcpServers: Record<string, TuiServer>;
@@ -155,7 +161,14 @@ function App({
 
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
-  const [focus, setFocus] = useState<FocusArea>("serverList");
+  const [paneFocus, setFocus] = useState<FocusArea>("serverList");
+  const [helpOpen, setHelpOpen] = useState(false);
+  // While the `?` help overlay is open, every pane sees focus as "help" — which
+  // none matches — so their key handlers go inert underneath it. Derived rather
+  // than set, so a focus move made while it is open (an async step-up landing
+  // on the Auth tab) updates `paneFocus` and takes effect only once the help
+  // closes, instead of re-activating a hidden pane (Copilot).
+  const focus: FocusArea = helpOpen ? "help" : paneFocus;
   // True while a list tab's `/` filter is capturing keystrokes (#2430). The
   // global accelerators below stand down then, or typing a query would switch
   // tabs, connect, or quit on Esc. Reported by `useListFilter`.
@@ -1425,25 +1438,25 @@ function App({
   // Keep focus state consistent when switching tabs (only adjust if focus is already in tab content)
   useEffect(() => {
     if (activeTab === "messages") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
+      if (paneFocus === "tabContentList" || paneFocus === "tabContentDetails") {
         setFocus("messagesList");
       }
     } else if (activeTab === "requests") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
+      if (paneFocus === "tabContentList" || paneFocus === "tabContentDetails") {
         setFocus("requestsList");
       }
     } else {
       if (
-        focus === "messagesList" ||
-        focus === "messagesDetail" ||
-        focus === "requestsList" ||
-        focus === "requestsDetail"
+        paneFocus === "messagesList" ||
+        paneFocus === "messagesDetail" ||
+        paneFocus === "requestsList" ||
+        paneFocus === "requestsDetail"
       ) {
         setFocus("tabContentList");
       }
     }
-    // Runs on a tab switch only. `focus` is read, not reacted to: this is a
-    // one-time adjustment when the tab changes, and depending on `focus`
+    // Runs on a tab switch only. `paneFocus` is read, not reacted to: this is
+    // a one-time adjustment when the tab changes, and depending on it
     // would re-run it on every focus move, turning it into a standing
     // constraint on focus that no caller asked for.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to tab switches, not focus moves
@@ -1461,7 +1474,13 @@ function App({
 
   useInput((input: string, key: Key) => {
     // Don't process input when modal is open
-    if (toolTestModal || resourceTestModal || promptTestModal || detailsModal) {
+    if (
+      toolTestModal ||
+      resourceTestModal ||
+      promptTestModal ||
+      detailsModal ||
+      helpOpen
+    ) {
       return;
     }
 
@@ -1469,8 +1488,16 @@ function App({
       exit();
     }
 
-    // A list filter owns the keyboard while it is being edited (#2430).
+    // A list filter owns the keyboard while it is being edited (#2430) —
+    // including `?`, which is a legitimate query character there.
     if (listFilterEditing) {
+      return;
+    }
+
+    // Open the keybinding help. It closes itself (on `?` or Esc); see
+    // `focus` above for how the panes underneath are kept inert meanwhile.
+    if (input === "?") {
+      setHelpOpen(true);
       return;
     }
 
@@ -1636,26 +1663,25 @@ function App({
   // terminal width — which a stdio server with Skills does at any ordinary
   // width — and a hard-coded 1 sized every pane below it one row too tall,
   // clipping the bottom of the TUI (Copilot).
-  const tabsHeight = tabBarRows(
-    visibleTabs({
-      showAuth: !!(
-        selectedServer &&
-        selectedServerConfig &&
-        isOAuthCapableServerConfig(selectedServerConfig)
-      ),
-      showLogging:
-        !!selectedServer &&
-        inspectorClients[selectedServer]?.getServerType() === "stdio",
-      showRequests:
-        !!selectedServer &&
-        (inspectorClients[selectedServer]?.getServerType() === "sse" ||
-          inspectorClients[selectedServer]?.getServerType() ===
-            "streamable-http"),
-      showSkills: showSkillsTab,
-    }),
-    tabCounts,
-    contentWidth,
-  );
+  // Also what the help overlay lists accelerators for: a hidden tab's letter
+  // does nothing, so advertising it would be wrong (Copilot).
+  const shownTabs = visibleTabs({
+    showAuth: !!(
+      selectedServer &&
+      selectedServerConfig &&
+      isOAuthCapableServerConfig(selectedServerConfig)
+    ),
+    showLogging:
+      !!selectedServer &&
+      inspectorClients[selectedServer]?.getServerType() === "stdio",
+    showRequests:
+      !!selectedServer &&
+      (inspectorClients[selectedServer]?.getServerType() === "sse" ||
+        inspectorClients[selectedServer]?.getServerType() ===
+          "streamable-http"),
+    showSkills: showSkillsTab,
+  });
+  const tabsHeight = tabBarRows(shownTabs, tabCounts, contentWidth);
   // Server details will be flexible - calculate remaining space for content
   const availableHeight = dimensions.height - headerHeight - tabsHeight;
   // Reserve space for server details (will grow as needed, but we'll use flexGrow)
@@ -1763,7 +1789,7 @@ function App({
             backgroundColor="gray"
           >
             <Text bold color="white">
-              ESC to exit
+              ? help · ESC exit
             </Text>
           </Box>
         </Box>
@@ -2294,8 +2320,21 @@ function App({
         />
       )}
 
-      {/* Details Modal - rendered at App level for full screen overlay */}
-      {detailsModal && (
+      {/* Keybinding help (#2436) - rendered at App level for full screen overlay */}
+      {helpOpen && (
+        <HelpOverlay
+          sections={keybindingSections(activeTab, shownTabs)}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setHelpOpen(false)}
+        />
+      )}
+
+      {/* Details Modal - rendered at App level for full screen overlay. Held
+          back while the help is open: one can arrive asynchronously (a
+          no-argument prompt fetch completing), and both overlays would then
+          take the same Esc. It appears once the help closes (Copilot). */}
+      {detailsModal && !helpOpen && (
         <DetailsModal
           title={detailsModal.title}
           content={detailsModal.content}
