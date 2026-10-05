@@ -6,6 +6,7 @@ The catalogue below is the reference. For how to build and run one, use the `/te
 
 - **In-process** — import the factories (`createTestServerHttp`, `createEchoTool`, …) and run the server inside the test's event loop (used by the HTTP integration paths).
 - **As a subprocess** — `test-servers/build/test-server-stdio.js` is spawned as a real stdio child (used by the CLI smoke and stdio integration tests).
+  Started with `--crashable` (`getCrashableTestMcpServerCommand()`), it also serves a `crash_server` tool that exits the process at a point the test picks, for exercising the client's mid-session crash handling. That tool is deliberately absent from the presets: it calls `process.exit`, which in-process would end the test runner.
 
 Configure a server declaratively with a JSON config (see `test-servers/configs/*.json`) selecting presets, then load it via `--config`. Because the servers are spawned as real subprocesses, the build output must exist first:
 

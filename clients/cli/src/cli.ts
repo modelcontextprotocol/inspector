@@ -1,4 +1,8 @@
 import { Command } from "commander";
+import {
+  emitCompletionIfRequested,
+  registerCompletionOption,
+} from "./completion.js";
 type McpResponse = Record<string, unknown>;
 import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
@@ -13,6 +17,11 @@ import {
   withConnectTimeout,
 } from "./handlers/connect-timeout.js";
 import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
+import {
+  CATALOG_WRITE_METHODS,
+  isCatalogWriteMethod,
+  runCatalogWrite,
+} from "./handlers/servers-write.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import {
   parseOutputFileFormat,
@@ -52,6 +61,8 @@ export type { CliAppInfo } from "./handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
 import { type OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
+import type { ServerOAuthState } from "@inspector/core/auth/store.js";
+import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
 import {
   readOAuthStore,
   writeOAuthSections,
@@ -69,7 +80,6 @@ import {
 } from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
-  OAuthMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
@@ -134,7 +144,9 @@ async function callMethod(
     const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
       revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
     });
-    if (revocation?.status === "failed") {
+    // A warning, not the result — `--quiet` drops it (#2435). The relogin
+    // itself still happened; only the advisory line is suppressed.
+    if (revocation?.status === "failed" && !args.quiet) {
       process.stderr.write(
         `Warning: could not revoke the OAuth grant at the authorization server (${revocation.detail}); it may still be valid there.\n`,
       );
@@ -183,6 +195,12 @@ async function callMethod(
     environment,
     clientIdentity,
     initialLoggingLevel: "debug",
+    // A stdio server's stderr is inherited by default, so its startup banners
+    // and logs interleave with the CLI's own output. `--quiet` pipes it
+    // instead; InspectorClient drains the pipe into its `stderrLog` event,
+    // which nothing here subscribes to, so the lines are discarded without the
+    // child ever blocking on a full pipe (#2435).
+    pipeStderr: args.quiet === true,
     progress: false,
     sample: false,
     elicit: false,
@@ -229,7 +247,7 @@ async function callMethod(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     const outcome = await withCliAuthRecoveryRetry(
@@ -239,7 +257,7 @@ async function callMethod(
       callbackUrlConfig,
       serverSettings,
       () => runMethod(inspectorClient, args),
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     await consumeMethodOutcome(outcome, args);
@@ -264,14 +282,60 @@ export function normalizeServerUrl(serverUrl: string): string {
   }
 }
 
-/** The subset of a stored server's OAuth state the CLI reads/refreshes. */
-type StoredServerState = {
-  tokens?: OAuthTokens;
-  clientInformation?: OAuthClientInformation;
-  serverMetadata?: OAuthMetadata;
-};
+/**
+ * A stored server's OAuth state, in the shared store's own shape: credentials
+ * live under `byIssuer[issuer]` (SEP-2352, #1625), with the bare top-level
+ * `tokens` / `clientInformation` kept only as the legacy pre-issuer fallback.
+ */
+type StoredServerState = ServerOAuthState;
 /** The stored-server map shape the CLI reads out of the OAuth state file. */
 export type StoredServers = Record<string, StoredServerState>;
+
+/**
+ * The credentials that answer a stored server's ctx-less read, plus the issuer
+ * slot they came from (`undefined` for the legacy unkeyed fallback).
+ */
+export interface StoredCredentials {
+  issuer?: string;
+  tokens?: OAuthTokens;
+  clientInformation?: OAuthClientInformation;
+}
+
+/**
+ * Resolve the credentials a stored server's state answers with, the same way
+ * the shared store does for a read with no `issuer` (`OAuthStorageBase`): the
+ * `activeIssuer` slot of `byIssuer` first, then the legacy top-level fields. It
+ * never picks an arbitrary issuer — with no `activeIssuer` only the legacy
+ * fields can answer (#2517).
+ *
+ * Tokens and client information are taken from the **same** source, so a
+ * refresh never pairs one AS's refresh token with another AS's client: an
+ * issuer slot's tokens never borrow the legacy unkeyed client, which may have
+ * been registered with a different AS. A preregistered (static) client is
+ * issuer-independent and wins over either, as it does in the auth provider.
+ */
+export function resolveStoredCredentials(
+  state: StoredServerState,
+): StoredCredentials {
+  const issuer = state.activeIssuer;
+  // Own-property read: a persisted `__proto__` issuer must not resolve to
+  // the inherited `Object.prototype`.
+  const slot =
+    issuer !== undefined ? getOwnEntry(state.byIssuer, issuer) : undefined;
+  if (slot?.tokens) {
+    return {
+      issuer,
+      tokens: slot.tokens,
+      clientInformation:
+        state.preregisteredClientInformation ?? slot.clientInformation,
+    };
+  }
+  return {
+    tokens: state.tokens,
+    clientInformation:
+      state.preregisteredClientInformation ?? state.clientInformation,
+  };
+}
 
 /**
  * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
@@ -325,7 +389,10 @@ function findStoredToken(
   servers: StoredServers,
   serverUrl: string,
 ): string | undefined {
-  return findStoredServerState(servers, serverUrl)?.state.tokens?.access_token;
+  const found = findStoredServerState(servers, serverUrl);
+  return found
+    ? resolveStoredCredentials(found.state).tokens?.access_token
+    : undefined;
 }
 
 /**
@@ -388,8 +455,11 @@ export async function refreshStoredAuthToken(
   const snapshot = await readOAuthSnapshot(statePath);
   const servers = snapshot.servers as StoredServers;
   const found = findStoredServerState(servers, serverUrl);
-  const refreshToken = found?.state.tokens?.refresh_token;
-  const clientInformation = found?.state.clientInformation;
+  const credentials: StoredCredentials = found
+    ? resolveStoredCredentials(found.state)
+    : {};
+  const refreshToken = credentials.tokens?.refresh_token;
+  const clientInformation = credentials.clientInformation;
   if (!found || !refreshToken) {
     throw new CliExitCodeError(
       EXIT_CODES.AUTH_REQUIRED,
@@ -452,7 +522,22 @@ export async function refreshStoredAuthToken(
   // time (not the snapshot read before the network round-trip), under the
   // same cross-process lock every other writer uses, and keeps the file's
   // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
-  servers[found.key] = { ...found.state, tokens };
+  //
+  // The rotated tokens go back to the slot they were read from: the active
+  // issuer's `byIssuer` entry (#2517), or the legacy top-level fields for a
+  // pre-issuer entry — never a slot the old tokens did not come from.
+  const { issuer } = credentials;
+  servers[found.key] =
+    issuer !== undefined
+      ? {
+          ...found.state,
+          byIssuer: {
+            ...found.state.byIssuer,
+            // A computed key defines an own property, so `__proto__` is safe.
+            [issuer]: { ...getOwnEntry(found.state.byIssuer, issuer), tokens },
+          },
+        }
+      : { ...found.state, tokens };
   await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
 
   return tokens.access_token;
@@ -702,12 +787,32 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // commander tear down the whole test worker. For --help / --version
   // (exitCode 0) we return without throwing, so commander falls through to its
   // normal clean process.exit(0) after printing — preserving that UX. See #1484.
+  // Commander's own `error: …` line for a usage error is held back here and
+  // written from `exitOverride` below — unless `--quiet` was already parsed,
+  // in which case it is dropped: the error is still thrown and reaches the
+  // envelope with the same message, so stderr stays the one envelope line
+  // (#2435). Deciding on Commander's parsed state rather than scanning argv
+  // means a `-q` that is another option's value (`--client-secret -q`) is not
+  // mistaken for the flag, and `-qe KEY=V` is. Commander parses left to right,
+  // so a `-q` placed *after* the bad option is not seen yet and the line
+  // prints. `--help` / `--version` write through `writeOut`, untouched.
+  let commanderError = "";
+  program.configureOutput({
+    writeErr: (text) => {
+      commanderError += text;
+    },
+  });
   program.exitOverride((err) => {
     /* v8 ignore next -- the `exitCode === 0` arm only fires for --help/--version,
        which cannot run through the in-process test runner (it would call the
        real process.exit(0) and tear down the vitest worker). That UX is covered
        out-of-process in e2e.test.ts; here only the throwing arm is exercised. */
-    if (err.exitCode !== 0) throw err;
+    if (err.exitCode !== 0) {
+      if (program.opts().quiet !== true) {
+        process.stderr.write(commanderError);
+      }
+      throw err;
+    }
   });
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
@@ -747,6 +852,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Read-only session config file (served as-is, never written or seeded; errors if absent)",
     )
     .option("--server <name>", "Server name from config/catalog file")
+    .option("--rename <name>", "New name for the entry (servers/edit only)")
     .option(
       "-e <env>",
       "Environment variables for the server (KEY=VALUE)",
@@ -871,6 +977,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       },
     )
     .option(
+      "-q, --quiet",
+      "Suppress everything except the result payload on stdout (or the error envelope on stderr): status lines, warnings, advisory summaries, and a stdio server's own stderr. Interactive OAuth prompts still appear when a login is needed.",
+    )
+    .option(
       "--output <path>",
       "Write the result to this file instead of stdout (the parent directory must exist; an existing file is replaced).",
     )
@@ -941,12 +1051,25 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
     );
 
+  registerCompletionOption(program);
   program.parse(preArgs);
+  // `--completion <shell>` (#2434): print the script and exit, no connect.
+  if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
+
+  // `--quiet` mutes `console.warn` for the rest of the run; `runCli` restores
+  // it (#2435). Core reports advisories that way from many places the CLI
+  // reaches (the secret-store notice, `roots` / OAuth-endpoint settings it
+  // ignores, lock and persistence trouble), so muting the channel is the only
+  // complete answer. What `--quiet` keeps — the result, the envelope, the
+  // `--strict` report, the OAuth URL and step-up prompt — is written to the
+  // streams directly, never through `console.warn`.
+  if (program.opts().quiet === true) console.warn = discardWarning;
 
   const options = program.opts() as {
     catalog?: string;
     config?: string;
     server?: string;
+    rename?: string;
     e?: Record<string, string>;
     method?: string;
     toolName?: string;
@@ -970,6 +1093,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
     format?: OutputFormat;
+    quiet?: boolean;
     output?: string;
     outputFormat?: OutputFileFormat;
     toolArgsJson?: string;
@@ -1003,10 +1127,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     }
     if (
       options.method === "servers/list" ||
-      options.method === "servers/show"
+      options.method === "servers/show" ||
+      isCatalogWriteMethod(options.method)
     ) {
       throw new Error(
-        "--relogin cannot be combined with --method servers/list or servers/show (no OAuth connect)",
+        "--relogin cannot be combined with a --method servers/* catalog command (no OAuth connect)",
       );
     }
   }
@@ -1070,10 +1195,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     (options.listStoredAuth ||
       options.printHandoff ||
       options.method === "servers/list" ||
-      options.method === "servers/show")
+      options.method === "servers/show" ||
+      isCatalogWriteMethod(options.method))
   ) {
     throw new Error(
-      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
+      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or a --method servers/* catalog command.",
     );
   }
 
@@ -1086,7 +1212,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   if (options.listStoredAuth) {
     const servers = await readOAuthServers(oauthStatePath);
     const withToken = Object.entries(servers)
-      .filter(([, v]) => Boolean(v.tokens?.access_token))
+      .filter(([, v]) =>
+        Boolean(resolveStoredCredentials(v).tokens?.access_token),
+      )
       .map(([k]) => k);
     await awaitableLog(
       JSON.stringify({ oauthStatePath, storedServerUrls: withToken }) + "\n",
@@ -1113,11 +1241,40 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
   }
   const isCatalogMethod =
-    options.method === "servers/list" || options.method === "servers/show";
+    options.method === "servers/list" ||
+    options.method === "servers/show" ||
+    isCatalogWriteMethod(options.method);
   if (!isCatalogMethod && !isOneShotMethod(options.method)) {
     throw new Error(
-      `Unsupported method: ${options.method}. Supported --cli methods: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show.`,
+      `Unsupported method: ${options.method}. Supported --cli methods: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show, ${CATALOG_WRITE_METHODS.join(", ")}.`,
     );
+  }
+  if (options.rename !== undefined && options.method !== "servers/edit") {
+    throw new Error("--rename is only valid with --method servers/edit.");
+  }
+
+  // Catalog add / edit / remove (#2433) — no MCP connection. Resolves its own
+  // writable catalog path, since the positional target / --server-url here
+  // describe the entry being written, not an ad-hoc server to connect to.
+  if (isCatalogWriteMethod(options.method)) {
+    const written = await runCatalogWrite(options.method, {
+      server: options.server,
+      rename: options.rename,
+      catalog: options.catalog,
+      config: options.config,
+      target: targetArgs,
+      transport: options.transport,
+      serverUrl: options.serverUrl,
+      cwd: options.cwd,
+      env: options.e,
+      headers: options.header as Record<string, string> | undefined,
+      protocolEra: options.protocolEra,
+    });
+    await writeFormattedResult(
+      written,
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
   }
 
   // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
@@ -1196,8 +1353,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     } else {
       const servers = await readOAuthServers(oauthStatePath);
       const stored = findStoredServerState(servers, options.serverUrl);
-      if (stored?.state.tokens?.refresh_token) {
-        const storedAccess = stored.state.tokens.access_token;
+      const storedTokens = stored
+        ? resolveStoredCredentials(stored.state).tokens
+        : undefined;
+      if (storedTokens?.refresh_token) {
+        const storedAccess = storedTokens.access_token;
         try {
           token = await refreshStoredAuthToken(
             options.serverUrl,
@@ -1313,6 +1473,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
+    quiet: options.quiet === true,
     output: options.output,
     outputFormat: options.outputFormat,
   };
@@ -1334,7 +1495,22 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   };
 }
 
+/** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
+function discardWarning(): void {}
+
 export async function runCli(argv?: string[]): Promise<void> {
+  // Restored in `finally`, so a `--quiet` run cannot leave `console.warn`
+  // muted for whatever else shares the process — the launcher imports
+  // `runCli` as a module, and so does the in-process test runner.
+  const warn = console.warn;
+  try {
+    await runParsedCli(argv);
+  } finally {
+    if (console.warn === discardWarning) console.warn = warn;
+  }
+}
+
+async function runParsedCli(argv?: string[]): Promise<void> {
   const parsed = await parseArgs(argv ?? process.argv);
   // `--list-stored-auth` / `--print-handoff` already wrote their output.
   if (parsed.shortCircuit) return;

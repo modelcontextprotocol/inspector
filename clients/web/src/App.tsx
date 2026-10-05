@@ -128,6 +128,7 @@ import { FetchBodyDroppedToastMessage } from "./components/elements/Toasts/Fetch
 import { HeadersReconnectToastMessage } from "./components/elements/Toasts/HeadersReconnectToastMessage";
 import { OutputValidationToastMessage } from "./components/elements/Toasts/OutputValidationToastMessage";
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
+import { errorMessage } from "./utils/errorFormat";
 
 /**
  * Terminates a dispatched handler's promise by reporting the failure, for the
@@ -138,7 +139,7 @@ function reportDispatchFailure(title: string) {
   return (err: unknown) => {
     notifications.show({
       title,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorMessage(err),
       color: "red",
     });
   };
@@ -821,7 +822,7 @@ function App() {
     const name = sessionRef.current.activeServerName;
     notifications.show({
       title: name ? `Connection to "${name}" lost` : "Connection lost",
-      message: lastError,
+      message: errorMessage(lastError),
       color: "red",
     });
   }, [sessionRef, lastError]);
@@ -968,7 +969,7 @@ function App() {
   const onAppError = useCallback((err: Error) => {
     notifications.show({
       title: "MCP App error",
-      message: err.message,
+      message: errorMessage(err),
       color: "red",
     });
   }, []);
@@ -1385,7 +1386,7 @@ function App() {
           err instanceof ServerListReloadError
             ? `Saved settings for "${id}", but the server list did not reload`
             : `Failed to save settings for "${id}"`,
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
         color: "red",
       });
     },
@@ -1498,7 +1499,7 @@ function App() {
         .catch((err: unknown) => {
           notifications.show({
             title: "Could not clear the stored OAuth state",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             color: "red",
             // The tokens may still be on disk and the session may still be up,
             // so this is not a notice to let time out.
@@ -1723,7 +1724,7 @@ function App() {
       reorderServers(orderedIds).catch((err: unknown) => {
         notifications.show({
           title: "Failed to reorder servers",
-          message: err instanceof Error ? err.message : String(err),
+          message: errorMessage(err),
           color: "red",
         });
       });

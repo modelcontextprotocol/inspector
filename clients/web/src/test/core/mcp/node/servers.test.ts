@@ -337,6 +337,22 @@ describe("selectServerEntry", () => {
     );
   });
 
+  // #2537: `--server constructor` against a source without that server used to
+  // return the inherited Object.prototype member and fail with an unrelated
+  // error; it must report "not found" like any other absent name.
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+    "reports an absent entry named %s as not found",
+    (name) => {
+      expect(() => selectServerEntry({ a, b }, name)).toThrow(
+        `Server '${name}' not found. Available servers: a, b`,
+      );
+    },
+  );
+
+  it("returns an entry genuinely named constructor", () => {
+    expect(selectServerEntry({ constructor: a, b }, "constructor")).toBe(a);
+  });
+
   it("returns the only entry when no name is given", () => {
     expect(selectServerEntry({ a })).toBe(a);
   });

@@ -39,6 +39,14 @@ export type MethodArgs = {
   strict?: boolean;
   format?: OutputFormat;
   /**
+   * `--quiet` / `-q`: write only the result payload (or the error envelope).
+   * Advisory stderr lines — the schema-portability hint, the `--verify`
+   * summary, OAuth status lines — are dropped (#2435). Anything a human has to
+   * act on (an OAuth authorization URL, a step-up [y/N]) and anything the
+   * caller explicitly asked for (`--strict`'s report) still prints.
+   */
+  quiet?: boolean;
+  /**
    * `--output <path>`: write the result to this file instead of stdout
    * (#2431). Only consulted on the single-result path (`emitResult`).
    */

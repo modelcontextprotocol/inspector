@@ -9,6 +9,7 @@ import type {
   GetPromptResult,
 } from "@modelcontextprotocol/client";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
 
 interface PromptsTabProps {
   prompts: Prompt[];
@@ -74,7 +75,9 @@ export function PromptsTab({
                 return;
               }
               setError(
-                error instanceof Error ? error.message : "Failed to get prompt",
+                error instanceof Error
+                  ? errorMessage(error)
+                  : "Failed to get prompt",
               );
             }
           })();

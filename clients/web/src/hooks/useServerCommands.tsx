@@ -508,7 +508,7 @@ export function useServerCommands({
         setGetPromptState({
           status: "error",
           promptName: name,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },
@@ -546,7 +546,7 @@ export function useServerCommands({
         setReadResourceState({
           status: "error",
           uri,
-          error: err instanceof Error ? err.message : String(err),
+          error: errorMessage(err),
         });
       }
     },
@@ -666,7 +666,7 @@ export function useServerCommands({
         }
         notifications.show({
           title: "Failed to cancel task",
-          message: err instanceof Error ? err.message : String(err),
+          message: errorMessage(err),
           color: "red",
         });
       }
@@ -869,7 +869,7 @@ export function useServerCommands({
             notifications.show({
               title:
                 "Pagination setting saved, but the server list did not reload",
-              message: err.message,
+              message: errorMessage(err),
               color: "red",
             });
             return;
@@ -913,7 +913,7 @@ export function useServerCommands({
           }
           notifications.show({
             title: "Failed to save pagination setting",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             color: "red",
           });
         });

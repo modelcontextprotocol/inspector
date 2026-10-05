@@ -70,7 +70,13 @@ export async function emitResult(
   // Awaited: the throw below (and the CLI's own exit path) reaches
   // `process.exit()` immediately, which discards anything still buffered on a
   // piped stderr.
-  if (lint) await writeSchemaLintReport(lint, args.strict === true);
+  if (lint) {
+    await writeSchemaLintReport(
+      lint,
+      args.strict === true,
+      args.quiet === true,
+    );
+  }
 
   if ((result as { isError?: unknown }).isError === true) {
     throw new CliExitCodeError(

@@ -3,19 +3,131 @@
 /**
  * Test MCP server for stdio transport testing
  * Can be used programmatically or run as a standalone executable
+ *
+ * Run with {@link CRASHABLE_FLAG} it also serves {@link createCrashServerTool},
+ * which kills this process at a point the test chooses — the fixture for the
+ * Inspector's mid-session crash reconciliation (#2437). That tool lives here,
+ * and only reaches a server through this file's standalone entry, because it
+ * calls `process.exit`: wired into the in-process HTTP server it would end the
+ * test runner rather than the server.
  */
 
+import * as z from "zod/v4";
 import { McpServer } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { fileURLToPath } from "url";
 import type {
   ServerConfig,
   ResourceDefinition,
+  ToolDefinition,
 } from "./test-server-fixtures.js";
 import {
   getDefaultServerConfig,
   createMcpServer,
+  createCollectFormElicitationTool,
+  createCollectSampleTool,
 } from "./test-server-fixtures.js";
+
+/** argv flag that makes the standalone server serve {@link createCrashServerTool}. */
+export const CRASHABLE_FLAG = "--crashable";
+
+/** Name of the tool {@link createCrashServerTool} registers. */
+export const CRASH_SERVER_TOOL_NAME = "crash_server";
+
+/**
+ * Create a `crash_server` tool that ends this server's process, so a test can
+ * crash a session at a point it picks rather than relying on whatever path
+ * happens to drop the connection.
+ *
+ * - `respond: false` (the default) exits without answering, so the
+ *   `tools/call` that triggered it — and anything else in flight, such as a
+ *   pending elicitation or sampling request — is still outstanding when the
+ *   process dies.
+ * - `respond: true` answers first and exits `delayMs` later, so the crash
+ *   lands on an idle session with nothing in flight.
+ * - `stderr` is written before exiting, standing in for a real server's dying
+ *   words.
+ *
+ * The exit waits for stderr and stdout to flush first: pipe writes are
+ * asynchronous on macOS, so exiting straight after one can drop it — the
+ * dying words, or the `respond: true` answer, whose loss would turn an idle
+ * crash back into a crash with the call in flight.
+ *
+ * ⚠️ Only for a server running in a process of its own (the standalone entry
+ * below, behind {@link CRASHABLE_FLAG}) — see the module header.
+ */
+export function createCrashServerTool(): ToolDefinition {
+  return {
+    name: CRASH_SERVER_TOOL_NAME,
+    description:
+      "Exit this server process (test fixture for mid-session crash handling)",
+    inputSchema: {
+      respond: z
+        .boolean()
+        .optional()
+        .describe("Answer this call before exiting (default false)"),
+      delayMs: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe("Milliseconds to wait before exiting (default 0)"),
+      stderr: z
+        .string()
+        .optional()
+        .describe("Message to write to stderr just before exiting"),
+    },
+    handler: async (params: Record<string, unknown>) => {
+      const respond = params.respond === true;
+      const delayMs = typeof params.delayMs === "number" ? params.delayMs : 0;
+      const stderr =
+        typeof params.stderr === "string" ? params.stderr : undefined;
+      // An empty write's callback runs once every write queued before it on
+      // that stream has flushed — so on stdout it is a barrier behind the
+      // `respond: true` answer, which the SDK has written by the time the
+      // timer below fires.
+      const flushStdoutThenExit = () =>
+        process.stdout.write("", () => process.exit(1));
+      const exit = () => {
+        if (stderr === undefined) return flushStdoutThenExit();
+        process.stderr.write(`${stderr}\n`, flushStdoutThenExit);
+      };
+      if (respond) {
+        setTimeout(exit, delayMs);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Exiting in ${delayMs}ms`,
+            },
+          ],
+        };
+      }
+      // Never settles: the process is gone before an answer could be sent.
+      return new Promise(() => {
+        setTimeout(exit, delayMs);
+      });
+    },
+  };
+}
+
+/**
+ * The standalone server's config for {@link CRASHABLE_FLAG}: the default
+ * config plus the crash tool, and the two peer-request tools a test pairs with
+ * it to have a sampling or elicitation request pending when the process dies.
+ */
+export function getCrashableServerConfig(): ServerConfig {
+  const config = getDefaultServerConfig();
+  return {
+    ...config,
+    tools: [
+      ...(config.tools ?? []),
+      createCollectFormElicitationTool(),
+      createCollectSampleTool(),
+      createCrashServerTool(),
+    ],
+  };
+}
 
 export class TestServerStdio {
   private mcpServer: McpServer;
@@ -108,7 +220,22 @@ export function getTestMcpServerCommand(): { command: string; args: string[] } {
   };
 }
 
-// If run as a standalone script, start with default config
+/**
+ * {@link getTestMcpServerCommand} for the crashable variant: the same server
+ * started with {@link CRASHABLE_FLAG}, serving {@link getCrashableServerConfig}.
+ */
+export function getCrashableTestMcpServerCommand(): {
+  command: string;
+  args: string[];
+} {
+  return {
+    command: "node",
+    args: [getTestMcpServerPath(), CRASHABLE_FLAG],
+  };
+}
+
+// If run as a standalone script, start with the default config — or, with
+// CRASHABLE_FLAG on the command line, the crashable one
 // Check if this file is being executed directly (not imported)
 const isMainModule =
   import.meta.url.endsWith(process.argv[1] || "") ||
@@ -116,7 +243,11 @@ const isMainModule =
   (process.argv[1]?.endsWith("test-server-stdio.js") ?? false);
 
 if (isMainModule) {
-  const server = new TestServerStdio(getDefaultServerConfig());
+  const server = new TestServerStdio(
+    process.argv.includes(CRASHABLE_FLAG)
+      ? getCrashableServerConfig()
+      : getDefaultServerConfig(),
+  );
   server
     .start()
     .then(() => {
