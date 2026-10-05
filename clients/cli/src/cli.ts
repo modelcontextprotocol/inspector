@@ -47,6 +47,8 @@ export type { CliAppInfo } from "./handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
 export { collectAppInfo } from "./handlers/collect-app-info.js";
 import { type OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
+import type { ServerOAuthState } from "@inspector/core/auth/store.js";
+import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
 import {
   readOAuthStore,
   writeOAuthSections,
@@ -64,7 +66,6 @@ import {
 } from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
-  OAuthMetadata,
   OAuthTokens,
 } from "@modelcontextprotocol/client";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
@@ -259,14 +260,60 @@ export function normalizeServerUrl(serverUrl: string): string {
   }
 }
 
-/** The subset of a stored server's OAuth state the CLI reads/refreshes. */
-type StoredServerState = {
-  tokens?: OAuthTokens;
-  clientInformation?: OAuthClientInformation;
-  serverMetadata?: OAuthMetadata;
-};
+/**
+ * A stored server's OAuth state, in the shared store's own shape: credentials
+ * live under `byIssuer[issuer]` (SEP-2352, #1625), with the bare top-level
+ * `tokens` / `clientInformation` kept only as the legacy pre-issuer fallback.
+ */
+type StoredServerState = ServerOAuthState;
 /** The stored-server map shape the CLI reads out of the OAuth state file. */
 export type StoredServers = Record<string, StoredServerState>;
+
+/**
+ * The credentials that answer a stored server's ctx-less read, plus the issuer
+ * slot they came from (`undefined` for the legacy unkeyed fallback).
+ */
+export interface StoredCredentials {
+  issuer?: string;
+  tokens?: OAuthTokens;
+  clientInformation?: OAuthClientInformation;
+}
+
+/**
+ * Resolve the credentials a stored server's state answers with, the same way
+ * the shared store does for a read with no `issuer` (`OAuthStorageBase`): the
+ * `activeIssuer` slot of `byIssuer` first, then the legacy top-level fields. It
+ * never picks an arbitrary issuer — with no `activeIssuer` only the legacy
+ * fields can answer (#2517).
+ *
+ * Tokens and client information are taken from the **same** source, so a
+ * refresh never pairs one AS's refresh token with another AS's client: an
+ * issuer slot's tokens never borrow the legacy unkeyed client, which may have
+ * been registered with a different AS. A preregistered (static) client is
+ * issuer-independent and wins over either, as it does in the auth provider.
+ */
+export function resolveStoredCredentials(
+  state: StoredServerState,
+): StoredCredentials {
+  const issuer = state.activeIssuer;
+  // Own-property read: a persisted `__proto__` issuer must not resolve to
+  // the inherited `Object.prototype`.
+  const slot =
+    issuer !== undefined ? getOwnEntry(state.byIssuer, issuer) : undefined;
+  if (slot?.tokens) {
+    return {
+      issuer,
+      tokens: slot.tokens,
+      clientInformation:
+        state.preregisteredClientInformation ?? slot.clientInformation,
+    };
+  }
+  return {
+    tokens: state.tokens,
+    clientInformation:
+      state.preregisteredClientInformation ?? state.clientInformation,
+  };
+}
 
 /**
  * Read the shared OAuth state ({@link OAuthPersistSnapshot}) fresh on every
@@ -320,7 +367,10 @@ function findStoredToken(
   servers: StoredServers,
   serverUrl: string,
 ): string | undefined {
-  return findStoredServerState(servers, serverUrl)?.state.tokens?.access_token;
+  const found = findStoredServerState(servers, serverUrl);
+  return found
+    ? resolveStoredCredentials(found.state).tokens?.access_token
+    : undefined;
 }
 
 /**
@@ -383,8 +433,11 @@ export async function refreshStoredAuthToken(
   const snapshot = await readOAuthSnapshot(statePath);
   const servers = snapshot.servers as StoredServers;
   const found = findStoredServerState(servers, serverUrl);
-  const refreshToken = found?.state.tokens?.refresh_token;
-  const clientInformation = found?.state.clientInformation;
+  const credentials: StoredCredentials = found
+    ? resolveStoredCredentials(found.state)
+    : {};
+  const refreshToken = credentials.tokens?.refresh_token;
+  const clientInformation = credentials.clientInformation;
   if (!found || !refreshToken) {
     throw new CliExitCodeError(
       EXIT_CODES.AUTH_REQUIRED,
@@ -447,7 +500,22 @@ export async function refreshStoredAuthToken(
   // time (not the snapshot read before the network round-trip), under the
   // same cross-process lock every other writer uses, and keeps the file's
   // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
-  servers[found.key] = { ...found.state, tokens };
+  //
+  // The rotated tokens go back to the slot they were read from: the active
+  // issuer's `byIssuer` entry (#2517), or the legacy top-level fields for a
+  // pre-issuer entry — never a slot the old tokens did not come from.
+  const { issuer } = credentials;
+  servers[found.key] =
+    issuer !== undefined
+      ? {
+          ...found.state,
+          byIssuer: {
+            ...found.state.byIssuer,
+            // A computed key defines an own property, so `__proto__` is safe.
+            [issuer]: { ...getOwnEntry(found.state.byIssuer, issuer), tokens },
+          },
+        }
+      : { ...found.state, tokens };
   await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
 
   return tokens.access_token;
@@ -1066,7 +1134,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   if (options.listStoredAuth) {
     const servers = await readOAuthServers(oauthStatePath);
     const withToken = Object.entries(servers)
-      .filter(([, v]) => Boolean(v.tokens?.access_token))
+      .filter(([, v]) =>
+        Boolean(resolveStoredCredentials(v).tokens?.access_token),
+      )
       .map(([k]) => k);
     await awaitableLog(
       JSON.stringify({ oauthStatePath, storedServerUrls: withToken }) + "\n",
@@ -1176,8 +1246,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     } else {
       const servers = await readOAuthServers(oauthStatePath);
       const stored = findStoredServerState(servers, options.serverUrl);
-      if (stored?.state.tokens?.refresh_token) {
-        const storedAccess = stored.state.tokens.access_token;
+      const storedTokens = stored
+        ? resolveStoredCredentials(stored.state).tokens
+        : undefined;
+      if (storedTokens?.refresh_token) {
+        const storedAccess = storedTokens.access_token;
         try {
           token = await refreshStoredAuthToken(
             options.serverUrl,
