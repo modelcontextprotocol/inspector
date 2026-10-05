@@ -106,6 +106,23 @@ describe("CLI Tests", () => {
       },
     );
 
+    // A usage error makes Commander print its own `error: …` line during
+    // `parse()`, before the envelope. Under `--quiet` that line is dropped and
+    // stderr is the envelope alone (Copilot on #2576).
+    it("drops Commander's usage diagnostic under --quiet, keeping only the envelope", async () => {
+      const loud = await runCli([NO_SERVER_SENTINEL, "--method"]);
+      expectCliFailure(loud);
+      expect(loud.stderr).toMatch(/^error: option '--method <method>'/);
+
+      const quiet = await runCli([NO_SERVER_SENTINEL, "-q", "--method"]);
+      expectCliFailure(quiet);
+      const lines = quiet.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        error: { message: expect.stringMatching(/--method <method>/) },
+      });
+    });
+
     it("should fail with nonexistent method", async () => {
       const result = await runCli([
         NO_SERVER_SENTINEL,

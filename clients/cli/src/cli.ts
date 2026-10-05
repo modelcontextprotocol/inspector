@@ -734,6 +734,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ...optionArgs,
   ];
 
+  // Under `--quiet`, Commander's own `error: …` line on a usage error is
+  // dropped: the error is still thrown (see `exitOverride` above) and reaches
+  // the envelope with the same message, so stderr stays the one envelope line
+  // `--quiet` promises (#2435). Read from argv rather than `opts()` because
+  // the diagnostic is written during `parse()`, before any option is parsed.
+  // `--help` / `--version` write through `writeOut`, which is untouched.
+  if (optionArgs.includes("-q") || optionArgs.includes("--quiet")) {
+    program.configureOutput({ writeErr: () => {} });
+  }
+
   program
     .name("inspector-cli")
     .allowUnknownOption()

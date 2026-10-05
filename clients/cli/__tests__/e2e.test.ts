@@ -141,6 +141,19 @@ describe("CLI binary (out-of-process E2E)", () => {
   });
 
   it(
+    "writes only the error envelope on a usage error under -q",
+    async () => {
+      const result = await spawnCli([command, ...args, "-q", "--method"]);
+
+      expect(result.exitCode).not.toBe(0);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toHaveProperty("error");
+    },
+    E2E_SPAWN_MS,
+  );
+
+  it(
     "exits non-zero when required --method is missing",
     async () => {
       const result = await spawnCli([command, ...args]);
