@@ -2120,6 +2120,43 @@ describe("App (keybinding help, #2436)", () => {
     await expectFrame(r, "Keyboard shortcuts");
   });
 
+  it("lists only the visible tabs' accelerators", async () => {
+    // A stdio server shows no Auth, Network or Skills tab, so `a`, `n` and `k`
+    // do nothing and must not be advertised.
+    const r = await mount(oneStdio());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("i r m t p o ");
+  });
+
+  it("keeps a focus move made while it is open from waking a hidden pane", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    // Connected, so the global `c` (Connect) is inert and `c` can only mean
+    // the Auth pane's cancel.
+    h.ctrl.status = "connected";
+    const r = await mount(oneHttp());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    // A step-up landing now moves focus to the Auth pane underneath.
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: {
+        reason: "insufficient_scope" as const,
+        requiredScopes: ["env:read"],
+        authorizationScopes: ["tools:read", "env:read"],
+        context: { toolName: "get-env" },
+      },
+    });
+    await expectFrame(r, "Auth tab");
+    await press(r, ["c"]); // would cancel the step-up if Auth were live
+    await press(r, ["?"]);
+    await expectFrame(r, "needs additional OAuth scopes");
+    expect(r.lastFrame() ?? "").not.toContain("Authorization cancelled");
+    // Once the help closes, the step-up's focus move takes effect.
+    await press(r, ["c"]);
+    await expectFrame(r, "Authorization cancelled");
+  });
+
   it("ignores '?' while another dialog is open", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];

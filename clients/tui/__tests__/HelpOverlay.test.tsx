@@ -3,9 +3,25 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "./helpers/renderTui";
 import { Box } from "ink";
 
-// ScrollView: passthrough so the sections mount and the imperative ref API
-// (scrollBy / getViewportHeight) exists for the scroll-key handlers.
-vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
+// ScrollView: a passthrough like the shared `inkScrollViewMock`, but with a
+// spied `scrollBy`, so the scroll keys' deltas are asserted rather than merely
+// exercised (the shared double's `scrollBy` is a no-op).
+const scroll = vi.hoisted(() => ({ scrollBy: vi.fn(), viewportHeight: 7 }));
+vi.mock("ink-scroll-view", async () => {
+  const React = await import("react");
+  const { Box } = await import("ink");
+  const ScrollView = React.forwardRef<unknown, { children?: React.ReactNode }>(
+    function ScrollView({ children }, ref) {
+      React.useImperativeHandle(ref, () => ({
+        scrollBy: scroll.scrollBy,
+        scrollTo: () => {},
+        getViewportHeight: () => scroll.viewportHeight,
+      }));
+      return React.createElement(Box, { flexDirection: "column" }, children);
+    },
+  );
+  return { ScrollView };
+});
 
 import { HelpOverlay } from "../src/components/HelpOverlay.js";
 import { keybindingSections } from "../src/utils/keybindings.js";
@@ -52,7 +68,8 @@ describe("HelpOverlay", () => {
     r.unmount();
   });
 
-  it("scrolls without closing on the arrow and page keys", async () => {
+  it("scrolls by a line or a viewport, without closing", async () => {
+    scroll.scrollBy.mockClear();
     const onClose = vi.fn();
     const r = renderOverlay(onClose);
     await tick();
@@ -60,6 +77,7 @@ describe("HelpOverlay", () => {
       r.stdin.write(k);
       await tick();
     }
+    expect(scroll.scrollBy.mock.calls).toEqual([[1], [-1], [7], [-7]]);
     expect(onClose).not.toHaveBeenCalled();
     r.unmount();
   });
