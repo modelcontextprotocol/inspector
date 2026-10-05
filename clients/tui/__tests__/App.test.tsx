@@ -39,6 +39,10 @@ const h = vi.hoisted(() => {
     messages: unknown[];
     fetchRequests: unknown[];
     stderrLogs: unknown[];
+    tasks: unknown[];
+    subscriptions: unknown[];
+    roots: unknown[];
+    tasksExtension: boolean;
   }
   const ctrl: Ctrl = {
     status: "disconnected",
@@ -56,7 +60,13 @@ const h = vi.hoisted(() => {
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
+    tasks: [],
+    subscriptions: [],
+    roots: [],
+    tasksExtension: false,
   };
+  const refreshTasks = vi.fn(async () => []);
+  const clearCompletedTasks = vi.fn();
   const connect = vi.fn().mockResolvedValue(undefined);
   const disconnect = vi.fn().mockResolvedValue(undefined);
   const openUrl = vi.fn().mockResolvedValue(undefined);
@@ -181,6 +191,13 @@ const h = vi.hoisted(() => {
     // "not declared" — the tab is hidden unless a test opts in by pointing
     // `ctrl.skillsExtension` at a declaration.
     getSkillsExtension = vi.fn(() => ctrl.skillsExtension);
+    isTasksExtensionNegotiated = vi.fn(() => ctrl.tasksExtension);
+    getRoots = vi.fn(() => ctrl.roots);
+    setRoots = vi.fn(async () => {});
+    subscribeToResource = vi.fn(async () => {});
+    unsubscribeFromResource = vi.fn(async () => {});
+    cancelRequestorTask = vi.fn(async () => {});
+    getRequestorTaskResult = vi.fn(async () => ({ content: [] }));
     authenticate = (...a: Parameters<InspectorClient["authenticate"]>) =>
       clientSpies.authenticate(...a);
     clearOAuthTokens = (
@@ -262,6 +279,20 @@ const h = vi.hoisted(() => {
     useMessageLog: vi.fn(() => ({ messages: ctrl.messages })),
     useFetchRequestLog: vi.fn(() => ({ fetchRequests: ctrl.fetchRequests })),
     useStderrLog: vi.fn(() => ({ stderrLogs: ctrl.stderrLogs })),
+    refreshTasks,
+    clearCompletedTasks,
+    useManagedRequestorTasks: vi.fn(() => ({
+      tasks: ctrl.tasks,
+      refresh: refreshTasks,
+      clearCompleted: clearCompletedTasks,
+    })),
+    useResourceSubscriptions: vi.fn(() => ({
+      subscriptions: ctrl.subscriptions,
+      streamState: { active: false, status: "ended", honoredUris: [] },
+    })),
+    // Roots are read with a direct store snapshot; the fake client is not a
+    // real TypedEventTarget, so the snapshot is driven from `ctrl.roots`.
+    useStoreSnapshot: vi.fn(() => ctrl.roots),
   };
 });
 
@@ -277,6 +308,8 @@ vi.mock("@inspector/core/mcp/state/index.js", () => ({
   MessageLogState: h.FakeManager,
   FetchRequestLogState: h.FakeManager,
   StderrLogState: h.FakeManager,
+  ManagedRequestorTasksState: h.FakeManager,
+  ResourceSubscriptionsState: h.FakeManager,
 }));
 vi.mock("@inspector/core/mcp/node/index.js", () => ({
   createTransportNode: vi.fn(),
@@ -313,6 +346,15 @@ vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
 }));
 vi.mock("@inspector/core/react/useStderrLog.js", () => ({
   useStderrLog: h.useStderrLog,
+}));
+vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
+  useManagedRequestorTasks: h.useManagedRequestorTasks,
+}));
+vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
+  useResourceSubscriptions: h.useResourceSubscriptions,
+}));
+vi.mock("@inspector/core/react/useStoreSnapshot.js", () => ({
+  useStoreSnapshot: h.useStoreSnapshot,
 }));
 vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
   const actual =
@@ -704,7 +746,13 @@ beforeEach(() => {
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
+    tasks: [],
+    subscriptions: [],
+    roots: [],
+    tasksExtension: false,
   });
+  h.refreshTasks.mockClear();
+  h.clearCompletedTasks.mockClear();
   h.connect.mockClear();
   h.connect.mockResolvedValue(undefined);
   h.disconnect.mockClear();
@@ -2199,5 +2247,148 @@ describe("App (keybinding help, #2436)", () => {
     await expectFrame(r, "Full JSON:");
     await press(r, ["?"]);
     expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+});
+
+/**
+ * The FakeClient App built for the first server. `clientInstances` is typed by
+ * the narrow config/options shape the mount-option tests read, while the
+ * instance is the hoisted `FakeClient`, which `vi.hoisted` cannot export as a
+ * type; the double cast bridges exactly that gap, and `InstanceType` keeps the
+ * spies typed against the real class rather than an ad-hoc shape.
+ */
+const firstFakeClient = () =>
+  h.clientInstances[0] as unknown as InstanceType<typeof h.FakeClient>;
+
+describe("App (tasks, subscriptions, roots — #2432)", () => {
+  const task = {
+    taskId: "task-1",
+    status: "completed",
+    createdAt: "2026-01-01T00:00:00Z",
+    lastUpdatedAt: "2026-01-01T00:00:01Z",
+    ttl: null,
+  };
+
+  it("hides the Subscriptions and Tasks tabs for a server that serves neither", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: {} };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tools");
+    const frame = r.lastFrame() ?? "";
+    expect(frame).not.toContain("Subscriptions");
+    expect(frame).not.toContain("Tasks");
+  });
+
+  it("opens the Subscriptions tab with 'u' when the server can subscribe", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true } };
+    h.ctrl.resources = [{ uri: "file:///a", name: "a" }];
+    h.ctrl.subscriptions = [{ resource: { uri: "file:///a", name: "a" } }];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Subscriptions (1)");
+    await press(r, ["u", TAB, ENTER]);
+    await expectFrame(r, "Subscriptions (1/1)");
+    const client = firstFakeClient();
+    await waitUntil(() => client.unsubscribeFromResource.mock.calls.length > 0);
+    expect(client.unsubscribeFromResource).toHaveBeenCalledWith("file:///a");
+  });
+
+  it("opens the Tasks tab with 's' for a legacy tasks server and zooms a task", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { tasks: {} };
+    h.ctrl.tasks = [task];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tasks (1)");
+    await press(r, ["s", TAB]);
+    await expectFrame(r, "task-1");
+    // Fetch the result, then zoom the details pane into the modal.
+    await press(r, [ENTER, TAB]);
+    const client = firstFakeClient();
+    await waitUntil(() => client.getRequestorTaskResult.mock.calls.length > 0);
+    await press(r, ["+"]);
+    await press(r, ["f", "l"]);
+    expect(h.refreshTasks).not.toHaveBeenCalled();
+  });
+
+  it("zooms a task with no fetched result", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tasksExtension = true;
+    h.ctrl.tasks = [{ ...task, status: "working" }];
+    const r = await mount(oneStdio());
+    await press(r, ["s", TAB, TAB, "+"]);
+    // The details modal swallows App input, so 's' no longer switches tabs.
+    await press(r, [ESC]);
+    await expectFrame(r, "task-1");
+  });
+
+  it("refreshes and clears tasks through the store hook", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tasksExtension = true;
+    h.ctrl.tasks = [task];
+    const r = await mount(oneStdio());
+    await press(r, ["s", TAB, "f", "l"]);
+    await waitUntil(() => h.refreshTasks.mock.calls.length > 0);
+    expect(h.refreshTasks).toHaveBeenCalled();
+    expect(h.clearCompletedTasks).toHaveBeenCalled();
+  });
+
+  it("walks the new tabs with the arrow keys", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true }, tasks: {} };
+    const r = await mount(oneStdio());
+    // info -> resources -> subscriptions
+    await press(r, ["i", RIGHT, RIGHT]);
+    await expectFrame(r, "Subscriptions (0/0)");
+    // tools -> tasks
+    await press(r, ["t", RIGHT]);
+    await expectFrame(r, "No tasks yet");
+  });
+
+  it("does not jump to Tasks on 's' while the Auth pane is focused", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { tasks: {} };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    await expectFrame(r, "Auth");
+    await press(r, ["s"]);
+    expect(r.lastFrame() ?? "").not.toContain("No tasks yet");
+    // From the tab bar, the accelerator works as usual.
+    await press(r, [STAB, "s"]);
+    await expectFrame(r, "No tasks yet");
+  });
+
+  it("leaves the Subscriptions and Tasks tabs when the server stops serving them", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true }, tasks: {} };
+    const r = await mount(oneStdio());
+    await press(r, ["s"]);
+    await expectFrame(r, "No tasks yet");
+    h.ctrl.capabilities = {};
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("No tasks yet");
+  });
+
+  it("lists roots on the Info tab and edits them in the roots modal", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.roots = [{ uri: "file:///work", name: "work" }];
+    const r = await mount(oneStdio());
+    // The 24-row test terminal shows the section heading; the entries below it
+    // are InfoTab's to render (covered in InfoTab.test.tsx).
+    await expectFrame(r, "Roots (1)");
+    await press(r, ["i", TAB, "e", "x"]);
+    const client = firstFakeClient();
+    await waitUntil(() => client.setRoots.mock.calls.length > 0);
+    expect(client.setRoots).toHaveBeenCalledWith([]);
+    // Esc closes the modal rather than exiting the app, and `e` reopens it.
+    await press(r, [ESC, "e", "x"]);
+    await waitUntil(() => client.setRoots.mock.calls.length > 1);
+    expect(client.setRoots).toHaveBeenCalledTimes(2);
   });
 });

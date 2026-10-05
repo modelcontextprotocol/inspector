@@ -69,6 +69,26 @@ describe("Tabs", () => {
     expect(shown.lastFrame() ?? "").toContain("Skills");
   });
 
+  it("hides Subscriptions and Tasks by default and shows them when supported (#2432)", () => {
+    const hidden = render(
+      <Tabs activeTab="info" onTabChange={noop} width={160} />,
+    );
+    expect(hidden.lastFrame() ?? "").not.toContain("Subscriptions");
+    expect(hidden.lastFrame() ?? "").not.toContain("Tasks");
+    const shown = render(
+      <Tabs
+        activeTab="tasks"
+        onTabChange={noop}
+        width={160}
+        showSubscriptions={true}
+        showTasks={true}
+        counts={{ subscriptions: 2, tasks: 3 }}
+      />,
+    );
+    expect(shown.lastFrame() ?? "").toContain("Subscriptions (2)");
+    expect(shown.lastFrame() ?? "").toContain("Tasks (3)");
+  });
+
   it("renders a count on the skills tab", () => {
     const { lastFrame } = render(
       <Tabs

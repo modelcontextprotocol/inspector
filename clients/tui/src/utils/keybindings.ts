@@ -78,7 +78,10 @@ const PANE_SCROLL: readonly KeyBinding[] = [
 
 /** Bindings specific to one tab, shown only while that tab is active. */
 export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
-  info: PANE_SCROLL,
+  info: [
+    ...PANE_SCROLL,
+    { keys: "e", action: "Edit the advertised roots (content focused)" },
+  ],
   auth: [
     ...PANE_SCROLL,
     { keys: "s", action: "Clear OAuth state (disconnects if connected)" },
@@ -127,6 +130,19 @@ export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
     ...DETAILS_SCROLL,
   ],
   logging: PANE_SCROLL,
+  subscriptions: [
+    { keys: "↑/↓", action: "Select a resource (list focused)" },
+    { keys: "Enter", action: "Subscribe to or unsubscribe from the resource" },
+    ...PANE_SCROLL,
+  ],
+  tasks: [
+    { keys: "↑/↓", action: "Select a task (list focused)" },
+    { keys: "Enter", action: "Fetch the task's result" },
+    { keys: "x", action: "Cancel the selected task" },
+    { keys: "f", action: "Refresh the task list" },
+    { keys: "l", action: "Clear finished tasks" },
+    ...DETAILS_SCROLL,
+  ],
 };
 
 /** Bindings inside the help overlay itself. */

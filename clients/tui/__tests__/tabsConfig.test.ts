@@ -29,6 +29,8 @@ describe("visibleTabs", () => {
     expect(ids).not.toContain("logging");
     expect(ids).not.toContain("requests");
     expect(ids).not.toContain("skills");
+    expect(ids).not.toContain("subscriptions");
+    expect(ids).not.toContain("tasks");
     // The unconditional ones remain.
     expect(ids).toContain("info");
     expect(ids).toContain("tools");
@@ -40,6 +42,8 @@ describe("visibleTabs", () => {
       showLogging: true,
       showRequests: true,
       showSkills: true,
+      showSubscriptions: true,
+      showTasks: true,
     }).map((t) => t.id);
     expect(ids).toEqual(tabs.map((t) => t.id));
   });
