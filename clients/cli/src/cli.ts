@@ -130,7 +130,9 @@ async function callMethod(
     const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
       revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
     });
-    if (revocation?.status === "failed") {
+    // A warning, not the result — `--quiet` drops it (#2435). The relogin
+    // itself still happened; only the advisory line is suppressed.
+    if (revocation?.status === "failed" && !args.quiet) {
       process.stderr.write(
         `Warning: could not revoke the OAuth grant at the authorization server (${revocation.detail}); it may still be valid there.\n`,
       );
@@ -179,6 +181,12 @@ async function callMethod(
     environment,
     clientIdentity,
     initialLoggingLevel: "debug",
+    // A stdio server's stderr is inherited by default, so its startup banners
+    // and logs interleave with the CLI's own output. `--quiet` pipes it
+    // instead; InspectorClient drains the pipe into its `stderrLog` event,
+    // which nothing here subscribes to, so the lines are discarded without the
+    // child ever blocking on a full pipe (#2435).
+    pipeStderr: args.quiet === true,
     progress: false,
     sample: false,
     elicit: false,
@@ -225,7 +233,7 @@ async function callMethod(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     const outcome = await withCliAuthRecoveryRetry(
@@ -235,7 +243,7 @@ async function callMethod(
       callbackUrlConfig,
       serverSettings,
       () => runMethod(inspectorClient, args),
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     await consumeMethodOutcome(outcome, args);
@@ -765,12 +773,32 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // commander tear down the whole test worker. For --help / --version
   // (exitCode 0) we return without throwing, so commander falls through to its
   // normal clean process.exit(0) after printing — preserving that UX. See #1484.
+  // Commander's own `error: …` line for a usage error is held back here and
+  // written from `exitOverride` below — unless `--quiet` was already parsed,
+  // in which case it is dropped: the error is still thrown and reaches the
+  // envelope with the same message, so stderr stays the one envelope line
+  // (#2435). Deciding on Commander's parsed state rather than scanning argv
+  // means a `-q` that is another option's value (`--client-secret -q`) is not
+  // mistaken for the flag, and `-qe KEY=V` is. Commander parses left to right,
+  // so a `-q` placed *after* the bad option is not seen yet and the line
+  // prints. `--help` / `--version` write through `writeOut`, untouched.
+  let commanderError = "";
+  program.configureOutput({
+    writeErr: (text) => {
+      commanderError += text;
+    },
+  });
   program.exitOverride((err) => {
     /* v8 ignore next -- the `exitCode === 0` arm only fires for --help/--version,
        which cannot run through the in-process test runner (it would call the
        real process.exit(0) and tear down the vitest worker). That UX is covered
        out-of-process in e2e.test.ts; here only the throwing arm is exercised. */
-    if (err.exitCode !== 0) throw err;
+    if (err.exitCode !== 0) {
+      if (program.opts().quiet !== true) {
+        process.stderr.write(commanderError);
+      }
+      throw err;
+    }
   });
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
@@ -934,6 +962,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       },
     )
     .option(
+      "-q, --quiet",
+      "Suppress everything except the result payload on stdout (or the error envelope on stderr): status lines, warnings, advisory summaries, and a stdio server's own stderr. Interactive OAuth prompts still appear when a login is needed.",
+    )
+    .option(
       "--tool-args-json <json>",
       'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
     )
@@ -997,6 +1029,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
 
   program.parse(preArgs);
 
+  // `--quiet` mutes `console.warn` for the rest of the run; `runCli` restores
+  // it (#2435). Core reports advisories that way from many places the CLI
+  // reaches (the secret-store notice, `roots` / OAuth-endpoint settings it
+  // ignores, lock and persistence trouble), so muting the channel is the only
+  // complete answer. What `--quiet` keeps — the result, the envelope, the
+  // `--strict` report, the OAuth URL and step-up prompt — is written to the
+  // streams directly, never through `console.warn`.
+  if (program.opts().quiet === true) console.warn = discardWarning;
+
   const options = program.opts() as {
     catalog?: string;
     config?: string;
@@ -1024,6 +1065,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
     format?: OutputFormat;
+    quiet?: boolean;
     toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
@@ -1366,6 +1408,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
+    quiet: options.quiet === true,
   };
 
   return {
@@ -1385,7 +1428,22 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   };
 }
 
+/** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
+function discardWarning(): void {}
+
 export async function runCli(argv?: string[]): Promise<void> {
+  // Restored in `finally`, so a `--quiet` run cannot leave `console.warn`
+  // muted for whatever else shares the process — the launcher imports
+  // `runCli` as a module, and so does the in-process test runner.
+  const warn = console.warn;
+  try {
+    await runParsedCli(argv);
+  } finally {
+    if (console.warn === discardWarning) console.warn = warn;
+  }
+}
+
+async function runParsedCli(argv?: string[]): Promise<void> {
   const parsed = await parseArgs(argv ?? process.argv);
   // `--list-stored-auth` / `--print-handoff` already wrote their output.
   if (parsed.shortCircuit) return;

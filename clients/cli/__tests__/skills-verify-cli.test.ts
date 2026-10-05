@@ -150,6 +150,33 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
     expect(streams.stderr).toBe("all good\n");
   });
 
+  it("drops the summary under --quiet but keeps the exit code and its message (#2435)", async () => {
+    const streams = captureStreams();
+    let thrown: unknown;
+    try {
+      await consumeMethodOutcome(
+        {
+          kind: "ndjson",
+          lines: [{ ok: false }],
+          summary: "one failed",
+          exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+        },
+        { quiet: true },
+      );
+    } catch (err) {
+      thrown = err;
+    } finally {
+      streams.restore();
+    }
+    expect(streams.stdout.trim()).toBe('{"ok":false}');
+    expect(streams.stderr).toBe("");
+    // The error envelope still carries the verdict, so nothing is lost.
+    expect(thrown).toMatchObject({
+      exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+      message: "one failed",
+    });
+  });
+
   it("throws the exit code AFTER writing the report", async () => {
     // The report is the output a CI job reads; failing before writing it would
     // give the reader an exit code and nothing to act on.

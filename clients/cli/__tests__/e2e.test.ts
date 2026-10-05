@@ -1,7 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,10 +44,14 @@ interface SpawnResult {
  * coverage gate; this only asserts the binary boots and exits correctly. The
  * binary is built by the `pretest` / `test:coverage` scripts before tests run.
  */
-function spawnCli(args: string[]): Promise<SpawnResult> {
+function spawnCli(
+  args: string[],
+  env?: Record<string, string>,
+): Promise<SpawnResult> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn("node", [BIN, ...args], {
       stdio: ["pipe", "pipe", "pipe"],
+      ...(env && { env: { ...process.env, ...env } }),
       detached: process.platform !== "win32",
     });
     let stdout = "";
@@ -87,6 +93,125 @@ describe("CLI binary (out-of-process E2E)", () => {
       expect(result.exitCode).toBe(0);
       const json = JSON.parse(result.stdout);
       expect(Array.isArray(json.tools)).toBe(true);
+    },
+    E2E_SPAWN_MS,
+  );
+
+  // #2435: a stdio server's stderr is inherited by default, so its banners and
+  // logs land in the CLI's stderr. A `--import` preload makes the real test
+  // server write one such line before it starts; `--` ends the target, since
+  // the preload flag would otherwise end it early.
+  describe("--quiet and a stdio server's own stderr", () => {
+    const NOISE = "SERVER_STDERR_NOISE_2435";
+    const noisyTarget = [
+      command,
+      "--import",
+      `data:text/javascript,${encodeURIComponent(
+        `process.stderr.write(${JSON.stringify(NOISE + "\n")});`,
+      )}`,
+      ...args,
+      "--",
+    ];
+
+    it(
+      "passes it through without --quiet",
+      async () => {
+        const result = await spawnCli([
+          ...noisyTarget,
+          "--method",
+          "tools/list",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toContain(NOISE);
+      },
+      E2E_SPAWN_MS,
+    );
+
+    it(
+      "suppresses it under -q, leaving only the result on stdout",
+      async () => {
+        const result = await spawnCli([
+          ...noisyTarget,
+          "-q",
+          "--method",
+          "tools/list",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(Array.isArray(JSON.parse(result.stdout).tools)).toBe(true);
+      },
+      E2E_SPAWN_MS,
+    );
+  });
+
+  // #2435 (Copilot on #2576): core announces the secret store it picked with
+  // `console.warn` on first use. That is out of reach of the in-process
+  // runner — Vitest replaces `console`, so the notice never passes through the
+  // patched `process.stderr.write` — hence the real binary. `--relogin` is the
+  // cheapest run that reaches the store; the cli project pins
+  // MCP_INSPECTOR_SECRET_STORE=memory (inherited here), whose caveat is the
+  // notice. Port 9 (discard) refuses at once, so the run fails at connect and
+  // the envelope is the only thing `--quiet` should leave. The state path is a
+  // temp file so the relogin never touches the real store.
+  describe("--quiet and the secret-store notice", () => {
+    const relogin = [
+      "--relogin",
+      "--server-url",
+      "http://127.0.0.1:9/mcp",
+      "--method",
+      "tools/list",
+    ];
+    let dir: string;
+    const env = () => ({
+      MCP_INSPECTOR_OAUTH_STATE_PATH: join(dir, "oauth.json"),
+      HTTP_PROXY: "",
+      HTTPS_PROXY: "",
+      http_proxy: "",
+      https_proxy: "",
+    });
+    beforeEach(() => {
+      dir = mkdtempSync(join(tmpdir(), "cli-e2e-quiet-store-"));
+    });
+    afterEach(() => {
+      rmSync(dir, { recursive: true, force: true });
+    });
+
+    it(
+      "prints it without --quiet",
+      async () => {
+        const result = await spawnCli(relogin, env());
+
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stderr).toContain("[mcp-inspector]");
+      },
+      E2E_SPAWN_MS,
+    );
+
+    it(
+      "drops it under -q, leaving only the envelope",
+      async () => {
+        const result = await spawnCli(["-q", ...relogin], env());
+
+        expect(result.exitCode).not.toBe(0);
+        const lines = result.stderr.trimEnd().split("\n");
+        expect(lines).toHaveLength(1);
+        expect(JSON.parse(lines[0]!)).toHaveProperty("error");
+      },
+      E2E_SPAWN_MS,
+    );
+  });
+
+  it(
+    "writes only the error envelope on a usage error under -q",
+    async () => {
+      const result = await spawnCli([command, ...args, "-q", "--method"]);
+
+      expect(result.exitCode).not.toBe(0);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toHaveProperty("error");
     },
     E2E_SPAWN_MS,
   );

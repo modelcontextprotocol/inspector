@@ -37,6 +37,14 @@ export type MethodArgs = {
    */
   strict?: boolean;
   format?: OutputFormat;
+  /**
+   * `--quiet` / `-q`: write only the result payload (or the error envelope).
+   * Advisory stderr lines — the schema-portability hint, the `--verify`
+   * summary, OAuth status lines — are dropped (#2435). Anything a human has to
+   * act on (an OAuth authorization URL, a step-up [y/N]) and anything the
+   * caller explicitly asked for (`--strict`'s report) still prints.
+   */
+  quiet?: boolean;
   /** Task id for tasks/get, tasks/cancel, tasks/result. */
   taskId?: string;
   /** When true, tools/call uses callToolStream (task-augmented). */
