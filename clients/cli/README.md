@@ -154,7 +154,7 @@ mcp-inspector --cli --server-url https://example.com/mcp --relogin --no-revoke -
 
 `-q` / `--quiet` reduces a run to its result: the payload on stdout on success, and the
 single-line [error envelope](#exit-codes--error-envelopes) on stderr on failure. It
-composes with `--format` — `--format` shapes stdout, `--quiet` empties stderr.
+composes with `--format`: `--format` shapes stdout, and `--quiet` strips stderr of everything non-essential (the exceptions are in the table below).
 
 ```bash
 mcp-inspector --cli node build/index.js -q --method tools/list | jq '.tools[].name'
@@ -169,6 +169,7 @@ What it suppresses:
 | The `--verify` one-line summary                                                | Dropped — a failing run's envelope carries the same text |
 | `Authorization complete.` / `Authorization complete. Retrying…`                | Dropped         |
 | `Warning: could not revoke the OAuth grant …` (`--relogin`)                    | Dropped         |
+| The `[mcp-inspector] …` secret-store notice (keychain fallback, `memory` caveat) | Dropped — see [secret storage](../../docs/secret-storage.md) for what it would have said |
 | The result payload / NDJSON on stdout                                          | Kept            |
 | The error envelope on a non-zero exit                                          | Kept            |
 | The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |

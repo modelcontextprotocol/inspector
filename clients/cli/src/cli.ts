@@ -15,6 +15,7 @@ import {
 import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
+import { resolveSecretStoreQuietly } from "./quiet-secret-store.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
@@ -1079,6 +1080,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
     );
   }
+
+  // `--quiet`: settle the secret store now, with its keychain-fallback /
+  // caveat notice muted, before anything below can reach it — stored-auth
+  // reads, catalog env secrets, the OAuth connect. Core caches the choice, so
+  // it never prints later (#2435). Done for every quiet run rather than
+  // per path: the paths that touch the store are spread across core, and one
+  // store resolution is cheap next to a notice leaking on the one that was
+  // missed.
+  if (options.quiet) await resolveSecretStoreQuietly();
 
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
   // <MCP_STORAGE_DIR>/oauth.json → ~/.mcp-inspector/storage/oauth.json — the
