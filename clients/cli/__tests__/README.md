@@ -35,6 +35,7 @@ npm run validate          # format:check && lint && typecheck && test
 | `format-json.test.ts`                   | `--format json` envelopes                                                               |
 | `format-output.test.ts`                 | Text/json writers                                                                       |
 | `emit-result.test.ts`                   | Result emission helpers                                                                 |
+| `output-file.test.ts`                   | `--output` / `--output-format` (#2431)                                                  |
 | `method-types.test.ts`                  | `ONE_SHOT_METHODS` / guards                                                             |
 | `run-method.test.ts`                    | Handler dispatch against a real test server                                             |
 | `run-method-mocks.test.ts`              | Handler edge cases with mocks                                                           |

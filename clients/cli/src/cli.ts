@@ -23,6 +23,11 @@ import {
   runCatalogWrite,
 } from "./handlers/servers-write.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
+import {
+  parseOutputFileFormat,
+  validateOutputOptions,
+  type OutputFileFormat,
+} from "./handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
@@ -976,6 +981,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Suppress everything except the result payload on stdout (or the error envelope on stderr): status lines, warnings, advisory summaries, and a stdio server's own stderr. Interactive OAuth prompts still appear when a login is needed.",
     )
     .option(
+      "--output <path>",
+      "Write the result to this file instead of stdout (the parent directory must exist; an existing file is replaced).",
+    )
+    .option(
+      "--output-format <format>",
+      "Encoding of the --output file: json (default; the whole result, pretty-printed) or raw (the result's text, or the decoded bytes of a single image/audio/blob block). raw needs --method tools/call or resources/read.",
+      parseOutputFileFormat,
+    )
+    .option(
       "--tool-args-json <json>",
       'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
     )
@@ -1080,6 +1094,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     protocolEra?: ServerProtocolEra;
     format?: OutputFormat;
     quiet?: boolean;
+    output?: string;
+    outputFormat?: OutputFileFormat;
     toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
@@ -1128,6 +1144,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   if (options.revoke === false && !options.relogin) {
     throw new Error("--no-revoke requires --relogin (it has no other effect).");
   }
+
+  // `--output` / `--output-format` (#2431), ahead of the short-circuit returns
+  // for the same reason as `--strict` below.
+  validateOutputOptions(options);
 
   // `--strict` is checked HERE, ahead of every short-circuit return below
   // (`--list-stored-auth`, `--print-handoff`, `servers/list`, `servers/show`),
@@ -1454,6 +1474,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     cursor: options.cursor,
     format: options.format,
     quiet: options.quiet === true,
+    output: options.output,
+    outputFormat: options.outputFormat,
   };
 
   return {
