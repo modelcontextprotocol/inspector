@@ -210,7 +210,7 @@ test("main fails on one unsigned commit and prints the repair", () => {
   assert.equal(code, 1);
   assert.match(err, /1 of 2 commit\(s\)/);
   assert.match(err, /forgot the signoff\n {4}no Signed-off-by trailer/);
-  assert.match(err, /git rebase --signoff base/);
+  assert.match(err, /git rebase --rebase-merges --signoff base/);
   assert.match(err, /git push --force-with-lease/);
 });
 

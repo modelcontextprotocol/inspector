@@ -130,11 +130,13 @@ not:
 **Repairing already-pushed commits** means rewriting them:
 
 ```sh
-git rebase --signoff origin/v2/main   # the base the PR targets
+git rebase --rebase-merges --signoff origin/v2/main   # the base the PR targets
 git push --force-with-lease
 ```
 
-Use `--force-with-lease` rather than `--force`, and only rewrite when you are the
+`--rebase-merges` keeps any merge commit on the branch — without it the rebase
+flattens them, silently dropping a conflict resolution that lives only in the
+merge. Use `--force-with-lease` rather than `--force`, and only rewrite when you are the
 sole author and nobody else has based work on the branch. There is no
 remediation-commit or override path: the check reads each commit's own message,
 so a later commit cannot certify an earlier one.

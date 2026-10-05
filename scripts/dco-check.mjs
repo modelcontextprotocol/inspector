@@ -161,8 +161,11 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     console.error(`  ${commit.sha.slice(0, 12)} ${subject}\n    ${reason}`);
   }
   console.error(
+    // `--rebase-merges` keeps any merge commit (and a conflict resolution
+    // that lives only in it) instead of flattening the branch; the merges
+    // themselves stay unsigned, which is fine since they are exempt.
     `\nRepair (sole author, nobody building on the branch):\n` +
-      `  git rebase --signoff ${base}\n` +
+      `  git rebase --rebase-merges --signoff ${base}\n` +
       `  git push --force-with-lease\n` +
       `Prevent it next time with \`git commit -s\`.`,
   );

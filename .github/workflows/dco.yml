@@ -13,13 +13,26 @@
 # job going missing would pass as silently as the app did.
 #
 # Its own workflow because it needs the PR's base, which `main.yml` (push
-# only) never sees. `base_ref..head` is read from a full-history checkout, so
-# the job needs nothing beyond `contents: read` and holds no credential —
-# which keeps it on moving action tags (#2235; see verify:action-pins, #2484).
+# only) never sees.
+#
+# ⚠️ `pull_request_target`, deliberately — a check that gates a PR must not run
+# code the PR can change. Under `pull_request` both this file and the script
+# come from the PR's merge ref, so a PR could rewrite either to pass itself.
+# `pull_request_target` takes the workflow from the BASE branch, and the job
+# checks out the base too, so the checker that runs is the one already
+# reviewed onto `v2/main`. The PR's commits are only FETCHED — `git log` reads
+# their metadata and nothing from the PR is ever executed, which is the
+# condition that makes `pull_request_target` safe. Keep it that way: never
+# check out, install, build or run the PR head in this job. Consequence: a
+# change to this file or to `scripts/dco-check.mjs` takes effect only after it
+# merges, so the PR making one is checked by the version before it.
+#
+# Only `contents: read`, no credential persisted, no secret — so it stays on
+# moving action tags (#2235; see verify:action-pins, #2484).
 name: DCO
 
 on:
-  pull_request:
+  pull_request_target:
 
 permissions:
   contents: read
@@ -28,17 +41,25 @@ jobs:
   dco:
     name: DCO
     runs-on: ubuntu-latest
-    # A git log and a node script; expected to finish well inside a minute.
-    # Not yet observed on a runner — revisit with the measured range per the
-    # rule in main.yml (#2333) once it has a history.
+    # A git fetch, a git log and a node script; expected to finish well inside
+    # a minute. Not yet observed on a runner — revisit with the measured range
+    # per the rule in main.yml (#2333) once it has a history.
     timeout-minutes: 5
 
     steps:
-      - name: Checkout the PR head with full history
+      - name: Checkout the base branch (trusted) with full history
         uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.base_ref }}
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the PR's commits (read as data, never checked out)
+        # `refs/pull/<N>/head` serves fork PRs too. Values pass through `env:`
+        # rather than being interpolated into the script.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
@@ -49,7 +70,6 @@ jobs:
         # The base is the branch as it stands now (`origin/<base_ref>`), not
         # the event's `base.sha`, so commits that have since landed on the
         # base are excluded exactly as the PR's own commit list excludes them.
-        # Passed through `env:` rather than interpolated into the script.
         env:
           BASE_REF: ${{ github.base_ref }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
