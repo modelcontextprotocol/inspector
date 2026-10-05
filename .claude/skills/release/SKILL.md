@@ -229,7 +229,7 @@ would drop changes from the list), and asks the same `releases/generate-notes`
 API the UI's *Generate release notes* button uses. Run it twice, then publish in 3b:
 
 ```sh
-ARGS=(--merge-branch v2/chore/milestone-merge-vX.Y.Z --ledger-url <ledger artifact URL>)
+ARGS=(--merge-branch "v2/chore/milestone-merge-vX.Y.Z" --ledger-url "https://claude.ai/artifact/<id>")
 # Add one --known-issue "<markdown paragraph>" per known issue, if any.
 
 npm run release:notes -- "${ARGS[@]}"            # 1. preview: prints the notes, creates nothing
