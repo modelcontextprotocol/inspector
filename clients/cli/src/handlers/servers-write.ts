@@ -369,6 +369,16 @@ export async function editCatalogServer(
   }
   const store = options.secretStore ?? defaultSecretStore();
   await assertSecretsPersist(store, options);
+  // A rename moves the entry's secrets from the old name to the new one. A
+  // session store in this process is empty — whatever it would hold lives in
+  // the memory of the process that wrote it (a running web backend) — so the
+  // move would find nothing and the entry would come back under its new name
+  // without them.
+  if (newName !== name && !(await secretStoreIsDurable(store))) {
+    throw new Error(
+      `--rename needs a durable secret store to carry the entry's secrets to the new name; the selected store is in-memory only. Set ${SECRET_STORE_ENV}=file (or keyring), or rename it from the web UI.`,
+    );
+  }
   await withCatalogRoutes(catalog, store, async (call) => {
     // GET returns the entry with its secrets rehydrated, so the config sent
     // back below still carries the env values the user did not touch.

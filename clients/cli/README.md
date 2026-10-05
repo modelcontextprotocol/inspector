@@ -168,7 +168,7 @@ mcp-inspector --cli --method servers/edit --server my-server -e OTHER=1 --rename
 mcp-inspector --cli --method servers/remove --server remote
 ```
 
-Each prints `{ ok, action, server, catalog }` (plus `previousName` on a rename); `--format json` wraps it in `{ "result": … }`. `--config` is refused, since it names a read-only session file. `servers/add` fails on a name that already exists, and `servers/edit` / `servers/remove` fail on one that does not. `servers/remove` takes only `--server`, and `servers/edit` with nothing to change is an error. When the secret store is in-memory only (a container with no keychain and nothing durable mounted), a write that supplies `-e` values is refused rather than losing them when the CLI exits — set `MCP_INSPECTOR_SECRET_STORE=file` to keep them.
+Each prints `{ ok, action, server, catalog }` (plus `previousName` on a rename); `--format json` wraps it in `{ "result": … }`. `--config` is refused, since it names a read-only session file. `servers/add` fails on a name that already exists, and `servers/edit` / `servers/remove` fail on one that does not. `servers/remove` rejects the entry-describing flags (a command/URL, `--transport`, `-e`, `--cwd`, `--header`, `--protocol-era`, `--rename`), and `servers/edit` with nothing to change is an error. When the secret store is in-memory only (a container with no keychain and nothing durable mounted), a write that supplies `-e` values is refused rather than losing them when the CLI exits, and so is `--rename`, since this process cannot see secrets held in another process's memory — set `MCP_INSPECTOR_SECRET_STORE=file` to keep them.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 

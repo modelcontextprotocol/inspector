@@ -415,6 +415,28 @@ describe("editCatalogServer", () => {
     ).rejects.toThrow(/apply to stdio servers; 'web' is streamable-http/);
   });
 
+  it("refuses a rename on a session store", async () => {
+    await expect(
+      editCatalogServer({
+        server: "demo",
+        rename: "demo2",
+        catalog,
+        secretStore: new SessionSecretStore(),
+      }),
+    ).rejects.toThrow(/--rename needs a durable secret store/);
+    expect(Object.keys(readCatalog())).toEqual(["demo"]);
+  });
+
+  it("allows a non-rename edit on a session store", async () => {
+    await editCatalogServer({
+      server: "demo",
+      catalog,
+      cwd: "/x",
+      secretStore: new SessionSecretStore(),
+    });
+    expect(readCatalog().demo).toMatchObject({ cwd: "/x" });
+  });
+
   it("refuses new -e values on a session store", async () => {
     await expect(
       editCatalogServer({
