@@ -29,10 +29,9 @@ export const tabs: { id: TabType; label: string; accelerator: string }[] = [
   // takes the earliest remaining letter in its own word instead (#2432).
   { id: "subscriptions", label: "Subscriptions", accelerator: "u" },
   { id: "prompts", label: "Prompts", accelerator: "m" },
-  // `k`, not `s`: `s` is not in conflict today, but the accelerator has to
-  // appear in the label and be unique, and `S`kills against a future `S`ampling
-  // or `S`ettings is the collision this rule anticipates. `k` is the earliest
-  // remaining letter in the word after `s` and `i` (Info).
+  // `k`, not `s`: `s` is reserved for Tasks (Ta**s**ks has no other free
+  // letter), and the accelerator has to appear in the label and be unique.
+  // `k` is the earliest remaining letter in the word after `s` and `i` (Info).
   { id: "skills", label: "Skills", accelerator: "k" },
   { id: "tools", label: "Tools", accelerator: "t" },
   // `s` is the only letter of `Tasks` not already taken (t/a/k). AuthTab binds
