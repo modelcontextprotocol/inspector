@@ -8,9 +8,16 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/client";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { useListFilter } from "../hooks/useListFilter.js";
+import {
+  ListFilterBar,
+  LIST_FILTER_ROWS,
+  filterCount,
+} from "./ListFilterBar.js";
 
 interface ResourceTemplate {
   name: string;
+  title?: string;
   uriTemplate: string;
   description?: string;
 }
@@ -30,6 +37,24 @@ interface ResourcesTabProps {
   onFetchTemplate?: (template: ResourceTemplate) => void;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
+  /** Told when the list filter starts or stops capturing keys (#2430). */
+  onFilterEditingChange?: (editing: boolean) => void;
+}
+
+type ResourceListItem =
+  | { type: "resource"; data: Resource }
+  | { type: "template"; data: ResourceTemplate };
+
+/**
+ * What the `/` filter matches a row against (#2430): its names and its URI,
+ * since a resource is as often recognized by its URI as by its name.
+ */
+function resourceFilterFields(
+  item: ResourceListItem,
+): ReadonlyArray<string | undefined> {
+  return item.type === "resource"
+    ? [item.data.name, item.data.title, item.data.uri]
+    : [item.data.name, item.data.title, item.data.uriTemplate];
 }
 
 export function ResourcesTab({
@@ -45,6 +70,7 @@ export function ResourcesTab({
   onFetchTemplate,
   onAuthRecoveryRequired,
   modalOpen = false,
+  onFilterEditingChange,
 }: ResourcesTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [resourceContent, setResourceContent] =
@@ -57,7 +83,7 @@ export function ResourcesTab({
 
   // Combined list: resources first, then templates - memoized to prevent unnecessary recalculations
   const allItems = useMemo(
-    () => [
+    (): ResourceListItem[] => [
       ...resources.map((r) => ({ type: "resource" as const, data: r })),
       ...resourceTemplates.map((t) => ({ type: "template" as const, data: t })),
     ],
@@ -68,20 +94,29 @@ export function ResourcesTab({
     [resources.length, resourceTemplates.length],
   );
 
-  const visibleCount = Math.max(1, height - 7);
+  const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
+  const filter = useListFilter(allItems, resourceFilterFields, {
+    enabled: !modalOpen && focusedPane === "list",
+    onEditingChange: onFilterEditingChange,
+  });
+  const shownItems = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    totalCount,
+    shownItems.length,
     visibleCount,
-    { resetWhen: resources },
+    { resetWhen: shownItems },
   );
   const selectedItem = useMemo(
-    () => allItems[selectedIndex] || null,
-    [allItems, selectedIndex],
+    () => shownItems[selectedIndex] || null,
+    [shownItems, selectedIndex],
   );
 
   // Handle arrow key navigation when focused
   useInput(
     (input: string, key: Key) => {
+      // The filter goes first: while it is editing, Enter and letters belong
+      // to the query, not to the list.
+      if (filter.handleInput(input, key)) return;
+
       // Handle Enter key to fetch resource (works from both list and details)
       if (
         key.return &&
@@ -105,7 +140,7 @@ export function ResourcesTab({
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < totalCount - 1) {
+        } else if (key.downArrow && selectedIndex < shownItems.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -222,9 +257,15 @@ export function ResourcesTab({
             bold
             backgroundColor={focusedPane === "list" ? "yellow" : undefined}
           >
-            Resources ({totalCount})
+            Resources (
+            {filterCount(filter.active, shownItems.length, totalCount)})
           </Text>
         </Box>
+        <ListFilterBar
+          query={filter.query}
+          editing={filter.editing}
+          focused={focusedPane === "list" && !modalOpen}
+        />
         {error ? (
           <Box paddingY={1}>
             <Text color="red">{error}</Text>
@@ -233,6 +274,10 @@ export function ResourcesTab({
           <Box paddingY={1}>
             <Text dimColor>No resources available</Text>
           </Box>
+        ) : shownItems.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No resources match the filter</Text>
+          </Box>
         ) : (
           <Box
             flexDirection="column"
@@ -240,20 +285,29 @@ export function ResourcesTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {allItems
+            {shownItems
               .slice(firstVisible, firstVisible + visibleCount)
               .map((item, i) => {
                 const index = firstVisible + i;
                 const isSelected = index === selectedIndex;
+                // Fallback ordinals count from the UNFILTERED list, so a row
+                // keeps its number when a filter hides its neighbours.
+                const ordinal = filter.indices[index];
                 const label =
                   item.type === "resource"
-                    ? item.data.name || item.data.uri || `Resource ${index + 1}`
+                    ? item.data.name ||
+                      item.data.uri ||
+                      `Resource ${ordinal + 1}`
                     : item.data.name ||
-                      `Template ${index - resources.length + 1}`;
-                const key =
+                      `Template ${ordinal - resources.length + 1}`;
+                // Keyed by the unfiltered position too: a server can repeat a
+                // URI, and colliding keys would let React reuse the wrong row
+                // once a filter hides one of the duplicates (Copilot).
+                const key = `${ordinal}:${
                   item.type === "resource"
-                    ? item.data.uri || index
-                    : item.data.uriTemplate || index;
+                    ? item.data.uri
+                    : item.data.uriTemplate
+                }`;
                 return (
                   <Box key={key} paddingY={0} flexShrink={0}>
                     <Text>

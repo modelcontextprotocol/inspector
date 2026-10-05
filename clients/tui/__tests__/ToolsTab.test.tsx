@@ -286,3 +286,89 @@ describe("schemaMarker", () => {
     ).toEqual({ glyph: "!", color: "red" });
   });
 });
+
+describe("ToolsTab list filter (#2430)", () => {
+  it("narrows the list by name or title, keeps fallback ordinals, and clears", async () => {
+    const onFilterEditingChange = vi.fn();
+    const filterable: Tool[] = [
+      makeTool({ name: "alpha", description: "Alpha desc" }),
+      makeTool({ name: "", title: "Gamma Title", description: "Gamma desc" }),
+      makeTool({ name: "delta", annotations: { title: "GAMMA-ish" } }),
+    ];
+    const { lastFrame, stdin } = render(
+      <ToolsTab
+        tools={filterable}
+        isConnected={false}
+        width={120}
+        height={30}
+        focusedPane="list"
+        onFilterEditingChange={onFilterEditingChange}
+      />,
+    );
+    await tick();
+    expect(lastFrame()).toContain("/ to filter");
+    for (const k of ["/", "g", "a", "m"]) {
+      stdin.write(k);
+      await tick();
+    }
+    let frame = lastFrame() ?? "";
+    expect(onFilterEditingChange).toHaveBeenLastCalledWith(true);
+    expect(frame).toContain("Tools (2/3)");
+    // The untitled row keeps its unfiltered number.
+    expect(frame).toContain("Tool 2");
+    expect(frame).toContain("Gamma desc");
+    expect(frame).not.toContain("alpha");
+
+    // Enter keeps the filter rather than testing the selected tool; the
+    // arrows then move within the narrowed list.
+    stdin.write("\r");
+    await tick();
+    stdin.write(DOWN);
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("(/ to edit)");
+    expect(frame).toContain("▶ delta");
+
+    // A query nothing matches.
+    for (const k of ["/", "z"]) {
+      stdin.write(k);
+      await tick();
+    }
+    expect(lastFrame()).toContain("No tools match the filter");
+
+    stdin.write(ESC);
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("Tools (3)");
+    expect(frame).toContain("alpha");
+    expect(onFilterEditingChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("ToolsTab list filter — duplicate names (#2430)", () => {
+  it("renders both copies of a repeated tool name, filtered or not", async () => {
+    const dupes: Tool[] = [
+      makeTool({ name: "dup", description: "first copy" }),
+      makeTool({ name: "other" }),
+      makeTool({ name: "dup", description: "second copy" }),
+    ];
+    const { lastFrame, stdin } = render(
+      <ToolsTab
+        tools={dupes}
+        isConnected={false}
+        width={120}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "d", "u", "p", "\r", DOWN]) {
+      stdin.write(k);
+      await tick();
+    }
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Tools (2/3)");
+    expect(frame.match(/dup/g)?.length).toBeGreaterThanOrEqual(2);
+    expect(frame).toContain("second copy");
+  });
+});

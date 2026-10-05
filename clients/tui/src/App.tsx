@@ -155,6 +155,10 @@ function App({
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
   const [focus, setFocus] = useState<FocusArea>("serverList");
+  // True while a list tab's `/` filter is capturing keystrokes (#2430). The
+  // global accelerators below stand down then, or typing a query would switch
+  // tabs, connect, or quit on Esc. Reported by `useListFilter`.
+  const [listFilterEditing, setListFilterEditing] = useState(false);
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
@@ -1462,6 +1466,11 @@ function App({
       exit();
     }
 
+    // A list filter owns the keyboard while it is being edited (#2430).
+    if (listFilterEditing) {
+      return;
+    }
+
     // Exit accelerators
     if (key.escape) {
       exit();
@@ -2009,6 +2018,7 @@ function App({
             selectedInspectorClient ? (
               <ResourcesTab
                 key={`resources-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 resources={currentServerState.resources}
                 resourceTemplates={currentServerState.resourceTemplates}
                 inspectorClient={selectedInspectorClient}
@@ -2056,6 +2066,7 @@ function App({
               selectedInspectorClient ? (
               <SkillsTab
                 key={`skills-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 skills={managedSkills}
                 pageCount={managedSkillsPageCount}
                 loadError={managedSkillsError}
@@ -2084,6 +2095,7 @@ function App({
               selectedInspectorClient ? (
               <PromptsTab
                 key={`prompts-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 prompts={currentServerState.prompts}
                 inspectorClient={selectedInspectorClient}
                 width={contentWidth}
@@ -2126,6 +2138,7 @@ function App({
               selectedInspectorClient ? (
               <ToolsTab
                 key={`tools-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 tools={currentServerState.tools}
                 isConnected={inspectorStatus === "connected"}
                 width={contentWidth}
