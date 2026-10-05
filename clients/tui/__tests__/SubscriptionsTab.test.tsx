@@ -130,6 +130,8 @@ describe("SubscriptionsTab", () => {
     });
     const client = fakeClient({ subscribeToResource: vi.fn(() => pending) });
     const { stdin, lastFrame } = renderTab({ inspectorClient: client });
+    // Two presses in one burst, before any re-render, start one request.
+    stdin.write("\r");
     stdin.write("\r");
     await tick();
     expect(lastFrame()).toContain("Updating subscription…");
