@@ -61,6 +61,16 @@ test("parseNotesArgs defaults to a preview and validates its inputs", () => {
     () => parseNotesArgs([...BASE, "--previous-tag", "2.0.0-rc.1"]),
     /--previous-tag/,
   );
+  for (const mode of ["--draft", "--publish"]) {
+    assert.throws(
+      () => parseNotesArgs([...BASE, "--previous-tag", "2.8.0", mode]),
+      /--previous-tag is preview-only/,
+    );
+  }
+  assert.equal(
+    parseNotesArgs([...BASE, "--previous-tag", "2.8.0"]).previousTag,
+    "2.8.0",
+  );
 });
 
 test("previousStableTag skips RC, hotfix and v-prefixed tags", () => {

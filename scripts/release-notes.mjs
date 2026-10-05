@@ -72,6 +72,12 @@ export function parseNotesArgs(argv) {
   if (values.draft && values.publish) {
     throw new Error("--draft and --publish are mutually exclusive");
   }
+  // A Release created here always starts from the previous stable tag; an
+  // override (a typo, a stale value) would publish the wrong range of
+  // changes and credits, so it is a preview-only knob like --version.
+  if ((values.draft || values.publish) && values["previous-tag"]) {
+    throw new Error("--previous-tag is preview-only");
+  }
   return {
     mergeBranch,
     ledgerUrl,

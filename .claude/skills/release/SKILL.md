@@ -262,8 +262,9 @@ The rules the helper applies:
 
 To regenerate an **older** release's notes (to check them, or after editing a
 PR body), pass `--version x.y.z`, and optionally `--previous-tag`. This works
-for preview only. `--draft` and `--publish` refuse any version other than the
-one on `origin/main`, because `--target main` would attach it to the wrong tree.
+for preview only. `--draft` and `--publish` refuse `--previous-tag`, and any
+version other than the one on `origin/main`, because the Release would carry
+the wrong range of changes or attach to the wrong tree.
 Previewing `--version 2.9.0` with 2.9.0's ledger and known issue reproduces its
 published notes exactly.
 
