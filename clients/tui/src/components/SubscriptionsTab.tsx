@@ -90,8 +90,14 @@ export function SubscriptionsTab({
   const detailWidth = width - listWidth;
   const selected = rows[selectedIndex] ?? null;
 
+  // `pendingUri` drives the status line; this ref is the guard, because two
+  // Enter presses can land before React re-renders and both would start a
+  // request (two `resources/subscribe` on the legacy era).
+  const inFlightRef = useRef(false);
+
   const toggle = async (row: (typeof rows)[number]) => {
-    if (!inspectorClient) return;
+    if (!inspectorClient || inFlightRef.current) return;
+    inFlightRef.current = true;
     const { uri } = row.resource;
     setPendingUri(uri);
     setError(null);
@@ -112,13 +118,14 @@ export function SubscriptionsTab({
       }
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      inFlightRef.current = false;
       setPendingUri(null);
     }
   };
 
   useInput(
     (_input: string, key: Key) => {
-      if (key.return && selected && pendingUri === null) {
+      if (key.return && selected) {
         // `toggle` owns every rejection (its catch surfaces the message), and
         // a key handler cannot await.
         void toggle(selected);

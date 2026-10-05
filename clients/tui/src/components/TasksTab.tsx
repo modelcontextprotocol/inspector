@@ -136,6 +136,9 @@ export function TasksTab({
         return;
       }
       if (input === "l") {
+        // Not during a refresh: the store has already emptied its list for the
+        // page walk, so a clear now is lost and the tasks reappear after it.
+        if (inFlightRef.current) return;
         onClearCompleted();
         return;
       }

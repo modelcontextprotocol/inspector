@@ -183,6 +183,7 @@ describe("TasksTab", () => {
     // A second press while the first is in flight starts nothing.
     stdin.write("f");
     stdin.write("x");
+    stdin.write("l");
     await tick();
     expect(onRefresh).toHaveBeenCalledTimes(1);
     release();
