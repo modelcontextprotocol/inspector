@@ -1090,6 +1090,18 @@ describe("App (status, layout, modals)", () => {
     expect(h.disconnect).toHaveBeenCalled();
   });
 
+  it("types '?' into a list filter instead of opening the help (#2430 + #2436)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/", "?"]);
+    await expectFrame(r, "/?");
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+    // Once the filter is cleared, '?' is the help key again.
+    await press(r, [ESC, "?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+  });
+
   it("opens the tool details modal with '+' and closes it on ESC", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];

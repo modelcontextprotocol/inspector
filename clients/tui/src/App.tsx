@@ -1484,19 +1484,20 @@ function App({
       return;
     }
 
-    // Open the keybinding help. It closes itself (on `?` or Esc); see
-    // `focus` above for how the panes underneath are kept inert meanwhile.
-    if (input === "?") {
-      setHelpOpen(true);
-      return;
-    }
-
     if (key.ctrl && input === "c") {
       exit();
     }
 
-    // A list filter owns the keyboard while it is being edited (#2430).
+    // A list filter owns the keyboard while it is being edited (#2430) —
+    // including `?`, which is a legitimate query character there.
     if (listFilterEditing) {
+      return;
+    }
+
+    // Open the keybinding help. It closes itself (on `?` or Esc); see
+    // `focus` above for how the panes underneath are kept inert meanwhile.
+    if (input === "?") {
+      setHelpOpen(true);
       return;
     }
 

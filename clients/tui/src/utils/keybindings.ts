@@ -63,7 +63,13 @@ const DETAILS_SCROLL: readonly KeyBinding[] = [
   { keys: "↑/↓", action: "Scroll the details pane (details focused)" },
   { keys: "PgUp/PgDn", action: "Scroll the details pane a page" },
   { keys: "+", action: "Open the details full screen (details focused)" },
+  { keys: "y / w", action: "In a details dialog: copy / save the value" },
 ];
+
+const LIST_FILTER: KeyBinding = {
+  keys: "/",
+  action: "Filter the list (Enter keeps it, Esc clears it)",
+};
 
 const PANE_SCROLL: readonly KeyBinding[] = [
   { keys: "↑/↓", action: "Scroll (content focused)" },
@@ -79,26 +85,35 @@ export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
     { keys: "↑/↓ + Enter", action: "Choose Authorize or Cancel (step-up)" },
     { keys: "a", action: "Authorize a pending step-up" },
     { keys: "c", action: "Cancel a pending step-up" },
+    { keys: "y / w", action: "Copy / save the access token" },
   ],
   resources: [
     { keys: "↑/↓", action: "Select a resource (list focused)" },
     { keys: "Enter", action: "Fetch the resource, or fill in a template" },
+    LIST_FILTER,
     ...DETAILS_SCROLL,
   ],
   prompts: [
     { keys: "↑/↓", action: "Select a prompt (list focused)" },
     { keys: "Enter", action: "Get the prompt (asks for arguments if any)" },
+    LIST_FILTER,
     ...DETAILS_SCROLL,
   ],
   skills: [
     { keys: "↑/↓", action: "Select a skill (list focused)" },
     { keys: "Enter", action: "Verify the skill's digests and frontmatter" },
+    LIST_FILTER,
     { keys: "↑/↓", action: "Scroll the details pane (details focused)" },
     { keys: "PgUp/PgDn", action: "Scroll the details pane a page" },
   ],
   tools: [
     { keys: "↑/↓", action: "Select a tool (list focused)" },
     { keys: "Enter", action: "Test the tool" },
+    LIST_FILTER,
+    {
+      keys: "w",
+      action: "In the tool's result view: save the result to a file",
+    },
     ...DETAILS_SCROLL,
   ],
   messages: [
