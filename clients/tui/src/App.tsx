@@ -1332,34 +1332,41 @@ function App({
           {message.duration !== undefined && ` (${message.duration}ms)`}
         </Text>
       </Box>
+      {/* Bodies go through the same capped BodyLines as the Network zoom
+          above, so a huge payload cannot render unbounded here (#2539). */}
       {message.direction === "request" ? (
         <>
-          <Box marginTop={1} flexShrink={0} flexDirection="column">
+          <Box marginTop={1} flexShrink={0}>
             <Text bold>Request:</Text>
-            <Box paddingLeft={2}>
-              <Text dimColor>{JSON.stringify(message.message, null, 2)}</Text>
-            </Box>
           </Box>
+          <BodyLines
+            body={JSON.stringify(message.message)}
+            keyPrefix="zoom-req"
+          />
           {message.response && (
-            <Box marginTop={1} flexShrink={0} flexDirection="column">
-              <Text bold>Response:</Text>
-              <Box paddingLeft={2}>
-                <Text dimColor>
-                  {JSON.stringify(message.response, null, 2)}
-                </Text>
+            <>
+              <Box marginTop={1} flexShrink={0}>
+                <Text bold>Response:</Text>
               </Box>
-            </Box>
+              <BodyLines
+                body={JSON.stringify(message.response)}
+                keyPrefix="zoom-resp"
+              />
+            </>
           )}
         </>
       ) : (
-        <Box marginTop={1} flexShrink={0} flexDirection="column">
-          <Text bold>
-            {message.direction === "response" ? "Response:" : "Notification:"}
-          </Text>
-          <Box paddingLeft={2}>
-            <Text dimColor>{JSON.stringify(message.message, null, 2)}</Text>
+        <>
+          <Box marginTop={1} flexShrink={0}>
+            <Text bold>
+              {message.direction === "response" ? "Response:" : "Notification:"}
+            </Text>
           </Box>
-        </Box>
+          <BodyLines
+            body={JSON.stringify(message.message)}
+            keyPrefix="zoom-msg"
+          />
+        </>
       )}
     </>
   );
