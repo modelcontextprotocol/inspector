@@ -1199,6 +1199,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   if (options.requireDigests && !options.verify) {
     throw new Error("--require-digests requires --verify.");
   }
+  // The skills catalog budget is read only by `verifySkills`, so without
+  // `--verify` it bounds nothing — and a job that set it would look bounded
+  // when it is not (#2420).
+  if (options.skillCatalogMaxSkills !== undefined && !options.verify) {
+    throw new Error("--skill-catalog-max-skills requires --verify.");
+  }
+  if (options.skillCatalogMaxBytes !== undefined && !options.verify) {
+    throw new Error("--skill-catalog-max-bytes requires --verify.");
+  }
 
   // `--advertise-apps` is checked here for the same reason: it shapes the
   // `initialize` handshake, and the short-circuit paths below never open an
