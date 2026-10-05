@@ -705,12 +705,32 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // commander tear down the whole test worker. For --help / --version
   // (exitCode 0) we return without throwing, so commander falls through to its
   // normal clean process.exit(0) after printing — preserving that UX. See #1484.
+  // Commander's own `error: …` line for a usage error is held back here and
+  // written from `exitOverride` below — unless `--quiet` was already parsed,
+  // in which case it is dropped: the error is still thrown and reaches the
+  // envelope with the same message, so stderr stays the one envelope line
+  // (#2435). Deciding on Commander's parsed state rather than scanning argv
+  // means a `-q` that is another option's value (`--client-secret -q`) is not
+  // mistaken for the flag, and `-qe KEY=V` is. Commander parses left to right,
+  // so a `-q` placed *after* the bad option is not seen yet and the line
+  // prints. `--help` / `--version` write through `writeOut`, untouched.
+  let commanderError = "";
+  program.configureOutput({
+    writeErr: (text) => {
+      commanderError += text;
+    },
+  });
   program.exitOverride((err) => {
     /* v8 ignore next -- the `exitCode === 0` arm only fires for --help/--version,
        which cannot run through the in-process test runner (it would call the
        real process.exit(0) and tear down the vitest worker). That UX is covered
        out-of-process in e2e.test.ts; here only the throwing arm is exercised. */
-    if (err.exitCode !== 0) throw err;
+    if (err.exitCode !== 0) {
+      if (program.opts().quiet !== true) {
+        process.stderr.write(commanderError);
+      }
+      throw err;
+    }
   });
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
@@ -733,24 +753,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     rawArgs[1] ?? "inspector-cli",
     ...optionArgs,
   ];
-
-  // `--quiet` (#2435), read from argv rather than `opts()` because both of
-  // these must be in place before `parse()` runs:
-  // - Commander's own `error: …` line on a usage error is dropped. The error
-  //   is still thrown (see `exitOverride` above) and reaches the envelope with
-  //   the same message, so stderr stays the one envelope line. `--help` /
-  //   `--version` write through `writeOut`, which is untouched.
-  // - `console.warn` is muted for the rest of the run; `runCli` restores it.
-  //   Core reports advisories that way from many places the CLI reaches (the
-  //   secret-store notice, `roots` / OAuth-endpoint settings it ignores, lock
-  //   and persistence trouble), so muting the channel is the only complete
-  //   answer. What `--quiet` keeps — the result, the envelope, the `--strict`
-  //   report, the OAuth URL and step-up prompt — is written to the streams
-  //   directly, never through `console.warn`.
-  if (argvRequestsQuiet(optionArgs)) {
-    program.configureOutput({ writeErr: () => {} });
-    console.warn = discardWarning;
-  }
 
   program
     .name("inspector-cli")
@@ -958,6 +960,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
 
   program.parse(preArgs);
+
+  // `--quiet` mutes `console.warn` for the rest of the run; `runCli` restores
+  // it (#2435). Core reports advisories that way from many places the CLI
+  // reaches (the secret-store notice, `roots` / OAuth-endpoint settings it
+  // ignores, lock and persistence trouble), so muting the channel is the only
+  // complete answer. What `--quiet` keeps — the result, the envelope, the
+  // `--strict` report, the OAuth URL and step-up prompt — is written to the
+  // streams directly, never through `console.warn`.
+  if (program.opts().quiet === true) console.warn = discardWarning;
 
   const options = program.opts() as {
     catalog?: string;
@@ -1342,26 +1353,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
   };
-}
-
-/**
- * Whether the option tokens ask for `--quiet`, decided before `parse()` (see
- * the call site). Commander also accepts short flags combined into one token,
- * so `-qe KEY=V` turns quiet on too, and a plain `includes("-q")` would miss
- * it. A cluster is read the way Commander reads it, left to right: `q` is the
- * flag, and `e` takes a value, so whatever follows it in the same token is
- * that value (`-eq` is `-e` with the value `q`) rather than more flags.
- */
-export function argvRequestsQuiet(optionArgs: readonly string[]): boolean {
-  for (const token of optionArgs) {
-    if (token === "--quiet") return true;
-    if (!/^-[A-Za-z]+$/.test(token)) continue;
-    for (const flag of token.slice(1)) {
-      if (flag === "q") return true;
-      if (flag === "e") break;
-    }
-  }
-  return false;
 }
 
 /** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
