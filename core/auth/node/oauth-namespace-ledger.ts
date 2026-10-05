@@ -38,6 +38,7 @@
  * entries.
  */
 
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   deleteStoreFile,
@@ -47,6 +48,7 @@ import {
 import { serializeStore } from "../../storage/store-serialize.js";
 import { KeyringSecretStore, type SecretStore } from "./secret-store.js";
 import { FileSecretStore } from "./file-secret-store.js";
+import { resolveConcreteSecretStore } from "./secret-store-selection.js";
 import {
   isValidSecretsNamespace,
   oauthIdpSecretServerId,
@@ -57,17 +59,54 @@ import {
 export const namespaceLedgerPath = (stateFilePath: string): string =>
   `${stateFilePath}.namespaces.json`;
 
+const KEYRING_LOCATION = "keyring";
+const FILE_LOCATION_PREFIX = "file:";
+
 /**
  * Where a store's entries live, as a stable string another process can
  * compare: the OS keychain, one particular `secrets.json`, or RAM (the
  * test doubles and the session-scoped container fallback — entries there
  * die with the process, so purging them from any memory store is moot).
+ * Production stores arrive wrapped (`defaultSecretStore()`), so the
+ * concrete selection is resolved first; the wrapper itself names nothing.
  */
-export function secretStoreLocation(store: SecretStore): string {
-  if (store instanceof KeyringSecretStore) return "keyring";
-  if (store instanceof FileSecretStore)
-    return `file:${resolve(store.filePath)}`;
+export async function secretStoreLocation(store: SecretStore): Promise<string> {
+  const concrete = await resolveConcreteSecretStore(store);
+  if (concrete instanceof KeyringSecretStore) return KEYRING_LOCATION;
+  if (concrete instanceof FileSecretStore) {
+    return `${FILE_LOCATION_PREFIX}${resolve(concrete.filePath)}`;
+  }
   return "memory";
+}
+
+/**
+ * The recorded locations a purge from `location` covers. Always its own.
+ * A keychain run also covers every `secrets.json` record, because the
+ * file-to-keychain hand-off (`absorbFileSecretsIntoKeyring`) copies a
+ * file's entries — superseded namespaces included — into the keychain
+ * without telling any ledger; deleting ids that were never copied is a
+ * no-op. Only the keychain's own record is certain to be fully purged,
+ * though: a file's record is dropped only once the file itself is gone
+ * (absorbed or removed), since until then it may still hold the entries.
+ */
+function coveredLocations(
+  location: string,
+  byLocation: Map<string, LedgerKeys>,
+): Array<{ location: string; keys: LedgerKeys; drop: boolean }> {
+  const covered: Array<{ location: string; keys: LedgerKeys; drop: boolean }> =
+    [];
+  for (const [recorded, keys] of byLocation) {
+    if (recorded === location) {
+      covered.push({ location: recorded, keys, drop: true });
+    } else if (
+      location === KEYRING_LOCATION &&
+      recorded.startsWith(FILE_LOCATION_PREFIX)
+    ) {
+      const filePath = recorded.slice(FILE_LOCATION_PREFIX.length);
+      covered.push({ location: recorded, keys, drop: !existsSync(filePath) });
+    }
+  }
+  return covered;
 }
 
 /** The keys one namespace has had store entries written under. */
@@ -186,7 +225,7 @@ export async function recordNamespaceKeys(
     const ledger = parseLedger(
       await readStoreFile(namespaceLedgerPath(stateFilePath)),
     );
-    const location = secretStoreLocation(secretStore);
+    const location = await secretStoreLocation(secretStore);
     let byLocation = ledger.get(namespace);
     if (!byLocation) {
       byLocation = new Map();
@@ -220,10 +259,11 @@ export async function recordNamespaceKeys(
  * — the namespace the state file actually carries, or `undefined` when it
  * carries none (a stripped stamp, a file deleted by hand, a whole-file
  * removal), in which case every recorded namespace is superseded. Only the
- * keys recorded for this store's location are purged, and a location's
- * record is dropped only once all its ids are gone; one whose purge failed
- * stays recorded, so the next locked save or removal retries it. Records
- * for other locations are left for a run that uses them.
+ * keys recorded for the locations this store covers are purged (see
+ * {@link coveredLocations}), and a location's record is dropped only once
+ * all its ids are gone; one whose purge failed stays recorded, so the next
+ * locked save or removal retries it. Records for other locations are left
+ * for a run that uses them.
  *
  * Only call this under the real file lock: it deletes credentials, and an
  * unlocked caller could be racing an adopter whose namespace is recorded
@@ -235,44 +275,48 @@ export async function purgeSupersededNamespaces(
   current: string | undefined,
 ): Promise<void> {
   let ledger: Ledger;
+  let location: string;
   try {
     ledger = parseLedger(
       await readStoreFile(namespaceLedgerPath(stateFilePath)),
     );
+    location = await secretStoreLocation(secretStore);
   } catch (error) {
     warnLedgerFailure("read", error);
     return;
   }
-  const location = secretStoreLocation(secretStore);
   let changed = false;
   for (const [namespace, byLocation] of ledger) {
     if (namespace === current) continue;
-    const keys = byLocation.get(location);
-    if (!keys) continue;
-    const purges = [
-      ...[...keys.servers].map(
-        (url) => () => oauthSecretServerId(url, namespace),
-      ),
-      ...[...keys.idpSessions].map(
-        (issuer) => () => oauthIdpSecretServerId(issuer, namespace),
-      ),
-    ];
-    let purged = true;
-    // Per-id catch, like adoption's legacy purge: one failure must not
-    // abandon the remaining ids. The id is built inside it too — a key with
-    // an unpaired surrogate makes `encodeURIComponent` throw.
-    for (const idOf of purges) {
-      try {
-        await secretStore.deleteAllForServer(idOf());
-      } catch (error) {
-        purged = false;
-        warnLedgerFailure("purge an orphaned namespace recorded in", error);
+    for (const { location: recorded, keys, drop } of coveredLocations(
+      location,
+      byLocation,
+    )) {
+      const purges = [
+        ...[...keys.servers].map(
+          (url) => () => oauthSecretServerId(url, namespace),
+        ),
+        ...[...keys.idpSessions].map(
+          (issuer) => () => oauthIdpSecretServerId(issuer, namespace),
+        ),
+      ];
+      let purged = true;
+      // Per-id catch, like adoption's legacy purge: one failure must not
+      // abandon the remaining ids. The id is built inside it too — a key
+      // with an unpaired surrogate makes `encodeURIComponent` throw.
+      for (const idOf of purges) {
+        try {
+          await secretStore.deleteAllForServer(idOf());
+        } catch (error) {
+          purged = false;
+          warnLedgerFailure("purge an orphaned namespace recorded in", error);
+        }
       }
+      if (!purged || !drop) continue;
+      byLocation.delete(recorded);
+      changed = true;
     }
-    if (!purged) continue;
-    byLocation.delete(location);
     if (byLocation.size === 0) ledger.delete(namespace);
-    changed = true;
   }
   if (!changed) return;
   try {

@@ -43,6 +43,22 @@ import {
 } from "@inspector/core/auth/node/secret-store.js";
 import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import {
+  defaultSecretStore,
+  SECRET_FILE_ENV,
+  SECRET_STORE_ENV,
+} from "@inspector/core/auth/node/secret-store-selection.js";
+
+/**
+ * The keychain, as far as `instanceof` is concerned, backed by a map — the
+ * native module is absent in CI.
+ */
+class FakeKeyring extends KeyringSecretStore {
+  readonly deleted: string[] = [];
+  async deleteAllForServer(serverId: string): Promise<void> {
+    this.deleted.push(serverId);
+  }
+}
+import {
   LEGACY_TOKENS_FIELD,
   IDP_SESSION_FIELD,
   oauthIdpSecretServerId,
@@ -199,15 +215,41 @@ describe("tolerant parse", () => {
 });
 
 describe("secretStoreLocation", () => {
-  it("names the keychain, a specific secrets file, or memory", () => {
-    expect(secretStoreLocation(new KeyringSecretStore())).toBe("keyring");
+  it("names the keychain, a specific secrets file, or memory", async () => {
+    expect(await secretStoreLocation(new KeyringSecretStore())).toBe("keyring");
     expect(
-      secretStoreLocation(
+      await secretStoreLocation(
         new FileSecretStore({ filePath: "rel/secrets.json", passphrase: "" }),
       ),
     ).toBe(`file:${join(process.cwd(), "rel/secrets.json")}`);
-    expect(secretStoreLocation(new InMemorySecretStore())).toBe("memory");
-    expect(secretStoreLocation(new SessionSecretStore())).toBe("memory");
+    expect(await secretStoreLocation(new InMemorySecretStore())).toBe("memory");
+    expect(await secretStoreLocation(new SessionSecretStore())).toBe("memory");
+  });
+
+  it("names the store a production default resolves to, not the wrapper", async () => {
+    // `defaultSecretStore()` is a deferred wrapper; read as-is it would
+    // name nothing and every production store would read as `memory`.
+    const secretsFile = join(tempDir, "secrets.json");
+    const saved = {
+      kind: process.env[SECRET_STORE_ENV],
+      file: process.env[SECRET_FILE_ENV],
+    };
+    process.env[SECRET_STORE_ENV] = "file";
+    process.env[SECRET_FILE_ENV] = secretsFile;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await secretStoreLocation(defaultSecretStore())).toBe(
+        `file:${secretsFile}`,
+      );
+    } finally {
+      for (const [name, value] of [
+        [SECRET_STORE_ENV, saved.kind],
+        [SECRET_FILE_ENV, saved.file],
+      ] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 });
 
@@ -284,6 +326,61 @@ describe("purgeSupersededNamespaces", () => {
     expect(readLedger()[NS1]).toEqual({
       keyring: { servers: [SERVER], idpSessions: [] },
     });
+  });
+
+  it("from the keychain, also purges a secrets file's records — the hand-off may have copied them", async () => {
+    const keyring = new FakeKeyring();
+    const liveFile = join(tempDir, "live-secrets.json");
+    writeFileSync(liveFile, "{}");
+    const goneFile = join(tempDir, "absorbed-secrets.json");
+    const fileStore = (filePath: string) =>
+      new FileSecretStore({ filePath, passphrase: "" });
+    await recordNamespaceKeys(
+      stateFile,
+      fileStore(liveFile),
+      NS1,
+      [SERVER],
+      [],
+    );
+    await recordNamespaceKeys(
+      stateFile,
+      fileStore(goneFile),
+      NS2,
+      [SERVER],
+      [],
+    );
+
+    await purgeSupersededNamespaces(stateFile, keyring, undefined);
+    expect(keyring.deleted.sort()).toEqual(
+      [
+        oauthSecretServerId(SERVER, NS1),
+        oauthSecretServerId(SERVER, NS2),
+      ].sort(),
+    );
+    // The absorbed (gone) file's record is done with; the live file may
+    // still hold its entries, so its record waits for a run against it.
+    expect(readLedger()).toEqual({
+      [NS1]: { [`file:${liveFile}`]: { servers: [SERVER], idpSessions: [] } },
+    });
+  });
+
+  it("does not extend a secrets file's or memory run to another file's records", async () => {
+    const other = new FileSecretStore({
+      filePath: join(tempDir, "other.json"),
+      passphrase: "",
+    });
+    await recordNamespaceKeys(stateFile, other, NS1, [SERVER], []);
+    const del = vi.spyOn(store, "deleteAllForServer");
+    const mine = new FileSecretStore({
+      filePath: join(tempDir, "mine.json"),
+      passphrase: "",
+    });
+    const mineDel = vi.spyOn(mine, "deleteAllForServer");
+    await purgeSupersededNamespaces(stateFile, store, undefined);
+    await purgeSupersededNamespaces(stateFile, mine, undefined);
+    expect(del).not.toHaveBeenCalled();
+    expect(mineDel).not.toHaveBeenCalled();
+    expect(Object.keys(readLedger())).toEqual([NS1]);
   });
 
   it("drops only the purged location's record, keeping the namespace for the rest", async () => {

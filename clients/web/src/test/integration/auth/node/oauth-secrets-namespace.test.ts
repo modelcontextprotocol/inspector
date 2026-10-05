@@ -77,6 +77,10 @@ import {
 } from "@inspector/core/auth/node/secret-store.js";
 import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import {
+  absorbFileSecretsIntoKeyring,
+  SECRET_FILE_ENV,
+} from "@inspector/core/auth/node/secret-store-selection.js";
+import {
   namespaceLedgerPath,
   resetNamespaceLedgerWarnings,
 } from "@inspector/core/auth/node/oauth-namespace-ledger.js";
@@ -722,6 +726,41 @@ describe("namespace ledger: superseded namespaces are purged (#2560)", () => {
     await flushStoreFileWrites(fileA);
     expect(hasNs1()).toBe(false);
     expect(ledgerNamespaces(fileA)).not.toContain(ns1);
+  });
+
+  it("cleans up a stripped namespace whose file-store entries the keychain absorbed", async () => {
+    // File-backed save → stamp stripped → keychain becomes available and
+    // absorbs secrets.json (superseded namespace included) → re-adoption
+    // on the keychain must purge the absorbed copies.
+    const secretsFile = join(tempDir, "secrets.json");
+    const savedFileEnv = process.env[SECRET_FILE_ENV];
+    process.env[SECRET_FILE_ENV] = secretsFile;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const fileStore = new FileSecretStore({
+        filePath: secretsFile,
+        passphrase: "",
+      });
+      await writeOAuthSections(fileA, snapshotFor("one"), undefined, fileStore);
+      await flushStoreFileWrites(fileA);
+      const ns1 = namespaceOf(fileA);
+      await stripStamp(fileA);
+
+      const keyring = new KeyringSecretStore();
+      await absorbFileSecretsIntoKeyring(keyring);
+      const hasNs1 = () =>
+        [...keyringMocks.password.keys()].some((a) => a.includes(ns1));
+      expect(existsSync(secretsFile)).toBe(false);
+      expect(hasNs1()).toBe(true);
+
+      await writeOAuthSections(fileA, snapshotFor("two"), undefined, keyring);
+      await flushStoreFileWrites(fileA);
+      expect(hasNs1()).toBe(false);
+      expect(ledgerNamespaces(fileA)).toEqual([namespaceOf(fileA)]);
+    } finally {
+      if (savedFileEnv === undefined) delete process.env[SECRET_FILE_ENV];
+      else process.env[SECRET_FILE_ENV] = savedFileEnv;
+    }
   });
 
   it("removing a stripped file purges the namespace it lost, and the ledger with it", async () => {
