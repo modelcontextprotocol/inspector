@@ -103,7 +103,9 @@ fails the whole check, and the job's output names each offending commit and the
 repair below.
 
 ⚠️ **It is a merge gate only because it is a _required_ status check** — a
-ruleset setting, not something the workflow file can declare. The probot DCO app
+ruleset setting, not something the workflow file can declare. The job runs on
+`pull_request_target`, so its workflow is read from `main`: it reports on PRs
+only once a milestone merge has carried it there (#2566). The probot DCO app
 it replaced was never required, so when the app was suspended its check simply
 stopped appearing (after #1981) and nothing went red for two months. If the
 `DCO` check is ever missing from a PR, treat that as the outage it is.

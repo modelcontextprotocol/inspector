@@ -18,14 +18,25 @@
 # ⚠️ `pull_request_target`, deliberately — a check that gates a PR must not run
 # code the PR can change. Under `pull_request` both this file and the script
 # come from the PR's merge ref, so a PR could rewrite either to pass itself.
-# `pull_request_target` takes the workflow from the BASE branch, and the job
-# checks out the base too, so the checker that runs is the one already
-# reviewed onto `v2/main`. The PR's commits are only FETCHED — `git log` reads
+# `pull_request_target` takes the workflow from the repo's DEFAULT branch
+# (`main`), and the job checks out the PR's base (`v2/main`) for the script —
+# both already-merged code. The PR's commits are only FETCHED: `git log` reads
 # their metadata and nothing from the PR is ever executed, which is the
 # condition that makes `pull_request_target` safe. Keep it that way: never
-# check out, install, build or run the PR head in this job. Consequence: a
-# change to this file or to `scripts/dco-check.mjs` takes effect only after it
-# merges, so the PR making one is checked by the version before it.
+# check out, install, build or run the PR head in this job.
+#
+# ⚠️ Rollout follows from the workflow living on `main`: this file does
+# nothing until a milestone merge carries it from `v2/main` to `main`, and a
+# later edit to it takes effect only on the next milestone merge. An edit to
+# `scripts/dco-check.mjs` takes effect as soon as it merges to `v2/main`. Make
+# `DCO` a required check only once this file is on `main` — required before
+# then, every v2 PR would wait on a check that never reports.
+#
+# Scoped to `v2/main`. Once on `main` an unscoped trigger would also fire for
+# `v1/main` PRs (whose checkout has no script) and for milestone PRs into
+# `main` (whose range holds GitHub's squash-merge commits, signed under a
+# different name). `edited` re-runs it when a PR is retargeted, since the
+# checked range changes with the base even when the head does not.
 #
 # Only `contents: read`, no credential persisted, no secret — so it stays on
 # moving action tags (#2235; see verify:action-pins, #2484).
@@ -33,6 +44,8 @@ name: DCO
 
 on:
   pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+    branches: [v2/main]
 
 permissions:
   contents: read
