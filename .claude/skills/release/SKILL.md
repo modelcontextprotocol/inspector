@@ -1,6 +1,6 @@
 ---
 name: release
-description: "Cut an Inspector v2 release — two PRs and then a GitHub Release. PR 1 puts the npm audit, any fixes it forces, and the version bump on v2/main; PR 2 merges v2/main into main and is smoke-tested from the production build with a ledger artifact for the maintainers; the maintainer then tags and publishes through the GitHub UI. Also covers the v1 line and what the publish jobs gate on."
+description: "Cut an Inspector v2 release — two PRs and then a GitHub Release. PR 1 puts the npm audit, any fixes it forces, and the version bump on v2/main; PR 2 merges v2/main into main and is smoke-tested from the production build with a ledger artifact for the maintainers; the maintainer then drafts the Release with a script and publishes it. Also covers the v1 line and what the publish jobs gate on."
 disable-model-invocation: true
 ---
 
@@ -206,104 +206,97 @@ the artifact the maintainers approve the merge on.
 
 ## 3. Tag and publish the Release
 
-### 3a. Draft the release notes
+### 3a. Assemble the notes and draft the Release
 
 A release's notes have four parts, in this order:
 
 1. **What's Changed.** GitHub's generated list of every PR since the previous tag.
 2. **The smoke-ledger line**, linking the artifact from 2b.
-3. **`## Known issue`**, only when there is one. It names the issue, who is
-   affected and the workaround. Deciding what counts as a known issue is a
-   maintainer judgment, so it is written by hand, never generated.
+3. **`## Known issue`** (or `issues`), only when there is one. It names the
+   issue, who is affected and the workaround. Deciding what counts as a known
+   issue is a maintainer judgment, so it is written by hand and passed in,
+   never generated.
 4. **`## Thanks for helping us improve`.** Credit to the community members whose
    issues the release addresses. GitHub adds everyone `@`-mentioned in a
    release body to that release's **Contributors** avatar strip, so the people
    credited here appear there too (confirmed on 2.9.0).
 
-The generated list comes from the same API the UI's *Generate release notes*
-button uses, so it can be produced without creating anything. The recipe below
-builds parts 1 and 4. It reproduced 2.9.0's published Thanks section exactly.
+**`npm run release:notes` assembles all four and creates the Release**
+(`scripts/release-notes.mjs`, #2550). It derives the version from `origin/main`
+after an explicit fetch, picks the previous **stable** tag itself (this repo
+also carries `-rc.N`, `-hotfix`, `-amended` and `v2-alpha-1` tags, any of which
+would drop changes from the list), and asks the same `releases/generate-notes`
+API the UI's *Generate release notes* button uses. Run it twice, then publish in 3b:
 
 ```sh
-REPO=modelcontextprotocol/inspector
-git fetch origin main --tags
-VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
-# The highest STABLE tag below VERSION. Whole-name match: this repo also has
-# 2.0.0-rc.N, x.y.z-hotfix, x.y.z-amended and v2-alpha-1 tags, and a glob
-# like [0-9]*.[0-9]*.[0-9]* would pick an RC as PREV and drop changes.
-PREV=$( { git tag -l | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$'; echo "$VERSION"; } \
-  | sort -uV | grep -B1 -x "$VERSION" | head -1 )
-echo "$PREV → $VERSION"                                   # sanity-check both
+ARGS=(--merge-branch v2/chore/milestone-merge-vX.Y.Z --ledger-url <ledger artifact URL>)
+# Add one --known-issue "<markdown paragraph>" per known issue, if any.
 
-# 1. What's Changed, exactly as the UI generates it.
-gh api "repos/$REPO/releases/generate-notes" -f tag_name="$VERSION" \
-  -f target_commitish=main -f previous_tag_name="$PREV" --jq .body > release-notes.md
-
-# 4. Reporter credit: the author of every issue a listed PR closes, minus
-#    maintainers (admin/maintain/write) and bots.
-for pr in $(grep -oE 'pull/[0-9]+' release-notes.md | cut -d/ -f2 | sort -un); do
-  gh api graphql -F n="$pr" -f query='query($n:Int!){repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:$n){body closingIssuesReferences(first:20){nodes{number}}}}}' \
-    --jq '.data.repository.pullRequest | ([.closingIssuesReferences.nodes[].number] + ([.body | scan("(?i)(?:closes|fixes|resolves) #([0-9]+)") | .[0] | tonumber])) | .[]'
-done | sort -un | while read -r n; do
-  gh api graphql -F n="$n" -f query='query($n:Int!){repository(owner:"modelcontextprotocol",name:"inspector"){issueOrPullRequest(number:$n){... on Issue{number author{login __typename}}}}}' \
-    --jq '.data.repository.issueOrPullRequest | select(.number and .author.__typename == "User") | "\(.author.login) \(.number)"'
-done | while read -r who n; do
-  perm=$(gh api "repos/$REPO/collaborators/$who/permission" --jq .permission 2>/dev/null || echo none)
-  case "$perm" in admin|maintain|write) ;; *) echo "$who $n" ;; esac
-done | awk '{ c[$1]++; l[$1] = l[$1] (l[$1] ? ", " : "") "#" $2 }
-  END { for (u in c) printf "%d\t%s\t%s\n", c[u], u, l[u] }' \
-  | sort -t$'\t' -k1,1nr -k2,2f | awk -F'\t' '{ print "* @" $2 " (" $3 ")" }' > thanks.txt
-
-: > thanks.md                          # truncate first, so a rerun never keeps a stale section
-[ -s thanks.txt ] && { printf '\n## Thanks for helping us improve\n\nThis release addresses issues reported by these community members. Thank you for taking the time to file them:\n\n'; cat thanks.txt; } >> thanks.md
+npm run release:notes -- "${ARGS[@]}"            # 1. preview: prints the notes, creates nothing
+npm run release:notes -- "${ARGS[@]}" --draft    # 2. creates the Release as a DRAFT
 ```
 
-Then assemble `release-notes.md`, the ledger line, any known issue, and
-`thanks.md`, and read the result before publishing. The rules behind the recipe:
+Read the preview, then create the draft and read it again on the Releases page.
+The preview prints the notes on stdout and its progress on stderr, so
+`> notes.md` captures just the notes.
+
+The rules the helper applies:
 
 - **An issue counts when a listed PR closes it**, through either the manual
-  closing link (`closingIssuesReferences`) or a `Closes / Fixes / Resolves #N`
-  in the PR body. So an issue older than the release still counts when this
-  release closed it.
+  closing link (`closingIssuesReferences`, followed across every page) or a
+  closing keyword (`close`/`fix`/`resolve` in any tense, optional colon) before
+  a bare `#N` in the PR body. So an issue older than the release still counts
+  when this release closed it. A cross-repo `owner/repo#N` does not count.
 - **Maintainers and bots are excluded by permission, not by name.** A
   maintainer is anyone with `admin`, `maintain` or `write` on the repo. Bot
   authors are dropped, which covers the issues the SDK-watch and Dependabot
   sweeps file. On a public repo, anyone without a role reads as `read`, so they
   are credited.
+- **One line per person, most issues first:** `* @user (#1, #2, …)`.
 - **"Addresses", not "fixes."** The credited issues include feature requests.
-- **Leave the section out** when no community reporter remains, as with 2.1.0.
+- **The section is left out** when no community reporter remains, as with 2.1.0.
+- ⚠️ **Any API failure aborts the whole run.** A failed permission lookup never
+  reads as "community", which could credit a maintainer, and a rate-limited PR
+  or issue lookup is never skipped. A partial Thanks list is never published, so
+  on a rate limit, wait for the reset and run it again.
 
-The whole step, including creating the Release from these notes, is being
-scripted as a tested helper in #2550. Until that lands, this recipe is the
-procedure.
+To regenerate an **older** release's notes (to check them, or after editing a
+PR body), pass `--version x.y.z`, and optionally `--previous-tag`. This works
+for preview only. `--draft` and `--publish` refuse any version other than the
+one on `origin/main`, because `--target main` would attach it to the wrong tree.
+Previewing `--version 2.9.0` with 2.9.0's ledger and known issue reproduces its
+published notes exactly.
 
-### 3b. Tag and publish
+### 3b. Publish the Release
 
-**Normally this is done by a maintainer through the GitHub UI**, after PR 2 has
-merged: *Releases → Draft a new release → Choose a tag → type the bare `x.y.z`
-→ Create new tag on publish*, with **Target: `main`**, then paste the notes from
-3a and publish. Publishing the Release is what fires the `publish` and
-`publish-github-container-registry` jobs.
-
-The same thing from the CLI, with the notes file from 3a:
+**Publishing is the deliberate maintainer action.** It fires `package` →
+`publish` (npm) and `publish-github-container-registry`, so the helper never
+does it implicitly. Publish the draft from 3a on the Releases page (*Edit →
+Publish release*, with **Set as the latest release** checked), or from the CLI:
 
 ```sh
-NOTES=release-notes-final.md    # the assembled notes from 3a
-gh release create "$VERSION" --target main --title "$VERSION" --notes-file "$NOTES" --latest
+VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+gh release edit "$VERSION" --repo modelcontextprotocol/inspector --draft=false --latest
 ```
 
-`--target main` and the bare `$VERSION` give the right target and tag by
-construction.
+A draft has no tag yet. GitHub creates the bare `x.y.z` tag **on publish**, at
+`main`'s head at that moment, so publish only while `main` is still the merge
+commit PR 2 landed. `npm run release:notes -- "${ARGS[@]}" --publish` creates and
+publishes in one step, for when the notes were already reviewed in a preview.
 
-The equivalent by hand, for when the UI is not an option, is the script
-(`scripts/release-tag.mjs`, #2558) — it derives the tag from the version that
-just landed rather than taking one as input, since a hard-coded tag is either
-already taken (so `git tag` aborts) or, worse, wrong:
+The helper passes the bare `$VERSION` as the tag and `--target main`, so the tag
+name and the target are right by construction.
+
+If the tag has to exist before the Release (for example, to pin the commit
+before drafting), push it first with `scripts/release-tag.mjs` (#2558). It
+derives the tag from the version that just landed rather than taking one as
+input, since a hard-coded tag is either already taken (so `git tag` aborts) or,
+worse, wrong. A Release created afterwards attaches to that existing tag:
 
 ```sh
 npm run release:tag              # dry run: prints what would be tagged
 npm run release:tag -- --push    # tags origin/main's SHA and pushes the tag
-# then draft & publish a GitHub Release for that tag → triggers `publish`
+# then 3a and 3b; the Release attaches to this tag
 ```
 
 ⚠️ **It tags `origin/main`, not your local `HEAD`.** `git checkout main && git
@@ -359,10 +352,10 @@ is what 2.9.0 needed (#2551): the first run's `publish` passed a bare
    makes the re-tag abort, and later makes `git fetch --tags` refuse to clobber it.
    Confirm the remote tag is gone with `gh api repos/$REPO/git/ref/tags/$VERSION`
    (expect a 404).
-4. **Recreate the Release at the new `main`.** Re-run the whole 3a recipe:
+4. **Recreate the Release at the new `main`.** Re-run `npm run release:notes` (3a):
    What's Changed now includes the fix PRs, and a fix PR can close a
-   community-reported issue, so the Thanks section can change too. Keep the
-   hand-written parts (the ledger line and any known issue) as they were.
+   community-reported issue, so the Thanks section can change too. Pass the
+   same `--merge-branch`, `--ledger-url` and `--known-issue` arguments as before.
 5. **Verify the fix before publishing again, wherever it can be verified.**
    Run the gate, and the smoke rows the fix touches, on the new tree. Only a path
    that exists solely inside a release run (like #2551's publish step) has the

@@ -62,6 +62,7 @@
     "board:audit": "node scripts/board-audit.mjs",
     "board:recover": "node scripts/board-recover.mjs",
     "advisory:fork": "node scripts/advisory-fork.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "release:tag": "node scripts/release-tag.mjs",
     "action:resolve-pin": "node scripts/action-pin-resolve.mjs",
     "validate": "npm run validate:guards && npm run validate:core && npm run validate:web && npm run validate:cli && npm run validate:tui && npm run validate:launcher",

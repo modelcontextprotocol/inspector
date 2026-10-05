@@ -26,7 +26,7 @@ inspector/
 ├── test-servers/     Composable MCP test servers + JSON configs used by tests and by hand
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
 │                     and maintainer-workflow helpers (the pr:*, board:*, advisory:*,
-│                     release:tag and action:resolve-pin aliases)
+│                     release:notes, release:tag and action:resolve-pin aliases)
 ├── docs/             Task-oriented guides (see docs/README-style index in the root README)
 ├── specification/    Design/build specifications
 └── AGENTS.md         The rules contract — read this before changing anything
