@@ -1,7 +1,17 @@
 import { describe, it, expect } from "vitest";
+import {
+  createTestServerHttp,
+  createTestServerInfo,
+} from "@modelcontextprotocol/inspector-test-server";
+import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
 import { runCli } from "../src/cli.js";
 import { consumeMethodOutcome } from "../src/handlers/consume-outcome.js";
 import { EXIT_CODES } from "../src/error-handler.js";
+import {
+  runCli as runCliCaptured,
+  type CliResult,
+} from "./helpers/cli-runner.js";
+import { createTestConfig, deleteConfigFile } from "./helpers/fixtures.js";
 
 /**
  * `--verify`'s argument validation and its NDJSON consumption path (#2248).
@@ -229,5 +239,101 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
     }
     expect(streams.stderr).toBe("");
     expect(streams.stdout.trim()).toBe('{"a":1}');
+  });
+});
+
+/**
+ * The catalog-budget escape hatch round-trips (#2428).
+ *
+ * A skill past the run's catalog budget is reported `incomplete` with a message
+ * naming the command that verifies it on its own. That text is the only route a
+ * user has to a verdict for the skipped skill, so it is run back through the
+ * real argument parser against a real server rather than trusted as prose. The
+ * first version named `--method skills/get --uri` alone, which fetches the
+ * skill and checks nothing — a command that parsed, succeeded, and gave no
+ * verdict.
+ */
+describe("the catalog-budget escape hatch (#2428)", () => {
+  /**
+   * The backticked command in a report's `incomplete` message, as argv, with
+   * its `<uri>` placeholder filled from the report's own `uri`. Substituted as
+   * one argv element — the way a user's quoting would — because the message
+   * deliberately never splices the server-controlled URI into the command.
+   */
+  function suggestedArgs(report: SkillVerifyReport): string[] {
+    const command = /`([^`]+)`/.exec(report.incomplete ?? "")?.[1];
+    if (!command) throw new Error(`no command in: ${report.incomplete}`);
+    const args = command.split(/\s+/);
+    if (!args.includes("<uri>"))
+      throw new Error(`no <uri> placeholder in: ${command}`);
+    return args.map((arg) => (arg === "<uri>" ? report.uri : arg));
+  }
+
+  /**
+   * The NDJSON report lines of a `--verify` run. Anything else — a usage
+   * error, or a fetched skill printed as one JSON document because the
+   * command lacked `--verify` — fails here naming what the run printed.
+   */
+  function reportsOf(result: CliResult): SkillVerifyReport[] {
+    try {
+      return result.stdout
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as SkillVerifyReport);
+    } catch {
+      throw new Error(
+        `not a --verify report (exit ${result.exitCode}):\n${result.output}`,
+      );
+    }
+  }
+
+  it("verifies a skill skipped for budget with the command the message names", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("skills-budget", "1.0.0"),
+      skills: true,
+    });
+    let catalogPath: string | undefined;
+    try {
+      await server.start();
+      // A budget of one skill, so every skill after the first is skipped —
+      // and the SAME budget applies to the follow-up run, which is what proves
+      // the command works for a skill this configuration skipped.
+      catalogPath = createTestConfig({
+        mcpServers: {
+          skills: {
+            type: "streamable-http",
+            url: server.url,
+            skillCatalogMaxSkills: 1,
+          },
+        },
+      });
+      const target = ["--catalog", catalogPath, "--server", "skills", "--cli"];
+
+      const listed = await runCliCaptured([
+        ...target,
+        "--method",
+        "skills/list",
+        "--verify",
+      ]);
+      const skipped = reportsOf(listed).find((report) =>
+        report.incomplete?.includes("catalog budget"),
+      );
+      if (!skipped) throw new Error(`no skipped skill in: ${listed.stdout}`);
+      expect(skipped.files).toHaveLength(0);
+
+      const suggested = suggestedArgs(skipped);
+      const got = await runCliCaptured([...target, ...suggested]);
+
+      // A verdict for exactly the skipped skill, from files actually read —
+      // not the skill echoed back, and not the budget message again.
+      const reports = reportsOf(got);
+      expect(reports).toHaveLength(1);
+      expect(reports[0].uri).toBe(skipped.uri);
+      expect(reports[0].incomplete ?? "").not.toMatch(/catalog budget/);
+      expect(reports[0].files.length).toBeGreaterThan(0);
+    } finally {
+      await server.stop();
+      if (catalogPath) deleteConfigFile(catalogPath);
+    }
   });
 });
