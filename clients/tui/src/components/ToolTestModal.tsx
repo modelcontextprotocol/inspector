@@ -59,7 +59,17 @@ export function ToolTestModal({
 }: ToolTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
   const [result, setResult] = useState<ToolResult | null>(null);
-  const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
+  const [savePrompt, setSavePromptState] = useState<SavePrompt | null>(null);
+  // The prompt as of the last keystroke, not the last render. Ink keeps the
+  // previous render's input handler attached until effects flush, so a key
+  // typed right after `w` (or a second key in the same burst) would otherwise
+  // see a stale `savePrompt` — Enter dropped, or two Backspaces deleting one
+  // character. Every update goes through `setSavePrompt` so the two agree.
+  const savePromptRef = React.useRef<SavePrompt | null>(null);
+  const setSavePrompt = (next: SavePrompt | null) => {
+    savePromptRef.current = next;
+    setSavePromptState(next);
+  };
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
   // Numbers this view's saves so only the latest may report. The queue in
@@ -112,53 +122,58 @@ export function ToolTestModal({
   // Handle all input when modal is open - prevents input from reaching underlying components
   // When in form mode, only handle escape (form handles its own input)
   // When in results mode, handle scrolling keys
-  useInput(
-    (input: string, key: Key) => {
-      // While the save prompt is open it owns every key, Escape included —
-      // Escape cancels the prompt rather than closing the whole modal.
-      if (savePrompt) {
-        handleSavePromptInput(savePrompt, input, key);
-        return;
-      }
-
-      // Always handle escape to close modal
-      if (key.escape) {
-        setState("form");
-        setResult(null);
-        onClose();
-        return;
-      }
-
-      if (state === "form") {
-        // In form mode, let the form handle all other input
-        // Don't process anything else - this prevents input from reaching underlying components
-        return;
-      }
-
-      if (state === "results") {
-        // Plain w only: Ink reports a chord's letter in `input` too.
-        if (input === "w" && !key.ctrl && !key.meta) {
-          openSavePrompt();
-          return;
-        }
-        // Allow scrolling in results view
-        if (key.downArrow) {
-          scrollViewRef.current?.scrollBy(1);
-        } else if (key.upArrow) {
-          scrollViewRef.current?.scrollBy(-1);
-        } else if (key.pageDown) {
-          const viewportHeight =
-            scrollViewRef.current?.getViewportHeight() || 1;
-          scrollViewRef.current?.scrollBy(viewportHeight);
-        } else if (key.pageUp) {
-          const viewportHeight =
-            scrollViewRef.current?.getViewportHeight() || 1;
-          scrollViewRef.current?.scrollBy(-viewportHeight);
-        }
-      }
-    },
-    { isActive: true },
+  // Ink attaches useInput's handler in an effect, so until effects flush a key
+  // still reaches the previous render's handler. Routing every key through a
+  // ref read at call time means it always sees the latest render's state.
+  const handleInputRef = React.useRef<(input: string, key: Key) => void>(
+    () => {},
   );
+  handleInputRef.current = (input: string, key: Key) => {
+    // While the save prompt is open it owns every key, Escape included —
+    // Escape cancels the prompt rather than closing the whole modal.
+    const prompt = savePromptRef.current;
+    if (prompt) {
+      handleSavePromptInput(prompt, input, key);
+      return;
+    }
+
+    // Always handle escape to close modal
+    if (key.escape) {
+      setState("form");
+      setResult(null);
+      onClose();
+      return;
+    }
+
+    if (state === "form") {
+      // In form mode, let the form handle all other input
+      // Don't process anything else - this prevents input from reaching underlying components
+      return;
+    }
+
+    if (state === "results") {
+      // Plain w only: Ink reports a chord's letter in `input` too.
+      if (input === "w" && !key.ctrl && !key.meta) {
+        openSavePrompt();
+        return;
+      }
+      // Allow scrolling in results view
+      if (key.downArrow) {
+        scrollViewRef.current?.scrollBy(1);
+      } else if (key.upArrow) {
+        scrollViewRef.current?.scrollBy(-1);
+      } else if (key.pageDown) {
+        const viewportHeight = scrollViewRef.current?.getViewportHeight() || 1;
+        scrollViewRef.current?.scrollBy(viewportHeight);
+      } else if (key.pageUp) {
+        const viewportHeight = scrollViewRef.current?.getViewportHeight() || 1;
+        scrollViewRef.current?.scrollBy(-viewportHeight);
+      }
+    }
+  };
+  useInput((input: string, key: Key) => handleInputRef.current(input, key), {
+    isActive: true,
+  });
 
   const openSavePrompt = () => {
     if (!result?.callResult) {
