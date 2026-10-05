@@ -117,7 +117,12 @@ export type ConnectionWriteKind =
     }
   | {
       kind: "auth/clear";
-      result: { url?: string; cleared?: number; all?: boolean };
+      result: {
+        url?: string;
+        cleared?: number;
+        all?: boolean;
+        clearedByName?: string;
+      };
     }
   | {
       kind: "auth/ema-status";
@@ -339,7 +344,11 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
           }.`,
         );
       }
-      return `${style.green("Cleared")} \`${style.bold(String(payload.result.url ?? ""))}\``;
+      return `${style.green("Cleared")} \`${style.bold(String(payload.result.url ?? ""))}\`${
+        payload.result.clearedByName
+          ? style.dim(` (${String(payload.result.clearedByName)})`)
+          : ""
+      }`;
     case "auth/ema-status":
       return formatEmaStatusHuman(payload.status, style);
     case "auth/ema-login":

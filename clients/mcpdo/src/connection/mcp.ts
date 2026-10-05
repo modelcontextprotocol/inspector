@@ -89,6 +89,11 @@ import {
   clearStoredAuthForRelogin,
   listStoredAuth,
 } from "./stored-auth.js";
+import {
+  type AuthNameIndex,
+  buildAuthNameIndex,
+  resolveFriendlyName,
+} from "./auth-names.js";
 import { styleFromOpts } from "@inspector/cli/style.js";
 import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
 import { createInterface } from "node:readline/promises";
@@ -722,6 +727,32 @@ function registerConnect(program: CommandType): void {
     });
 }
 
+/**
+ * Build the friendly-name index for the auth commands: catalog entries
+ * (per-shell) joined with the daemon's live connections (daemon-global). The
+ * daemon call is best-effort — offline just means catalog names only and no
+ * live marker, so `auth/list` / `auth/clear` keep working with the daemon down.
+ */
+async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
+  const envCatalog = process.env.MCP_CATALOG_PATH;
+  const serverOptions = {
+    catalogPath: opts.catalog?.trim() || envCatalog,
+    configPath: opts.config?.trim() || undefined,
+  };
+  const entries = await listServerEntries(serverOptions);
+  let connections: ConnectionInfo[] = [];
+  try {
+    const result = await callDaemon<{ connections: ConnectionInfo[] }>(
+      "connections/list",
+      {},
+    );
+    connections = result.connections;
+  } catch (error) {
+    if (!isDaemonUnreachable(error)) throw error;
+  }
+  return buildAuthNameIndex(entries, connections);
+}
+
 function registerAuthCommands(program: CommandType): void {
   // Internal detached sign-in helper for the non-TTY connect path (see
   // auth-helper.ts). Hidden: params arrive as JSON on stdin, never argv.
@@ -743,20 +774,32 @@ function registerAuthCommands(program: CommandType): void {
   program
     .command("auth/list")
     .description(
-      "List server URLs in the shared OAuth store (keys for auth/clear)",
+      "List servers in the shared OAuth store, annotated with catalog/connection names",
     )
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       const list = await listStoredAuth();
-      await writeConnectionOutput(outOpts(opts), { kind: "auth/list", list });
+      const index = await collectAuthNameIndex(opts);
+      const servers = list.servers.map((s) => {
+        const refs = index.urlToNames.get(s.url) ?? [];
+        return {
+          ...s,
+          ...(refs.length > 0 && { knownAs: refs.map((r) => r.name) }),
+          ...(refs.some((r) => r.isLive) && { live: true }),
+        };
+      });
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/list",
+        list: { oauthStatePath: list.oauthStatePath, servers },
+      });
     });
 
   program
     .command("auth/clear")
     .description(
-      "Clear stored OAuth state for one server URL (from auth/list) or all entries",
+      "Clear stored OAuth state for one server (URL or catalog/connection name from auth/list) or all entries",
     )
-    .argument("[key]", "Server URL key from auth/list")
+    .argument("[key]", "Server URL or catalog/connection name from auth/list")
     .option("--all", "Clear every stored OAuth server entry")
     .option("--yes", "Skip confirmation when using --all")
     .action(async (key: string | undefined, cmdOpts) => {
@@ -815,11 +858,49 @@ function registerAuthCommands(program: CommandType): void {
         });
         return;
       }
-      const result = await clearStoredAuth(key!);
-      await writeConnectionOutput(outOpts(opts), {
-        kind: "auth/clear",
-        result: { url: result.url },
-      });
+      const trimmed = key!.trim();
+      // A URL argument keeps the exact store-key path (exact → normalised);
+      // a bare name resolves against the catalog + live connections.
+      if (/^https?:\/\//i.test(trimmed)) {
+        const result = await clearStoredAuth(trimmed);
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "auth/clear",
+          result: { url: result.url },
+        });
+        return;
+      }
+      const index = await collectAuthNameIndex(opts);
+      const resolution = resolveFriendlyName(trimmed, index);
+      switch (resolution.kind) {
+        case "no-url":
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            `'${trimmed}' is a stdio server — it has no stored OAuth entry to clear.`,
+            { code: "usage" },
+          );
+        case "ambiguous":
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            `'${trimmed}' maps to multiple server URLs (${resolution.urls.join(
+              ", ",
+            )}). Pass the explicit URL from auth/list.`,
+            { code: "usage" },
+          );
+        case "unknown":
+          throw new CliExitCodeError(
+            EXIT_CODES.USAGE,
+            `No server named '${trimmed}'. Use auth/list or servers/list to see names, or pass a URL.`,
+            { code: "usage" },
+          );
+        case "url": {
+          const result = await clearStoredAuth(resolution.url);
+          await writeConnectionOutput(outOpts(opts), {
+            kind: "auth/clear",
+            result: { url: result.url, clearedByName: trimmed },
+          });
+          return;
+        }
+      }
     });
 
   program

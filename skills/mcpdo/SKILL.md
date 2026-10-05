@@ -89,7 +89,13 @@ more).
 ## Auth
 
 - Auth is automatic at connect time and stored for reuse (`mcpdo auth/list` /
-  `mcpdo auth/clear`). When a browser sign-in is needed and stdin is non-TTY,
+  `mcpdo auth/clear`). `auth/list` shows each stored URL with the catalog or
+  connection names it is "known as" and a `● live` marker when a current
+  connection holds it, so the store entries line up with the servers you use.
+  `auth/clear` accepts either the store URL or one of those friendly names
+  (`mcpdo auth/clear hosted-everything`); a name that resolves to no URL (a
+  stdio server) or to more than one URL is rejected with guidance. When a
+  browser sign-in is needed and stdin is non-TTY,
   `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`:
   relay that URL to the user verbatim, then finish the job — the connection
   completes automatically once they sign in, which often takes only moments.

@@ -492,7 +492,17 @@ export function formatAuthListHuman(
       flags.length > 0
         ? style.dim(` (${flags.join(", ")})`)
         : style.dim(" (no tokens)");
-    lines.push(`* ${code(style, String(s.url))}${flagText}`);
+    const knownAs = Array.isArray(s.knownAs)
+      ? s.knownAs.map((n) => String(n))
+      : [];
+    const nameText =
+      knownAs.length > 0
+        ? style.dim(`  known as: ${knownAs.join(", ")}`)
+        : style.dim("  (no local name)");
+    const liveText = s.live === true ? ` ${style.green("● live")}` : "";
+    lines.push(
+      `* ${code(style, String(s.url))}${flagText}${nameText}${liveText}`,
+    );
   }
   if (servers.length === 0) lines.push(style.dim("(none)"));
   return lines.join("\n");

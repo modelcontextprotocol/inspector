@@ -8,7 +8,7 @@ import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js"
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 
 /** Same canonicalisation as one-shot `normalizeServerUrl` (avoid importing cli.ts). */
-function normalizeServerUrl(serverUrl: string): string {
+export function normalizeServerUrl(serverUrl: string): string {
   try {
     return new URL(serverUrl).href;
   } catch {
