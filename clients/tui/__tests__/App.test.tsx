@@ -60,6 +60,9 @@ const h = vi.hoisted(() => {
   const connect = vi.fn().mockResolvedValue(undefined);
   const disconnect = vi.fn().mockResolvedValue(undefined);
   const openUrl = vi.fn().mockResolvedValue(undefined);
+  // The callback App hands each OAuth-capable server's CallbackNavigation, so
+  // a test can drive the browser-open path directly (#2533).
+  const navigationCallbacks: Array<(url: URL) => unknown> = [];
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
   // Each spy is typed against the real InspectorClient method signature so its
@@ -224,6 +227,7 @@ const h = vi.hoisted(() => {
     connect,
     disconnect,
     openUrl,
+    navigationCallbacks,
     clientSpies,
     cb,
     createOAuthCallbackServer,
@@ -315,7 +319,11 @@ vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
     await importOriginal<typeof import("@inspector/core/auth/index.js")>();
   return {
     ...actual,
-    CallbackNavigation: class {},
+    CallbackNavigation: class {
+      constructor(callback: (url: URL) => unknown) {
+        h.navigationCallbacks.push(callback);
+      }
+    },
     MutableRedirectUrlProvider: class {
       redirectUrl = "";
     },
@@ -703,6 +711,7 @@ beforeEach(() => {
   h.disconnect.mockResolvedValue(undefined);
   h.openUrl.mockClear();
   h.openUrl.mockResolvedValue(undefined);
+  h.navigationCallbacks.length = 0;
   h.cb.opts = null;
   h.callbackStart.mockClear();
   h.callbackStop.mockClear();
@@ -960,6 +969,45 @@ describe("App (foundation)", () => {
     const r = await mount(httpServer());
     await press(r, ["a"]);
     await expectFrame(r, "OAuth");
+  });
+
+  it("shows the manual-open note on the Auth tab when the browser cannot be opened", async () => {
+    // #2533: the opener failing (e.g. missing from PATH) must surface as a
+    // note on the Auth tab rather than crash the TUI — switching to that tab,
+    // since the flow can start from anywhere.
+    h.ctrl.serverType = "streamable-http";
+    h.openUrl.mockImplementation(
+      async (_url: URL, onFailure?: (message: string) => void) => {
+        onFailure?.("Open it by hand");
+      },
+    );
+    const r = await mount(httpServer());
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
+    const navigate = h.navigationCallbacks.at(-1);
+    expect(navigate).toBeDefined();
+    await navigate!(new URL("https://auth.example/start"));
+    expect(h.openUrl).toHaveBeenCalledWith(
+      new URL("https://auth.example/start"),
+      expect.any(Function),
+    );
+    await expectFrame(r, "Open it by hand");
+    await expectFrame(r, "OAuth");
+  });
+
+  it("ignores a browser-open failure for a server that is no longer selected", async () => {
+    h.ctrl.serverType = "streamable-http";
+    h.openUrl.mockImplementation(
+      async (_url: URL, onFailure?: (message: string) => void) => {
+        onFailure?.("Open it by hand");
+      },
+    );
+    const r = await mount(twoHttp());
+    // One callback per OAuth-capable server, in catalog order: web, then api.
+    expect(h.navigationCallbacks).toHaveLength(2);
+    await h.navigationCallbacks[1]!(new URL("https://auth.example/api"));
+    await tick();
+    expect(h.openUrl).toHaveBeenCalledOnce();
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
   });
 
   it("renders connected status with capabilities", async () => {

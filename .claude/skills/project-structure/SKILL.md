@@ -49,7 +49,7 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 | `core/client/` | Install-level client config (`client.json`): browser-safe parse plus Node load/save, remote backend, secrets, runner |
 | `core/json/` | JSON + parameter/argument conversion; the schema normalizations all three form builders share (nullable unions, root composition) and the tool-schema portability lint |
 | `core/react/` | React hooks over the state stores — consumed by both the web and TUI React trees. Every subscription reads its snapshot **during render** via `useSyncExternalStore` (#1955); `useStoreSnapshot.ts` caches the fresh-value-per-read getters |
-| `core/node/` | Node-only helpers: version reader, host normalization/detection |
+| `core/node/` | Node-only helpers: version reader, host normalization/detection, browser opener (`openUrl`) |
 | `core/storage/` | File I/O helpers used by the OAuth persist backends |
 | `core/logging/` | Silent pino logger singleton |
 

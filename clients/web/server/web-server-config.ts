@@ -2,7 +2,6 @@
  * Config object for the web server (dev and prod). Passed in-process; no env handoff.
  */
 
-import open from "open";
 import pino from "pino";
 import type { Logger } from "pino";
 import type { MCPConfig, MCPServerConfig } from "../../../core/mcp/types.ts";
@@ -18,6 +17,7 @@ import type { InitialConfigPayload } from "../../../core/mcp/remote/node/server.
 import type { SecretStorageInfo } from "../../../core/auth/secret-storage-info.ts";
 import { secretStorageSummary } from "../../../core/auth/secret-storage-info.ts";
 import { readInspectorVersionSafe } from "../../../core/node/version.ts";
+import { openUrl } from "../../../core/node/openUrl.ts";
 import { resolveSandboxPort } from "./sandbox-controller.js";
 import { resolveAppOriginPort } from "./app-origin-controller.js";
 import { isEnvFlagEnabled, resolveBindHostname } from "./resolve-bind-host.js";
@@ -262,7 +262,11 @@ export function printServerBanner(
  * `.catch` is two chances for one of them to drift back to a bare `open(url)`.
  */
 export function openBrowser(url: string): void {
-  open(url).catch((err: unknown) => {
+  // Through core's `openUrl`, not a bare `open(url)`: `open` resolves before a
+  // spawn failure (the opener missing from `PATH`) arrives as an `'error'`
+  // event on the child, which no `.catch` here could see and which crashed
+  // the server at startup (#2533). `openUrl` turns it into a rejection.
+  openUrl(url).catch((err: unknown) => {
     console.warn("Could not open a browser automatically:", err);
   });
 }
