@@ -2065,3 +2065,68 @@ describe("App (OAuth result branches)", () => {
     await expectFrame(r, "web error");
   });
 });
+
+describe("App (keybinding help, #2436)", () => {
+  it("advertises the help key in the footer", async () => {
+    const r = await mount(stdioServer());
+    await expectFrame(r, "? help");
+  });
+
+  it("opens with '?' showing the active tab's bindings and closes with '?'", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", "?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("Tools tab");
+    expect(r.lastFrame() ?? "").toContain("Test the tool");
+    await press(r, ["?"]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+
+  it("keeps the panes underneath inert, then restores focus on close", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "?"]); // tool details focused, then help
+    await expectFrame(r, "Keyboard shortcuts");
+    // '+' would open the details dialog if the details pane still had focus;
+    // a tab accelerator and disconnect are global keys it must swallow too.
+    await press(r, ["+", "i", "d"]);
+    expect(h.disconnect).not.toHaveBeenCalled();
+    await press(r, ["?"]); // close the help
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Full JSON:");
+    expect(r.lastFrame() ?? "").toContain("Tools (1)");
+    await press(r, ["+"]); // focus is back on the details pane
+    await expectFrame(r, "Full JSON:");
+  });
+
+  it("closes on ESC without exiting the app", async () => {
+    const r = await mount(stdioServer());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    await press(r, [ESC]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    // Still mounted and listening: the help opens again.
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+  });
+
+  it("ignores '?' while another dialog is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "+"]);
+    await expectFrame(r, "Full JSON:");
+    await press(r, ["?"]);
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+});

@@ -93,6 +93,7 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
 - Press **`/`** on a focused Resources, Prompts, Skills or Tools list to filter it as you type (case-insensitive, by name or title — and URI, for resources). **Enter** keeps the filter and returns the keys to the list; **Escape** clears it. While the filter is being typed, the tab accelerators and Escape-to-exit are paused, so a query can contain any letter. To clear a kept filter, press `/` then **Escape**.
 - Press **Escape** or `Ctrl+C` to exit the application.
+- Press **`?`** for an in-app list of the keybindings for the current tab; press `?` or **Escape** to close it. The list is the `src/utils/keybindings.ts` table, so a new keybinding is added there.
 
 ## Copying values
 
