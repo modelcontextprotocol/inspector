@@ -349,7 +349,7 @@ describe("--skill-catalog-max-skills / --skill-catalog-max-bytes (#2420)", () =>
     ]);
     expectCliFailure(result);
     expect(result.stderr).toContain(
-      `Invalid ${flag}: ${value}. Expected a positive integer.`,
+      `Invalid ${flag}: ${value}. Expected a positive integer written as plain decimal digits, at most 9007199254740991.`,
     );
   });
 });

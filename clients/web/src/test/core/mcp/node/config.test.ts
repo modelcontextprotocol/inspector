@@ -74,7 +74,7 @@ describe("skillCatalogLimitParser", () => {
     "rejects %j, naming the flag",
     (value) => {
       expect(() => parse(value)).toThrow(
-        `Invalid --skill-catalog-max-skills: ${value}. Expected a positive integer.`,
+        `Invalid --skill-catalog-max-skills: ${value}. Expected a positive integer written as plain decimal digits, at most 9007199254740991.`,
       );
     },
   );
