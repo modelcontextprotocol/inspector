@@ -134,6 +134,15 @@ test("closingKeywordIssues ignores keywords GitHub ignores: code, quotes, commen
   // An unterminated fence or comment swallows the rest, as GitHub renders it.
   assert.deepEqual(closingKeywordIssues("Closes #1\n```\nCloses #2"), [1]);
   assert.deepEqual(closingKeywordIssues("Closes #1\n<!-- Closes #2"), [1]);
+  // A "fence" with text after it does not close the block; a longer one does.
+  assert.deepEqual(
+    closingKeywordIssues("```\n```sh\nCloses #2\n`````\nCloses #3"),
+    [3],
+  );
+  assert.deepEqual(
+    closingKeywordIssues("~~~\n```\nCloses #2\n~~~ \t\nFixes #3"),
+    [3],
+  );
 });
 
 test("formatThanks orders by issue count, then name case-insensitively", () => {

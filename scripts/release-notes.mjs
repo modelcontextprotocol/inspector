@@ -164,18 +164,24 @@ export function closingKeywordIssues(body) {
 /**
  * The body with every place GitHub ignores a closing keyword blanked out:
  * HTML comments (PR templates leave `<!-- Closes #… -->` behind), fenced
- * code, inline code and blockquotes. A keyword quoted in any of those does
+ * code, inline code and blockquotes. Four-space indented code is left
+ * alone: telling it from an indented list continuation needs a full
+ * Markdown parser, and masking a real `Closes` line would lose a credit. A keyword quoted in any of those does
  * not close the issue, so it must not credit the issue's author either.
  */
 export function proseOf(body) {
-  return body
-    .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
-    .replace(
-      /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm,
-      " ",
-    )
-    .replace(/(`+)[\s\S]*?\1/g, " ")
-    .replace(/^ {0,3}>.*$/gm, " ");
+  return (
+    body
+      .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
+      // A closing fence is the opening fence's character, at least as many,
+      // and nothing after it but spaces or tabs; anything else is content.
+      .replace(
+        /^ {0,3}((`|~)\2{2,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1\2*[ \t]*$|(?![\s\S]))/gm,
+        " ",
+      )
+      .replace(/(`+)[\s\S]*?\1/g, " ")
+      .replace(/^ {0,3}>.*$/gm, " ")
+  );
 }
 
 const CLOSING_QUERY = `query($n:Int!,$after:String){repository(owner:"${OWNER}",name:"${NAME}"){pullRequest(number:$n){body closingIssuesReferences(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{number repository{nameWithOwner}}}}}}`;

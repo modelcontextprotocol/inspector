@@ -276,7 +276,8 @@ does it implicitly. Publish the draft from 3a on the Releases page (*Edit →
 Publish release*, with **Set as the latest release** checked), or from the CLI:
 
 ```sh
-VERSION=$(git show origin/main:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
+git fetch origin main      # FETCH_HEAD, not origin/main: the tracking ref can lag (see release-tag.mjs)
+VERSION=$(git show FETCH_HEAD:package.json | node -p "JSON.parse(require('fs').readFileSync(0)).version")
 gh release edit "$VERSION" --repo modelcontextprotocol/inspector --draft=false --latest
 ```
 
