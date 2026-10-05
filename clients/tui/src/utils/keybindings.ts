@@ -27,18 +27,23 @@ export interface KeyBindingSection {
 }
 
 /**
- * The tab accelerators, derived from `tabsConfig` rather than restated, so a
- * new tab's letter appears here the moment it is added to the tab bar.
+ * The tab accelerators, derived from the tabs the caller says are visible
+ * rather than restated, so a new tab's letter appears the moment it is added to
+ * the tab bar — and a hidden tab's letter, which does nothing, does not.
  */
-function tabAcceleratorBinding(): KeyBinding {
+function tabAcceleratorBinding(
+  visible: readonly { accelerator: string }[],
+): KeyBinding {
   return {
-    keys: tabs.map((tab) => tab.accelerator).join(" "),
+    keys: visible.map((tab) => tab.accelerator).join(" "),
     action: "Jump to a tab by its underlined letter",
   };
 }
 
 /** Bindings that work wherever no dialog is open, whatever the active tab. */
-export function globalBindings(): readonly KeyBinding[] {
+export function globalBindings(
+  visible: readonly { accelerator: string }[] = tabs,
+): readonly KeyBinding[] {
   return [
     { keys: "?", action: "Show or hide this help" },
     { keys: "Esc / Ctrl+C", action: "Exit (Esc closes a dialog first)" },
@@ -48,7 +53,7 @@ export function globalBindings(): readonly KeyBinding[] {
     },
     { keys: "↑/↓", action: "Select a server (server list focused)" },
     { keys: "←/→", action: "Switch tab (tab bar focused)" },
-    tabAcceleratorBinding(),
+    tabAcceleratorBinding(visible),
     { keys: "c", action: "Connect the selected server" },
     { keys: "d", action: "Disconnect the selected server" },
   ];
@@ -127,12 +132,14 @@ const TAB_LABELS = Object.fromEntries(
 /**
  * The sections the help overlay shows for the active tab: what works
  * everywhere, then what this tab adds, then how to leave the overlay.
+ * `visible` is the tab bar's current tabs (default: all of them).
  */
 export function keybindingSections(
   activeTab: TabType,
+  visible: readonly { accelerator: string }[] = tabs,
 ): readonly KeyBindingSection[] {
   return [
-    { title: "Global", bindings: globalBindings() },
+    { title: "Global", bindings: globalBindings(visible) },
     {
       title: `${TAB_LABELS[activeTab]} tab`,
       bindings: TAB_BINDINGS[activeTab],

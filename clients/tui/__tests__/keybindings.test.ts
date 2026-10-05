@@ -34,6 +34,17 @@ describe("keybindings", () => {
     );
   });
 
+  it("lists only the accelerators of the tabs it is told are visible", () => {
+    const visible = tabs.filter(
+      (tab) => tab.id === "info" || tab.id === "tools",
+    );
+    const sections = keybindingSections("tools", visible);
+    const row = sections[0]!.bindings.find((b) =>
+      b.action.includes("underlined letter"),
+    );
+    expect(row?.keys).toBe("i t");
+  });
+
   it("documents the help toggle itself", () => {
     expect(globalBindings().some((b) => b.keys === "?")).toBe(true);
     expect(HELP_BINDINGS.some((b) => b.keys.includes("Esc"))).toBe(true);
