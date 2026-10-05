@@ -72,11 +72,6 @@ export function createCrashServerTool(): ToolDefinition {
         .min(0)
         .optional()
         .describe("Milliseconds to wait before exiting (default 0)"),
-      exitCode: z
-        .number()
-        .int()
-        .optional()
-        .describe("Process exit code (default 1)"),
       stderr: z
         .string()
         .optional()
@@ -85,8 +80,6 @@ export function createCrashServerTool(): ToolDefinition {
     handler: async (params: Record<string, unknown>) => {
       const respond = params.respond === true;
       const delayMs = typeof params.delayMs === "number" ? params.delayMs : 0;
-      const exitCode =
-        typeof params.exitCode === "number" ? params.exitCode : 1;
       const stderr =
         typeof params.stderr === "string" ? params.stderr : undefined;
       // An empty write's callback runs once every write queued before it on
@@ -94,7 +87,7 @@ export function createCrashServerTool(): ToolDefinition {
       // `respond: true` answer, which the SDK has written by the time the
       // timer below fires.
       const flushStdoutThenExit = () =>
-        process.stdout.write("", () => process.exit(exitCode));
+        process.stdout.write("", () => process.exit(1));
       const exit = () => {
         if (stderr === undefined) return flushStdoutThenExit();
         process.stderr.write(`${stderr}\n`, flushStdoutThenExit);
@@ -105,7 +98,7 @@ export function createCrashServerTool(): ToolDefinition {
           content: [
             {
               type: "text",
-              text: `Exiting in ${delayMs}ms (code ${exitCode})`,
+              text: `Exiting in ${delayMs}ms`,
             },
           ],
         };
@@ -241,7 +234,8 @@ export function getCrashableTestMcpServerCommand(): {
   };
 }
 
-// If run as a standalone script, start with default config
+// If run as a standalone script, start with the default config — or, with
+// CRASHABLE_FLAG on the command line, the crashable one
 // Check if this file is being executed directly (not imported)
 const isMainModule =
   import.meta.url.endsWith(process.argv[1] || "") ||
