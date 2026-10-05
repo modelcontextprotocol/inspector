@@ -7,6 +7,7 @@ import type { InspectorClient } from "@inspector/core/mcp/index.js";
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
 import { AuthTab } from "../src/components/AuthTab.js";
+import { buildOsc52Sequence } from "../src/utils/clipboard.js";
 
 const tick = async () => {
   for (let i = 0; i < 8; i++)
@@ -622,5 +623,44 @@ describe("AuthTab", () => {
     expect(getOAuthState).toHaveBeenCalled();
     unmount();
     expect(listeners.get("oauthComplete")?.size).toBe(0);
+  });
+
+  it("Y copies the full access token via OSC 52 (#2421)", async () => {
+    const { client } = makeClient(sampleOAuthState);
+    const { stdin, stdout, lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        focused
+      />,
+    );
+    await tick();
+    expect(lastFrame()).toContain("Y copy token, W save token");
+    stdin.write("Y");
+    await tick();
+    expect(stdout.frames).toContain(
+      buildOsc52Sequence("tok-abcdefghijklmnopqrstuvwxyz"),
+    );
+    expect(lastFrame()).toContain("Copied access token (30 chars)");
+  });
+
+  it("offers no token copy when there is no access token", async () => {
+    const { client } = makeClient(undefined);
+    const { stdin, stdout, lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        focused
+      />,
+    );
+    await tick();
+    expect(lastFrame()).not.toContain("Y copy token");
+    stdin.write("y");
+    await tick();
+    expect(stdout.frames.some((f) => f.includes("\u001b]52;"))).toBe(false);
   });
 });
