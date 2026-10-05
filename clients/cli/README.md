@@ -98,6 +98,25 @@ Because undici's `Response` is a different class from `globalThis.Response`, the
 
 `undici` is declared **only** in the root `package.json`, and every client's tsup config lists it as `external`. Both halves matter: tsup auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
 
+### Shell completion
+
+`--completion <bash|zsh|fish>` prints a completion script for `mcp-inspector` on stdout and exits without connecting to anything. The first word completes the launcher's mode flags (`--cli`, `--web`, `--tui`); after `--cli` it completes every CLI flag, the `--method` names (`tools/list`, `tools/call`, `servers/list`, …) and the finite values of `--transport`, `--log-level`, `--format` and `--protocol-era`. Path flags (`--catalog`, `--config`, `--cwd`, `--client-config`) and the stdio target command fall back to file completion.
+
+```bash
+# bash — current shell, or persist it
+source <(mcp-inspector --cli --completion bash)
+mcp-inspector --cli --completion bash > ~/.local/share/bash-completion/completions/mcp-inspector
+
+# zsh — current shell (after compinit), or save it on your $fpath
+source <(mcp-inspector --cli --completion zsh)
+mcp-inspector --cli --completion zsh > "${fpath[1]}/_mcp-inspector"
+
+# fish
+mcp-inspector --cli --completion fish > ~/.config/fish/completions/mcp-inspector.fish
+```
+
+The flag list is read from the CLI's own commander definition when the script is generated, so it cannot drift from `--help`; regenerate the script after upgrading to pick up new flags. Only `--cli` mode is completed — web and TUI flags are not.
+
 ## Options
 
 ### MCP server (which server to connect to)
@@ -129,6 +148,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
+| `--completion <shell>`        | Print a `bash`, `zsh` or `fish` completion script and exit (no server connection). See [Shell completion](#shell-completion). |
 
 #### Revoking on `--relogin`
 

@@ -1,4 +1,8 @@
 import { Command } from "commander";
+import {
+  emitCompletionIfRequested,
+  registerCompletionOption,
+} from "./completion.js";
 type McpResponse = Record<string, unknown>;
 import { awaitableLog } from "./utils/awaitable-log.js";
 import type {
@@ -927,7 +931,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
     );
 
+  registerCompletionOption(program);
   program.parse(preArgs);
+  // `--completion <shell>` (#2434): print the script and exit, no connect.
+  if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
 
   const options = program.opts() as {
     catalog?: string;
