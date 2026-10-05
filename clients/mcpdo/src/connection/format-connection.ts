@@ -108,7 +108,7 @@ export type ConnectionWriteKind =
       kind: "elicitation-pending";
       elicitation: ElicitationPendingInfo;
     }
-  | { kind: "disconnect"; name: string }
+  | { kind: "disconnect"; name: string; clearedAuthUrl?: string }
   | { kind: "daemon/status"; status: JsonObject }
   | { kind: "daemon/stop"; result: JsonObject }
   | {
@@ -227,7 +227,12 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
       // required" from a final tool result by `elicitationPending` alone.
       return { elicitationPending: payload.elicitation };
     case "disconnect":
-      return { name: payload.name };
+      return {
+        name: payload.name,
+        ...(payload.clearedAuthUrl && {
+          clearedAuthUrl: payload.clearedAuthUrl,
+        }),
+      };
     case "daemon/status":
       return payload.status;
     case "daemon/stop":
@@ -294,8 +299,16 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
     }
     case "elicitation-pending":
       return formatElicitationPendingHuman(payload.elicitation, style);
-    case "disconnect":
-      return `${style.bold("Disconnected")} ${`\`${style.bold(`@${payload.name}`)}\``}`;
+    case "disconnect": {
+      const line = `${style.bold("Disconnected")} ${`\`${style.bold(`@${payload.name}`)}\``}`;
+      if (!payload.clearedAuthUrl) return line;
+      return [
+        line,
+        style.dim(
+          `Cleared stored auth for ${payload.clearedAuthUrl} — the next connect will re-trigger sign-in.`,
+        ),
+      ].join("\n");
+    }
     case "daemon/status": {
       const s = payload.status;
       if (s.running === false) {

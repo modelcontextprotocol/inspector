@@ -515,7 +515,7 @@ function registerConnect(program: CommandType): void {
       },
     )
     .option(
-      "--relogin",
+      "-r, --relogin",
       "Ignore stored OAuth for this connect (HTTP/SSE URL keys only); interactive login runs only if the server requires auth. No-op for stdio / servers with no stored entry",
     )
     .option(
@@ -842,7 +842,7 @@ function registerAuthCommands(program: CommandType): void {
       "Sign in to the enterprise IdP (EMA); subsequent connects to EMA servers mint tokens silently from this connection",
     )
     .option(
-      "--relogin",
+      "-r, --relogin",
       "Clear the existing IdP session (and EMA server tokens) and sign in fresh",
     )
     .action(async (cmdOpts) => {
@@ -884,11 +884,15 @@ function registerConnectionAdmin(program: CommandType): void {
     .command("disconnect")
     .description("Disconnect a connection (MRU when omitted on a TTY)")
     .argument("[connection]", "Optional @name / name to disconnect")
-    .action(async (connectionArg: string | undefined) => {
+    .option(
+      "-c, --clear-auth",
+      "Also clear this server's stored OAuth tokens so the next connect re-triggers sign-in (HTTP/SSE URL keys only; no-op for stdio / no stored entry)",
+    )
+    .action(async (connectionArg: string | undefined, cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
       const name = stripAt(opts.connection) ?? stripAt(connectionArg);
       const { socketPath } = await ensureDaemon();
-      const result = await callDaemon<{ name: string }>(
+      const result = await callDaemon<{ name: string; serverUrl?: string }>(
         "disconnect",
         {
           name,
@@ -896,9 +900,18 @@ function registerConnectionAdmin(program: CommandType): void {
         },
         { socketPath },
       );
+      // Clear stored auth only after the daemon tore the connection down, so
+      // the live client's in-memory tokens can't linger against a cleared
+      // store. No-op when the server has no URL key (stdio / no stored entry).
+      let clearedAuthUrl: string | undefined;
+      if (cmdOpts.clearAuth === true && result.serverUrl) {
+        await clearStoredAuthForRelogin(result.serverUrl);
+        clearedAuthUrl = result.serverUrl;
+      }
       await writeConnectionOutput(outOpts(opts), {
         kind: "disconnect",
         name: result.name,
+        ...(clearedAuthUrl && { clearedAuthUrl }),
       });
     });
 

@@ -243,6 +243,53 @@ describe("ConnectionRegistry", () => {
     expect(DEFAULT_IDLE_MS).toBe(60_000);
   });
 
+  it("disconnect returns the server URL for a URL-keyed connection (for --clear-auth)", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockResolvedValue(undefined);
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const authSpy = vi
+      .spyOn(InspectorClient.prototype, "getOAuthState")
+      .mockResolvedValue(undefined as never);
+    const registry = new ConnectionRegistry(0);
+    try {
+      await registry.connect({
+        name: "http",
+        serverConfig: {
+          type: "streamable-http",
+          url: "https://mcp.example.com/mcp",
+        },
+        serverIdentity: "https://mcp.example.com/mcp",
+      });
+      // The URL comes back so the front-end can clear this server's stored
+      // OAuth entry; it is captured before the connection is deleted.
+      await expect(registry.disconnect("http", false)).resolves.toEqual({
+        name: "http",
+        serverUrl: "https://mcp.example.com/mcp",
+      });
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      authSpy.mockRestore();
+    }
+  });
+
+  it("disconnect omits serverUrl for a stdio connection (no URL key to clear)", async () => {
+    const { command, args } = getTestMcpServerCommand();
+    const registry = new ConnectionRegistry(0);
+    await registry.connect({
+      name: "local",
+      serverConfig: { type: "stdio", command, args },
+      serverIdentity: `${command} ${args.join(" ")}`,
+    });
+    const result = await registry.disconnect("local", false);
+    expect(result).toEqual({ name: "local" });
+    expect("serverUrl" in result).toBe(false);
+  });
+
   it("passes the server's configured roots to the client (cleaned), so roots are advertised at initialize", async () => {
     const { command, args } = getTestMcpServerCommand();
     const registry = new ConnectionRegistry(0);

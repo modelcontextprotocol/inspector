@@ -66,7 +66,7 @@ npm unlink -g @modelcontextprotocol/mcpdo
 mcpdo servers/list --config path/to/mcp.json
 mcpdo servers/show test-stdio --config path/to/mcp.json
 mcpdo connect test-stdio --config path/to/mcp.json
-mcpdo connect my-http --config path/to/mcp.json --relogin   # ignore stored OAuth; login only if auth required
+mcpdo connect my-http --config path/to/mcp.json --relogin   # (-r) ignore stored OAuth; login only if auth required
 mcpdo auth/list
 mcpdo auth/clear https://example.com/mcp
 mcpdo auth/clear --all --yes
@@ -77,6 +77,7 @@ mcpdo @test-stdio resources/list
 mcpdo logging/tail                        # long-lived; Ctrl-C to stop
 mcpdo connections/list
 mcpdo disconnect --connection test-stdio
+mcpdo disconnect my-http --clear-auth     # (-c) also clear stored OAuth so the next connect re-triggers sign-in
 mcpdo daemon status
 mcpdo daemon stop
 
@@ -96,7 +97,7 @@ token. For a hard boundary, use OS-level isolation (separate user, container).
 
 **Output:** `--format text` (default) is human-readable (TTY ANSI unless `--plain` / `NO_COLOR`). `--format json` is pretty-printed payload with **no** `{ result }` envelope.
 
-**Auth:** shared `oauth.json` with other Inspector clients. Connect-time OAuth only on this CLI; mid-connection step-up remains on one-shot `mcp-inspector --cli`. `--relogin` clears any URL-keyed store entry before connect (no-op for stdio). Non-TTY `connect` exits 0 with `pendingAuth: true` and an `authUrl` to relay; after the user signs in, any real command completes the connection, `connections/show` completes it too, and `connections/list` marks the entry `pendingAuthSignedIn` ("signed in — completing on next use") without dialing.
+**Auth:** shared `oauth.json` with other Inspector clients. Connect-time OAuth only on this CLI; mid-connection step-up remains on one-shot `mcp-inspector --cli`. `--relogin` (`-r`) clears any URL-keyed store entry before connect (no-op for stdio). To force a clean logged-out state from an already-open connection, `disconnect <name> --clear-auth` (`-c`) tears the connection down **and** clears its stored tokens in one step, so the next plain `connect` re-triggers sign-in — no-op for stdio / servers with no stored entry. Non-TTY `connect` exits 0 with `pendingAuth: true` and an `authUrl` to relay; after the user signs in, any real command completes the connection, `connections/show` completes it too, and `connections/list` marks the entry `pendingAuthSignedIn` ("signed in — completing on next use") without dialing.
 
 See [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md) for the as-built design and to-do list.
 

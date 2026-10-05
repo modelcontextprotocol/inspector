@@ -514,7 +514,7 @@ export class ConnectionRegistry {
   async disconnect(
     name: string | undefined,
     requireExplicit: boolean | undefined,
-  ): Promise<{ name: string }> {
+  ): Promise<{ name: string; serverUrl?: string }> {
     const connectionName = this.resolve(name, requireExplicit).name;
     return this.withNameLock(connectionName, () =>
       this.disconnectLocked(connectionName),
@@ -523,10 +523,18 @@ export class ConnectionRegistry {
 
   private async disconnectLocked(
     connectionName: string,
-  ): Promise<{ name: string }> {
+  ): Promise<{ name: string; serverUrl?: string }> {
     // Re-resolve under the lock: a queued duplicate disconnect must fail
     // with connection_not_found, not tear down a successor's connection.
     const connection = this.resolve(connectionName, true);
+    // Captured before delete so the front-end can clear stored auth for this
+    // server's URL (disconnect --clear-auth). Undefined for stdio / no-URL
+    // configs, where there is no URL-keyed OAuth entry to clear.
+    const cfg = connection.serverConfig;
+    const serverUrl =
+      "url" in cfg && typeof cfg.url === "string" && cfg.url !== ""
+        ? cfg.url
+        : undefined;
     this.connections.delete(connectionName);
     if (this.mruName === connectionName) {
       // Promote the next most-recently-accessed connection, if any.
@@ -537,7 +545,7 @@ export class ConnectionRegistry {
     }
     await safeDisconnect(connection.client);
     this.armIdleTimerIfEmpty();
-    return { name: connectionName };
+    return { name: connectionName, ...(serverUrl && { serverUrl }) };
   }
 
   async disconnectAll(): Promise<void> {

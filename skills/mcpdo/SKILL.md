@@ -100,6 +100,13 @@ more).
   `connections/list` stays read-only but reports `pendingAuthSignedIn: true`
   ("signed in — completing on next use") once the user's part is done.
   Never reconnect to fix a pending sign-in.
+- To force a fresh sign-in on an already-open connection, `mcpdo disconnect
+  <name> --clear-auth` (`-c`) tears it down and clears its stored tokens in one
+  step, so the next plain `connect` re-triggers the browser flow. Prefer it over
+  a separate `disconnect` + `auth/clear <url>` — it takes the connection name
+  (not the URL) and closes the window where the live connection keeps working on
+  in-memory tokens. `connect <name> --relogin` (`-r`) is the equivalent when you
+  are reconnecting anyway.
 - Enterprise-managed auth (EMA) works the same way. `mcpdo auth/ema-login`
   from a non-TTY shell exits 0 immediately with `pendingLogin: true` and an
   `authUrl`: relay that URL to the user verbatim, then poll

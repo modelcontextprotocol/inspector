@@ -1269,6 +1269,42 @@ describe("writeConnectionOutput", () => {
     );
     expect(stdout).toContain("Disconnected `@z`");
   });
+
+  it("notes cleared stored auth on disconnect --clear-auth (text + json)", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "disconnect",
+        name: "z",
+        clearedAuthUrl: "https://example.com/mcp",
+      },
+    );
+    expect(stdout).toContain("Disconnected `@z`");
+    expect(stdout).toContain("Cleared stored auth for https://example.com/mcp");
+    expect(stdout).toContain("re-trigger sign-in");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "disconnect",
+        name: "z",
+        clearedAuthUrl: "https://example.com/mcp",
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      name: "z",
+      clearedAuthUrl: "https://example.com/mcp",
+    });
+  });
+
+  it("omits the clearedAuthUrl field when auth was not cleared (json)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      { kind: "disconnect", name: "z" },
+    );
+    expect(JSON.parse(stdout)).toEqual({ name: "z" });
+  });
 });
 
 describe("format-human ANSI styling", () => {
