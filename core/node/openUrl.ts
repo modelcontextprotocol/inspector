@@ -1,3 +1,14 @@
+/**
+ * The one browser-opener wrapper every Node client uses: the CLI's OAuth
+ * navigation, the TUI's OAuth navigation, and the web backend's `autoOpen`
+ * (#2533). It started life in the CLI (#2410, #2531); the TUI and the web
+ * launcher had their own bare `open(...)` calls with the same spawn-failure
+ * crash, so it lives here to keep three copies from drifting apart again.
+ *
+ * **Node-only** — `open` spawns a child process; never import it from browser
+ * code.
+ */
+
 import type { ChildProcess } from "node:child_process";
 import open from "open";
 

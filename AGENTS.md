@@ -51,7 +51,7 @@ inspector/
 │   ├── json/         JSON/schema utilities shared by all three form builders
 │   ├── logging/      Silent pino logger singleton
 │   ├── mcp/          InspectorClient, transports, state stores, config import
-│   ├── node/         Node-only helpers (version reader, host normalization)
+│   ├── node/         Node-only helpers (version reader, host normalization, browser opener)
 │   ├── react/        React hooks over the state stores (read during render — see React instructions)
 │   └── storage/      File I/O helpers for the OAuth persist backends
 ├── test-servers/     Composable MCP test servers + JSON configs

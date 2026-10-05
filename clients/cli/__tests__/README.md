@@ -4,7 +4,7 @@ Tests live under `__tests__/` and run via Vitest.
 
 - Most tests import `runCli()` **in-process** (see `helpers/cli-runner.ts`) so
   `clients/cli/src` is measured under the coverage gate. Suite-wide
-  `helpers/mock-open-url.ts` (vitest `setupFiles`) mocks `open-url` so an armed
+  `helpers/mock-open-url.ts` (vitest `setupFiles`) mocks core's `openUrl` so an armed
   interactive OAuth path cannot launch a real browser.
 - `e2e.test.ts` (and root `scripts/smoke-cli.mjs`) spawn the built binary for
   shebang / `process.exit` paths — `pretest` builds `test-servers` + the CLI
@@ -43,7 +43,6 @@ npm run validate          # format:check && lint && typecheck && test
 | `servers-write.test.ts`                 | `servers/add` / `servers/edit` / `servers/remove` against a temp catalog + secret store |
 | `cliOAuth.test.ts`                      | Connect / mid-RPC OAuth recovery                                                        |
 | `cli-oauth-navigation.test.ts`          | OSC 8, arm/disarm, `MCP_AUTO_OPEN_ENABLED`                                              |
-| `open-url.test.ts`                      | `open` package wrapper                                                                  |
 | `oauth-runner.test.ts`                  | Runner client-config / CIMD flags                                                       |
 | `oauth-interactive.test.ts`             | Loopback callback OAuth (in-process)                                                    |
 | `stored-auth.test.ts`                   | `--use-stored-auth` / handoff / wait                                                    |
@@ -59,7 +58,7 @@ npm run validate          # format:check && lint && typecheck && test
 | Helper                     | Role                                                      |
 | -------------------------- | --------------------------------------------------------- |
 | `helpers/cli-runner.ts`    | In-process `runCli` with stdout/stderr capture            |
-| `helpers/mock-open-url.ts` | Suite-wide `open-url` mock (vitest `setupFiles`)          |
+| `helpers/mock-open-url.ts` | Suite-wide `openUrl` mock (vitest `setupFiles`)           |
 | `helpers/assertions.ts`    | `expectCliSuccess` / `expectCliFailure` / output matchers |
 | `helpers/fixtures.ts`      | Temp config / client.json factories                       |
 

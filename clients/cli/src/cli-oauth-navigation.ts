@@ -1,5 +1,5 @@
 import { CallbackNavigation } from "@inspector/core/auth/index.js";
-import { openUrl } from "./open-url.js";
+import { openUrl } from "@inspector/core/node/openUrl.js";
 import { createStyle, resolveAnsiEnabled } from "./style.js";
 
 /**

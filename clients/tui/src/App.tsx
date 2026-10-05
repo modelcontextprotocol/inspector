@@ -295,6 +295,19 @@ function App({
 
   // Create InspectorClient and state managers for each server on mount
   useEffect(() => {
+    // The browser could not be launched for `serverName`'s authorization page
+    // (#2533). Show the manual-open note on the Auth tab, raised as a warning
+    // so it is coloured as one (see oauthMessageToneFor) — unless the user has
+    // since selected another server, where that URL would be the wrong one.
+    const showBrowserOpenFailure = (
+      serverName: string,
+      message: string,
+    ): void => {
+      if (selectedServerRef.current !== serverName) return;
+      setOauthWarningText(message);
+      setOauthMessage(message);
+      setActiveTab("auth");
+    };
     const newClients: Record<string, InspectorClient> = {};
     const newManagers: Record<string, ManagedToolsState> = {};
     const newManagedResourcesStates: Record<string, ManagedResourcesState> = {};
@@ -363,8 +376,12 @@ function App({
             formatRunnerOAuthRedirectUrl(callbackUrlConfig);
           environment.oauth = {
             storage: new NodeOAuthStorage(),
-            navigation: new CallbackNavigation(
-              async (url) => await openUrl(url),
+            // openUrl never rejects; a browser that could not be launched
+            // (#2533) surfaces as the manual-open note instead.
+            navigation: new CallbackNavigation((url) =>
+              openUrl(url, (message) =>
+                showBrowserOpenFailure(serverName, message),
+              ),
             ),
             redirectUrlProvider,
           };
