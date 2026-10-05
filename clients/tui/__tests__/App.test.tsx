@@ -961,9 +961,10 @@ describe("App (foundation)", () => {
     await expectFrame(r, "OAuth");
   });
 
-  it("shows the manual-open note when the browser cannot be opened", async () => {
+  it("shows the manual-open note on the Auth tab when the browser cannot be opened", async () => {
     // #2533: the opener failing (e.g. missing from PATH) must surface as a
-    // note on the Auth tab rather than crash the TUI.
+    // note on the Auth tab rather than crash the TUI — switching to that tab,
+    // since the flow can start from anywhere.
     h.ctrl.serverType = "streamable-http";
     h.openUrl.mockImplementation(
       async (_url: URL, onFailure?: (message: string) => void) => {
@@ -971,7 +972,7 @@ describe("App (foundation)", () => {
       },
     );
     const r = await mount(httpServer());
-    await press(r, ["a"]);
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
     const navigate = h.navigationCallbacks.at(-1);
     expect(navigate).toBeDefined();
     await navigate!(new URL("https://auth.example/start"));
@@ -980,6 +981,23 @@ describe("App (foundation)", () => {
       expect.any(Function),
     );
     await expectFrame(r, "Open it by hand");
+    await expectFrame(r, "OAuth");
+  });
+
+  it("ignores a browser-open failure for a server that is no longer selected", async () => {
+    h.ctrl.serverType = "streamable-http";
+    h.openUrl.mockImplementation(
+      async (_url: URL, onFailure?: (message: string) => void) => {
+        onFailure?.("Open it by hand");
+      },
+    );
+    const r = await mount(twoHttp());
+    // One callback per OAuth-capable server, in catalog order: web, then api.
+    expect(h.navigationCallbacks).toHaveLength(2);
+    await h.navigationCallbacks[1]!(new URL("https://auth.example/api"));
+    await tick();
+    expect(h.openUrl).toHaveBeenCalledOnce();
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
   });
 
   it("renders connected status with capabilities", async () => {

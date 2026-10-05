@@ -289,6 +289,14 @@ export function AuthTab({
           {oauthStatus === "authenticating" && (
             <Text color="yellow">Authenticating…</Text>
           )}
+          {/* A note raised mid-flow — e.g. the browser could not be opened
+              and the URL must be visited by hand (#2533) — has to stay
+              visible while the flow waits for the callback. */}
+          {oauthStatus === "authenticating" && oauthMessage && (
+            <Text color={oauthMessageTone === "warning" ? "yellow" : "cyan"}>
+              {oauthMessage}
+            </Text>
+          )}
           {oauthStatus === "error" && oauthMessage && (
             <Text color="red">{oauthMessage}</Text>
           )}

@@ -377,6 +377,28 @@ describe("AuthTab", () => {
     );
     expect(lastFrame() ?? "").toContain("Authenticating");
 
+    // A note raised mid-flow stays visible while authenticating (#2533).
+    rerender(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="authenticating"
+        oauthMessage="Open it by hand"
+        oauthMessageTone="warning"
+      />,
+    );
+    expect(lastFrame() ?? "").toContain("Authenticating");
+    expect(lastFrame() ?? "").toContain("Open it by hand");
+    rerender(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="authenticating"
+        oauthMessage="Re-authenticating"
+      />,
+    );
+    expect(lastFrame() ?? "").toContain("Re-authenticating");
+
     rerender(
       <AuthTab
         {...baseProps}
