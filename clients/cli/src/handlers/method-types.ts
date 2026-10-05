@@ -3,6 +3,7 @@ import type { RequestMetadata } from "@inspector/core/mcp/types.js";
 import type { AppInfo } from "@inspector/core/mcp/apps.js";
 import type { LoggingLevel } from "@modelcontextprotocol/client";
 import type { OutputFormat } from "./format-output.js";
+import type { OutputFileFormat } from "./output-file.js";
 
 export type { OutputFormat };
 
@@ -37,6 +38,13 @@ export type MethodArgs = {
    */
   strict?: boolean;
   format?: OutputFormat;
+  /**
+   * `--output <path>`: write the result to this file instead of stdout
+   * (#2431). Only consulted on the single-result path (`emitResult`).
+   */
+  output?: string;
+  /** `--output-format`: how the `--output` file is encoded (default `json`). */
+  outputFormat?: OutputFileFormat;
   /** Task id for tasks/get, tasks/cancel, tasks/result. */
   taskId?: string;
   /** When true, tools/call uses callToolStream (task-augmented). */
