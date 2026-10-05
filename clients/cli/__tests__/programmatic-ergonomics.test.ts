@@ -352,6 +352,23 @@ describe("--skill-catalog-max-skills / --skill-catalog-max-bytes (#2420)", () =>
       `Invalid ${flag}: ${value}. Expected a positive integer written as plain decimal digits, at most 9007199254740991.`,
     );
   });
+
+  it.each(["--skill-catalog-max-skills", "--skill-catalog-max-bytes"])(
+    "rejects %s without --verify, where it would bound nothing",
+    async (flag) => {
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        flag,
+        "5",
+        "--method",
+        "tools/list",
+      ]);
+      expectCliFailure(result);
+      expect(result.stderr).toContain(`${flag} requires --verify.`);
+    },
+  );
 });
 
 /** The `outcome` of each NDJSON `--verify` report line. */
