@@ -663,4 +663,75 @@ describe("AuthTab", () => {
     await tick();
     expect(stdout.frames.some((f) => f.includes("\u001b]52;"))).toBe(false);
   });
+
+  describe("server switch (#2421)", () => {
+    const withToken = (token: string): OAuthConnectionState => ({
+      ...sampleOAuthState,
+      tokens: { access_token: token, token_type: "Bearer" },
+    });
+    /** A client whose getOAuthState resolves only when the test says so. */
+    function deferredClient() {
+      let resolve: (s: OAuthConnectionState) => void = () => {};
+      const pending = new Promise<OAuthConnectionState>((r) => {
+        resolve = r;
+      });
+      const client = {
+        getOAuthState: vi.fn(() => pending),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        // Double cast: a partial test double covering only the three members
+        // AuthTab calls, same as makeClient above; InspectorClient is a class
+        // with private state, so no structural single cast can reach it.
+      } as unknown as InspectorClient;
+      return { client, resolve };
+    }
+    const tab = (client: InspectorClient, serverName: string) => (
+      <AuthTab
+        {...baseProps}
+        serverName={serverName}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+        focused
+      />
+    );
+
+    it("does not show or copy the previous server's token while the next one loads", async () => {
+      const a = makeClient(withToken("token-for-server-A-xxxxxxxx"));
+      const b = deferredClient();
+      const { stdin, stdout, lastFrame, rerender } = render(tab(a.client, "A"));
+      await tick();
+      expect(lastFrame()).toContain("token-for-server-A");
+
+      rerender(tab(b.client, "B"));
+      await tick();
+      expect(lastFrame()).not.toContain("token-for-server-A");
+      stdin.write("y");
+      await tick();
+      expect(
+        stdout.frames.some((f) =>
+          f.includes(buildOsc52Sequence("token-for-server-A-xxxxxxxx")),
+        ),
+      ).toBe(false);
+
+      b.resolve(withToken("token-for-server-B-yyyyyyyy"));
+      await tick();
+      expect(lastFrame()).toContain("token-for-server-B");
+    });
+
+    it("ignores a read that settles after the selection moved on", async () => {
+      const a = deferredClient();
+      const b = makeClient(withToken("token-for-server-B-yyyyyyyy"));
+      const { lastFrame, rerender } = render(tab(a.client, "A"));
+      await tick();
+      rerender(tab(b.client, "B"));
+      await tick();
+      expect(lastFrame()).toContain("token-for-server-B");
+
+      a.resolve(withToken("token-for-server-A-xxxxxxxx"));
+      await tick();
+      expect(lastFrame()).toContain("token-for-server-B");
+      expect(lastFrame()).not.toContain("token-for-server-A");
+    });
+  });
 });
