@@ -6,6 +6,7 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
   parseProtocolEra,
+  skillCatalogLimitParser,
 } from "@inspector/core/mcp/node/index.js";
 import type { ServerProtocolEra } from "@inspector/core/mcp/types.js";
 import { loadRunnerClientConfig } from "@inspector/core/client/runner.js";
@@ -49,6 +50,16 @@ export async function runTui(args?: string[]): Promise<void> {
       parseProtocolEra,
     )
     .option(
+      "--skill-catalog-max-skills <n>",
+      "Skills catalog budget: the most skills one multi-skill verification run reads (positive integer; overrides the file's skillCatalogMaxSkills; default 256). The Skills pane verifies one skill at a time, so it is not bounded by this today (#2590)",
+      skillCatalogLimitParser("--skill-catalog-max-skills"),
+    )
+    .option(
+      "--skill-catalog-max-bytes <n>",
+      "Skills catalog budget: the most bytes one multi-skill verification run reads (positive integer; overrides the file's skillCatalogMaxBytes; default 64 MiB). Not applied by the one-skill-at-a-time Skills pane today (#2590)",
+      skillCatalogLimitParser("--skill-catalog-max-bytes"),
+    )
+    .option(
       "--client-id <id>",
       "OAuth client ID (static client) for HTTP servers",
     )
@@ -86,6 +97,8 @@ export async function runTui(args?: string[]): Promise<void> {
     cwd?: string;
     header?: Record<string, string>;
     protocolEra?: ServerProtocolEra;
+    skillCatalogMaxSkills?: number;
+    skillCatalogMaxBytes?: number;
     clientId?: string;
     clientSecret?: string;
     clientMetadataUrl?: string;
@@ -104,6 +117,8 @@ export async function runTui(args?: string[]): Promise<void> {
     env: options.e,
     headers: options.header,
     protocolEra: options.protocolEra,
+    skillCatalogMaxSkills: options.skillCatalogMaxSkills,
+    skillCatalogMaxBytes: options.skillCatalogMaxBytes,
     transport: options.transport,
     serverUrl: options.serverUrl?.trim() || undefined,
   };

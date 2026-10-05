@@ -297,6 +297,74 @@ describe("loadServerEntries", () => {
     });
   });
 
+  it("overrides the disk skills catalog budget with --skill-catalog-max-*, preserving the rest", async () => {
+    const configPath = join(tempDir, "mcp.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          web: {
+            type: "streamable-http",
+            url: "http://x/mcp",
+            skillCatalogMaxSkills: 10,
+            skillCatalogMaxBytes: 2048,
+            requestTimeout: 9000,
+          },
+        },
+      }),
+    );
+
+    const fromFile = await loadServerEntries({ configPath });
+    expect(fromFile.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 10,
+      skillCatalogMaxBytes: 2048,
+    });
+
+    const servers = await loadServerEntries({
+      configPath,
+      skillCatalogMaxSkills: 3,
+      skillCatalogMaxBytes: 4096,
+    });
+    expect(servers.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 3,
+      skillCatalogMaxBytes: 4096,
+      requestTimeout: 9000,
+    });
+
+    const onlyBytes = await loadServerEntries({
+      configPath,
+      skillCatalogMaxBytes: 1,
+    });
+    expect(onlyBytes.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 10,
+      skillCatalogMaxBytes: 1,
+    });
+  });
+
+  it("applies --skill-catalog-max-* to an ad-hoc URL with no other settings", async () => {
+    const servers = await loadServerEntries({
+      serverUrl: "http://x/mcp",
+      transport: "http",
+      skillCatalogMaxSkills: 5,
+    });
+    expect(servers.default?.settings).toMatchObject({
+      skillCatalogMaxSkills: 5,
+      headers: [],
+      connectionTimeout: DEFAULT_CONNECTION_TIMEOUT_MS,
+    });
+    expect(servers.default?.settings?.skillCatalogMaxBytes).toBeUndefined();
+
+    const bytesOnly = await loadServerEntries({
+      serverUrl: "http://x/mcp",
+      transport: "http",
+      skillCatalogMaxBytes: 7,
+    });
+    expect(bytesOnly.default?.settings).toMatchObject({
+      skillCatalogMaxBytes: 7,
+      headers: [],
+    });
+  });
+
   it("gives an ad-hoc target with neither flag no settings (legacy default)", async () => {
     const servers = await loadServerEntries({ target: ["my-server"] });
     expect(servers.default?.settings).toBeUndefined();
@@ -335,6 +403,22 @@ describe("selectServerEntry", () => {
     expect(() => selectServerEntry({ a, b }, "missing")).toThrow(
       /Server 'missing' not found.*Available servers: a, b/,
     );
+  });
+
+  // #2537: `--server constructor` against a source without that server used to
+  // return the inherited Object.prototype member and fail with an unrelated
+  // error; it must report "not found" like any other absent name.
+  it.each(["constructor", "toString", "hasOwnProperty", "__proto__"])(
+    "reports an absent entry named %s as not found",
+    (name) => {
+      expect(() => selectServerEntry({ a, b }, name)).toThrow(
+        `Server '${name}' not found. Available servers: a, b`,
+      );
+    },
+  );
+
+  it("returns an entry genuinely named constructor", () => {
+    expect(selectServerEntry({ constructor: a, b }, "constructor")).toBe(a);
   });
 
   it("returns the only entry when no name is given", () => {

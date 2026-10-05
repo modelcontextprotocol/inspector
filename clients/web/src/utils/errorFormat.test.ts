@@ -11,6 +11,19 @@ describe("errorMessage", () => {
     expect(errorMessage(undefined)).toBe("undefined");
     expect(errorMessage(42)).toBe("42");
   });
+
+  // #2490: the result is shown on screen, so URL query secrets are redacted.
+  it("redacts query secrets in a URL quoted by the message", () => {
+    const out = errorMessage(
+      new Error("Callback https://srv.example/cb?code=abc123&state=ok failed."),
+    );
+    expect(out).toBe(
+      "Callback https://srv.example/cb?code=%5BREDACTED%5D&state=ok failed.",
+    );
+    expect(errorMessage("see https://s.example/?access_token=zzz")).toBe(
+      "see https://s.example/?access_token=%5BREDACTED%5D",
+    );
+  });
 });
 
 describe("errorCodeOf", () => {
@@ -35,6 +48,17 @@ describe("errorCodeOf", () => {
 });
 
 describe("formatErrorDetails", () => {
+  it("redacts query secrets in the message and data it prints (#2490)", () => {
+    const err = Object.assign(new Error("at https://s.example/?code=abc123"), {
+      code: -32000,
+      data: { url: "https://s.example/?client_secret=shh" },
+    });
+    const out = formatErrorDetails(err);
+    expect(out).not.toContain("abc123");
+    expect(out).not.toContain("shh");
+    expect(out).toContain("%5BREDACTED%5D");
+  });
+
   it("pretty-prints code/message/data when a code is present", () => {
     const err = Object.assign(new Error("bad params"), {
       code: -32602,

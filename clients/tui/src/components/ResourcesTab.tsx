@@ -14,6 +14,7 @@ import {
   LIST_FILTER_ROWS,
   filterCount,
 } from "./ListFilterBar.js";
+import { errorMessage } from "../utils/errorText.js";
 
 interface ResourceTemplate {
   name: string;
@@ -212,7 +213,7 @@ export function ResourcesTab({
           return;
         }
         setError(
-          err instanceof Error ? err.message : "Failed to read resource",
+          err instanceof Error ? errorMessage(err) : "Failed to read resource",
         );
         setResourceContent(null);
       } finally {

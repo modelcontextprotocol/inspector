@@ -177,6 +177,15 @@ Three consequences:
   server on its **default** config, so the showcase-config table and the
   protocol-era guidance below do not apply. If the case needs a specific tool
   set or the modern handler, it is an in-process HTTP test, not this.
+- **The one variant is crashing it.** `getCrashableTestMcpServerCommand()`
+  starts the same entry with `--crashable`, which adds a `crash_server` tool
+  (plus `collect_elicitation` / `collect_sample`, to have a peer request
+  pending at the time) so a test can kill the process at a point it picks —
+  `respond: false` exits with the call in flight, `respond: true` answers
+  first and exits on an idle session. It is the fixture for mid-session crash
+  reconciliation (`inspectorClient-crash-reconciliation.test.ts`, #2437).
+  ⚠️ It exists **only** on this spawned entry: the tool calls `process.exit`,
+  so wired into an in-process server it would end the test runner instead.
 - **It is still the build.** The path comes from the module's own resolved
   location under the alias, so it is `test-servers/build/`, with the same
   staleness hazard.

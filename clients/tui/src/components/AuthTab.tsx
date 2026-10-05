@@ -22,6 +22,7 @@ import {
   stepUpFollowUpMessage,
   stepUpModalTitle,
 } from "../utils/tuiOAuth.js";
+import { errorMessage } from "../utils/errorText.js";
 
 interface AuthTabProps {
   serverName: string | null;
@@ -282,7 +283,7 @@ export function AuthTab({
             // Left set, it would swallow the next *unrelated* revision change
             // and strand this banner after the OAuth state moved on.
             ownClearRef.current = false;
-            setClearFailure(err instanceof Error ? err.message : String(err));
+            setClearFailure(errorMessage(err));
             setClearState("failed");
           },
         );

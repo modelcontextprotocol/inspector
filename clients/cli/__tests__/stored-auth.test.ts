@@ -18,6 +18,7 @@ import {
   deepLinkTransport,
   refreshStoredAuthToken,
   waitForStoredToken,
+  resolveStoredCredentials,
   type StoredServers,
 } from "../src/cli.js";
 import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
@@ -1149,5 +1150,369 @@ describe("refreshStoredAuthToken discovery compatibility (#2172)", () => {
         server.close(() => resolve());
       });
     }
+  });
+});
+
+/**
+ * #2517: since the store was re-keyed per authorization server (#1625), an
+ * acquired token lives at `servers[url].byIssuer[activeIssuer].tokens`, not at
+ * the server level. Every stored-auth lookup must read that shape — the suites
+ * above use the legacy top-level shape, which still has to keep working.
+ */
+describe("issuer-keyed stored auth (#2517)", () => {
+  const ISSUER = "https://as.example";
+  const OTHER = "https://old-as.example";
+
+  /** A server entry whose credentials live under `issuer`'s active slot. */
+  const issuerKeyed = (issuer: string, tokens: Record<string, string>) => ({
+    activeIssuer: issuer,
+    byIssuer: {
+      [issuer]: {
+        tokens: { token_type: "Bearer", ...tokens },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+      },
+    },
+  });
+
+  describe("resolveStoredCredentials", () => {
+    it("answers with the active issuer's slot, tokens and client together", () => {
+      expect(
+        resolveStoredCredentials({
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [OTHER]: {
+              tokens: { access_token: "other", token_type: "Bearer" },
+              clientInformation: { client_id: "other-client" },
+            },
+            [ISSUER]: {
+              tokens: { access_token: "active", token_type: "Bearer" },
+              clientInformation: { client_id: "active-client" },
+            },
+          },
+          tokens: { access_token: "legacy", token_type: "Bearer" },
+          clientInformation: { client_id: "legacy-client" },
+        }),
+      ).toEqual({
+        issuer: ISSUER,
+        tokens: { access_token: "active", token_type: "Bearer" },
+        clientInformation: { client_id: "active-client" },
+      });
+    });
+
+    it("never borrows the legacy client for an issuer slot's tokens", () => {
+      expect(
+        resolveStoredCredentials({
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [ISSUER]: {
+              tokens: { access_token: "active", token_type: "Bearer" },
+            },
+          },
+          clientInformation: { client_id: "legacy-client" },
+        }).clientInformation,
+      ).toBeUndefined();
+    });
+
+    it("prefers a preregistered (static) client over the slot's", () => {
+      expect(
+        resolveStoredCredentials({
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [ISSUER]: {
+              tokens: { access_token: "active", token_type: "Bearer" },
+              clientInformation: { client_id: "dcr-client" },
+            },
+          },
+          preregisteredClientInformation: { client_id: "static-client" },
+        }).clientInformation,
+      ).toEqual({ client_id: "static-client" });
+    });
+
+    it("falls back to the legacy fields when the active slot holds no tokens", () => {
+      expect(
+        resolveStoredCredentials({
+          activeIssuer: ISSUER,
+          byIssuer: { [ISSUER]: { clientInformation: { client_id: "c" } } },
+          tokens: { access_token: "legacy", token_type: "Bearer" },
+          clientInformation: { client_id: "legacy-client" },
+        }),
+      ).toEqual({
+        tokens: { access_token: "legacy", token_type: "Bearer" },
+        clientInformation: { client_id: "legacy-client" },
+      });
+    });
+
+    it("never picks an arbitrary issuer when none is active", () => {
+      expect(
+        resolveStoredCredentials({
+          byIssuer: {
+            [ISSUER]: {
+              tokens: { access_token: "orphan", token_type: "Bearer" },
+            },
+          },
+        }),
+      ).toEqual({ tokens: undefined, clientInformation: undefined });
+    });
+
+    it("does not resolve a __proto__ active issuer to the prototype", () => {
+      expect(
+        resolveStoredCredentials({ activeIssuer: "__proto__", byIssuer: {} })
+          .tokens,
+      ).toBeUndefined();
+    });
+  });
+
+  describe("refreshStoredAuthToken", () => {
+    const SERVER = "https://issuer-keyed.example/mcp";
+
+    afterEach(async () => {
+      await defaultSecretStore().deleteAllForServer(
+        oauthSecretServerId(SERVER),
+      );
+    });
+
+    it("refreshes with the active issuer's credentials and persists the rotation under it", async () => {
+      const path = writeOAuthFixture({
+        [SERVER]: {
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [ISSUER]: {
+              tokens: { refresh_token: "active-refresh", token_type: "Bearer" },
+              clientInformation: { client_id: "active-client" },
+            },
+            [OTHER]: {
+              tokens: { refresh_token: "other-refresh", token_type: "Bearer" },
+              clientInformation: { client_id: "other-client" },
+            },
+          },
+          serverMetadata: {
+            issuer: ISSUER,
+            token_endpoint: `${ISSUER}/token`,
+          },
+        },
+      });
+      try {
+        const refresh = vi.fn().mockResolvedValue({
+          access_token: "rotated-access",
+          token_type: "Bearer",
+          refresh_token: "rotated-refresh",
+        });
+        const token = await refreshStoredAuthToken(SERVER, path, {
+          refresh,
+          discover: vi.fn(),
+        });
+        expect(token).toBe("rotated-access");
+        const [, opts] = refresh.mock.calls[0]!;
+        expect(opts.refreshToken).toBe("active-refresh");
+        expect(opts.clientInformation).toEqual({ client_id: "active-client" });
+
+        const persisted = (await readOAuthStore(path))?.servers[SERVER];
+        expect(persisted?.activeIssuer).toBe(ISSUER);
+        expect(persisted?.byIssuer?.[ISSUER]?.tokens?.refresh_token).toBe(
+          "rotated-refresh",
+        );
+        expect(persisted?.byIssuer?.[ISSUER]?.clientInformation).toEqual({
+          client_id: "active-client",
+        });
+        // The other issuer's slot is untouched, and nothing is written to the
+        // legacy top-level fallback.
+        expect(persisted?.byIssuer?.[OTHER]?.tokens?.refresh_token).toBe(
+          "other-refresh",
+        );
+        expect(persisted?.tokens).toBeUndefined();
+      } finally {
+        rmSync(path, { force: true });
+      }
+    });
+
+    it("reports no_client_information when the active slot has a refresh token but no client", async () => {
+      const path = writeOAuthFixture({
+        [SERVER]: {
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [ISSUER]: {
+              tokens: { refresh_token: "active-refresh", token_type: "Bearer" },
+            },
+          },
+          clientInformation: { client_id: "legacy-client" },
+        },
+      });
+      try {
+        await expect(
+          refreshStoredAuthToken(SERVER, path, { refresh: vi.fn() }),
+        ).rejects.toMatchObject({
+          exitCode: 3,
+          envelope: { code: "no_client_information" },
+        });
+      } finally {
+        rmSync(path, { force: true });
+      }
+    });
+  });
+
+  describe("CLI flags", () => {
+    let server: ReturnType<typeof createTestServerHttp>;
+    let serverUrl: string;
+
+    beforeAll(async () => {
+      server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+      await server.start();
+      serverUrl = server.url;
+    });
+
+    afterAll(async () => {
+      await server.stop();
+    });
+
+    afterEach(async () => {
+      await defaultSecretStore().deleteAllForServer(
+        oauthSecretServerId(serverUrl),
+      );
+    });
+
+    it("--list-stored-auth lists a server whose token is under its active issuer", async () => {
+      const fixture = writeOAuthFixture({
+        "https://keyed.example/mcp": issuerKeyed(ISSUER, {
+          access_token: "t1",
+        }),
+        "https://no-active.example/mcp": {
+          byIssuer: {
+            [ISSUER]: { tokens: { access_token: "t2", token_type: "Bearer" } },
+          },
+        },
+      });
+      try {
+        const result = await runCli(["--list-stored-auth"], {
+          env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture },
+        });
+        expectCliSuccess(result);
+        const out = JSON.parse(result.stdout) as { storedServerUrls: string[] };
+        expect(out.storedServerUrls).toEqual(["https://keyed.example/mcp"]);
+      } finally {
+        rmSync(fixture, { force: true });
+      }
+    });
+
+    it("--use-stored-auth injects the active issuer's access token", async () => {
+      const fixture = writeOAuthFixture({
+        [serverUrl]: issuerKeyed(ISSUER, { access_token: "issuer-access" }),
+      });
+      try {
+        const result = await runCli(
+          [
+            "--transport",
+            "http",
+            "--server-url",
+            serverUrl,
+            "--use-stored-auth",
+            "--method",
+            "tools/list",
+          ],
+          { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture } },
+        );
+        expectCliSuccess(result);
+        const last = server.getRecordedRequests().at(-1)!;
+        expect(last.headers?.authorization).toBe("Bearer issuer-access");
+      } finally {
+        rmSync(fixture, { force: true });
+      }
+    });
+
+    it("--use-stored-auth refreshes the active issuer's token and persists it under that issuer", async () => {
+      const tokenServer: Server = createServer((_req, res) => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            access_token: "issuer-refreshed",
+            token_type: "Bearer",
+            refresh_token: "issuer-rotated",
+          }),
+        );
+      });
+      await new Promise<void>((resolve) => tokenServer.listen(0, resolve));
+      const addr = tokenServer.address();
+      const tokenBase =
+        typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+      const fixture = writeOAuthFixture({
+        [serverUrl]: {
+          ...issuerKeyed(tokenBase, { refresh_token: "issuer-refresh" }),
+          serverMetadata: {
+            issuer: tokenBase,
+            token_endpoint: `${tokenBase}/token`,
+            response_types_supported: ["code"],
+            grant_types_supported: ["authorization_code", "refresh_token"],
+            token_endpoint_auth_methods_supported: ["client_secret_post"],
+          },
+        },
+      });
+      try {
+        const result = await runCli(
+          [
+            "--transport",
+            "http",
+            "--server-url",
+            serverUrl,
+            "--use-stored-auth",
+            "--method",
+            "tools/list",
+          ],
+          { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: fixture } },
+        );
+        expectCliSuccess(result);
+        const last = server.getRecordedRequests().at(-1)!;
+        expect(last.headers?.authorization).toBe("Bearer issuer-refreshed");
+        const persisted = (await readOAuthStore(fixture))?.servers[serverUrl];
+        expect(persisted?.byIssuer?.[tokenBase]?.tokens?.refresh_token).toBe(
+          "issuer-rotated",
+        );
+      } finally {
+        rmSync(fixture, { force: true });
+        await new Promise<void>((resolve) =>
+          tokenServer.close(() => resolve()),
+        );
+      }
+    });
+
+    it("--wait-for-auth returns as soon as an issuer-keyed token lands", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "inspector-cli-wait-issuer-"));
+      const file = join(dir, "oauth.json");
+      setTimeout(() => {
+        writeFileSync(
+          file,
+          JSON.stringify({
+            servers: {
+              [normalizeServerUrl(serverUrl)]: issuerKeyed(ISSUER, {
+                access_token: "waited-issuer-tok",
+              }),
+            },
+            idpSessions: {},
+          }),
+          "utf8",
+        );
+      }, 200);
+      try {
+        const result = await runCli(
+          [
+            "--transport",
+            "http",
+            "--server-url",
+            serverUrl,
+            "--wait-for-auth",
+            "5",
+            "--method",
+            "tools/list",
+          ],
+          { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file } },
+        );
+        expectCliSuccess(result);
+        const last = server.getRecordedRequests().at(-1)!;
+        expect(last.headers?.authorization).toBe("Bearer waited-issuer-tok");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
   });
 });

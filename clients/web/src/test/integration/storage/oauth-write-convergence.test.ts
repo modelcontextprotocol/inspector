@@ -44,13 +44,16 @@ vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
     >();
   return {
     ...actual,
+    // The hooks simulate a writer racing on the *state file*; the
+    // namespace ledger beside it (#2560) is not part of that race.
     writeStoreFile: vi.fn(async (filePath: string, data: string) => {
-      hook.beforeWrite?.(filePath, data);
+      const raced = !filePath.endsWith(".namespaces.json");
+      if (raced) hook.beforeWrite?.(filePath, data);
       await actual.writeStoreFile(filePath, data);
-      await hook.afterWrite?.(filePath, data);
+      if (raced) await hook.afterWrite?.(filePath, data);
     }),
     readStoreFile: vi.fn(async (filePath: string) => {
-      hook.beforeRead?.(filePath);
+      if (!filePath.endsWith(".namespaces.json")) hook.beforeRead?.(filePath);
       return actual.readStoreFile(filePath);
     }),
   };
@@ -84,6 +87,13 @@ let store: InMemorySecretStore;
 let onlyA: string;
 /** Store id for a url under the seed write's adopted secrets namespace. */
 let idOf: (url: string) => string;
+
+/** Writes to the state file itself, excluding its namespace ledger. */
+function stateFileWrites(): number {
+  return vi
+    .mocked(writeStoreFile)
+    .mock.calls.filter(([path]) => path === filePath).length;
+}
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "inspector-oauth-converge-"));
@@ -130,7 +140,7 @@ describe("writeOAuthSections convergence verification", () => {
     );
 
     // Seed + first (clobbered) attempt + converging retry.
-    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(3);
+    expect(stateFileWrites()).toBe(3);
     const read = await readOAuthStore(filePath, store);
     expect(read?.servers[SERVER_A]?.tokens?.access_token).toBe("at-a");
     expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
@@ -163,7 +173,7 @@ describe("writeOAuthSections convergence verification", () => {
     );
 
     // Seed + clobbered attempt + converging retry.
-    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(3);
+    expect(stateFileWrites()).toBe(3);
     const final = JSON.parse(readFileSync(filePath, "utf-8")) as {
       secretsNamespace: string;
     };
@@ -243,7 +253,7 @@ describe("writeOAuthSections convergence verification", () => {
     ).rejects.toThrow(SecretStoreUnavailableError);
 
     // Seed + five attempts, then the bounded loop reports instead of spinning.
-    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(6);
+    expect(stateFileWrites()).toBe(6);
   });
 
   it("unwinds a new entry's store secrets when it gives up, so nothing is stranded without a file index", async () => {

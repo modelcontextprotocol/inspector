@@ -5,7 +5,7 @@ import type {
   TextResourceContents,
 } from "@modelcontextprotocol/client";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
-import { getAceText } from "../../../test/aceEditor";
+import { getAceEditor, getAceText } from "../../../test/aceEditor";
 import { ContentViewer } from "./ContentViewer";
 
 // Stub the lazy highlighter so JSON/XML/CSS branches are assertable
@@ -247,6 +247,44 @@ describe("ContentViewer", () => {
     expect(
       screen.getByLabelText(/tools\/call response JSON/),
     ).toBeInTheDocument();
+  });
+
+  // #2525: the row cap is the default, so a host that scrolls a single payload
+  // itself can lift it rather than nest Ace's scrollbar inside its own.
+  it("caps the JSON editor's height by default", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(<ContentViewer block={block} />);
+    expect(getAceEditor().getOption("maxLines")).toBe(200);
+  });
+
+  it("passes jsonMaxLines through to a declared-JSON editor", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(
+      <ContentViewer
+        block={block}
+        mimeType="application/json"
+        jsonMaxLines={Infinity}
+      />,
+    );
+    expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
+  });
+
+  it("passes jsonMaxLines through to heuristically-detected JSON", () => {
+    const block: ContentBlock = { type: "text", text: '{"a":1}' };
+    renderWithMantine(<ContentViewer block={block} jsonMaxLines={500} />);
+    expect(getAceEditor().getOption("maxLines")).toBe(500);
+  });
+
+  it("passes jsonMaxLines through to JSON resource contents", () => {
+    const contents: TextResourceContents = {
+      uri: "demo://r.json",
+      mimeType: "application/json",
+      text: '{"a":1}',
+    };
+    renderWithMantine(
+      <ContentViewer contents={contents} jsonMaxLines={Infinity} />,
+    );
+    expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
   });
 
   it("falls back to a generic name when no label is given", () => {

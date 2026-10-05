@@ -58,7 +58,7 @@ inspector/
 ├── scripts/          Root build/verify tooling (install cascade, smokes, verify:* guards)
 │                     plus repo automation run from CI (the dependency, alert + SDK sweeps)
 │                     and maintainer-workflow helpers (the pr:*, board:*, advisory:*,
-│                     release:tag + action:resolve-pin aliases)
+│                     release:notes, release:tag + action:resolve-pin aliases)
 ├── docs/             Task-oriented guides
 ├── specification/    Design/build specifications
 └── .claude/skills/   The procedures (see the index above)

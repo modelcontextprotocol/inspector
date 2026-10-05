@@ -984,3 +984,18 @@ class DeferredSecretStore implements SecretStore {
 export function defaultSecretStore(): SecretStore {
   return new DeferredSecretStore();
 }
+
+/**
+ * The concrete store behind `store`: the selected one for a
+ * {@link defaultSecretStore}, otherwise `store` itself. For callers that
+ * must know *which* backend holds an entry — the OAuth namespace ledger
+ * (#2560) records keys per backend — since the deferred wrapper is
+ * deliberately indistinguishable from the store it forwards to.
+ */
+export async function resolveConcreteSecretStore(
+  store: SecretStore,
+): Promise<SecretStore> {
+  return store instanceof DeferredSecretStore
+    ? (await resolveSecretStore()).store
+    : store;
+}

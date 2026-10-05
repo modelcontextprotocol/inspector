@@ -1,8 +1,9 @@
-import { awaitableLog } from "../utils/awaitable-log.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { lintListResult, writeSchemaLintReport } from "./schema-lint-report.js";
 import { countFindings } from "@inspector/core/json/schemaLint.js";
 import type { CliAppInfo, McpResponse, MethodArgs } from "./method-types.js";
+import { writeResultFile } from "./output-file.js";
+import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
 
 /**
  * Write the method result (and any app-info) to stdout, honouring `--format`
@@ -37,11 +38,31 @@ export async function emitResult(
   const lint =
     args.method === "tools/list" ? lintListResult(result) : undefined;
 
+  // `--output` (#2431): the result goes to the file INSTEAD of stdout, as with
+  // `curl -o`. Under `--format json` stdout still carries exactly one envelope —
+  // `{ output }` in place of `{ result }` — so a caller parsing it learns where
+  // the result went; in text mode the confirmation goes to stderr, leaving
+  // stdout empty.
+  const written = args.output
+    ? await writeResultFile(
+        result,
+        args.method ?? "",
+        args.output,
+        args.outputFormat,
+      )
+    : undefined;
+
   if (json) {
-    const envelope: Record<string, unknown> = { result };
+    const envelope: Record<string, unknown> = written
+      ? { output: written }
+      : { result };
     if (appInfo?.hasApp) envelope.appInfo = appInfo;
     if (args.strict && lint && lint.length > 0) envelope.schemaFindings = lint;
     await awaitableLog(JSON.stringify(envelope) + "\n");
+  } else if (written) {
+    await awaitableError(
+      `Wrote ${written.bytes} bytes (${written.format}) to ${written.path}\n`,
+    );
   } else {
     await awaitableLog(JSON.stringify(result, null, 2) + "\n");
   }
@@ -49,7 +70,13 @@ export async function emitResult(
   // Awaited: the throw below (and the CLI's own exit path) reaches
   // `process.exit()` immediately, which discards anything still buffered on a
   // piped stderr.
-  if (lint) await writeSchemaLintReport(lint, args.strict === true);
+  if (lint) {
+    await writeSchemaLintReport(
+      lint,
+      args.strict === true,
+      args.quiet === true,
+    );
+  }
 
   if ((result as { isError?: unknown }).isError === true) {
     throw new CliExitCodeError(

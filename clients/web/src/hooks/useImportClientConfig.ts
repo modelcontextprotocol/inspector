@@ -10,6 +10,7 @@ import {
 import { validateStoreId } from "@inspector/core/storage/store-id.js";
 import { ServerListReloadError } from "@inspector/core/react/useServers.js";
 import type { MCPConfig, MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { errorMessage } from "../utils/errorFormat";
 
 export type ImportPhase = "select" | "loading" | "review" | "summary";
 
@@ -161,7 +162,7 @@ export function useImportClientConfig({
       }
       beginReview(result.config);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
       setPhase("select");
     }
   }
@@ -174,7 +175,7 @@ export function useImportClientConfig({
       const raw = await file.text();
       beginReview(parseClientConfig(raw));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     }
   }
 
@@ -199,7 +200,7 @@ export function useImportClientConfig({
       await write();
       return { id, status: outcome };
     } catch (err) {
-      const detail = err instanceof Error ? err.message : String(err);
+      const detail = errorMessage(err);
       // A `ServerListReloadError` means the write landed and only reading the
       // list back failed, so this entry really was imported. Reporting it as
       // `failed` would contradict the error's own message and invite a retry
