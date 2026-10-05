@@ -22,6 +22,7 @@ import {
   type ServerConfigOptions,
 } from "./config.js";
 import { rehydrateMcpConfigFromKeychain } from "./server-secrets.js";
+import { getOwnEntry } from "../../storage/own-entry.js";
 
 /**
  * A server resolved from a catalog/config file or an ad-hoc target, paired with
@@ -177,6 +178,10 @@ export async function loadServerEntries(
  * in config file") because `entries` may come from a file *or* a single ad-hoc
  * target — e.g. `--server foo` alongside a positional command resolves to just
  * `{ default }`, where "in config file" would be misleading.
+ *
+ * The lookup is an own-property read (`getOwnEntry`), so `--server constructor`
+ * (or any other inherited `Object.prototype` name) absent from `entries`
+ * reports "not found" rather than returning the inherited member (#2537).
  */
 export function selectServerEntry(
   entries: Record<string, ResolvedServer>,
@@ -184,7 +189,7 @@ export function selectServerEntry(
 ): ResolvedServer {
   const names = Object.keys(entries);
   if (serverName) {
-    const entry = entries[serverName];
+    const entry = getOwnEntry(entries, serverName);
     if (!entry) {
       throw new Error(
         `Server '${serverName}' not found. Available servers: ${names.join(", ")}`,
