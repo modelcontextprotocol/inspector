@@ -5,6 +5,6 @@ import { vi } from "vitest";
  * shell out to a real browser. Registered via vitest `setupFiles` so it does
  * not depend on import order in individual test files.
  */
-vi.mock("../../src/open-url.js", () => ({
+vi.mock("@inspector/core/node/openUrl.js", () => ({
   openUrl: vi.fn().mockResolvedValue(undefined),
 }));

@@ -15,6 +15,7 @@
  * `vite-hono-plugin.ts`) — but it calls the same tested helper.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { EventEmitter } from "node:events";
 import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -30,6 +31,19 @@ const { openBrowser } = await import("../../../../server/web-server-config.js");
 const { startHonoServer } = await import("../../../../server/server.js");
 
 const WARNING = "Could not open a browser automatically:";
+
+/**
+ * A stand-in for the `ChildProcess` `open` resolves with: like a real spawn it
+ * reports on a later `process.nextTick` — `'spawn'` when the opener launched,
+ * `'error'` when it could not be spawned (#2533).
+ */
+function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
+  const child = new EventEmitter();
+  process.nextTick(() =>
+    outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
+  );
+  return child;
+}
 
 async function findFreePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -87,9 +101,22 @@ describe("openBrowser", () => {
     expect(warn).toHaveBeenCalledWith(WARNING, expect.any(Error));
   });
 
+  it("warns instead of crashing when the opener cannot be spawned", async () => {
+    // `open` resolves first and the ENOENT arrives afterwards as an 'error'
+    // event on the child; unlistened, that event throws and kills the server.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const enoent = Object.assign(new Error("spawn xdg-open ENOENT"), {
+      code: "ENOENT",
+    });
+    openMock.mockImplementation(async () => fakeChild(enoent));
+    expect(openBrowser("http://127.0.0.1:6274")).toBeUndefined();
+    await settle();
+    expect(warn).toHaveBeenCalledWith(WARNING, enoent);
+  });
+
   it("stays quiet when the browser opens", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    openMock.mockResolvedValue(undefined);
+    openMock.mockImplementation(async () => fakeChild());
     openBrowser("http://127.0.0.1:6274");
     await settle();
     expect(openMock).toHaveBeenCalledWith("http://127.0.0.1:6274");

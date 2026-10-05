@@ -22,9 +22,6 @@ vi.mock("open", () => ({
   default: (...args: unknown[]) => openMock(...args),
 }));
 
-// Suite-wide setup mocks open-url; this file exercises the real wrapper.
-vi.unmock("../src/open-url.js");
-
 describe("openUrl", () => {
   beforeEach(() => {
     openMock.mockClear();
@@ -36,13 +33,13 @@ describe("openUrl", () => {
   });
 
   it("forwards a string URL to open", async () => {
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await openUrl("https://example.com/auth");
     expect(openMock).toHaveBeenCalledWith("https://example.com/auth");
   });
 
   it("forwards URL.href for URL instances", async () => {
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await openUrl(new URL("https://example.com/callback?code=1"));
     expect(openMock).toHaveBeenCalledWith(
       "https://example.com/callback?code=1",
@@ -51,7 +48,7 @@ describe("openUrl", () => {
 
   it("rejects when the opener rejects", async () => {
     openMock.mockRejectedValue(new Error("xdg-open not found"));
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await expect(openUrl("https://example.com/auth")).rejects.toThrow(
       "xdg-open not found",
     );
@@ -62,7 +59,7 @@ describe("openUrl", () => {
       code: "ENOENT",
     });
     openMock.mockImplementation(async () => fakeChild(enoent));
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await expect(openUrl("https://example.com/auth")).rejects.toThrow(
       "spawn open ENOENT",
     );
@@ -76,7 +73,7 @@ describe("openUrl", () => {
       code: "ENOENT",
     });
     openMock.mockImplementation(async () => fakeChild(enoent));
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     const outcome = await new Promise<unknown>((resolve) => {
       setImmediate(() => {
         openUrl("https://example.com/auth").then(
@@ -91,7 +88,7 @@ describe("openUrl", () => {
   it("absorbs an opener error that arrives after launch", async () => {
     let child: EventEmitter | undefined;
     openMock.mockImplementation(async () => (child = fakeChild()));
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await openUrl("https://example.com/auth");
     expect(() => child!.emit("error", new Error("late"))).not.toThrow();
   });
@@ -99,7 +96,7 @@ describe("openUrl", () => {
   it("rejects when the opener does not settle within the timeout", async () => {
     vi.useFakeTimers();
     openMock.mockReturnValue(new Promise(() => {}));
-    const { openUrl } = await import("../src/open-url.js");
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
     const pending = openUrl("https://example.com/auth", 2_000);
     const assertion = expect(pending).rejects.toThrow(
       "browser did not open within 2s",
@@ -110,7 +107,8 @@ describe("openUrl", () => {
 
   it("clears its timer once the opener resolves", async () => {
     vi.useFakeTimers();
-    const { openUrl, OPEN_URL_TIMEOUT_MS } = await import("../src/open-url.js");
+    const { openUrl, OPEN_URL_TIMEOUT_MS } =
+      await import("@inspector/core/node/openUrl.js");
     await openUrl("https://example.com/auth");
     expect(vi.getTimerCount()).toBe(0);
     expect(OPEN_URL_TIMEOUT_MS).toBe(5_000);

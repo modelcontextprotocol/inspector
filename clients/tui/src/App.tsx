@@ -294,6 +294,11 @@ function App({
 
   // Create InspectorClient and state managers for each server on mount
   useEffect(() => {
+    // Raised as a warning so the Auth tab colours it (see oauthMessageToneFor).
+    const showOAuthWarning = (message: string): void => {
+      setOauthWarningText(message);
+      setOauthMessage(message);
+    };
     const newClients: Record<string, InspectorClient> = {};
     const newManagers: Record<string, ManagedToolsState> = {};
     const newManagedResourcesStates: Record<string, ManagedResourcesState> = {};
@@ -362,8 +367,10 @@ function App({
             formatRunnerOAuthRedirectUrl(callbackUrlConfig);
           environment.oauth = {
             storage: new NodeOAuthStorage(),
-            navigation: new CallbackNavigation(
-              async (url) => await openUrl(url),
+            // openUrl never rejects; a browser that could not be launched
+            // (#2533) surfaces as the manual-open note instead.
+            navigation: new CallbackNavigation((url) =>
+              openUrl(url, showOAuthWarning),
             ),
             redirectUrlProvider,
           };
