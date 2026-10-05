@@ -26,6 +26,7 @@ import {
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
   parseProtocolEra,
+  skillCatalogLimitParser,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 import type { StrictJsonValue } from "@inspector/core/json/jsonUtils.js";
@@ -856,6 +857,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       parseProtocolEra,
     )
     .option(
+      "--skill-catalog-max-skills <n>",
+      "Skills catalog budget for --verify: the most skills one run reads (positive integer; default 256). Overrides the server's skillCatalogMaxSkills in the catalog/config file.",
+      skillCatalogLimitParser("--skill-catalog-max-skills"),
+    )
+    .option(
+      "--skill-catalog-max-bytes <n>",
+      "Skills catalog budget for --verify: the most bytes one run reads across all skills (positive integer; default 67108864, 64 MiB). Overrides the server's skillCatalogMaxBytes in the catalog/config file.",
+      skillCatalogLimitParser("--skill-catalog-max-bytes"),
+    )
+    .option(
       "--format <format>",
       "Output format: text (default; pretty-printed) or json (one JSON object on stdout, no banners).",
       (v: string): OutputFormat => {
@@ -955,6 +966,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     cursor?: string;
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
+    skillCatalogMaxSkills?: number;
+    skillCatalogMaxBytes?: number;
     format?: OutputFormat;
     toolArgsJson?: string;
     clientConfig?: string;
@@ -1125,6 +1138,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // `--protocol-era` feeds `settings.protocolEra` the same way, so an ad-hoc
     // launch can pick a non-legacy era without an mcp.json entry (#2208).
     protocolEra: options.protocolEra,
+    // `--skill-catalog-max-*` feed the per-server skills catalog budget the
+    // web sets in Server Settings, read by `verifySkills` (#2420).
+    skillCatalogMaxSkills: options.skillCatalogMaxSkills,
+    skillCatalogMaxBytes: options.skillCatalogMaxBytes,
   };
 
   // Catalog list / show — no MCP connection. Run before stored-auth refresh so

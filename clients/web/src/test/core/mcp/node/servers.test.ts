@@ -297,6 +297,74 @@ describe("loadServerEntries", () => {
     });
   });
 
+  it("overrides the disk skills catalog budget with --skill-catalog-max-*, preserving the rest", async () => {
+    const configPath = join(tempDir, "mcp.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: {
+          web: {
+            type: "streamable-http",
+            url: "http://x/mcp",
+            skillCatalogMaxSkills: 10,
+            skillCatalogMaxBytes: 2048,
+            requestTimeout: 9000,
+          },
+        },
+      }),
+    );
+
+    const fromFile = await loadServerEntries({ configPath });
+    expect(fromFile.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 10,
+      skillCatalogMaxBytes: 2048,
+    });
+
+    const servers = await loadServerEntries({
+      configPath,
+      skillCatalogMaxSkills: 3,
+      skillCatalogMaxBytes: 4096,
+    });
+    expect(servers.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 3,
+      skillCatalogMaxBytes: 4096,
+      requestTimeout: 9000,
+    });
+
+    const onlyBytes = await loadServerEntries({
+      configPath,
+      skillCatalogMaxBytes: 1,
+    });
+    expect(onlyBytes.web?.settings).toMatchObject({
+      skillCatalogMaxSkills: 10,
+      skillCatalogMaxBytes: 1,
+    });
+  });
+
+  it("applies --skill-catalog-max-* to an ad-hoc URL with no other settings", async () => {
+    const servers = await loadServerEntries({
+      serverUrl: "http://x/mcp",
+      transport: "http",
+      skillCatalogMaxSkills: 5,
+    });
+    expect(servers.default?.settings).toMatchObject({
+      skillCatalogMaxSkills: 5,
+      headers: [],
+      connectionTimeout: DEFAULT_CONNECTION_TIMEOUT_MS,
+    });
+    expect(servers.default?.settings?.skillCatalogMaxBytes).toBeUndefined();
+
+    const bytesOnly = await loadServerEntries({
+      serverUrl: "http://x/mcp",
+      transport: "http",
+      skillCatalogMaxBytes: 7,
+    });
+    expect(bytesOnly.default?.settings).toMatchObject({
+      skillCatalogMaxBytes: 7,
+      headers: [],
+    });
+  });
+
   it("gives an ad-hoc target with neither flag no settings (legacy default)", async () => {
     const servers = await loadServerEntries({ target: ["my-server"] });
     expect(servers.default?.settings).toBeUndefined();

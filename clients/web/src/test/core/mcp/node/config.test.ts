@@ -13,6 +13,7 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
   parseProtocolEra,
+  skillCatalogLimitParser,
   withDefaultCatalogPath,
   resolveServerConfigs,
   resolveServerSource,
@@ -55,6 +56,28 @@ describe("parseProtocolEra", () => {
       "Invalid protocol era: Modern. Valid eras are: legacy, auto, modern",
     );
   });
+});
+
+describe("skillCatalogLimitParser", () => {
+  const parse = skillCatalogLimitParser("--skill-catalog-max-skills");
+
+  it.each([
+    ["1", 1],
+    ["256", 256],
+    [" 42 ", 42],
+    ["67108864", 67108864],
+  ])("accepts %j as %d", (value, expected) => {
+    expect(parse(value)).toBe(expected);
+  });
+
+  it.each(["0", "-1", "1.5", "1e3", "0x10", "", "abc", "9007199254740993"])(
+    "rejects %j, naming the flag",
+    (value) => {
+      expect(() => parse(value)).toThrow(
+        `Invalid --skill-catalog-max-skills: ${value}. Expected a positive integer.`,
+      );
+    },
+  );
 });
 
 describe("parseHeaderPair", () => {
