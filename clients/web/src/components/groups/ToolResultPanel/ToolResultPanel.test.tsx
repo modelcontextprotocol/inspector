@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "../../../test/renderWithMantine";
-import { getAceText } from "../../../test/aceEditor";
+import { getAceEditor, getAceText } from "../../../test/aceEditor";
 import { ToolResultPanel } from "./ToolResultPanel";
 import { resultHasResourceLinks } from "./toolResultUtils";
 
@@ -117,6 +117,42 @@ describe("ToolResultPanel", () => {
       screen.getAllByRole("heading", { name: "Resource Links" }),
     ).toHaveLength(2);
     expect(screen.getByText("divider")).toBeInTheDocument();
+  });
+
+  // #2525: the panel's ScrollArea already scrolls a long JSON result, so an
+  // Ace editor that also stopped at its row cap and scrolled internally put two
+  // vertical scrollbars side by side. The editor grows to full height instead.
+  describe("long JSON results (#2525)", () => {
+    const longJson = JSON.stringify(
+      Array.from({ length: 400 }, (_, id) => ({ id })),
+      null,
+      2,
+    );
+
+    it("lets the JSON editor grow so the panel is the only scroller", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{ content: [{ type: "text", text: longJson }] }}
+          onClear={() => {}}
+        />,
+      );
+      expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
+    });
+
+    it("lets it grow inside the capped block beside Resource Links too", () => {
+      renderWithMantine(
+        <ToolResultPanel
+          result={{
+            content: [
+              { type: "text", text: longJson },
+              { type: "resource_link", uri: "demo://r/1", name: "One" },
+            ],
+          }}
+          onClear={() => {}}
+        />,
+      );
+      expect(getAceEditor().getOption("maxLines")).toBe(Infinity);
+    });
   });
 
   describe("structuredContent (#1908)", () => {

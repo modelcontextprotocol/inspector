@@ -1,7 +1,7 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import type { CallToolResult } from "@modelcontextprotocol/client";
 import { Card, Flex } from "@mantine/core";
-import { fn } from "storybook/test";
+import { expect, fn, waitFor } from "storybook/test";
 import { ToolResultPanel } from "./ToolResultPanel";
 
 const meta: Meta<typeof ToolResultPanel> = {
@@ -131,6 +131,52 @@ export const TextResult: Story = {
 export const JsonResult: Story = {
   args: {
     result: jsonResult,
+  },
+};
+
+// A JSON result longer than ContentViewer's default 200-row editor cap. The
+// panel's own scroll area is the only vertical scrollbar: the editor grows to
+// the payload's full height rather than scrolling inside it (#2525).
+export const LongJsonResult: Story = {
+  args: {
+    result: {
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify(
+            Array.from({ length: 120 }, (_, id) => ({
+              id,
+              name: `Item ${id}`,
+            })),
+          ),
+        },
+      ],
+    },
+  },
+  decorators: fillHeightDecorators,
+  // Padded rather than the default centered layout, so the card takes the
+  // canvas width the way it does on the Tools screen instead of shrinking to
+  // the editor's gutter.
+  parameters: { layout: "padded" },
+  // Asserted on real geometry: the editor's own vertical scrollbar stays
+  // hidden (Ace sets `display: none` on it when it has nothing to scroll),
+  // while the panel's scroll viewport is what overflows.
+  play: async ({ canvasElement }) => {
+    const aceScrollbar = await waitFor(() => {
+      const node = canvasElement.querySelector(".ace_scrollbar-v");
+      if (!(node instanceof HTMLElement)) {
+        throw new Error("JSON editor not rendered");
+      }
+      return node;
+    });
+    await expect(aceScrollbar.style.display).toBe("none");
+    const viewport = canvasElement.querySelector(
+      ".mantine-ScrollArea-viewport",
+    );
+    if (!(viewport instanceof HTMLElement)) {
+      throw new Error("panel scroll viewport not found");
+    }
+    await expect(viewport.scrollHeight).toBeGreaterThan(viewport.clientHeight);
   },
 };
 
