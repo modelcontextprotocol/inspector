@@ -83,6 +83,12 @@ describe("resolveWritableCatalogPath", () => {
       /read-only/,
     );
   });
+
+  it("refuses an explicitly blank --config too", () => {
+    expect(() => resolveWritableCatalogPath({ config: "" }, {})).toThrow(
+      /read-only/,
+    );
+  });
 });
 
 describe("addCatalogServer", () => {
@@ -520,6 +526,13 @@ describe("removeCatalogServer", () => {
     await expect(
       removeCatalogServer({ server: "nope", catalog, secretStore: store }),
     ).rejects.toThrow(/Server 'nope' not found/);
+  });
+
+  it("reports a malformed (non-object) entry as not found", async () => {
+    writeCatalog({ demo: null, other: "x" });
+    await expect(
+      removeCatalogServer({ server: "demo", catalog, secretStore: store }),
+    ).rejects.toThrow(/Server 'demo' not found/);
   });
 
   it("treats a file without an mcpServers map as empty", async () => {

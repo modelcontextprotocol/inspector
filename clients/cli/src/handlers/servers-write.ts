@@ -131,7 +131,9 @@ export function resolveWritableCatalogPath(
   options: Pick<CatalogWriteOptions, "catalog" | "config">,
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  if (options.config?.trim()) {
+  // Presence, not a non-blank value: `--config ""` must not fall through and
+  // quietly write the default catalog instead.
+  if (options.config !== undefined) {
     throw new Error(
       "--config names a read-only session file; catalog writes need the writable catalog (--catalog <path>, MCP_CATALOG_PATH, or the default ~/.mcp-inspector/mcp.json).",
     );
@@ -234,7 +236,13 @@ async function assertSecretsPersist(
   );
 }
 
-/** Read the catalog's entry map straight off disk; a missing file is empty. */
+/**
+ * Read the catalog's entry map straight off disk; a missing file is empty.
+ * Keeps only the entries the route layer's normalizer recognizes (object
+ * values, never `__proto__`), so a key the routes would skip reads as "not
+ * found" here instead of passing the precheck and then hitting an idempotent
+ * no-op DELETE that reports success.
+ */
 async function readCatalogEntries(
   catalogPath: string,
 ): Promise<Record<string, unknown>> {
@@ -242,9 +250,13 @@ async function readCatalogEntries(
   if (raw === null) return {};
   const parsed = parseStore(raw) as { mcpServers?: unknown } | null;
   const servers = parsed?.mcpServers;
-  return servers !== null && typeof servers === "object"
-    ? (servers as Record<string, unknown>)
-    : {};
+  if (servers === null || typeof servers !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(servers as Record<string, unknown>).filter(
+      ([id, val]) =>
+        id !== "__proto__" && val !== null && typeof val === "object",
+    ),
+  );
 }
 
 type RouteCall = (
