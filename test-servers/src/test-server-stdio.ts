@@ -46,8 +46,12 @@ export const CRASH_SERVER_TOOL_NAME = "crash_server";
  * - `respond: true` answers first and exits `delayMs` later, so the crash
  *   lands on an idle session with nothing in flight.
  * - `stderr` is written before exiting, standing in for a real server's dying
- *   words. The exit waits for the write to flush: pipe writes are asynchronous
- *   on macOS, so exiting straight after one can drop it.
+ *   words.
+ *
+ * The exit waits for stderr and stdout to flush first: pipe writes are
+ * asynchronous on macOS, so exiting straight after one can drop it — the
+ * dying words, or the `respond: true` answer, whose loss would turn an idle
+ * crash back into a crash with the call in flight.
  *
  * ⚠️ Only for a server running in a process of its own (the standalone entry
  * below, behind {@link CRASHABLE_FLAG}) — see the module header.
@@ -85,9 +89,15 @@ export function createCrashServerTool(): ToolDefinition {
         typeof params.exitCode === "number" ? params.exitCode : 1;
       const stderr =
         typeof params.stderr === "string" ? params.stderr : undefined;
+      // An empty write's callback runs once every write queued before it on
+      // that stream has flushed — so on stdout it is a barrier behind the
+      // `respond: true` answer, which the SDK has written by the time the
+      // timer below fires.
+      const flushStdoutThenExit = () =>
+        process.stdout.write("", () => process.exit(exitCode));
       const exit = () => {
-        if (stderr === undefined) process.exit(exitCode);
-        process.stderr.write(`${stderr}\n`, () => process.exit(exitCode));
+        if (stderr === undefined) return flushStdoutThenExit();
+        process.stderr.write(`${stderr}\n`, flushStdoutThenExit);
       };
       if (respond) {
         setTimeout(exit, delayMs);
