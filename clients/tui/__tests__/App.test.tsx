@@ -2021,3 +2021,127 @@ describe("App (OAuth result branches)", () => {
     await expectFrame(r, "web error");
   });
 });
+
+describe("App (keybinding help, #2436)", () => {
+  it("advertises the help key in the footer", async () => {
+    const r = await mount(stdioServer());
+    await expectFrame(r, "? help");
+  });
+
+  it("opens with '?' showing the active tab's bindings and closes with '?'", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", "?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("Tools tab");
+    expect(r.lastFrame() ?? "").toContain("Test the tool");
+    await press(r, ["?"]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+
+  it("keeps the panes underneath inert, then restores focus on close", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "?"]); // tool details focused, then help
+    await expectFrame(r, "Keyboard shortcuts");
+    // '+' would open the details dialog if the details pane still had focus;
+    // a tab accelerator and disconnect are global keys it must swallow too.
+    await press(r, ["+", "i", "d"]);
+    expect(h.disconnect).not.toHaveBeenCalled();
+    await press(r, ["?"]); // close the help
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Full JSON:");
+    expect(r.lastFrame() ?? "").toContain("Tools (1)");
+    await press(r, ["+"]); // focus is back on the details pane
+    await expectFrame(r, "Full JSON:");
+  });
+
+  it("closes on ESC without exiting the app", async () => {
+    const r = await mount(stdioServer());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    await press(r, [ESC]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    // Still mounted and listening: the help opens again.
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+  });
+
+  it("lists only the visible tabs' accelerators", async () => {
+    // A stdio server shows no Auth, Network or Skills tab, so `a`, `n` and `k`
+    // do nothing and must not be advertised.
+    const r = await mount(oneStdio());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("i r m t p o ");
+  });
+
+  it("keeps a focus move made while it is open from waking a hidden pane", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    // Connected, so the global `c` (Connect) is inert and `c` can only mean
+    // the Auth pane's cancel.
+    h.ctrl.status = "connected";
+    const r = await mount(oneHttp());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    // A step-up landing now moves focus to the Auth pane underneath.
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: {
+        reason: "insufficient_scope" as const,
+        requiredScopes: ["env:read"],
+        authorizationScopes: ["tools:read", "env:read"],
+        context: { toolName: "get-env" },
+      },
+    });
+    await expectFrame(r, "Auth tab");
+    await press(r, ["c"]); // would cancel the step-up if Auth were live
+    await press(r, ["?"]);
+    await expectFrame(r, "needs additional OAuth scopes");
+    expect(r.lastFrame() ?? "").not.toContain("Authorization cancelled");
+    // Once the help closes, the step-up's focus move takes effect.
+    await press(r, ["c"]);
+    await expectFrame(r, "Authorization cancelled");
+  });
+
+  it("holds back a details dialog that arrives while it is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.prompts = [{ name: "greet", description: "no-arg prompt" }];
+    const r = await mount(oneStdio());
+    let resolvePrompt: (value: { result: { messages: [] } }) => void = () => {};
+    const pending = new Promise<{ result: { messages: [] } }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    for (const client of h.clientInstances) {
+      Object.assign(client, { getPrompt: vi.fn(() => pending) });
+    }
+    await press(r, ["m", TAB, ENTER, "?"]); // fetch starts, then help opens
+    await expectFrame(r, "Keyboard shortcuts");
+    resolvePrompt({ result: { messages: [] } });
+    await tick();
+    await press(r, [ESC]); // closes only the help
+    await expectFrame(r, "Prompt: greet");
+    await press(r, [ESC]); // and then the details dialog
+    await waitUntil(() => !(r.lastFrame() ?? "").includes("Prompt: greet"));
+    expect(r.lastFrame() ?? "").not.toContain("Prompt: greet");
+  });
+
+  it("ignores '?' while another dialog is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "+"]);
+    await expectFrame(r, "Full JSON:");
+    await press(r, ["?"]);
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+});
