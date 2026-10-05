@@ -94,9 +94,14 @@ function validateServerUrl(raw: string): string | undefined {
  * UTF-16 code unit of `secret` is visited whatever `candidate` holds, and a
  * length mismatch is folded into the result rather than returned early. Only
  * the secret's length drives the loop, so the time reveals nothing about the
- * candidate beyond what the caller already chose. The secret's length itself
- * is not hidden; it is a fixed property of the launch-time token format, not
- * of its value.
+ * candidate beyond what the caller already chose.
+ *
+ * The secret's **length** is not hidden: the loop runs `secret.length` times.
+ * For the default per-launch token that length is fixed by its generator, but
+ * a user-supplied token (`MCP_INSPECTOR_API_TOKEN` / `--auth-token`) can have
+ * any length, which therefore stays observable in principle. That is the
+ * accepted limit of this helper. What it removes is the prefix leak, which is
+ * what would let a guess be refined one character at a time.
  */
 export function constantTimeEqual(candidate: string, secret: string): boolean {
   let diff = candidate.length ^ secret.length;
