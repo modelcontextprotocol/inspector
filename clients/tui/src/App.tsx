@@ -2296,6 +2296,9 @@ function App({
                   setDetailsModal({
                     title: `Task: ${task.taskId}`,
                     content: renderTaskDetails(task, result),
+                    copyText: toCopyText(
+                      result === null ? task : { task, result },
+                    ),
                   })
                 }
                 onAuthRecoveryRequired={onAuthRecoveryRequired}
