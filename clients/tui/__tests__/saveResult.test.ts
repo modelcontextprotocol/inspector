@@ -81,7 +81,9 @@ describe("saveResultToFile (#2571)", () => {
   it("explains a result with no raw form and points at json", async () => {
     await expect(
       saveResultToFile(LINK_ONLY, "x.txt", "raw", dir),
-    ).rejects.toThrow(/no text or binary content.*as json instead/);
+    ).rejects.toThrow(
+      /no text or binary content.*as json instead \(w, then Enter\)/,
+    );
   });
 
   it("reports a failed write with the resolved path", async () => {
