@@ -9,8 +9,8 @@ import type { SavedResult } from "../src/utils/saveResult.js";
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 vi.mock("ink-form", () => import("./helpers/inkFormMock.js"));
 
-// Each save resolves only when the test says so, so the two writes can be
-// settled out of order deterministically.
+// Each save resolves only when the test says so, so a write can be held in
+// flight deterministically.
 const pending: Array<{
   resolve: (v: SavedResult) => void;
   reject: (e: unknown) => void;
@@ -51,8 +51,8 @@ afterEach(() => {
   delete (globalThis as Record<string, unknown>).__INK_FORM_SUBMIT_VALUE__;
 });
 
-describe("ToolTestModal save ordering (#2571)", () => {
-  it("ignores a save that settles after a newer one started", async () => {
+describe("ToolTestModal save serialization (#2571)", () => {
+  it("serializes saves: no second write starts while one is in flight", async () => {
     const callTool = vi.fn().mockResolvedValue({
       success: true,
       result: { content: [{ type: "text", text: "hello" }] },
@@ -69,22 +69,42 @@ describe("ToolTestModal save ordering (#2571)", () => {
     await tick();
     api.stdin.write("\r");
     await tick();
-    // Two saves in flight at once.
-    for (let i = 0; i < 2; i++) {
-      api.stdin.write("w");
-      await tick();
-      api.stdin.write("\r");
-      await tick();
-    }
-    expect(pending).toHaveLength(2);
-    // The newer one settles first, then the older, slower one fails.
-    pending[1]!.resolve({ path: "/new.json", format: "json", bytes: 1 });
+    api.stdin.write("w");
     await tick();
-    pending[0]!.reject("stale failure");
+    api.stdin.write("\r");
     await tick();
     expect(statuses.at(-1)).toEqual({
       ok: true,
-      message: "Saved json result to /new.json (1 bytes)",
+      message: "Saving to alpha-result.json…",
+    });
+    // A second w while the first write is pending opens no prompt, so the
+    // Enter after it starts nothing.
+    api.stdin.write("w");
+    await tick();
+    expect(statuses.at(-1)).toEqual({
+      ok: false,
+      message: "Still saving the last result…",
+    });
+    api.stdin.write("\r");
+    await tick();
+    expect(pending).toHaveLength(1);
+    pending[0]!.resolve({ path: "/a.json", format: "json", bytes: 1 });
+    await tick();
+    expect(statuses.at(-1)).toEqual({
+      ok: true,
+      message: "Saved json result to /a.json (1 byte)",
+    });
+    // Once it settles, w saves again.
+    api.stdin.write("w");
+    await tick();
+    api.stdin.write("\r");
+    await tick();
+    expect(pending).toHaveLength(2);
+    pending[1]!.resolve({ path: "/a.json", format: "json", bytes: 2 });
+    await tick();
+    expect(statuses.at(-1)).toEqual({
+      ok: true,
+      message: "Saved json result to /a.json (2 bytes)",
     });
     api.unmount();
   });

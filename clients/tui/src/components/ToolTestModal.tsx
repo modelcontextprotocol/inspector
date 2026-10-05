@@ -61,9 +61,10 @@ export function ToolTestModal({
   const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
-  // Numbers each save so only the latest one may report: an earlier, slower
-  // write settling after a later one must not overwrite the newer status.
-  const saveAttemptRef = React.useRef(0);
+  // Saves are serialized: while a write is in flight `w` opens no new prompt,
+  // so two writes can never race on one file or report out of order. A ref,
+  // not state, because the key handler must see it the instant a save starts.
+  const savingRef = React.useRef(false);
   const toolName = tool?.name || "tool";
 
   // Use full terminal dimensions instead of passed dimensions
@@ -158,6 +159,10 @@ export function ToolTestModal({
   );
 
   const openSavePrompt = () => {
+    if (savingRef.current) {
+      setSaveStatus({ ok: false, message: "Still saving the last result…" });
+      return;
+    }
     if (!result?.callResult) {
       setSaveStatus({
         ok: false,
@@ -216,25 +221,25 @@ export function ToolTestModal({
   };
 
   const saveCurrentResult = async (prompt: SavePrompt) => {
-    const attempt = ++saveAttemptRef.current;
-    const report = (status: SaveStatus) => {
-      if (attempt === saveAttemptRef.current) setSaveStatus(status);
-    };
+    savingRef.current = true;
+    setSaveStatus({ ok: true, message: `Saving to ${prompt.path}…` });
     try {
       const saved = await saveResultToFile(
         result?.callResult,
         prompt.path,
         prompt.format,
       );
-      report({
+      setSaveStatus({
         ok: true,
-        message: `Saved ${saved.format} result to ${saved.path} (${saved.bytes} bytes)`,
+        message: `Saved ${saved.format} result to ${saved.path} (${saved.bytes} ${saved.bytes === 1 ? "byte" : "bytes"})`,
       });
     } catch (err) {
-      report({
+      setSaveStatus({
         ok: false,
         message: err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      savingRef.current = false;
     }
   };
 
