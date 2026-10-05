@@ -15,7 +15,6 @@ import {
 import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
-import { resolveSecretStoreQuietly } from "./quiet-secret-store.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
@@ -735,14 +734,22 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ...optionArgs,
   ];
 
-  // Under `--quiet`, Commander's own `error: …` line on a usage error is
-  // dropped: the error is still thrown (see `exitOverride` above) and reaches
-  // the envelope with the same message, so stderr stays the one envelope line
-  // `--quiet` promises (#2435). Read from argv rather than `opts()` because
-  // the diagnostic is written during `parse()`, before any option is parsed.
-  // `--help` / `--version` write through `writeOut`, which is untouched.
+  // `--quiet` (#2435), read from argv rather than `opts()` because both of
+  // these must be in place before `parse()` runs:
+  // - Commander's own `error: …` line on a usage error is dropped. The error
+  //   is still thrown (see `exitOverride` above) and reaches the envelope with
+  //   the same message, so stderr stays the one envelope line. `--help` /
+  //   `--version` write through `writeOut`, which is untouched.
+  // - `console.warn` is muted for the rest of the run; `runCli` restores it.
+  //   Core reports advisories that way from many places the CLI reaches (the
+  //   secret-store notice, `roots` / OAuth-endpoint settings it ignores, lock
+  //   and persistence trouble), so muting the channel is the only complete
+  //   answer. What `--quiet` keeps — the result, the envelope, the `--strict`
+  //   report, the OAuth URL and step-up prompt — is written to the streams
+  //   directly, never through `console.warn`.
   if (optionArgs.includes("-q") || optionArgs.includes("--quiet")) {
     program.configureOutput({ writeErr: () => {} });
+    console.warn = discardWarning;
   }
 
   program
@@ -1081,15 +1088,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
   }
 
-  // `--quiet`: settle the secret store now, with its keychain-fallback /
-  // caveat notice muted, before anything below can reach it — stored-auth
-  // reads, catalog env secrets, the OAuth connect. Core caches the choice, so
-  // it never prints later (#2435). Done for every quiet run rather than
-  // per path: the paths that touch the store are spread across core, and one
-  // store resolution is cheap next to a notice leaking on the one that was
-  // missed.
-  if (options.quiet) await resolveSecretStoreQuietly();
-
   // State-path precedence (getStateFilePath): MCP_INSPECTOR_OAUTH_STATE_PATH →
   // <MCP_STORAGE_DIR>/oauth.json → ~/.mcp-inspector/storage/oauth.json — the
   // same file the web backend writes, so tokens are shared across surfaces.
@@ -1346,7 +1344,22 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   };
 }
 
+/** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
+function discardWarning(): void {}
+
 export async function runCli(argv?: string[]): Promise<void> {
+  // Restored in `finally`, so a `--quiet` run cannot leave `console.warn`
+  // muted for whatever else shares the process — the launcher imports
+  // `runCli` as a module, and so does the in-process test runner.
+  const warn = console.warn;
+  try {
+    await runParsedCli(argv);
+  } finally {
+    if (console.warn === discardWarning) console.warn = warn;
+  }
+}
+
+async function runParsedCli(argv?: string[]): Promise<void> {
   const parsed = await parseArgs(argv ?? process.argv);
   // `--list-stored-auth` / `--print-handoff` already wrote their output.
   if (parsed.shortCircuit) return;

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "./helpers/cli-runner.js";
@@ -121,6 +121,45 @@ describe("CLI Tests", () => {
       expect(JSON.parse(lines[0]!)).toMatchObject({
         error: { message: expect.stringMatching(/--method <method>/) },
       });
+    });
+
+    // Core reports advisories with `console.warn` from many places — here
+    // `cleanRoots()` on a hand-edited entry. Vitest replaces `console`, so the
+    // captured stderr cannot show it; the spy is what observes the channel.
+    // Under `--quiet` the run swaps `console.warn` out and restores it after
+    // (Copilot on #2576).
+    it("mutes core's console.warn advisories for a --quiet run, and restores console.warn after", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const dir = mkdtempSync(join(tmpdir(), "cli-quiet-roots-"));
+      const configPath = join(dir, "mcp.json");
+      // A root with no `uri` is dropped with a warning (core/mcp/serverList.ts).
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            s: { type: "stdio", command, args, roots: [{ name: "no-uri" }] },
+          },
+        }),
+      );
+      const run = (extra: string[]) =>
+        runCli(["--config", configPath, ...extra, "--method", "tools/list"]);
+      try {
+        const loud = vi.spyOn(console, "warn").mockImplementation(() => {});
+        expectCliSuccess(await run([]));
+        expect(loud).toHaveBeenCalledWith(
+          "Dropping root without a string `uri`:",
+          expect.anything(),
+        );
+        loud.mockRestore();
+
+        const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+        expectCliSuccess(await run(["-q"]));
+        expect(quiet).not.toHaveBeenCalled();
+        expect(console.warn).toBe(quiet);
+        quiet.mockRestore();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
     });
 
     it("should fail with nonexistent method", async () => {

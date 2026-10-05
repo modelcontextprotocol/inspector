@@ -169,7 +169,7 @@ What it suppresses:
 | The `--verify` one-line summary                                                | Dropped — a failing run's envelope carries the same text |
 | `Authorization complete.` / `Authorization complete. Retrying…`                | Dropped         |
 | `Warning: could not revoke the OAuth grant …` (`--relogin`)                    | Dropped         |
-| The `[mcp-inspector] …` secret-store notice (keychain fallback, `memory` caveat) | Dropped — see [secret storage](../../docs/secret-storage.md) for what it would have said |
+| Advisory warnings from shared Inspector code: the `[mcp-inspector] …` secret-store notice (keychain fallback, `memory` caveat), ignored `roots` / OAuth-endpoint settings, lock and persistence trouble | Dropped (all of `console.warn` is muted for the run). See [secret storage](../../docs/secret-storage.md) for what the store notice would have said. |
 | The result payload / NDJSON on stdout                                          | Kept            |
 | The error envelope on a non-zero exit                                          | Kept            |
 | The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |
@@ -178,7 +178,7 @@ What it suppresses:
 So a quiet run that needs an interactive login still shows what it must; for a run
 that must never prompt, combine `--quiet` with `--stored-auth-only`.
 
-⚠️ Dropping the server's stderr also drops its explanation when it fails to start.
+⚠️ Dropping the server's stderr and the advisory warnings also drops their explanation when something goes wrong.
 The CLI still exits non-zero with an envelope, but if the reason is not obvious,
 re-run without `--quiet`.
 
