@@ -147,6 +147,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
 | `-q`, `--quiet`               | Print only the result payload on stdout, or the error envelope on stderr on failure. Drops status lines, warnings, advisory summaries and a stdio server's own stderr; OAuth prompts a human must answer still print. See [Quiet output](#quiet-output---quiet). |
+| `--output <path>`             | Write the result to a file **instead of** stdout. The parent directory must exist; an existing file is replaced. See [Saving a result to a file](#saving-a-result-to-a-file---output). |
+| `--output-format <raw\|json>` | Encoding of the `--output` file. `json` (default) is the whole result, pretty-printed. `raw` is the result's text, or the decoded bytes of its single image/audio/blob block; `tools/call` and `resources/read` only. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -254,6 +256,32 @@ mcp-inspector --cli <server> --method tools/call --tool-name my_app_tool --forma
 > `tools/list --app-info` always emits NDJSON (one raw app-info object per line) **regardless of `--format`** — the per-tool list shape is fixed. `--format json` only reshapes the single-result paths (`tools/call`, `tools/list` without `--app-info`, etc.) into the `{result[, appInfo]}` envelope.
 
 A `tools/call` that returns `isError:true` still prints its payload but exits `5` (`tool_is_error`) so `&&` chains don't proceed on a failed call.
+
+#### Saving a result to a file (`--output`)
+
+`--output <path>` writes the method's result to a file instead of stdout, so a script can archive or diff results without shell redirection ([#2431](https://github.com/modelcontextprotocol/inspector/issues/2431)). `--output-format` picks how the file is encoded:
+
+| `--output-format` | File contents |
+| ----------------- | ------------- |
+| `json` (default)  | The whole result, pretty-printed with two-space indentation — the same shape the web client's exports download. |
+| `raw`             | The result's own payload: the text of every text-bearing block (text blocks and embedded text resources), joined by newlines. A result with no text and exactly **one** binary block (image, audio, or resource blob) is written as that block's decoded bytes, so an image tool saves as a viewable file. Anything else has no single raw form and fails with `output_not_raw`. Only `tools/call` and `resources/read` have a raw form. |
+
+```bash
+# Archive the whole result as JSON.
+mcp-inspector --cli <server> --method tools/call --tool-name echo --tool-arg message=hi --output echo.json
+
+# Save just the text a tool returned.
+mcp-inspector --cli <server> --method tools/call --tool-name summarize --output summary.txt --output-format raw
+
+# Save an image tool's output as the image itself.
+mcp-inspector --cli <server> --method tools/call --tool-name render_chart --output chart.png --output-format raw
+```
+
+The flag is `--output-format` rather than a new `--format` value because `--format` already shapes **stdout**, and the two compose: in text mode stdout stays empty and a one-line `Wrote N bytes (json) to <path>` confirmation goes to stderr; under `--format json` stdout still carries exactly one envelope, with `output` in place of `result` — `{"output":{"path":"echo.json","format":"json","bytes":123}}`, plus `appInfo` / `schemaFindings` when they would otherwise appear.
+
+Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
+
+`--output` is rejected where there is no single result to write — `--app-info`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
 
 #### Schema portability (`--strict`)
 
