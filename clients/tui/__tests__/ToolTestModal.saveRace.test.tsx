@@ -59,30 +59,41 @@ const waitUntil = async (predicate: () => boolean) => {
   expect(predicate()).toBe(true);
 };
 const lastStatus = () => statuses.at(-1);
+let resultSettledAt: number | null = null;
 const promptOpen = () => prompts.at(-1) != null;
 
 type Api = ReturnType<typeof render>;
 
-// Submit the form and open the save prompt. `w` only opens it once the result
-// view is up, so it is re-pressed — but only while no prompt is open, so a
-// stray press can never be typed into the path.
+// Submit the form and open the save prompt. Enter is re-pressed until the call
+// goes out, since the form ignores it until its input handler has subscribed.
+// `w` is pressed once, only after the modal has re-rendered with the result —
+// from then on its input handler sees the result view, so the key cannot be
+// lost (and re-pressing it could type a stray `w` into the path).
 const submitAndOpenPrompt = async (api: Api, callTool: () => unknown) => {
-  // Enter is likewise re-pressed only until the call goes out, since the form
-  // ignores it until its input handler has subscribed.
   await waitUntil(() => {
     if (vi.mocked(callTool).mock.calls.length === 0) api.stdin.write("\r");
     return vi.mocked(callTool).mock.calls.length > 0;
   });
-  await waitUntil(() => {
-    if (!promptOpen()) api.stdin.write("w");
-    return promptOpen();
-  });
+  await waitUntil(
+    () => resultSettledAt !== null && statuses.length > resultSettledAt,
+  );
+  api.stdin.write("w");
+  await waitUntil(promptOpen);
 };
 
 const renderModal = () => {
-  const callTool = vi.fn().mockResolvedValue({
-    success: true,
-    result: { content: [{ type: "text", text: "hello" }] },
+  // Notes how many renders had happened when the call settled: the modal's
+  // own continuation (which moves it to the result view) runs after this one,
+  // and both are microtasks, so the next render shows the result view.
+  const callTool = vi.fn(() => {
+    const settled = Promise.resolve({
+      success: true,
+      result: { content: [{ type: "text", text: "hello" }] },
+    });
+    void settled.then(() => {
+      resultSettledAt = statuses.length;
+    });
+    return settled;
   });
   const api = render(
     <ToolTestModal
@@ -97,6 +108,7 @@ const renderModal = () => {
 };
 
 afterEach(() => {
+  resultSettledAt = null;
   pending.length = 0;
   statuses.length = 0;
   prompts.length = 0;
@@ -179,6 +191,22 @@ describe("ToolTestModal save serialization (#2571)", () => {
     // A plain w still opens it.
     api.stdin.write("w");
     await waitUntil(promptOpen);
+    api.unmount();
+  });
+
+  it("applies keys typed in one burst to the prompt as it now stands", async () => {
+    const { api, callTool } = renderModal();
+    await submitAndOpenPrompt(api, callTool);
+    // Written back to back, before React re-renders: each key must see the
+    // edit the previous one made, not the prompt from the last render.
+    api.stdin.write("\b");
+    api.stdin.write("\b");
+    api.stdin.write("\r");
+    await waitUntil(() => pending.length === 1);
+    await waitUntil(
+      () => lastStatus()?.message === "Saving to alpha-result.js…",
+    );
+    expect(pending).toHaveLength(1);
     api.unmount();
   });
 
