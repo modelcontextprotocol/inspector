@@ -158,7 +158,24 @@ export function pullNumbersFrom(generated) {
  */
 export function closingKeywordIssues(body) {
   const pattern = /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+#(\d+)\b/gi;
-  return [...(body ?? "").matchAll(pattern)].map((m) => +m[1]);
+  return [...proseOf(body ?? "").matchAll(pattern)].map((m) => +m[1]);
+}
+
+/**
+ * The body with every place GitHub ignores a closing keyword blanked out:
+ * HTML comments (PR templates leave `<!-- Closes #… -->` behind), fenced
+ * code, inline code and blockquotes. A keyword quoted in any of those does
+ * not close the issue, so it must not credit the issue's author either.
+ */
+export function proseOf(body) {
+  return body
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, " ")
+    .replace(
+      /^ {0,3}(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^ {0,3}\1[^\n]*$|(?![\s\S]))/gm,
+      " ",
+    )
+    .replace(/(`+)[\s\S]*?\1/g, " ")
+    .replace(/^ {0,3}>.*$/gm, " ");
 }
 
 const CLOSING_QUERY = `query($n:Int!,$after:String){repository(owner:"${OWNER}",name:"${NAME}"){pullRequest(number:$n){body closingIssuesReferences(first:100,after:$after){pageInfo{hasNextPage endCursor} nodes{number repository{nameWithOwner}}}}}}`;

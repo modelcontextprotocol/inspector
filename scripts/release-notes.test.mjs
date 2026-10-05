@@ -112,6 +112,30 @@ test("closingKeywordIssues reads every closing keyword, never a cross-repo ref",
   assert.deepEqual(closingKeywordIssues(null), []);
 });
 
+test("closingKeywordIssues ignores keywords GitHub ignores: code, quotes, comments", () => {
+  const body = [
+    "Closes #1",
+    "<!-- Closes #2 -->",
+    "<!--",
+    "Fixes #3",
+    "-->",
+    "Documents `Closes #4` and ``fixes #5``.",
+    "```sh",
+    "Closes #6",
+    "```",
+    "~~~",
+    "resolves #7",
+    "~~~",
+    "> Closes #8",
+    "   > fixes #9",
+    "Resolves #10",
+  ].join("\n");
+  assert.deepEqual(closingKeywordIssues(body), [1, 10]);
+  // An unterminated fence or comment swallows the rest, as GitHub renders it.
+  assert.deepEqual(closingKeywordIssues("Closes #1\n```\nCloses #2"), [1]);
+  assert.deepEqual(closingKeywordIssues("Closes #1\n<!-- Closes #2"), [1]);
+});
+
 test("formatThanks orders by issue count, then name case-insensitively", () => {
   const reporters = new Map([
     ["zed", [5]],
