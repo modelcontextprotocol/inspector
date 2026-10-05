@@ -11,6 +11,7 @@ import {
   unmetRequiredGroups,
 } from "@inspector/core/mcp/uriTemplate.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
+import { redactErrorText, redactedJson } from "../utils/errorText.js";
 
 // Helper to extract error message from various error types
 function getErrorMessage(error: unknown): string {
@@ -326,7 +327,9 @@ export function ResourceTestModal({
                       </Text>
                     </Box>
                     <Box marginTop={1} paddingLeft={2} flexShrink={0}>
-                      <Text color="red">{String(result.error)}</Text>
+                      <Text color="red">
+                        {redactErrorText(String(result.error))}
+                      </Text>
                     </Box>
                     {result.errorDetails != null ? (
                       <>
@@ -337,7 +340,7 @@ export function ResourceTestModal({
                         </Box>
                         <Box marginTop={1} paddingLeft={2} flexShrink={0}>
                           <Text dimColor>
-                            {JSON.stringify(result.errorDetails, null, 2)}
+                            {redactedJson(result.errorDetails)}
                           </Text>
                         </Box>
                       </>

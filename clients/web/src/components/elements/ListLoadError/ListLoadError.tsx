@@ -1,4 +1,5 @@
 import { Alert, Button, Code, ScrollArea, Stack } from "@mantine/core";
+import { errorMessage } from "../../../utils/errorFormat";
 
 export interface ListLoadErrorProps {
   /**
@@ -56,7 +57,7 @@ export function ListLoadError({ error, what, onRetry }: ListLoadErrorProps) {
     <ErrorAlert title={`Couldn't load ${what}`}>
       <Stack gap="xs">
         <MessageScroll>
-          <ErrorMessage>{error.message}</ErrorMessage>
+          <ErrorMessage>{errorMessage(error)}</ErrorMessage>
         </MessageScroll>
         {onRetry && <RetryButton onClick={onRetry}>Retry</RetryButton>}
       </Stack>
