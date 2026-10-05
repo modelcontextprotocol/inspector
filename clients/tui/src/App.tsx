@@ -18,6 +18,9 @@ import type {
   Prompt,
   PromptArgument,
   GetPromptResult,
+  Root,
+  Task,
+  CallToolResult,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
@@ -31,6 +34,8 @@ import {
   MessageLogState,
   FetchRequestLogState,
   StderrLogState,
+  ManagedRequestorTasksState,
+  ResourceSubscriptionsState,
 } from "@inspector/core/mcp/state/index.js";
 import {
   createProxyFetch,
@@ -45,6 +50,9 @@ import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
+import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
+import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
@@ -94,6 +102,9 @@ import { DetailsModal } from "./components/DetailsModal.js";
 import { toCopyText } from "./utils/clipboard.js";
 import { HelpOverlay } from "./components/HelpOverlay.js";
 import { keybindingSections } from "./utils/keybindings.js";
+import { TasksTab } from "./components/TasksTab.js";
+import { SubscriptionsTab } from "./components/SubscriptionsTab.js";
+import { RootsModal } from "./components/RootsModal.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 import { errorMessage, redactErrorText } from "./utils/errorText.js";
@@ -109,6 +120,13 @@ const APP_VERSION = readInspectorVersion(import.meta.url);
 
 /** Client identity name the TUI reports to servers. */
 const TUI_CLIENT_NAME = "inspector-tui";
+
+/**
+ * Roots snapshot for `useStoreSnapshot`: module scope so both the reader and
+ * the fallback are referentially stable across renders (#2432).
+ */
+const NO_ROOTS: Root[] = [];
+const readRoots = (client: InspectorClient): Root[] => client.getRoots();
 
 // Focus management types
 type FocusArea =
@@ -176,9 +194,11 @@ function App({
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
+    subscriptions?: number;
     prompts?: number;
     skills?: number;
     tools?: number;
+    tasks?: number;
     messages?: number;
     requests?: number;
     logging?: number;
@@ -255,6 +275,9 @@ function App({
     copyText: string;
   } | null>(null);
 
+  // Roots editor (#2432), opened from the Info tab.
+  const [rootsModalOpen, setRootsModalOpen] = useState(false);
+
   // InspectorClient instances for each server
   const [inspectorClients, setInspectorClients] = useState<
     Record<string, InspectorClient>
@@ -283,6 +306,13 @@ function App({
   const [stderrLogStates, setStderrLogStates] = useState<
     Record<string, StderrLogState>
   >({});
+  // Created with the client, like the stores above, so a task status update or
+  // a resources/updated that lands while another tab is showing is not lost.
+  const [requestorTasksStates, setRequestorTasksStates] = useState<
+    Record<string, ManagedRequestorTasksState>
+  >({});
+  const [resourceSubscriptionsStates, setResourceSubscriptionsStates] =
+    useState<Record<string, ResourceSubscriptionsState>>({});
   const [dimensions, setDimensions] = useState({
     width: process.stdout.columns || 80,
     height: process.stdout.rows || 24,
@@ -340,6 +370,12 @@ function App({
     const newMessageLogStates: Record<string, MessageLogState> = {};
     const newFetchRequestLogStates: Record<string, FetchRequestLogState> = {};
     const newStderrLogStates: Record<string, StderrLogState> = {};
+    const newRequestorTasksStates: Record<string, ManagedRequestorTasksState> =
+      {};
+    const newResourceSubscriptionsStates: Record<
+      string,
+      ResourceSubscriptionsState
+    > = {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
         const { config: serverConfig, settings: savedSettings } =
@@ -409,9 +445,8 @@ function App({
         const client = new InspectorClient(serverConfig, opts);
         newClients[serverName] = client;
         newManagers[serverName] = new ManagedToolsState(client);
-        newManagedResourcesStates[serverName] = new ManagedResourcesState(
-          client,
-        );
+        const resourcesState = new ManagedResourcesState(client);
+        newManagedResourcesStates[serverName] = resourcesState;
         newManagedResourceTemplatesStates[serverName] =
           new ManagedResourceTemplatesState(client);
         newManagedPromptsStates[serverName] = new ManagedPromptsState(client);
@@ -419,6 +454,13 @@ function App({
         newMessageLogStates[serverName] = new MessageLogState(client);
         newFetchRequestLogStates[serverName] = new FetchRequestLogState(client);
         newStderrLogStates[serverName] = new StderrLogState(client);
+        newRequestorTasksStates[serverName] = new ManagedRequestorTasksState(
+          client,
+        );
+        // Given the resources store so a subscription carries the listed
+        // Resource's name rather than a bare URI.
+        newResourceSubscriptionsStates[serverName] =
+          new ResourceSubscriptionsState(client, resourcesState);
       }
     }
     if (Object.keys(newClients).length > 0) {
@@ -446,6 +488,14 @@ function App({
         ...newFetchRequestLogStates,
       }));
       setStderrLogStates((prev) => ({ ...prev, ...newStderrLogStates }));
+      setRequestorTasksStates((prev) => ({
+        ...prev,
+        ...newRequestorTasksStates,
+      }));
+      setResourceSubscriptionsStates((prev) => ({
+        ...prev,
+        ...newResourceSubscriptionsStates,
+      }));
     }
     // Omitted on purpose: `inspectorClients` is this effect's own output, so
     // depending on it would re-run the effect after every client it creates
@@ -491,6 +541,12 @@ function App({
       Object.values(stderrLogStates).forEach((manager) => {
         manager.destroy();
       });
+      Object.values(requestorTasksStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(resourceSubscriptionsStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(inspectorClients).forEach((client) => {
         client.disconnect().catch(() => {
           // Ignore errors during cleanup
@@ -507,6 +563,8 @@ function App({
     messageLogStates,
     fetchRequestLogStates,
     stderrLogStates,
+    requestorTasksStates,
+    resourceSubscriptionsStates,
   ]);
 
   // Preselect the first server on mount
@@ -696,6 +754,62 @@ function App({
       setActiveTab("info");
     }
   }, [activeTab, inspectorStatus, showSkillsTab]);
+
+  // Tasks, resource subscriptions and roots (#2432) — all read from core
+  // stores, so nothing about their lifecycle is decided in the TUI.
+  const selectedRequestorTasksState = useMemo(
+    () =>
+      selectedServer && requestorTasksStates[selectedServer]
+        ? requestorTasksStates[selectedServer]
+        : null,
+    [selectedServer, requestorTasksStates],
+  );
+  const {
+    tasks: requestorTasks,
+    refresh: refreshRequestorTasks,
+    clearCompleted: clearCompletedRequestorTasks,
+  } = useManagedRequestorTasks(
+    selectedInspectorClient,
+    selectedRequestorTasksState,
+  );
+  const selectedResourceSubscriptionsState = useMemo(
+    () =>
+      selectedServer && resourceSubscriptionsStates[selectedServer]
+        ? resourceSubscriptionsStates[selectedServer]
+        : null,
+    [selectedServer, resourceSubscriptionsStates],
+  );
+  const {
+    subscriptions: resourceSubscriptions,
+    streamState: subscriptionStreamState,
+  } = useResourceSubscriptions(selectedResourceSubscriptionsState);
+  const advertisedRoots = useStoreSnapshot(
+    selectedInspectorClient ?? null,
+    "rootsChange",
+    readRoots,
+    NO_ROOTS,
+  );
+  // Server-declared, so only knowable once connected — the same gate the web
+  // client uses for its Resources subscribe control and its Tasks screen.
+  const showSubscriptionsTab =
+    inspectorStatus === "connected" &&
+    inspectorCapabilities?.resources?.subscribe === true;
+  const showTasksTab =
+    inspectorStatus === "connected" &&
+    (!!inspectorCapabilities?.tasks ||
+      (selectedInspectorClient?.isTasksExtensionNegotiated() ?? false));
+
+  // Switch away from a tab the server stops serving, for the Skills reason
+  // above: the bar drops it, but `activeTab` would keep rendering its pane.
+  useEffect(() => {
+    if (inspectorStatus !== "connected") return;
+    if (
+      (activeTab === "subscriptions" && !showSubscriptionsTab) ||
+      (activeTab === "tasks" && !showTasksTab)
+    ) {
+      setActiveTab("info");
+    }
+  }, [activeTab, inspectorStatus, showSubscriptionsTab, showTasksTab]);
 
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
@@ -1358,6 +1472,25 @@ function App({
     </>
   );
 
+  const renderTaskDetails = (task: Task, result: CallToolResult | null) => (
+    <>
+      <Box flexShrink={0} flexDirection="column">
+        <Text bold>Task:</Text>
+        <Box paddingLeft={2}>
+          <Text dimColor>{JSON.stringify(task, null, 2)}</Text>
+        </Box>
+      </Box>
+      {result && (
+        <Box marginTop={1} flexShrink={0} flexDirection="column">
+          <Text bold>Result:</Text>
+          <Box paddingLeft={2}>
+            <Text dimColor>{JSON.stringify(result, null, 2)}</Text>
+          </Box>
+        </Box>
+      )}
+    </>
+  );
+
   const renderMessageDetails = (message: MessageEntry) => (
     <>
       <Box flexShrink={0}>
@@ -1420,6 +1553,8 @@ function App({
       prompts: managedPrompts.length || 0,
       skills: managedSkills.length || 0,
       tools: managedTools.length || 0,
+      subscriptions: resourceSubscriptions.length,
+      tasks: requestorTasks.length,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
       logging: inspectorStderrLogs.length || 0,
@@ -1430,6 +1565,8 @@ function App({
     managedPrompts,
     managedSkills,
     managedTools,
+    resourceSubscriptions,
+    requestorTasks,
     inspectorMessages,
     inspectorFetchRequests,
     inspectorStderrLogs,
@@ -1479,7 +1616,8 @@ function App({
       resourceTestModal ||
       promptTestModal ||
       detailsModal ||
-      helpOpen
+      helpOpen ||
+      rootsModalOpen
     ) {
       return;
     }
@@ -1526,6 +1664,8 @@ function App({
           if (tab.id === "logging" && !showLoggingTab) return false;
           if (tab.id === "requests" && !showRequestsTab) return false;
           if (tab.id === "skills" && !showSkillsTab) return false;
+          if (tab.id === "subscriptions" && !showSubscriptionsTab) return false;
+          if (tab.id === "tasks" && !showTasksTab) return false;
           return true;
         })
         .map((tab: { id: TabType; label: string; accelerator: string }) => [
@@ -1540,7 +1680,13 @@ function App({
         nextTab === "auth" &&
         activeTab === "auth" &&
         pendingStepUp?.serverName === selectedServer;
-      if (!authStepUpAccelerator) {
+      // AuthTab binds `s` to "clear OAuth state" while its pane is focused, so
+      // the Tasks accelerator must not also fire there (#2432).
+      const authClearKey =
+        nextTab === "tasks" &&
+        activeTab === "auth" &&
+        (focus === "tabContentList" || focus === "tabContentDetails");
+      if (!authStepUpAccelerator && !authClearKey) {
         setActiveTab(nextTab);
         setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
       }
@@ -1612,9 +1758,11 @@ function App({
         "info",
         "auth",
         "resources",
+        "subscriptions",
         "prompts",
         "skills",
         "tools",
+        "tasks",
         "messages",
         "requests",
         "logging",
@@ -1624,6 +1772,8 @@ function App({
         if (t === "logging" && !showLoggingTab) return false;
         if (t === "requests" && !showRequestsTab) return false;
         if (t === "skills" && !showSkillsTab) return false;
+        if (t === "subscriptions" && !showSubscriptionsTab) return false;
+        if (t === "tasks" && !showTasksTab) return false;
         return true;
       });
       const currentIndex = tabs.indexOf(activeTab);
@@ -1680,6 +1830,8 @@ function App({
         inspectorClients[selectedServer]?.getServerType() ===
           "streamable-http"),
     showSkills: showSkillsTab,
+    showSubscriptions: showSubscriptionsTab,
+    showTasks: showTasksTab,
   });
   const tabsHeight = tabBarRows(shownTabs, tabCounts, contentWidth);
   // Server details will be flexible - calculate remaining space for content
@@ -1884,6 +2036,8 @@ function App({
                 : false
             }
             showSkills={showSkillsTab}
+            showSubscriptions={showSubscriptionsTab}
+            showTasks={showTasksTab}
             showRequests={
               selectedServer && inspectorClients[selectedServer]
                 ? (() => {
@@ -1916,7 +2070,15 @@ function App({
                 width={contentWidth}
                 height={contentHeight}
                 focused={
-                  focus === "tabContentList" || focus === "tabContentDetails"
+                  (focus === "tabContentList" ||
+                    focus === "tabContentDetails") &&
+                  !rootsModalOpen
+                }
+                roots={advertisedRoots}
+                onEditRoots={
+                  selectedInspectorClient
+                    ? () => setRootsModalOpen(true)
+                    : undefined
                 }
               />
             )}
@@ -2088,6 +2250,55 @@ function App({
                     detailsModal
                   )
                 }
+              />
+            ) : activeTab === "subscriptions" &&
+              showSubscriptionsTab &&
+              selectedInspectorClient ? (
+              <SubscriptionsTab
+                key={`subscriptions-${selectedServer}`}
+                resources={managedResources}
+                subscriptions={resourceSubscriptions}
+                streamState={subscriptionStreamState}
+                messages={inspectorMessages}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                modalOpen={!!detailsModal}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
+              />
+            ) : activeTab === "tasks" &&
+              showTasksTab &&
+              selectedInspectorClient ? (
+              <TasksTab
+                key={`tasks-${selectedServer}`}
+                tasks={requestorTasks}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                modalOpen={!!detailsModal}
+                onRefresh={refreshRequestorTasks}
+                onClearCompleted={clearCompletedRequestorTasks}
+                onViewDetails={(task, result) =>
+                  setDetailsModal({
+                    title: `Task: ${task.taskId}`,
+                    content: renderTaskDetails(task, result),
+                  })
+                }
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
               />
             ) : activeTab === "skills" &&
               currentServerState?.status === "connected" &&
@@ -2327,6 +2538,18 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setHelpOpen(false)}
+        />
+      )}
+
+      {/* Roots editor (#2432) - rendered at App level for full screen overlay */}
+      {rootsModalOpen && (
+        <RootsModal
+          roots={advertisedRoots}
+          inspectorClient={selectedInspectorClient}
+          connected={inspectorStatus === "connected"}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setRootsModalOpen(false)}
         />
       )}
 
