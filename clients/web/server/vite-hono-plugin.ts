@@ -21,7 +21,7 @@ import {
   appDocumentEmbedders,
 } from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
-import { HEALTH_HEADERS, HEALTH_BODY, isHealthRequest } from "./health.js";
+import { handleNodeHealthRequest } from "./health.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
@@ -173,11 +173,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           const pathname = req.url || "";
           // The same unauthenticated `/healthz` probe the prod server
           // answers (#2438), so dev and prod agree; see health.ts.
-          if (isHealthRequest(req.method, pathname)) {
-            res.writeHead(200, HEALTH_HEADERS);
-            res.end(
-              req.method === "HEAD" ? undefined : JSON.stringify(HEALTH_BODY),
-            );
+          if (handleNodeHealthRequest(req, res)) {
             return;
           }
           if (!pathname.startsWith("/api")) {

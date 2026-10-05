@@ -9,20 +9,25 @@
  * fallback, disclosing nothing but `{"status":"ok"}` (never the API token that
  * `GET /` embeds), and leaving every `/api/*` route behind its auth check.
  *
+ * The dev Vite middleware's path is covered through `handleNodeHealthRequest`,
+ * the Node-level adapter it delegates to, driven by a real `node:http` server
+ * — `vite-hono-plugin.ts` itself is excluded from coverage as runtime glue
+ * that needs a live Vite server.
+ *
  * It lives in the `integration` project because it binds real listeners (the
- * HTTP server plus the sandbox and app-origin servers it starts). The dev
- * middleware branch is not driven here, since `vite-hono-plugin.ts` is
- * excluded from coverage as runtime glue that needs a live Vite server.
+ * HTTP server plus the sandbox and app-origin servers it starts).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer } from "node:net";
+import { createServer as createHttpServer, type Server } from "node:http";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   HEALTH_BODY,
   HEALTH_PATH,
+  handleNodeHealthRequest,
   healthResponse,
   isHealthRequest,
 } from "../../../../server/health.js";
@@ -98,6 +103,66 @@ describe("healthResponse", () => {
 
   it("keeps the shared body immutable", () => {
     expect(Object.isFrozen(HEALTH_BODY)).toBe(true);
+  });
+});
+
+// The dev Vite middleware's path: a real node:http server whose handler calls
+// `handleNodeHealthRequest` first and falls through (`next()`) otherwise.
+describe("handleNodeHealthRequest (dev middleware path)", () => {
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = createHttpServer((req, res) => {
+      if (handleNodeHealthRequest(req, res)) return;
+      res.writeHead(418);
+      res.end("fell through");
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", () => resolve()),
+    );
+    const addr = server.address();
+    if (!addr || typeof addr !== "object") throw new Error("no address");
+    baseUrl = `http://127.0.0.1:${addr.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("answers GET with 200, the fixed body and the health headers", async () => {
+    const res = await fetch(`${baseUrl}${HEALTH_PATH}?t=1`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({ status: "ok" });
+  });
+
+  it("answers HEAD with 200 and no body", async () => {
+    const res = await fetch(`${baseUrl}${HEALTH_PATH}`, { method: "HEAD" });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(await res.text()).toBe("");
+  });
+
+  it("returns false and leaves other requests to the caller", async () => {
+    const other = await fetch(`${baseUrl}/api/config`);
+    expect(other.status).toBe(418);
+    expect(await other.text()).toBe("fell through");
+    const post = await fetch(`${baseUrl}${HEALTH_PATH}`, { method: "POST" });
+    expect(post.status).toBe(418);
+  });
+
+  it("writes nothing for a request with no method", () => {
+    const untouched = (): never => {
+      throw new Error("the response must not be written");
+    };
+    expect(
+      handleNodeHealthRequest(
+        { method: undefined, url: HEALTH_PATH },
+        { writeHead: untouched, end: untouched },
+      ),
+    ).toBe(false);
   });
 });
 

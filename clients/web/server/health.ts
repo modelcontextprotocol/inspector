@@ -28,6 +28,8 @@
  * backend that has since died.
  */
 
+import type { IncomingMessage, ServerResponse } from "node:http";
+
 /** The path the health route is served at, in both the prod and dev backends. */
 export const HEALTH_PATH = "/healthz";
 
@@ -60,12 +62,38 @@ export function isHealthRequest(
   return path === HEALTH_PATH;
 }
 
+/** The serialized body, or none for `HEAD`, per HTTP semantics. */
+function healthBodyFor(method: string): string | null {
+  return method.toUpperCase() === "HEAD" ? null : JSON.stringify(HEALTH_BODY);
+}
+
 /**
- * Build the health response. `HEAD` gets the same status and headers with no
- * body, per HTTP semantics.
+ * Build the health response (the prod Hono route). `HEAD` gets the same
+ * status and headers with no body.
  */
 export function healthResponse(method = "GET"): Response {
-  const body =
-    method.toUpperCase() === "HEAD" ? null : JSON.stringify(HEALTH_BODY);
-  return new Response(body, { status: 200, headers: { ...HEALTH_HEADERS } });
+  return new Response(healthBodyFor(method), {
+    status: 200,
+    headers: { ...HEALTH_HEADERS },
+  });
+}
+
+/**
+ * Answer the health route on a raw Node request/response pair (the dev Vite
+ * middleware, which sees Node's `IncomingMessage`, not a fetch `Request`).
+ * Returns `true` when it handled the request, `false` to let the caller pass
+ * it on. Kept here rather than inline in `vite-hono-plugin.ts` so the dev
+ * path is tested directly — that plugin is excluded from coverage as glue.
+ */
+export function handleNodeHealthRequest(
+  req: Pick<IncomingMessage, "method" | "url">,
+  res: Pick<ServerResponse, "writeHead" | "end">,
+): boolean {
+  const { method } = req;
+  if (method === undefined || !isHealthRequest(method, req.url)) return false;
+  res.writeHead(200, { ...HEALTH_HEADERS });
+  const body = healthBodyFor(method);
+  if (body === null) res.end();
+  else res.end(body);
+  return true;
 }
