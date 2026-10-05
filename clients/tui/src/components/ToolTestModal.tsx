@@ -61,6 +61,9 @@ export function ToolTestModal({
   const [savePrompt, setSavePrompt] = useState<SavePrompt | null>(null);
   const [saveStatus, setSaveStatus] = useState<SaveStatus | null>(null);
   const scrollViewRef = React.useRef<ScrollViewRef>(null);
+  // Numbers each save so only the latest one may report: an earlier, slower
+  // write settling after a later one must not overwrite the newer status.
+  const saveAttemptRef = React.useRef(0);
   const toolName = tool?.name || "tool";
 
   // Use full terminal dimensions instead of passed dimensions
@@ -213,18 +216,22 @@ export function ToolTestModal({
   };
 
   const saveCurrentResult = async (prompt: SavePrompt) => {
+    const attempt = ++saveAttemptRef.current;
+    const report = (status: SaveStatus) => {
+      if (attempt === saveAttemptRef.current) setSaveStatus(status);
+    };
     try {
       const saved = await saveResultToFile(
         result?.callResult,
         prompt.path,
         prompt.format,
       );
-      setSaveStatus({
+      report({
         ok: true,
         message: `Saved ${saved.format} result to ${saved.path} (${saved.bytes} bytes)`,
       });
     } catch (err) {
-      setSaveStatus({
+      report({
         ok: false,
         message: err instanceof Error ? err.message : String(err),
       });
