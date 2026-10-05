@@ -2282,8 +2282,11 @@ function App({
         />
       )}
 
-      {/* Details Modal - rendered at App level for full screen overlay */}
-      {detailsModal && (
+      {/* Details Modal - rendered at App level for full screen overlay. Held
+          back while the help is open: one can arrive asynchronously (a
+          no-argument prompt fetch completing), and both overlays would then
+          take the same Esc. It appears once the help closes (Copilot). */}
+      {detailsModal && !helpOpen && (
         <DetailsModal
           title={detailsModal.title}
           content={detailsModal.content}

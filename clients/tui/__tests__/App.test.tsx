@@ -1997,6 +1997,28 @@ describe("App (keybinding help, #2436)", () => {
     await expectFrame(r, "Authorization cancelled");
   });
 
+  it("holds back a details dialog that arrives while it is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.prompts = [{ name: "greet", description: "no-arg prompt" }];
+    const r = await mount(oneStdio());
+    let resolvePrompt: (value: { result: { messages: [] } }) => void = () => {};
+    const pending = new Promise<{ result: { messages: [] } }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    for (const client of h.clientInstances) {
+      Object.assign(client, { getPrompt: vi.fn(() => pending) });
+    }
+    await press(r, ["m", TAB, ENTER, "?"]); // fetch starts, then help opens
+    await expectFrame(r, "Keyboard shortcuts");
+    resolvePrompt({ result: { messages: [] } });
+    await tick();
+    await press(r, [ESC]); // closes only the help
+    await expectFrame(r, "Prompt: greet");
+    await press(r, [ESC]); // and then the details dialog
+    await waitUntil(() => !(r.lastFrame() ?? "").includes("Prompt: greet"));
+    expect(r.lastFrame() ?? "").not.toContain("Prompt: greet");
+  });
+
   it("ignores '?' while another dialog is open", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];
