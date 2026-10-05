@@ -537,6 +537,14 @@ export function ServerSettingsForm({
   // the value the authorization server actually receives. It follows the
   // address bar's origin, which is why it is computed rather than hard-coded.
   const oauthRedirectUri = redirectUrlProvider.getRedirectUrl();
+  // Under EMA the authorization request carrying this URI goes to the
+  // enterprise IdP, so it is registered on the IdP client from Client Settings
+  // — not on the Resource AS client named by the fields beside it.
+  const redirectUriOriginNote =
+    "It depends on the origin the Inspector is opened from — localhost vs 127.0.0.1, a different port or host each change it.";
+  const redirectUriDescription = enterpriseManaged
+    ? `Register this exact URI on the enterprise IdP client configured in Client Settings — the IdP authorization request carries it, not the Resource AS client above. ${redirectUriOriginNote}`
+    : `Register this exact URI with your authorization server when using a pre-registered client ID. ${redirectUriOriginNote}`;
   const resourceAsDescription = enterpriseManaged
     ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
     : undefined;
@@ -1021,7 +1029,7 @@ export function ServerSettingsForm({
               />
               <RedirectUriInput
                 label="Redirect URI"
-                description="Register this exact URI with your authorization server when using a pre-registered client ID. It depends on the origin the Inspector is opened from — localhost vs 127.0.0.1, a different port or host each change it."
+                description={redirectUriDescription}
                 value={oauthRedirectUri}
                 rightSection={
                   <CopyButton value={oauthRedirectUri} label="Redirect URI" />

@@ -1592,6 +1592,9 @@ describe("ServerSettingsForm", () => {
     expect(
       screen.getByText(/depends on the origin the Inspector is opened from/i),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText(/when using a pre-registered client ID/i),
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Copy Redirect URI" }));
     expect(writeText).toHaveBeenCalledWith(expected);
   });
@@ -1607,6 +1610,10 @@ describe("ServerSettingsForm", () => {
     expect(screen.getByLabelText("Redirect URI")).toHaveValue(
       redirectUrlProvider.getRedirectUrl(),
     );
+    // Under EMA the URI is registered on the IdP client, not the Resource AS.
+    expect(
+      screen.getByText(/enterprise IdP client configured in Client Settings/i),
+    ).toBeInTheDocument();
   });
 
   it("hides the OAuth Settings section for stdio servers", () => {
