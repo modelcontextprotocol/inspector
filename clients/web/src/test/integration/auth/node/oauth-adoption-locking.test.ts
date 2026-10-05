@@ -31,8 +31,10 @@ vi.mock("@inspector/core/auth/node/file-lock.js", async (importOriginal) => {
 
 import {
   writeOAuthSections,
+  removeOAuthStore,
   SECRETS_NAMESPACE_KEY,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
+import { recordNamespaceKeys } from "@inspector/core/auth/node/oauth-namespace-ledger.js";
 import {
   InMemorySecretStore,
   SecretStoreUnavailableError,
@@ -171,5 +173,36 @@ describe("legacy adoption under a degraded (unlocked) file lock", () => {
         ))!,
       ),
     ).toMatchObject({ access_token: "at-second" });
+  });
+});
+
+describe("namespace-ledger purge under a degraded (unlocked) file lock (#2560)", () => {
+  const OTHER_NS = "11111111-2222-4333-8444-555555555555";
+
+  /** A recorded namespace holding a live entry, as a racing adopter leaves it. */
+  async function seedRecordedNamespace(): Promise<string> {
+    await recordNamespaceKeys(filePath, OTHER_NS, [SERVER], []);
+    const id = oauthSecretServerId(SERVER, OTHER_NS);
+    await store.set(id, LEGACY_TOKENS_FIELD, JSON.stringify(TOKENS));
+    return id;
+  }
+
+  it("a mint-only adoption does not purge recorded namespaces", async () => {
+    // Unlocked, a recorded-but-unstamped namespace may be a concurrent
+    // adopter's, so its entries must survive.
+    const id = await seedRecordedNamespace();
+    await writeOAuthSections(filePath, snapshotFor("fresh"), undefined, store);
+    await flushStoreFileWrites(filePath);
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBe(
+      JSON.stringify(TOKENS),
+    );
+  });
+
+  it("an unlocked removal does not purge recorded namespaces", async () => {
+    const id = await seedRecordedNamespace();
+    await removeOAuthStore(filePath, store);
+    expect(await store.get(id, LEGACY_TOKENS_FIELD)).toBe(
+      JSON.stringify(TOKENS),
+    );
   });
 });

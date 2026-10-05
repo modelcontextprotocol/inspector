@@ -27,7 +27,11 @@
  *    separate store entries instead of overwriting one shared slot. The
  *    namespace is minted — and a legacy file's unscoped entries moved under
  *    it — on the file's first write (`adoptSecretsNamespace`); reads and
- *    removes honor whatever the file says and never adopt.
+ *    removes honor whatever the file says and never adopt. A sidecar
+ *    ledger (`oauth-namespace-ledger.ts`, #2560) records every namespace
+ *    the file has used, so entries under one the file no longer carries —
+ *    its stamp stripped by an older Inspector's save — are purged on the
+ *    next locked adoption or removal instead of orphaned in the store.
  */
 
 import {
@@ -61,6 +65,10 @@ import {
   type SecretStore,
 } from "./secret-store.js";
 import { defaultSecretStore } from "./secret-store-selection.js";
+import {
+  purgeSupersededNamespaces,
+  recordNamespaceKeys,
+} from "./oauth-namespace-ledger.js";
 import { MAX_WRITE_ATTEMPTS } from "./file-secret-store.js";
 import {
   IDP_SESSION_FIELD,
@@ -345,6 +353,13 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * a file that is absent, or recognized but indexing no entries — stays
  * allowed unlocked: there is nothing to move, and a concurrent
  * mint converges via the namespace re-key in `writeOAuthSections`.
+ *
+ * Under the lock, adoption first purges every namespace the ledger records
+ * (#2560): reaching this point means the file carries none, so each
+ * recorded one is superseded — most often a stamp an older Inspector's save
+ * stripped, whose entries nothing else would ever find. Unlocked, the purge
+ * is skipped: a concurrent adopter's namespace can be recorded before it is
+ * stamped, and purging it would delete live credentials.
  */
 async function adoptSecretsNamespace(
   filePath: string,
@@ -357,6 +372,9 @@ async function adoptSecretsNamespace(
   const snapshot = parseOAuthPersistBlob(raw);
   if (raw !== null && snapshot === null) {
     throw new OAuthStateFileUnrecognizedError(filePath, "save");
+  }
+  if (locked) {
+    await purgeSupersededNamespaces(filePath, secretStore, undefined);
   }
   const namespace = newSecretsNamespace();
   if (snapshot === null) return namespace;
@@ -383,6 +401,14 @@ async function adoptSecretsNamespace(
     );
   }
 
+  // Recorded before the copies, so an interrupted move's copies are still
+  // findable if this namespace is later superseded.
+  await recordNamespaceKeys(
+    filePath,
+    namespace,
+    Object.keys(snapshot.servers),
+    Object.keys(snapshot.idpSessions),
+  );
   // Rollback baseline: the scoped ids are vacant before this call — the
   // namespace is a UUID minted moments ago, so nothing can already live
   // under it — which makes "restore" simply "delete what we copied".
@@ -787,6 +813,14 @@ export async function writeOAuthSections(
               ],
             };
         const merged = mergeOAuthSections(disk, snapshot, effective);
+        // Ledger before store writes (#2560): an entry written under this
+        // namespace must be findable once the namespace is superseded.
+        await recordNamespaceKeys(
+          filePath,
+          namespace,
+          Object.keys(merged.servers),
+          Object.keys(merged.idpSessions),
+        );
 
         for (const url of effective.servers ?? []) {
           const serverId = oauthSecretServerId(url, namespace);
@@ -1079,6 +1113,14 @@ async function migratePlaintextSecrets(
   // and a read-triggered strip that also re-keyed the entries would be the
   // adoption without its legacy-entry move.
   const namespace = parseSecretsNamespace(raw);
+  if (namespace !== undefined) {
+    await recordNamespaceKeys(
+      filePath,
+      namespace,
+      Object.keys(fresh.servers),
+      Object.keys(fresh.idpSessions),
+    );
+  }
   const migrateEntrySecrets = async (
     serverId: string,
     secrets: OAuthSecretValues,
@@ -1204,7 +1246,7 @@ export async function removeOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
-  await withOAuthStateLock(filePath, "remove", async () => {
+  await withOAuthStateLock(filePath, "remove", async (locked) => {
     const rawBlob = await readStoreFile(filePath);
     const snapshot = parseOAuthPersistBlob(rawBlob);
     if (rawBlob !== null && snapshot === null) {
@@ -1245,6 +1287,13 @@ export async function removeOAuthStore(
       }
     } else {
       await deleteStoreFile(filePath);
+    }
+    // The file is gone, so every namespace the ledger records is now
+    // superseded — including ones an older Inspector's save stripped from
+    // it, which the purge above could not see (#2560). Locked only, for the
+    // reason adoption gives.
+    if (locked) {
+      await purgeSupersededNamespaces(filePath, secretStore, undefined);
     }
   });
 }

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -77,6 +77,10 @@ import {
 } from "@inspector/core/auth/node/secret-store.js";
 import { FileSecretStore } from "@inspector/core/auth/node/file-secret-store.js";
 import {
+  namespaceLedgerPath,
+  resetNamespaceLedgerWarnings,
+} from "@inspector/core/auth/node/oauth-namespace-ledger.js";
+import {
   PERSIST_TOKENS_ENV,
   oauthSecretServerId,
   oauthIdpSecretServerId,
@@ -136,6 +140,7 @@ afterEach(() => {
   else process.env[PERSIST_TOKENS_ENV] = savedPolicy;
   resetPersistTokensPolicyWarnings();
   resetOAuthSecretStoreWarnings();
+  resetNamespaceLedgerWarnings();
   vi.restoreAllMocks();
   rmSync(tempDir, { recursive: true, force: true });
 });
@@ -444,18 +449,28 @@ describe("legacy adoption (#2549)", () => {
     await seedLegacy(store);
     // Copies land, then the state-file stamp — the migration's commit
     // point — rejects. The copies must be removed and the legacy file and
-    // ids left authoritative for the retry.
-    vi.mocked(writeStoreFile).mockImplementationOnce(async () => {
-      throw new Error("disk full during stamp");
+    // ids left authoritative for the retry. Only the state file's write
+    // fails: the namespace ledger (#2560) is written first, to its own path.
+    const real = vi.mocked(writeStoreFile).getMockImplementation()!;
+    vi.mocked(writeStoreFile).mockImplementation(async (path, data) => {
+      if (path === fileA) throw new Error("disk full during stamp");
+      return real(path, data);
     });
 
-    await expect(
-      writeOAuthSections(fileA, snapshotFor("new"), undefined, store),
-    ).rejects.toThrow("disk full during stamp");
+    try {
+      await expect(
+        writeOAuthSections(fileA, snapshotFor("new"), undefined, store),
+      ).rejects.toThrow("disk full during stamp");
+    } finally {
+      vi.mocked(writeStoreFile).mockImplementation(real);
+    }
 
     // The namespace the failed stamp would have committed (from the blob
     // handed to the rejected write) holds no copies.
-    const attempted = vi.mocked(writeStoreFile).mock.calls.at(-1)?.[1];
+    const attempted = vi
+      .mocked(writeStoreFile)
+      .mock.calls.filter(([path]) => path === fileA)
+      .at(-1)?.[1];
     const ns = (JSON.parse(attempted as string) as Record<string, unknown>)[
       SECRETS_NAMESPACE_KEY
     ] as string;
@@ -501,5 +516,191 @@ describe("legacy adoption (#2549)", () => {
       await store.get(oauthIdpSecretServerId(ISSUER), IDP_SESSION_FIELD),
     ).toBeNull();
     expect(() => readFileSync(fileA, "utf8")).toThrow();
+  });
+});
+
+describe("namespace ledger: superseded namespaces are purged (#2560)", () => {
+  const OTHER = "https://other.example/mcp";
+
+  /**
+   * What a ≤ 2.9.x save leaves behind: the same entries, no stamp. `drop`
+   * also removes servers, as the old version may have in the meantime.
+   */
+  async function stripStamp(filePath: string, drop: string[] = []) {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as {
+      servers: Record<string, unknown>;
+    } & Record<string, unknown>;
+    delete parsed[SECRETS_NAMESPACE_KEY];
+    for (const url of drop) delete parsed.servers[url];
+    await writeStoreFile(filePath, JSON.stringify(parsed));
+    await flushStoreFileWrites(filePath);
+  }
+
+  function ledgerNamespaces(filePath: string): string[] {
+    const parsed = JSON.parse(
+      readFileSync(namespaceLedgerPath(filePath), "utf8"),
+    ) as { namespaces: Record<string, unknown> };
+    return Object.keys(parsed.namespaces);
+  }
+
+  /** Save once, strip the stamp, save again: the alternating-versions cycle. */
+  async function alternate(store: SecretStore, drop: string[] = []) {
+    await writeOAuthSections(
+      fileA,
+      {
+        servers: {
+          [SERVER]: { scope: "read", tokens: tokensFor("one") },
+          [OTHER]: { scope: "read", tokens: tokensFor("other") },
+        },
+        idpSessions: {},
+      },
+      undefined,
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    expect(ledgerNamespaces(fileA)).toEqual([ns1]);
+
+    await stripStamp(fileA, drop);
+    await writeOAuthSections(
+      fileA,
+      { servers: { [SERVER]: { scope: "write" } }, idpSessions: {} },
+      { servers: [SERVER] },
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns2 = namespaceOf(fileA);
+    expect(ns2).not.toBe(ns1);
+    return { ns1, ns2 };
+  }
+
+  it("re-adoption purges the stripped namespace's entries and drops it from the ledger", async () => {
+    const store = new InMemorySecretStore();
+    const { ns1, ns2 } = await alternate(store);
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(
+      await store.get(oauthSecretServerId(OTHER, ns1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(ledgerNamespaces(fileA)).toEqual([ns2]);
+  });
+
+  it("also purges servers the old version removed from the file meanwhile", async () => {
+    // The stripped file no longer names OTHER, so only the ledger can.
+    const store = new InMemorySecretStore();
+    const { ns1 } = await alternate(store, [OTHER]);
+    expect(
+      await store.get(oauthSecretServerId(OTHER, ns1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+  });
+
+  it("leaves nothing of the stripped namespace in the keychain (acceptance criterion)", async () => {
+    const store = new KeyringSecretStore();
+    const { ns1 } = await alternate(store);
+    const accounts = [...keyringMocks.password.keys()];
+    expect(accounts.some((a) => a.includes(ns1))).toBe(false);
+  });
+
+  it("purges IdP session entries recorded under a stripped namespace", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(
+      fileA,
+      {
+        servers: {},
+        idpSessions: { [ISSUER]: { idToken: "id-1", refreshToken: "rt-1" } },
+      },
+      undefined,
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER, ns1), IDP_SESSION_FIELD),
+    ).not.toBeNull();
+
+    await stripStamp(fileA);
+    await writeOAuthSections(
+      fileA,
+      snapshotFor("x"),
+      { servers: [SERVER] },
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    expect(
+      await store.get(oauthIdpSecretServerId(ISSUER, ns1), IDP_SESSION_FIELD),
+    ).toBeNull();
+  });
+
+  it("keeps a namespace whose purge failed recorded, and retries it at the next adoption", async () => {
+    const store = new InMemorySecretStore();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await writeOAuthSections(fileA, snapshotFor("one"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    const id1 = oauthSecretServerId(SERVER, ns1);
+
+    const realDelete = store.deleteAllForServer.bind(store);
+    const del = vi
+      .spyOn(store, "deleteAllForServer")
+      .mockImplementation(async (id) => {
+        if (id === id1) throw new Error("keychain locked");
+        return realDelete(id);
+      });
+    await stripStamp(fileA);
+    await writeOAuthSections(fileA, snapshotFor("two"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    const ns2 = namespaceOf(fileA);
+    expect(await store.get(id1, LEGACY_TOKENS_FIELD)).not.toBeNull();
+    expect(ledgerNamespaces(fileA).sort()).toEqual([ns1, ns2].sort());
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("keychain locked"),
+    );
+
+    // Purge works again; the next adoption picks up both stale namespaces.
+    del.mockRestore();
+    await stripStamp(fileA);
+    await writeOAuthSections(fileA, snapshotFor("three"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    expect(await store.get(id1, LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(ledgerNamespaces(fileA)).toEqual([namespaceOf(fileA)]);
+  });
+
+  it("removing a stripped file purges the namespace it lost, and the ledger with it", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(fileA, snapshotFor("one"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    await stripStamp(fileA);
+
+    await removeOAuthStore(fileA, store);
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+    expect(existsSync(namespaceLedgerPath(fileA))).toBe(false);
+  });
+
+  it("a state file deleted by hand has its entries purged by the next save", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(fileA, snapshotFor("one"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    rmSync(fileA);
+
+    await writeOAuthSections(fileA, snapshotFor("two"), undefined, store);
+    await flushStoreFileWrites(fileA);
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns1), LEGACY_TOKENS_FIELD),
+    ).toBeNull();
+  });
+
+  it("does not touch another state file's namespace", async () => {
+    const store = new InMemorySecretStore();
+    await writeOAuthSections(fileB, snapshotFor("b"), undefined, store);
+    await flushStoreFileWrites(fileB);
+    const idB = oauthSecretServerId(SERVER, namespaceOf(fileB));
+
+    await alternate(store);
+    expect(await store.get(idB, LEGACY_TOKENS_FIELD)).not.toBeNull();
   });
 });
