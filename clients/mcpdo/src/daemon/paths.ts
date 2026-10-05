@@ -3,13 +3,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-/** Env: directory that owns daemon.sock + daemon.lock. */
+/** Env: directory that owns mcpdod.sock + mcpdod.lock. */
 export const DAEMON_DIR_ENV = "MCP_INSPECTOR_DAEMON_DIR";
 
 /**
  * Env: IPC bearer token. Every daemon requires one: set it explicitly for
  * private mode, or leave it unset and the daemon generates one at startup
- * and publishes it to `daemon.token` (see {@link getDaemonTokenPath}).
+ * and publishes it to `mcpdod.token` (see {@link getDaemonTokenPath}).
  */
 export const DAEMON_TOKEN_ENV = "MCP_INSPECTOR_DAEMON_TOKEN";
 
@@ -111,11 +111,11 @@ export function getDaemonSocketPath(dir: string = getDaemonDir()): string {
       .slice(0, 16);
     return `\\\\.\\pipe\\mcp-conn-${hash}`;
   }
-  return path.join(dir, "daemon.sock");
+  return path.join(dir, "mcpdod.sock");
 }
 
 export function getDaemonLockPath(dir: string = getDaemonDir()): string {
-  return path.join(dir, "daemon.lock");
+  return path.join(dir, "mcpdod.lock");
 }
 
 /**
@@ -128,13 +128,13 @@ export function getDaemonLockPath(dir: string = getDaemonDir()): string {
  * request path at all.
  */
 export function getDaemonTokenPath(dir: string = getDaemonDir()): string {
-  return path.join(dir, "daemon.token");
+  return path.join(dir, "mcpdod.token");
 }
 
 /** Daemon stderr log (0600) — the only visibility into a detached daemon
  * that died during startup. */
 export function getDaemonLogPath(dir: string = getDaemonDir()): string {
-  return path.join(dir, "daemon.log");
+  return path.join(dir, "mcpdod.log");
 }
 
 /**

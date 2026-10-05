@@ -858,7 +858,7 @@ export class DaemonServer {
   }
 
   /**
-   * `daemon.lock` is a real lock, not bookkeeping: `O_EXCL`-create it with
+   * `mcpdod.lock` is a real lock, not bookkeeping: `O_EXCL`-create it with
    * our pid, and refuse to start while another *live* daemon holds it. A
    * lock left by a dead pid is reclaimed atomically: the stale file is
    * `rename`d aside first, so exactly one contender wins the reclaim and a
@@ -1003,7 +1003,7 @@ function isPidAlive(pid: number): boolean {
 }
 
 /**
- * How long a pidless `daemon.lock` is presumed to belong to a concurrent
+ * How long a pidless `mcpdod.lock` is presumed to belong to a concurrent
  * starter that is between its O_EXCL create and its pid write, rather than
  * to a starter that died mid-create. Generous against a stalled writer while
  * still reclaiming a genuinely abandoned empty lock promptly.

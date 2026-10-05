@@ -94,25 +94,13 @@ const SKILL_DIR = path.join(ROOT, "skills", "mcpdo");
 // package that owns the skill, not in its payload. (The dev-workflow skills
 // under `.claude/skills` keep evals inline because those directories never
 // leave the repo.)
-const EVALS_FILE = path.join(
-  ROOT,
-  "clients",
-  "daemon-cli",
-  "evals",
-  "evals.json",
-);
+const EVALS_FILE = path.join(ROOT, "clients", "mcpdo", "evals", "evals.json");
 const SKILL_NAME = "mcpdo";
 
 // Behavior-eval fixtures: the real CLI build the shim wraps, the shim
 // itself, and the stdio test server the private catalog points at. Builds,
 // not sources — the eval measures what a user would run.
-const REAL_BIN = path.join(
-  ROOT,
-  "clients",
-  "daemon-cli",
-  "build",
-  "mcp-bin.js",
-);
+const REAL_BIN = path.join(ROOT, "clients", "mcpdo", "build", "mcp-bin.js");
 const SHIM_SRC = path.join(ROOT, "scripts", "lib", "mcpdo-eval-shim.mjs");
 const TEST_SERVER_BIN = path.join(
   ROOT,
@@ -198,7 +186,7 @@ export function loadCases() {
   }
   const all = JSON.parse(readFileSync(EVALS_FILE, "utf8"));
   if (!Array.isArray(all)) {
-    throw new Error("clients/daemon-cli/evals/evals.json must be an array");
+    throw new Error("clients/mcpdo/evals/evals.json must be an array");
   }
   // `kind` is an explicit discriminator, required on every case: a defaulted
   // kind would let a typo ("behaviour") silently demote a behavior case to a
@@ -212,9 +200,7 @@ export function loadCases() {
         ],
   );
   if (kindErrors.length > 0) {
-    throw new Error(
-      `clients/daemon-cli/evals/evals.json: ${kindErrors.join("; ")}`,
-    );
+    throw new Error(`clients/mcpdo/evals/evals.json: ${kindErrors.join("; ")}`);
   }
   const trigger = all.filter((c) => c.kind === "trigger");
   const behavior = all.filter((c) => c.kind === "behavior");
@@ -223,9 +209,7 @@ export function loadCases() {
     ...behavior.flatMap((c, i) => validateBehaviorCase(c, i)),
   ];
   if (errors.length > 0) {
-    throw new Error(
-      `clients/daemon-cli/evals/evals.json: ${errors.join("; ")}`,
-    );
+    throw new Error(`clients/mcpdo/evals/evals.json: ${errors.join("; ")}`);
   }
   return { trigger, behavior };
 }
@@ -317,7 +301,7 @@ export function caseServers(c) {
  * exactly the case's servers, and a bin dir whose `mcpdo` is the recording
  * shim.
  *
- * No `MCP_ALLOW_DEFAULT_CONNECTION`: agents run non-TTY, so the daemon-cli
+ * No `MCP_ALLOW_DEFAULT_CONNECTION`: agents run non-TTY, so the mcpdo
  * itself refuses implicit-MRU targeting (`requireExplicitConnection`) —
  * every successful targeting call in a transcript names its connection,
  * which is what keeps `connection` matchers decidable even with several

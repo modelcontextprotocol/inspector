@@ -23,7 +23,7 @@ describe("mcp connection CLI", () => {
 
   afterEach(async () => {
     if (storageDir) {
-      const socketPath = path.join(storageDir, "daemon.sock");
+      const socketPath = path.join(storageDir, "mcpdod.sock");
       if (fs.existsSync(socketPath)) {
         try {
           await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });

@@ -37,7 +37,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
  * the build directory to inspect. `entry` names the file whose presence
  * proves a build actually ran; it defaults to `index.js` (what web/cli/tui
  * each name their single tsup entry) and is overridden only when a client's
- * tsup config uses a different entry name, like daemon-cli's multi-entry `mcp-bin`.
+ * tsup config uses a different entry name, like mcpdo's multi-entry `mcp-bin`.
  * `clients/launcher` is plain `tsc` — it emits no bundle and inlines nothing —
  * so it has nothing to check.
  */
@@ -58,9 +58,9 @@ export const BUNDLED_CLIENTS = [
     build: "clients/tui/build",
   },
   {
-    name: "daemon-cli",
-    config: "clients/daemon-cli/tsup.config.ts",
-    build: "clients/daemon-cli/build",
+    name: "mcpdo",
+    config: "clients/mcpdo/tsup.config.ts",
+    build: "clients/mcpdo/build",
     entry: "mcp-bin.js",
   },
 ];

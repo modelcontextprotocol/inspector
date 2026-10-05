@@ -8,6 +8,10 @@ import { generateDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import { ensureDaemonDir } from "./paths.js";
 import { disallowMemorySecretStoreFallback } from "@inspector/core/auth/node/secret-store-selection.js";
 
+// Name the process `mcpdod` (Unix d-suffix convention) so `ps`/`pgrep`/`pkill`
+// see the daemon under a greppable name instead of a bare `node .../mcpdod.js`.
+process.title = "mcpdod";
+
 // Same policy as mcp-bin.ts: mcpdo is multi-process, so the keychain-less
 // automatic fallback must be the (shared) secrets file, never memory.
 disallowMemorySecretStoreFallback();
@@ -16,7 +20,7 @@ async function main(): Promise<void> {
   const server = new DaemonServer({
     // No tokenless daemons: when the spawner didn't hand one down via
     // MCP_INSPECTOR_DAEMON_TOKEN, generate one. start() publishes it to
-    // daemon.token (0600) for clients to read.
+    // mcpdod.token (0600) for clients to read.
     requiredToken: getDaemonTokenFromEnv() ?? generateDaemonToken(),
     onShutdown: () => {
       // Allow natural exit once the server closes and idle work finishes.

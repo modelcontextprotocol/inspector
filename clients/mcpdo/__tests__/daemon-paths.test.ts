@@ -44,9 +44,9 @@ describe("daemon paths", () => {
     setEnv("MCP_INSPECTOR_DAEMON_DIR", a);
     expect(getDaemonDir()).toBe(path.resolve(a));
     expect(getDaemonSocketPath()).toBe(
-      path.join(path.resolve(a), "daemon.sock"),
+      path.join(path.resolve(a), "mcpdod.sock"),
     );
-    expect(getDaemonLockPath()).toBe(path.join(path.resolve(a), "daemon.lock"));
+    expect(getDaemonLockPath()).toBe(path.join(path.resolve(a), "mcpdod.lock"));
   });
 
   it("falls back to MCP_STORAGE_DIR then ~/.mcp-inspector", () => {
@@ -87,7 +87,7 @@ describe("daemon paths", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
     setEnv("TMPDIR", tmp + path.sep);
     const dir = createPrivateDaemonDir();
-    // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that daemon.sock stays inside
+    // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that mcpdod.sock stays inside
     // the platform sun_path limit even for macOS /var/folders tmpdirs.
     expect(dir.startsWith(tmp)).toBe(true);
     expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
@@ -129,9 +129,9 @@ describe("daemon paths", () => {
 
   it("assertSocketPathWithinLimit rejects paths over the sun_path limit", () => {
     expect(() =>
-      assertSocketPathWithinLimit("/tmp/short/daemon.sock"),
+      assertSocketPathWithinLimit("/tmp/short/mcpdod.sock"),
     ).not.toThrow();
-    const long = "/" + "x".repeat(150) + "/daemon.sock";
+    const long = "/" + "x".repeat(150) + "/mcpdod.sock";
     expect(() => assertSocketPathWithinLimit(long)).toThrow(
       /too long for this platform/,
     );

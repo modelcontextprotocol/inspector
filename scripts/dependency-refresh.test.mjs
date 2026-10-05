@@ -316,7 +316,7 @@ test("INSTALLS enrolls the root and every client install", () => {
       "clients/cli",
       "clients/tui",
       "clients/launcher",
-      "clients/daemon-cli",
+      "clients/mcpdo",
     ],
   );
 });

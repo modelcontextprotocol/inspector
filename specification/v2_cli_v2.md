@@ -4,9 +4,9 @@
 
 #### [CLI, TUI, Launcher](v2_cli_tui_launcher.md) | CLI v2 | [Catalog / launch config](v2_catalog_launch_config.md)
 
-Documentation of the **experimental** connection-oriented Inspector CLI (`mcpdo`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432). `mcpdo` is a separate client under `clients/daemon-cli/`, shipped as the `mcpdo` bin in `@modelcontextprotocol/inspector` (experimental).
+Documentation of the **experimental** connection-oriented Inspector CLI (`mcpdo`) and how it relates to the frozen one-shot path (`mcp-inspector --cli`). Tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432). `mcpdo` is a separate client under `clients/mcpdo/`, shipped as the `mcpdo` bin in `@modelcontextprotocol/inspector` (experimental).
 
-**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/daemon-cli/README.md`](../clients/daemon-cli/README.md), [`clients/cli/README.md`](../clients/cli/README.md) (one-shot).
+**Related:** [CLI, TUI, and Launcher](v2_cli_tui_launcher.md), [Catalog and Launch Configuration](v2_catalog_launch_config.md), [Storage](v2_storage.md), [Auth](v2_auth.md), [`clients/mcpdo/README.md`](../clients/mcpdo/README.md), [`clients/cli/README.md`](../clients/cli/README.md) (one-shot).
 
 ---
 
@@ -17,7 +17,7 @@ Documentation of the **experimental** connection-oriented Inspector CLI (`mcpdo`
 | Entrypoint | `mcp-inspector --cli`                                        | `mcpdo`                                                                                           |
 | Lifecycle  | Connect → one `--method` → disconnect                        | Connect once → many subcommands → disconnect                                                      |
 | Process    | In-process only                                              | Short-lived front-end + implicit connection daemon (IPC)                                          |
-| Package    | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/daemon-cli` (experimental; ships the `mcpdo` bin with `@modelcontextprotocol/inspector`) |
+| Package    | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/mcpdo` (experimental; ships the `mcpdo` bin with `@modelcontextprotocol/inspector`) |
 
 Both use `@inspector/core` `InspectorClient` and shared `clients/cli/src/handlers/run-method.ts` (mcpdo reaches in via a temporary `@inspector/cli` build alias). One-shot never starts the daemon. `mcpdo` does not accept `--method`.
 
@@ -48,18 +48,18 @@ mcpdo tools/list
 | Piece                | Location                                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | One-shot             | `clients/cli/src/cli.ts`, `cliOAuth.ts`, `index.ts`                                                                            |
-| Connection front-end | `clients/daemon-cli/src/connection/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`) + `mcp-bin.ts` |
-| Daemon               | `clients/daemon-cli/src/daemon/` → `clients/daemon-cli/build/daemon.js`                                                        |
+| Connection front-end | `clients/mcpdo/src/connection/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`) + `mcp-bin.ts` |
+| Daemon               | `clients/mcpdo/src/daemon/` → `clients/mcpdo/build/mcpdod.js`                                                        |
 | Shared handlers      | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …)                       |
 
 ```
 mcp-inspector --cli …          mcpdo …
         │                        │
         ▼                        ▼
-  clients/cli              clients/daemon-cli
+  clients/cli              clients/mcpdo
      cli.ts                 connection/mcp.ts
         │                        │ NDJSON IPC
-        │                   daemon (build/daemon.js)
+        │                   daemon (build/mcpdod.js)
         └──────────┬─────────────┘
                    ▼
     clients/cli handlers/run-method.ts → InspectorClient
@@ -123,14 +123,14 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 | Context                    | Path                                                                                                                      |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Shared default             | `~/.mcp-inspector/daemon.sock` (+ `daemon.lock`, `daemon.token`, `daemon.log`)                                            |
+| Shared default             | `~/.mcp-inspector/mcpdod.sock` (+ `mcpdod.lock`, `mcpdod.token`, `mcpdod.log`)                                            |
 | `MCP_STORAGE_DIR`          | Socket/lock under that dir (CI isolation; same family as `oauth.json`)                                                    |
 | `MCP_INSPECTOR_DAEMON_DIR` | Wins over storage dir when set (spawn pin / private)                                                                      |
 | Private                    | `$TMPDIR/mcp-conn-<uid>/<id>/` (0700, short id — `sun_path` caps socket paths at 104 bytes on macOS) from `mcpdo private` |
 
 | Mode                 | Trust                                                                                                                                                                                                                                               |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shared (default)** | Auto-generated token, published to `daemon.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path.                          |
+| **Shared (default)** | Auto-generated token, published to `mcpdod.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path.                          |
 | **Private**          | `eval "$(mcpdo private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
 
 #### Auth (connection)
@@ -155,7 +155,7 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 | Client                                | Runner                                                           | Coverage                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | One-shot (`clients/cli`)              | In-process `runCli()`; thin binary e2e                           | Per-file ≥90 on `clients/cli/src`. Exclusion: `src/index.ts`.                                          |
-| Connection CLI (`clients/daemon-cli`) | In-process `runMcp()`; daemon IPC + stream + private-token tests | Per-file ≥90 on `clients/daemon-cli/src`. Exclusions: `mcp-bin.ts`, `daemon/run.ts` (bootstraps only). |
+| Connection CLI (`clients/mcpdo`) | In-process `runMcp()`; daemon IPC + stream + private-token tests | Per-file ≥90 on `clients/mcpdo/src`. Exclusions: `mcp-bin.ts`, `daemon/run.ts` (bootstraps only). |
 
 Both are wired into root `validate` / `coverage`.
 
@@ -169,7 +169,7 @@ Both are wired into root `validate` / `coverage`.
 | **Per-socket request serialization**            | Requests on one connection are handled as lines arrive (single line capped at 1 MiB); safe while clients use one request per connection.                                                                                                                                                                                                                                                                                |
 | **Shared `createCliInspectorClient`**           | Daemon / authorize / one-shot construct clients separately.                                                                                                                                                                                                                                                                                                                                                             |
 | **Split `registerRpcCommands`**                 | Large Commander switch in `connection/mcp.ts`.                                                                                                                                                                                                                                                                                                                                                                          |
-| **`mcpdo daemon run`**                          | Optional foreground debug (not a Commander subcommand; `build/daemon.js` works today).                                                                                                                                                                                                                                                                                                                                  |
+| **`mcpdo daemon run`**                          | Optional foreground debug (not a Commander subcommand; `build/mcpdod.js` works today).                                                                                                                                                                                                                                                                                                                                  |
 | **Launcher help polish**                        | Make `mcpdo` vs `--cli` unmistakable in launcher `--help` / docs.                                                                                                                                                                                                                                                                                                                                                       |
 | **Connection `connect` OAuth flag parity**      | One-shot has `--client-id` / `--callback-url` / handoff; connection authorize uses defaults / env only.                                                                                                                                                                                                                                                                                                                 |
 | **Peer-cred / stronger private IPC**            | Private mode uses bearer token; optional OS peer checks beyond that.                                                                                                                                                                                                                                                                                                                                                    |

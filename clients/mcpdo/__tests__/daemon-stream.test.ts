@@ -34,7 +34,7 @@ describe("streamDaemon + ipc-glue", () => {
 
   function freshSock(): string {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-stream-"));
-    return path.join(dir, "daemon.sock");
+    return path.join(dir, "mcpdod.sock");
   }
 
   async function listen(
@@ -572,7 +572,7 @@ describe("streamDaemon + ipc-glue", () => {
       streamDaemon(
         {},
         {
-          socketPath: path.join(os.tmpdir(), "no-such-mcp-daemon.sock"),
+          socketPath: path.join(os.tmpdir(), "no-such-mcp-mcpdod.sock"),
           timeoutMs: 500,
           onData: () => {},
         },

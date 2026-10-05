@@ -129,7 +129,7 @@ describe("daemon coverage", () => {
     process.env.MCP_INSPECTOR_DAEMON_DIR = freshDir();
     try {
       const defs = new DaemonServer();
-      expect(defs.socketPath).toContain("daemon.sock");
+      expect(defs.socketPath).toContain("mcpdod.sock");
     } finally {
       if (prev === undefined) delete process.env.MCP_INSPECTOR_DAEMON_DIR;
       else process.env.MCP_INSPECTOR_DAEMON_DIR = prev;
@@ -148,10 +148,10 @@ describe("daemon coverage", () => {
     const d = freshDir();
     // No live process can have this pid-space value in practice; write a
     // plausible-but-dead pid by spawning nothing and using an exited child.
-    fs.writeFileSync(path.join(d, "daemon.lock"), "999999999\n");
+    fs.writeFileSync(path.join(d, "mcpdod.lock"), "999999999\n");
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
-    expect(fs.readFileSync(path.join(d, "daemon.lock"), "utf8").trim()).toBe(
+    expect(fs.readFileSync(path.join(d, "mcpdod.lock"), "utf8").trim()).toBe(
       String(process.pid),
     );
   });
@@ -160,7 +160,7 @@ describe("daemon coverage", () => {
     const d = freshDir();
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
-    const lockPath = path.join(d, "daemon.lock");
+    const lockPath = path.join(d, "mcpdod.lock");
     // Simulate a successor's lock at the same path (reclaim race / manual
     // operator cleanup): release must be ownership-checked.
     fs.writeFileSync(lockPath, "424242\n");
@@ -172,7 +172,7 @@ describe("daemon coverage", () => {
 
   it("restores a live lock created between the dead-pid read and the rename", async () => {
     const d = freshDir();
-    const lockPath = path.join(d, "daemon.lock");
+    const lockPath = path.join(d, "mcpdod.lock");
     fs.writeFileSync(lockPath, "999999999\n"); // dead pid
     const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
     vi.mocked(fs.renameSync).mockImplementationOnce(((
@@ -192,7 +192,7 @@ describe("daemon coverage", () => {
 
   it("treats a young pidless lock as held instead of stealing it", async () => {
     const d = freshDir();
-    const lockPath = path.join(d, "daemon.lock");
+    const lockPath = path.join(d, "mcpdod.lock");
     // A concurrent starter between its O_EXCL create and its pid write.
     fs.writeFileSync(lockPath, "");
     const contender = new DaemonServer({ dir: d, idleMs: 0 });
@@ -203,7 +203,7 @@ describe("daemon coverage", () => {
 
   it("reclaims a pidless lock older than the write grace period", async () => {
     const d = freshDir();
-    const lockPath = path.join(d, "daemon.lock");
+    const lockPath = path.join(d, "mcpdod.lock");
     // A starter that died between create and pid write, long ago.
     fs.writeFileSync(lockPath, "");
     const past = (Date.now() - 60_000) / 1000;
@@ -215,7 +215,7 @@ describe("daemon coverage", () => {
 
   it("restores a young pidless lock renamed aside mid-reclaim", async () => {
     const d = freshDir();
-    const lockPath = path.join(d, "daemon.lock");
+    const lockPath = path.join(d, "mcpdod.lock");
     fs.writeFileSync(lockPath, "999999999\n"); // dead pid triggers the reclaim
     const actualFs = await vi.importActual<typeof import("node:fs")>("node:fs");
     vi.mocked(fs.renameSync).mockImplementationOnce(((
@@ -260,7 +260,7 @@ describe("daemon coverage", () => {
 
   it("removes a stale socket before binding", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     fs.writeFileSync(sock, "");
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
@@ -302,13 +302,13 @@ describe("daemon coverage", () => {
     });
   });
 
-  it("resolves the daemon.token directory without deriving it from pipe paths", () => {
+  it("resolves the mcpdod.token directory without deriving it from pipe paths", () => {
     // Explicit dir always wins.
-    expect(daemonTokenDir({ dir: "/x", socketPath: "/y/daemon.sock" })).toBe(
+    expect(daemonTokenDir({ dir: "/x", socketPath: "/y/mcpdod.sock" })).toBe(
       "/x",
     );
     // A Unix socket path implies its directory.
-    expect(daemonTokenDir({ socketPath: "/y/daemon.sock" })).toBe("/y");
+    expect(daemonTokenDir({ socketPath: "/y/mcpdod.sock" })).toBe("/y");
     // A Windows named pipe has no meaningful dirname: fall back to the
     // configured daemon directory, where the token is actually published.
     const prev = process.env.MCP_INSPECTOR_DAEMON_DIR;
@@ -360,7 +360,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon reassembles a multi-byte UTF-8 character split across chunks", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const value = "héllo 👋 wörld";
     const splitter = net.createServer((socket) => {
       socket.on("error", () => {});
@@ -416,7 +416,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon rejects malformed response JSON", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const bad = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.write("not-json\n");
@@ -438,7 +438,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon ignores mismatched response ids then accepts a match", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.once("data", (buf) => {
@@ -471,7 +471,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon skips blank lines and defaults missing exitCode", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.once("data", (buf) => {
@@ -509,7 +509,7 @@ describe("daemon coverage", () => {
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
     fs.unlinkSync(server.socketPath);
-    fs.unlinkSync(path.join(d, "daemon.lock"));
+    fs.unlinkSync(path.join(d, "mcpdod.lock"));
     await server.stop("stop");
     server = undefined;
   });
@@ -590,7 +590,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon times out a hung server", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const hung = net.createServer((socket) => {
       socket.on("error", () => {});
     });
@@ -613,7 +613,7 @@ describe("daemon coverage", () => {
     // rpc/connect callers pass 0 because the daemon enforces the configured
     // MCP timeouts; a fixed 60s local timer falsely failed long tool calls.
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const sockets: net.Socket[] = [];
     const silent = net.createServer((socket) => {
       sockets.push(socket);
@@ -824,7 +824,7 @@ describe("daemon coverage", () => {
 
   it("ensureDaemon waits out a stopping daemon and spawns a fresh one", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     // The "old daemon": a process that takes a moment to exit, and a socket
     // that answers ping with stopping:true (as the real dispatch does).
     const oldDaemon = spawn(
@@ -902,7 +902,7 @@ describe("daemon coverage", () => {
 
   it("readLogTail returns the last lines and empty string when unreadable", () => {
     const d = freshDir();
-    const logPath = path.join(d, "daemon.log");
+    const logPath = path.join(d, "mcpdod.log");
     const lines = Array.from({ length: 15 }, (_, i) => `line-${i}`);
     fs.writeFileSync(logPath, lines.join("\n") + "\n");
     const tail = readLogTail(logPath);
@@ -917,7 +917,7 @@ describe("daemon coverage", () => {
     // connections is owned by a live process. ensureDaemon must never unlink
     // it and install a replacement daemon — it must surface the ping failure.
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const occupant = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.end();
@@ -1021,7 +1021,7 @@ describe("daemon coverage", () => {
 
   it("callDaemon fails immediately when the peer closes without a response", async () => {
     const d = freshDir();
-    const sock = path.join(d, "daemon.sock");
+    const sock = path.join(d, "mcpdod.sock");
     const peer = net.createServer((socket) => {
       socket.on("error", () => {});
       // Accept then FIN with no NDJSON reply.
@@ -1109,7 +1109,7 @@ describe("mcp connection coverage", () => {
 
   afterEach(async () => {
     if (storageDir) {
-      const socketPath = path.join(storageDir, "daemon.sock");
+      const socketPath = path.join(storageDir, "mcpdod.sock");
       if (fs.existsSync(socketPath)) {
         try {
           await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });

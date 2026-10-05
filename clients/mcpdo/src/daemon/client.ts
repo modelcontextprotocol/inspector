@@ -17,7 +17,7 @@ import type {
 export type DaemonClientOptions = {
   socketPath?: string;
   /**
-   * Daemon directory that owns `daemon.token`. On Windows `socketPath` is a
+   * Daemon directory that owns `mcpdod.token`. On Windows `socketPath` is a
    * named pipe (`\\.\pipe\...`), so the token location cannot be derived
    * from the endpoint; callers using a non-default directory with an
    * explicit `socketPath` should pass it. Defaults to the socket's directory
@@ -57,7 +57,7 @@ export type DaemonClientOptions = {
 };
 
 /**
- * Directory holding `daemon.token` for a request. An explicit `dir` wins; a
+ * Directory holding `mcpdod.token` for a request. An explicit `dir` wins; a
  * filesystem `socketPath` implies its directory (Unix sockets live next to
  * the token file); otherwise — the default endpoint, or a Windows named
  * pipe, which has no meaningful dirname — the shared daemon directory.

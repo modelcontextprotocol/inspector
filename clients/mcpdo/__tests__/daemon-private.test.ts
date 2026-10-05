@@ -129,7 +129,7 @@ describe("private daemon end-to-end", () => {
     server = new DaemonServer({ dir, idleMs: 0, requiredToken: token });
     await server.start();
 
-    // The daemon publishes daemon.token (0600) for same-user clients, so a
+    // The daemon publishes mcpdod.token (0600) for same-user clients, so a
     // tokenless call auto-discovers it; only a wrong token must fail.
     await expect(
       callDaemon(
@@ -155,7 +155,7 @@ describe("private daemon end-to-end", () => {
     expect(pong.pong).toBe(true);
   });
 
-  it("publishes daemon.token (0600) on start and removes it on stop", async () => {
+  it("publishes mcpdod.token (0600) on start and removes it on stop", async () => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-tok-"));
     const token = "published-token";
     server = new DaemonServer({ dir, idleMs: 0, requiredToken: token });
@@ -224,7 +224,7 @@ describe("private daemon end-to-end", () => {
   it("adopts the winner's published token when a concurrent starter wins the lock", async () => {
     // Two concurrent first invocations each generate a token and spawn; the
     // pid lock lets one daemon survive. The loser must finish against the
-    // winner's daemon by re-reading its published daemon.token, not poll
+    // winner's daemon by re-reading its published mcpdod.token, not poll
     // with its own dead token until daemon_start_timeout.
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-priv-race-"));
     const prevTok = process.env[DAEMON_TOKEN_ENV];

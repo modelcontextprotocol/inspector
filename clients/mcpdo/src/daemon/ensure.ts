@@ -24,20 +24,20 @@ const READY_TIMEOUT_MS = 10_000;
 const READY_POLL_MS = 50;
 
 /**
- * Resolve the built daemon entry (`build/daemon.js`) next to this package's
+ * Resolve the built daemon entry (`build/mcpdod.js`) next to this package's
  * build output. When running from source under vitest, prefer the built file
  * if present; otherwise throw a clear error.
  */
 export function resolveDaemonScriptPath(): string {
-  // ensure.ts lives at src/daemon/ensure.ts → ../../build/daemon.js
-  // In the bundle, import.meta.url is build/daemon-*.js or similar; tsup emits
-  // ensure into the daemon entry chunk. Prefer an explicit sibling daemon.js.
+  // ensure.ts lives at src/daemon/ensure.ts → ../../build/mcpdod.js
+  // In the bundle, import.meta.url is build/mcpdod-*.js or similar; tsup emits
+  // ensure into the daemon entry chunk. Prefer an explicit sibling mcpdod.js.
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
-    path.resolve(here, "daemon.js"),
-    path.resolve(here, "../daemon.js"),
-    path.resolve(here, "../../build/daemon.js"),
-    path.resolve(here, "../build/daemon.js"),
+    path.resolve(here, "mcpdod.js"),
+    path.resolve(here, "../mcpdod.js"),
+    path.resolve(here, "../../build/mcpdod.js"),
+    path.resolve(here, "../build/mcpdod.js"),
   ];
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
@@ -46,7 +46,7 @@ export function resolveDaemonScriptPath(): string {
      builds, and fs.existsSync cannot be spied in this ESM package under vitest. */
   throw new CliExitCodeError(
     EXIT_CODES.USAGE,
-    `Connection daemon bundle not found (looked for daemon.js near ${here}). Run npm run build in clients/daemon-cli.`,
+    `Connection daemon bundle not found (looked for mcpdod.js near ${here}). Run npm run build in clients/mcpdo.`,
     { code: "daemon_not_built" },
   );
 }
@@ -83,7 +83,7 @@ async function waitForDaemon(
      * Set only when `token` was self-generated (shared mode). Two concurrent
      * first invocations each generate a token and spawn; the pid lock lets
      * one daemon survive, and it may not be ours. Re-reading the winner's
-     * published `daemon.token` between polls lets the losing caller finish
+     * published `mcpdod.token` between polls lets the losing caller finish
      * against the surviving daemon instead of timing out on auth failures.
      * Explicitly supplied / private-mode tokens never fall back — a mismatch
      * there must stay a loud failure.
@@ -182,7 +182,7 @@ export async function waitForDaemonExit(
  * When `MCP_INSPECTOR_DAEMON_TOKEN` is set (private mode), the child inherits
  * that token; otherwise a fresh token is generated for the child. Either way
  * every IPC call must present it (clients that didn't spawn the daemon read
- * it from the published `daemon.token` file).
+ * it from the published `mcpdod.token` file).
  */
 export async function ensureDaemon(options?: {
   dir?: string;
@@ -225,7 +225,7 @@ export async function ensureDaemon(options?: {
 
   // Every daemon requires a token; generate one for the child when the
   // caller/environment didn't supply one. The daemon republishes it to
-  // daemon.token (0600) so unrelated clients can still connect.
+  // mcpdod.token (0600) so unrelated clients can still connect.
   const tokenWasGenerated = token === undefined;
   token ??= generateDaemonToken();
   const script = options?.daemonScript ?? resolveDaemonScriptPath();
@@ -243,7 +243,7 @@ export async function ensureDaemon(options?: {
   let stderrTarget: number | "ignore" = "ignore";
   try {
     // Recreate exclusively: append-open follows symlinks and applies the mode
-    // only on create, so a pre-existing daemon.log could stay group/other-
+    // only on create, so a pre-existing mcpdod.log could stay group/other-
     // readable or redirect daemon stderr to a planted target. The parent dir
     // was just tightened to 0700; removing the entry closes the window for
     // children planted before that.

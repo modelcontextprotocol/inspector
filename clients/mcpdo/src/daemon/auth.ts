@@ -9,7 +9,7 @@ export function generateDaemonToken(): string {
 }
 
 /**
- * Read the token a running daemon published to `daemon.token` (see
+ * Read the token a running daemon published to `mcpdod.token` (see
  * {@link getDaemonTokenPath}). Undefined when missing/unreadable — the
  * request will then fail authentication with a clear error.
  */
@@ -26,7 +26,7 @@ export function readDaemonTokenFile(dir?: string): string | undefined {
  * Read the IPC token from the environment (parent client or daemon child).
  * Empty / unset → shared mode, which is still authenticated: the daemon
  * generates its own required token (see `daemon/run.ts`) and publishes it
- * to `daemon.token` for same-user clients to read. Every daemon requires a
+ * to `mcpdod.token` for same-user clients to read. Every daemon requires a
  * token; the environment variable only selects who supplies it.
  */
 export function getDaemonTokenFromEnv(

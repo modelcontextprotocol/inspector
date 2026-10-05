@@ -21,7 +21,7 @@ npm install     # at the REPO ROOT
 v2 is **not** an npm workspace — each client under `clients/*` keeps its own
 `package.json` and `node_modules`. A single root `npm install` is still all you
 need: the root `postinstall` (`scripts/install-clients.mjs`) cascades
-`npm install` into `clients/web`, `clients/cli`, `clients/daemon-cli`,
+`npm install` into `clients/web`, `clients/cli`, `clients/mcpdo`,
 `clients/tui`, and `clients/launcher`.
 
 - **Fresh clone:** `npm install` at the root.
@@ -52,20 +52,20 @@ The launcher-driven scripts run the **built** launcher, so `npm run build`
 first:
 
 ```sh
-npm run build        # web → cli → daemon-cli → tui → launcher
+npm run build        # web → cli → mcpdo → tui → launcher
 npm run web          # prod web launcher against clients/web/dist
 npm run web:dev      # web launcher in --dev mode (Vite)
 ```
 
-Individual builds: `build:web`, `build:cli`, `build:daemon-cli`, `build:tui`,
+Individual builds: `build:web`, `build:cli`, `build:mcpdo`, `build:tui`,
 `build:launcher`. The
 web build produces both the browser SPA (`clients/web/dist`, Vite) and the Node
 prod-server runner (`clients/web/build`, tsup).
 
 To run the CLI or TUI: `node clients/launcher/build/index.js --cli …` /
 `--tui …`. The connection CLI (`mcpdo`) has its own bin:
-`node clients/daemon-cli/build/mcp-bin.js …` (or `npm link` from
-`clients/daemon-cli` for a global `mcpdo`).
+`node clients/mcpdo/build/mcp-bin.js …` (or `npm link` from
+`clients/mcpdo` for a global `mcpdo`).
 
 ## The `@inspector/core` alias
 

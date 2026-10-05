@@ -395,7 +395,7 @@ try {
   //      the installed shim resolves and runs: `--help` (dispatch/build
   //      resolution) plus a daemon-free command (`servers/list` against the
   //      same catalog — no daemon spawn, no MCP connection), so a wrong bin
-  //      path or an incompletely packed daemon-cli build fails the gate.
+  //      path or an incompletely packed mcpdo build fails the gate.
   step("verifying installed `mcpdo` (--help, daemon-free servers/list)...");
   const mcpdoBin = join(
     work,
@@ -436,7 +436,7 @@ try {
   }
 
   // 4b³. Daemon lifecycle from the installed package: `connect` must locate
-  //      and spawn the separately shipped `build/daemon.js` — the daemon-free
+  //      and spawn the separately shipped `build/mcpdod.js` — the daemon-free
   //      checks above pass even when that artifact is missing or mislocated,
   //      yet every connection command would fail at startup. Connect against
   //      the same stdio fixture, verify the connection is listed, then tear
@@ -458,7 +458,7 @@ try {
   if (mcpdoConnect.status !== 0 || !mcpdoConnect.output.includes("test")) {
     failMcpdoDaemonFlow(
       `\`mcpdo connect test\` exited ${mcpdoConnect.status} — the packaged ` +
-        `daemon (build/daemon.js) likely failed to start\n` +
+        `daemon (build/mcpdod.js) likely failed to start\n` +
         mcpdoConnect.output.slice(0, 800),
     );
   }

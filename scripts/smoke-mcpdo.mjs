@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * End-to-end smoke test for the experimental mcpdo daemon CLI
- * (`clients/daemon-cli`). The unit/integration suite covers the daemon and
+ * (`clients/mcpdo`). The unit/integration suite covers the daemon and
  * command surface piecewise; this script drives the BUILT binary the way an
  * agent shell would — non-TTY, catalog-based — and asserts the headline
  * lifecycle end to end:
@@ -23,7 +23,7 @@
  * daemon token under a temp dir — the developer's real mcpdo daemon (if
  * any) is untouched. Exits non-zero on any mismatch.
  *
- * Expects `clients/daemon-cli/build` to be built first (the validate / CI
+ * Expects `clients/mcpdo/build` to be built first (the validate / CI
  * ordering guarantees this). The composed test server (`test-servers/build`)
  * is rebuilt on every run — see `scripts/lib/ensure-test-servers.mjs`.
  */
@@ -42,7 +42,7 @@ import { join, resolve } from "node:path";
 import { ensureTestServers } from "./lib/ensure-test-servers.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const mcpdoBin = join(repoRoot, "clients", "daemon-cli", "build", "mcp-bin.js");
+const mcpdoBin = join(repoRoot, "clients", "mcpdo", "build", "mcp-bin.js");
 const serverLauncher = join(
   repoRoot,
   "scripts",
@@ -211,7 +211,7 @@ try {
   //    (socket removed once shutdown completes).
   step("disconnect", ["disconnect", "helpdesk"]);
   step("daemon stop", ["daemon", "stop"]);
-  const socketPath = join(daemonDir, "daemon.sock");
+  const socketPath = join(daemonDir, "mcpdod.sock");
   const deadline = Date.now() + 10_000;
   while (existsSync(socketPath)) {
     if (Date.now() > deadline)

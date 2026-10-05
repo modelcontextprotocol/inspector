@@ -1047,8 +1047,8 @@ function registerPrivateCommand(program: CommandType): void {
 
 /**
  * Locates the repo-root `skills/mcpdo/SKILL.md` relative to this module.
- * Tries both the built (bundled single-file, `clients/daemon-cli/build/`) and
- * source (`clients/daemon-cli/src/connection/`) layouts, since the two sit at
+ * Tries both the built (bundled single-file, `clients/mcpdo/build/`) and
+ * source (`clients/mcpdo/src/connection/`) layouts, since the two sit at
  * different depths from the repo root.
  */
 function resolveAgentSkillPath(): string | undefined {

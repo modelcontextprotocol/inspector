@@ -81,7 +81,7 @@ export type DaemonRequest = {
   /**
    * IPC auth token. Every daemon requires one: private mode passes it via
    * `MCP_INSPECTOR_DAEMON_TOKEN`, and the shared default daemon generates
-   * one at startup and publishes it to `daemon.token` for clients to read.
+   * one at startup and publishes it to `mcpdod.token` for clients to read.
    * Optional only at the wire/type boundary so a request missing the token
    * can still be parsed — and then rejected — rather than failing framing.
    */

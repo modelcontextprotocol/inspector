@@ -35,7 +35,7 @@ describe("callDaemon elicitation duplex", () => {
 
   function freshSock(): string {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-elicit-client-"));
-    return path.join(dir, "daemon.sock");
+    return path.join(dir, "mcpdod.sock");
   }
 
   async function listen(

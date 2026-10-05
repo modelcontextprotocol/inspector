@@ -6,7 +6,7 @@
 
 ## Summary
 
-v2 ships four non-web Inspector incarnations alongside the web client: a **one-shot CLI**, an **interactive TUI**, an experimental **connection CLI** (`mcpdo`, `clients/daemon-cli/`), and a **launcher** that routes to web, CLI, or TUI from a single `mcp-inspector` binary. All four consume the same `core/` source as the web client via the `@inspector/core` path alias and run on the shared `InspectorClient` stack ported from v1.5/main.
+v2 ships four non-web Inspector incarnations alongside the web client: a **one-shot CLI**, an **interactive TUI**, an experimental **connection CLI** (`mcpdo`, `clients/mcpdo/`), and a **launcher** that routes to web, CLI, or TUI from a single `mcp-inspector` binary. All four consume the same `core/` source as the web client via the `@inspector/core` path alias and run on the shared `InspectorClient` stack ported from v1.5/main.
 
 This document describes how those clients are built, wired, and tested today, and records known gaps. For catalog vs launch-time config semantics (`--config`, `--catalog`, import), see [Catalog and Launch Configuration](v2_catalog_launch_config.md).
 
@@ -35,7 +35,7 @@ This document describes how those clients are built, wired, and tested today, an
 | ---------- | ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
 | Launcher   | `clients/launcher/`             | `tsc` → `build/index.js`                               | Root `mcp-inspector` → `clients/launcher/build/index.js` |
 | CLI        | `clients/cli/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-cli` (client package only; one-shot)      |
-| daemon-cli | `clients/daemon-cli/`           | `tsup` → `build/mcp-bin.js` + `build/daemon.js`        | `mcpdo` (experimental; ships in the inspector package)   |
+| mcpdo | `clients/mcpdo/`           | `tsup` → `build/mcp-bin.js` + `build/mcpdod.js`        | `mcpdo` (experimental; ships in the inspector package)   |
 | TUI        | `clients/tui/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-tui` (client package only)                |
 | Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only)                |
 
@@ -74,20 +74,20 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 
 All four clients import from `@inspector/core/...` (mapped to `../../core/` source).
 
-| Concern        | Web                               | CLI / daemon-cli / TUI                                   | Launcher                  |
+| Concern        | Web                               | CLI / mcpdo / TUI                                   | Launcher                  |
 | -------------- | --------------------------------- | -------------------------------------------------------- | ------------------------- |
 | Dev typecheck  | `tsconfig.app.json` paths         | per-client `tsconfig.json` paths                         | `tsconfig.json` (no core) |
 | Runtime bundle | Vite alias                        | tsup `noExternal: [/^@inspector\/core/]` + esbuild alias | n/a                       |
 | Tests          | Vitest projects in `clients/web/` | Vitest + `vitest.shared.mts` aliases                     | none                      |
 
-`vitest.shared.mts` at repo root centralizes `@inspector/core` and test-server aliases plus bare-module pins (`react`, `pino`, SDK, etc.) so CLI/daemon-cli/TUI Vitest configs stay aligned with web.
+`vitest.shared.mts` at repo root centralizes `@inspector/core` and test-server aliases plus bare-module pins (`react`, `pino`, SDK, etc.) so CLI/mcpdo/TUI Vitest configs stay aligned with web.
 
 **Resolved design choices:**
 
 | Topic               | Decision                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Core package        | No separate `inspector-core` npm package; source-only `core/`                                                                              |
-| CLI/TUI build       | tsup bundles `@inspector/core` into each client's `build/` (CLI/TUI `index.js`; daemon-cli `mcp-bin.js` + `daemon.js`)                     |
+| CLI/TUI build       | tsup bundles `@inspector/core` into each client's `build/` (CLI/TUI `index.js`; mcpdo `mcp-bin.js` + `mcpdod.js`)                     |
 | Core tests          | Not duplicated under cli/tui; web unit + integration suites cover `core/`                                                                  |
 | Default config path | `loadServerEntries()` applies `withDefaultCatalogPath()` → `~/.mcp-inspector/mcp.json` when no `--catalog`/`--config` and no ad-hoc target |
 

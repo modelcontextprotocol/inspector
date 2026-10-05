@@ -36,7 +36,7 @@ describe("mcp non-interactive elicitation (e2e)", () => {
       if (desc) Object.defineProperty(stream, "isTTY", desc);
     }
     if (storageDir) {
-      const socketPath = path.join(storageDir, "daemon.sock");
+      const socketPath = path.join(storageDir, "mcpdod.sock");
       if (fs.existsSync(socketPath)) {
         try {
           await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });

@@ -2,7 +2,7 @@
 
 **Experimental** separate client — **bundled into the published `@modelcontextprotocol/inspector` package** as the `mcpdo` bin. Connect once, then run many MCP commands against a named connection via an implicit local daemon (ssh-agent style).
 
-> **Layout note:** Source lives in `clients/daemon-cli/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists (tracked by [#2461](https://github.com/modelcontextprotocol/inspector/issues/2461)).
+> **Layout note:** Source lives in `clients/mcpdo/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists (tracked by [#2461](https://github.com/modelcontextprotocol/inspector/issues/2461)).
 
 ## Install
 
@@ -21,23 +21,24 @@ Build, then put `mcpdo` on your PATH with `npm link` (points at this package’s
 # from the repo root — install deps once if needed
 npm install
 
-cd clients/daemon-cli
+cd clients/mcpdo
 npm run build
 npm link
 
 mcpdo --help
 ```
 
-Rebuild after pulling source changes (`npm run build` in `clients/daemon-cli`). You usually do **not** need to re-link unless the package `bin` entry changes.
+Rebuild after pulling source changes (`npm run build` in `clients/mcpdo`). You usually do **not** need to re-link unless the package `bin` entry changes.
 
 ### Development loop
 
 `mcpdo` itself is a short-lived process re-executed on every invocation, so a
 plain rebuild is enough for its changes to take effect on the next command.
-The **connection daemon** (`build/daemon.js`) is different: `ensureDaemon` (see
+The **connection daemon** (`build/mcpdod.js`) is different: `ensureDaemon` (see
 `src/daemon/ensure.ts`) reuses an already-running daemon without checking its
 code version, so a daemon started before your rebuild keeps running stale
-code indefinitely.
+code indefinitely. It sets `process.title = "mcpdod"`, so a stray one is
+visible as `mcpdod` in `ps`/`pgrep` and killable with `pkill mcpdod`.
 
 Use `npm run build:dev` instead of `npm run build` while iterating: it runs
 `mcpdo daemon stop` first (harmless/no-op if no daemon is running — it treats
@@ -50,13 +51,13 @@ for those.
 Without linking, run the built file directly:
 
 ```bash
-node clients/daemon-cli/build/mcp-bin.js --help
+node clients/mcpdo/build/mcp-bin.js --help
 ```
 
 Remove the link when you’re done:
 
 ```bash
-npm unlink -g @modelcontextprotocol/daemon-cli
+npm unlink -g @modelcontextprotocol/mcpdo
 ```
 
 ## Usage
@@ -223,7 +224,7 @@ mcpdo connect https://example.com/mcp --elicit url
 |               | One-shot                              | Connection (`mcpdo`)            |
 | ------------- | ------------------------------------- | ------------------------------- |
 | Entrypoint    | `mcp-inspector --cli`                 | `mcpdo`                         |
-| Package (dev) | `clients/cli`                         | `clients/daemon-cli`            |
+| Package (dev) | `clients/cli`                         | `clients/mcpdo`            |
 | Lifecycle     | Connect → one `--method` → disconnect | Connect once → many subcommands |
 
 One-shot docs: [`clients/cli/README.md`](../cli/README.md).

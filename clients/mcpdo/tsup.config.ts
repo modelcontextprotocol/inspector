@@ -9,7 +9,7 @@ const cliSrc = path.resolve(dirname, "../cli/src");
 export default defineConfig({
   entry: {
     "mcp-bin": "src/mcp-bin.ts",
-    daemon: "src/daemon/run.ts",
+    mcpdod: "src/daemon/run.ts",
   },
   format: ["esm"],
   outDir: "build",

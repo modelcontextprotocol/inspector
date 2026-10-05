@@ -1,6 +1,6 @@
 ---
 name: testing
-description: Write, run, place and fix tests in this repo. Use when adding a test, or end-to-end or integration coverage of an MCP operation (listing, paginating or calling tools); when choosing which npm command runs a given suite (web unit, web integration, Storybook, cli, daemon-cli, tui, launcher, scripts); when deciding where a new test file belongs — beside its source, under src/test/, or in a client's __tests__/; when a per-file coverage check fails or a v8 ignore is in question; when asking which test tier spawns the built binary rather than importing it; or when rendering, mounting or asserting on Mantine components and their transitions in a test.
+description: Write, run, place and fix tests in this repo. Use when adding a test, or end-to-end or integration coverage of an MCP operation (listing, paginating or calling tools); when choosing which npm command runs a given suite (web unit, web integration, Storybook, cli, mcpdo, tui, launcher, scripts); when deciding where a new test file belongs — beside its source, under src/test/, or in a client's __tests__/; when a per-file coverage check fails or a v8 ignore is in question; when asking which test tier spawns the built binary rather than importing it; or when rendering, mounting or asserting on Mantine components and their transitions in a test.
 disable-model-invocation: false
 ---
 
@@ -142,7 +142,7 @@ web-owned test living under `src/test/` instead is a bug.
 3. **Shared test infrastructure** — `renderWithMantine.tsx`, `setup.ts`,
    `fixtures/`, `scrollAreaStoryAssertions.ts`.
 
-### `clients/cli`, `clients/daemon-cli`, `clients/tui`, `clients/launcher` — a top-level `__tests__/`
+### `clients/cli`, `clients/mcpdo`, `clients/tui`, `clients/launcher` — a top-level `__tests__/`
 
 **All** their tests, not beside their source. Their `tsconfig.json` excludes
 `**/*.test.*` and their `tsconfig.test.json` includes `__tests__/**/*`, so a
@@ -164,7 +164,7 @@ file its glob misses and still exits 0.
 | Web integration        | `clients/web`        | `npm run test:integration`                               |
 | Web Storybook play fns | `clients/web`        | `npm run test:storybook`                                 |
 | CLI                    | `clients/cli`        | `npm run test` (`pretest` builds test-servers + the bin) |
-| Connection CLI (mcpdo) | `clients/daemon-cli` | `npm run test` (`pretest` builds test-servers + the bin) |
+| Connection CLI (mcpdo) | `clients/mcpdo` | `npm run test` (`pretest` builds test-servers + the bin) |
 | TUI                    | `clients/tui`        | `npm run test`                                           |
 | Launcher               | `clients/launcher`   | `npm run test`                                           |
 | Root tooling           | repo root            | `npm run test:scripts`                                   |
@@ -204,7 +204,7 @@ inside the `coverage` gate. CI therefore has no separate `test:integration` step
 ## The coverage gate
 
 **Per-file ≥90 on all four dimensions**, CI-enforced, across web, cli,
-daemon-cli, tui and launcher. New code must clear 90 on every dimension.
+mcpdo, tui and launcher. New code must clear 90 on every dimension.
 
 Scope notes:
 

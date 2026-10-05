@@ -26,7 +26,7 @@ describe("mcp.ts coverage", () => {
 
   afterEach(async () => {
     if (storageDir) {
-      const socketPath = path.join(storageDir, "daemon.sock");
+      const socketPath = path.join(storageDir, "mcpdod.sock");
       if (fs.existsSync(socketPath)) {
         try {
           await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
@@ -555,6 +555,6 @@ describe("mcp.ts coverage", () => {
     });
 
     // Socket must not have been created by status/list.
-    expect(fs.existsSync(path.join(storageDir!, "daemon.sock"))).toBe(false);
+    expect(fs.existsSync(path.join(storageDir!, "mcpdod.sock"))).toBe(false);
   });
 });

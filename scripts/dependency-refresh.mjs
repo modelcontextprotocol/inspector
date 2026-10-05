@@ -52,7 +52,7 @@ export const INSTALLS = [
   { dir: "clients/cli", label: "clients/cli" },
   { dir: "clients/tui", label: "clients/tui" },
   { dir: "clients/launcher", label: "clients/launcher" },
-  { dir: "clients/daemon-cli", label: "clients/daemon-cli" },
+  { dir: "clients/mcpdo", label: "clients/mcpdo" },
 ];
 
 /** Where the `uses:` refs this sweep checks live, relative to the repo root. */

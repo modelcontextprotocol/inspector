@@ -1,5 +1,5 @@
 {
-  "name": "@modelcontextprotocol/daemon-cli",
+  "name": "@modelcontextprotocol/mcpdo",
   "private": true,
   "description": "Connection-oriented MCP Inspector CLI (mcpdo) — connect once, run many commands",
   "license": "MIT",
