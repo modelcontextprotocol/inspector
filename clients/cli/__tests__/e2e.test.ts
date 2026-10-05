@@ -91,6 +91,55 @@ describe("CLI binary (out-of-process E2E)", () => {
     E2E_SPAWN_MS,
   );
 
+  // #2435: a stdio server's stderr is inherited by default, so its banners and
+  // logs land in the CLI's stderr. A `--import` preload makes the real test
+  // server write one such line before it starts; `--` ends the target, since
+  // the preload flag would otherwise end it early.
+  describe("--quiet and a stdio server's own stderr", () => {
+    const NOISE = "SERVER_STDERR_NOISE_2435";
+    const noisyTarget = [
+      command,
+      "--import",
+      `data:text/javascript,${encodeURIComponent(
+        `process.stderr.write(${JSON.stringify(NOISE + "\n")});`,
+      )}`,
+      ...args,
+      "--",
+    ];
+
+    it(
+      "passes it through without --quiet",
+      async () => {
+        const result = await spawnCli([
+          ...noisyTarget,
+          "--method",
+          "tools/list",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toContain(NOISE);
+      },
+      E2E_SPAWN_MS,
+    );
+
+    it(
+      "suppresses it under -q, leaving only the result on stdout",
+      async () => {
+        const result = await spawnCli([
+          ...noisyTarget,
+          "-q",
+          "--method",
+          "tools/list",
+        ]);
+
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe("");
+        expect(Array.isArray(JSON.parse(result.stdout).tools)).toBe(true);
+      },
+      E2E_SPAWN_MS,
+    );
+  });
+
   it(
     "exits non-zero when required --method is missing",
     async () => {

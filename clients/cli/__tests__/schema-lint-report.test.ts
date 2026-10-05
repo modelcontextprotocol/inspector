@@ -85,6 +85,16 @@ describe("writeSchemaLintReport", () => {
     expect(stderr).toContain("Re-run with --strict");
   });
 
+  it("writes nothing for the one-line hint under --quiet (#2435)", async () => {
+    await writeSchemaLintReport(lintListResult(DIRTY_LIST), false, true);
+    expect(stderr).toBe("");
+  });
+
+  it("still writes the --strict report under --quiet — it was asked for", async () => {
+    await writeSchemaLintReport(lintListResult(DIRTY_LIST), true, true);
+    expect(stderr).toContain("Path: outputSchema.properties.data");
+  });
+
   it("writes the full report under --strict", async () => {
     await writeSchemaLintReport(lintListResult(DIRTY_LIST), true);
     expect(stderr).toContain('Error: tool "info"');
@@ -198,6 +208,16 @@ describe("emitResult — schema lint wiring (#1005)", () => {
     ).resolves.toBeUndefined();
     expect(stderr).toContain("Re-run with --strict");
     expect(stderr).not.toContain("Suggestion:");
+  });
+
+  it("prints only the result under --quiet without --strict (#2435)", async () => {
+    await emitResult(DIRTY_LIST, undefined, {
+      method: "tools/list",
+      format: "text",
+      quiet: true,
+    });
+    expect(stderr).toBe("");
+    expect(JSON.parse(stdout)).toEqual(DIRTY_LIST);
   });
 
   it("folds findings into the --format json envelope under --strict", async () => {

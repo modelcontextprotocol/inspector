@@ -129,7 +129,9 @@ async function callMethod(
     const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
       revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
     });
-    if (revocation?.status === "failed") {
+    // A warning, not the result — `--quiet` drops it (#2435). The relogin
+    // itself still happened; only the advisory line is suppressed.
+    if (revocation?.status === "failed" && !args.quiet) {
       process.stderr.write(
         `Warning: could not revoke the OAuth grant at the authorization server (${revocation.detail}); it may still be valid there.\n`,
       );
@@ -178,6 +180,12 @@ async function callMethod(
     environment,
     clientIdentity,
     initialLoggingLevel: "debug",
+    // A stdio server's stderr is inherited by default, so its startup banners
+    // and logs interleave with the CLI's own output. `--quiet` pipes it
+    // instead; InspectorClient drains the pipe into its `stderrLog` event,
+    // which nothing here subscribes to, so the lines are discarded without the
+    // child ever blocking on a full pipe (#2435).
+    pipeStderr: args.quiet === true,
     progress: false,
     sample: false,
     elicit: false,
@@ -224,7 +232,7 @@ async function callMethod(
       redirectUrlProvider,
       callbackUrlConfig,
       serverSettings,
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     const outcome = await withCliAuthRecoveryRetry(
@@ -234,7 +242,7 @@ async function callMethod(
       callbackUrlConfig,
       serverSettings,
       () => runMethod(inspectorClient, args),
-      { storedAuthOnly, autoOpenControl },
+      { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
     await consumeMethodOutcome(outcome, args);
@@ -866,6 +874,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       },
     )
     .option(
+      "-q, --quiet",
+      "Suppress everything except the result payload on stdout (or the error envelope on stderr): status lines, warnings, advisory summaries, and a stdio server's own stderr. Interactive OAuth prompts still appear when a login is needed.",
+    )
+    .option(
       "--tool-args-json <json>",
       'Tool arguments as a single JSON object (e.g. \'{"zip":"10001"}\'). Values are passed verbatim — no key=value coercion. Mutually exclusive with --tool-arg.',
     )
@@ -956,6 +968,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     connectTimeout?: number;
     protocolEra?: ServerProtocolEra;
     format?: OutputFormat;
+    quiet?: boolean;
     toolArgsJson?: string;
     clientConfig?: string;
     clientId?: string;
@@ -1293,6 +1306,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     requireDigests: options.requireDigests === true,
     cursor: options.cursor,
     format: options.format,
+    quiet: options.quiet === true,
   };
 
   return {

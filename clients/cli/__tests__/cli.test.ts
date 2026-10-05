@@ -85,6 +85,27 @@ describe("CLI Tests", () => {
       expect(toolNames).toContain("get_annotated_message");
     });
 
+    // #2435. In-process, a stdio server's own stderr goes straight to the
+    // worker's fd 2 rather than through the captured `process.stderr.write`,
+    // so the child-stderr half is asserted out of process in e2e.test.ts.
+    it.each(["-q", "--quiet"])(
+      "%s prints only the result payload",
+      async (flag) => {
+        const { command, args } = getTestMcpServerCommand();
+        const result = await runCli([
+          command,
+          ...args,
+          flag,
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        expect(expectValidJson(result)).toHaveProperty("tools");
+        expect(result.stderr).toBe("");
+      },
+    );
+
     it("should fail with nonexistent method", async () => {
       const result = await runCli([
         NO_SERVER_SENTINEL,

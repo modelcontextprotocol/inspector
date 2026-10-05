@@ -126,6 +126,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--format <text\|json>`       | Output format. `text` (default) pretty-prints the result. `json` emits a single JSON object on stdout (`{ "result": … }`, plus `{ "appInfo": … }` as a sibling key for App tools) with no banners, so the whole output pipes cleanly into `jq`.                                                                                                                                                                      |
+| `-q`, `--quiet`               | Print only the result payload on stdout, or the error envelope on stderr on failure. Drops status lines, warnings, advisory summaries and a stdio server's own stderr; OAuth prompts a human must answer still print. See [Quiet output](#quiet-output---quiet). |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -148,6 +149,37 @@ mcp-inspector --cli --server-url https://example.com/mcp --relogin --no-revoke -
 ```
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers, sensitive `settings.metadata` keys whose whole value is replaced whether or not it is structured, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
+
+#### Quiet output (`--quiet`)
+
+`-q` / `--quiet` reduces a run to its result: the payload on stdout on success, and the
+single-line [error envelope](#exit-codes--error-envelopes) on stderr on failure. It
+composes with `--format` — `--format` shapes stdout, `--quiet` empties stderr.
+
+```bash
+mcp-inspector --cli node build/index.js -q --method tools/list | jq '.tools[].name'
+```
+
+What it suppresses:
+
+| Output                                                                         | Under `--quiet` |
+| ------------------------------------------------------------------------------ | --------------- |
+| A stdio server's own stderr (startup banners, logs)                            | Dropped         |
+| `Schema portability: … Re-run with --strict for details.` (`tools/list`)       | Dropped         |
+| The `--verify` one-line summary                                                | Dropped — a failing run's envelope carries the same text |
+| `Authorization complete.` / `Authorization complete. Retrying…`                | Dropped         |
+| `Warning: could not revoke the OAuth grant …` (`--relogin`)                    | Dropped         |
+| The result payload / NDJSON on stdout                                          | Kept            |
+| The error envelope on a non-zero exit                                          | Kept            |
+| The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |
+| The OAuth authorization URL, the step-up `[y/N]` prompt, "open it by hand"     | Kept — interactive login cannot finish without them |
+
+So a quiet run that needs an interactive login still shows what it must; for a run
+that must never prompt, combine `--quiet` with `--stored-auth-only`.
+
+⚠️ Dropping the server's stderr also drops its explanation when it fails to start.
+The CLI still exits non-zero with an envelope, but if the reason is not obvious,
+re-run without `--quiet`.
 
 #### App probing (`--app-info`) and machine-readable output (`--format json`)
 
