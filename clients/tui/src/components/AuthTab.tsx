@@ -88,9 +88,21 @@ export function AuthTab({
   const isLiveConnection =
     connectionStatus === "connected" || connectionStatus === "connecting";
   const scrollViewRef = useRef<ScrollViewRef>(null);
-  const [oauthState, setOauthState] = useState<
-    OAuthConnectionState | undefined
-  >(undefined);
+  // The OAuth state is stored with the client it was read from, and shown only
+  // while that client is still the selected one. AuthTab is reused across
+  // server switches, so without this the previous server's state — bearer
+  // token included — stays on screen, and copyable with Y/W, until the new
+  // server's read lands (#2421).
+  const [oauthEntry, setOauthEntry] = useState<{
+    client: InspectorClient | null;
+    state: OAuthConnectionState | undefined;
+  }>({ client: null, state: undefined });
+  const oauthState =
+    oauthEntry.client === inspectorClient ? oauthEntry.state : undefined;
+  const inspectorClientRef = useRef(inspectorClient);
+  useEffect(() => {
+    inspectorClientRef.current = inspectorClient;
+  }, [inspectorClient]);
   const [clearState, setClearState] = useState<
     "idle" | "clearing" | "cleared" | "failed"
   >("idle");
@@ -137,11 +149,14 @@ export function AuthTab({
 
   const refreshOAuthState = useCallback(async () => {
     if (!inspectorClient) {
-      setOauthState(undefined);
+      setOauthEntry({ client: null, state: undefined });
       return;
     }
     const state = await inspectorClient.getOAuthState();
-    setOauthState(state);
+    // A read that settles after the selection moved on belongs to a server
+    // no longer on screen; storing it would overwrite the current one's.
+    if (inspectorClientRef.current !== inspectorClient) return;
+    setOauthEntry({ client: inspectorClient, state });
   }, [inspectorClient]);
 
   useEffect(() => {
