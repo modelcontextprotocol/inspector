@@ -175,7 +175,7 @@ describe("CLI --relogin flag conflicts", () => {
   it("rejects --relogin with catalog-only methods", async () => {
     const result = await runCli(["--relogin", "--method", "servers/list"]);
     expectCliFailure(result);
-    expect(result.stderr).toMatch(/servers\/list or servers\/show/);
+    expect(result.stderr).toMatch(/servers\/\* catalog command/);
   });
 
   it("rejects --relogin with --list-stored-auth", async () => {

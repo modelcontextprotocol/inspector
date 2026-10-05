@@ -17,6 +17,11 @@ import {
   withConnectTimeout,
 } from "./handlers/connect-timeout.js";
 import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
+import {
+  CATALOG_WRITE_METHODS,
+  isCatalogWriteMethod,
+  runCatalogWrite,
+} from "./handlers/servers-write.js";
 import { writeFormattedResult } from "./handlers/format-output.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -842,6 +847,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Read-only session config file (served as-is, never written or seeded; errors if absent)",
     )
     .option("--server <name>", "Server name from config/catalog file")
+    .option("--rename <name>", "New name for the entry (servers/edit only)")
     .option(
       "-e <env>",
       "Environment variables for the server (KEY=VALUE)",
@@ -1049,6 +1055,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     catalog?: string;
     config?: string;
     server?: string;
+    rename?: string;
     e?: Record<string, string>;
     method?: string;
     toolName?: string;
@@ -1104,10 +1111,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     }
     if (
       options.method === "servers/list" ||
-      options.method === "servers/show"
+      options.method === "servers/show" ||
+      isCatalogWriteMethod(options.method)
     ) {
       throw new Error(
-        "--relogin cannot be combined with --method servers/list or servers/show (no OAuth connect)",
+        "--relogin cannot be combined with a --method servers/* catalog command (no OAuth connect)",
       );
     }
   }
@@ -1167,10 +1175,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     (options.listStoredAuth ||
       options.printHandoff ||
       options.method === "servers/list" ||
-      options.method === "servers/show")
+      options.method === "servers/show" ||
+      isCatalogWriteMethod(options.method))
   ) {
     throw new Error(
-      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or --method servers/list / servers/show.",
+      "--advertise-apps requires a command that connects to a server; it has no effect with --list-stored-auth, --print-handoff, or a --method servers/* catalog command.",
     );
   }
 
@@ -1212,11 +1221,40 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     );
   }
   const isCatalogMethod =
-    options.method === "servers/list" || options.method === "servers/show";
+    options.method === "servers/list" ||
+    options.method === "servers/show" ||
+    isCatalogWriteMethod(options.method);
   if (!isCatalogMethod && !isOneShotMethod(options.method)) {
     throw new Error(
-      `Unsupported method: ${options.method}. Supported --cli methods: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show.`,
+      `Unsupported method: ${options.method}. Supported --cli methods: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show, ${CATALOG_WRITE_METHODS.join(", ")}.`,
     );
+  }
+  if (options.rename !== undefined && options.method !== "servers/edit") {
+    throw new Error("--rename is only valid with --method servers/edit.");
+  }
+
+  // Catalog add / edit / remove (#2433) — no MCP connection. Resolves its own
+  // writable catalog path, since the positional target / --server-url here
+  // describe the entry being written, not an ad-hoc server to connect to.
+  if (isCatalogWriteMethod(options.method)) {
+    const written = await runCatalogWrite(options.method, {
+      server: options.server,
+      rename: options.rename,
+      catalog: options.catalog,
+      config: options.config,
+      target: targetArgs,
+      transport: options.transport,
+      serverUrl: options.serverUrl,
+      cwd: options.cwd,
+      env: options.e,
+      headers: options.header as Record<string, string> | undefined,
+      protocolEra: options.protocolEra,
+    });
+    await writeFormattedResult(
+      written,
+      options.format === "json" ? "json" : "text",
+    );
+    return { shortCircuit: true };
   }
 
   // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
