@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "./helpers/cli-runner.js";
-import { runCli as runCliDirect } from "../src/cli.js";
+import { runCli as runCliDirect, argvRequestsQuiet } from "../src/cli.js";
 import {
   expectCliSuccess,
   expectCliFailure,
@@ -160,6 +160,34 @@ describe("CLI Tests", () => {
       } finally {
         rmSync(dir, { recursive: true, force: true });
       }
+    });
+
+    // Commander accepts combined short flags, so quiet can arrive inside a
+    // cluster; `-e` takes a value, so a `q` after it is that value, not a flag
+    // (Copilot on #2576).
+    it.each([
+      [["--quiet"], true],
+      [["-q"], true],
+      [["-qe", "A=1"], true],
+      [["-eq"], false],
+      [["-e", "A=1", "--method", "tools/list"], false],
+      [["--tool-arg", "x=-q"], false],
+      [[], false],
+    ])("argvRequestsQuiet(%j) is %s", (tokens, expected) => {
+      expect(argvRequestsQuiet(tokens)).toBe(expected);
+    });
+
+    it("applies the pre-parse --quiet handling when -q is combined with -e", async () => {
+      const result = await runCli([
+        NO_SERVER_SENTINEL,
+        "-qe",
+        "A=1",
+        "--method",
+      ]);
+      expectCliFailure(result);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toHaveProperty("error");
     });
 
     it("should fail with nonexistent method", async () => {

@@ -747,7 +747,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   //   answer. What `--quiet` keeps — the result, the envelope, the `--strict`
   //   report, the OAuth URL and step-up prompt — is written to the streams
   //   directly, never through `console.warn`.
-  if (optionArgs.includes("-q") || optionArgs.includes("--quiet")) {
+  if (argvRequestsQuiet(optionArgs)) {
     program.configureOutput({ writeErr: () => {} });
     console.warn = discardWarning;
   }
@@ -1342,6 +1342,26 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
   };
+}
+
+/**
+ * Whether the option tokens ask for `--quiet`, decided before `parse()` (see
+ * the call site). Commander also accepts short flags combined into one token,
+ * so `-qe KEY=V` turns quiet on too, and a plain `includes("-q")` would miss
+ * it. A cluster is read the way Commander reads it, left to right: `q` is the
+ * flag, and `e` takes a value, so whatever follows it in the same token is
+ * that value (`-eq` is `-e` with the value `q`) rather than more flags.
+ */
+export function argvRequestsQuiet(optionArgs: readonly string[]): boolean {
+  for (const token of optionArgs) {
+    if (token === "--quiet") return true;
+    if (!/^-[A-Za-z]+$/.test(token)) continue;
+    for (const flag of token.slice(1)) {
+      if (flag === "q") return true;
+      if (flag === "e") break;
+    }
+  }
+  return false;
 }
 
 /** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
