@@ -3,10 +3,12 @@
  * result to a file", shared so every client writes the same bytes for the same
  * result (#2571).
  *
- * The CLI's `--output` / `--output-format raw|json` (#2431) introduced these two
- * encodings; the TUI's `w` keybinding on its tool result view (#2571) is the
- * second consumer, which is the point at which #2431 said the rendering should
- * move here. Only the rendering lives in `core/`: the write itself is
+ * The two encodings are the ones designed for the CLI's planned `--output` /
+ * `--output-format raw|json` (#2431), whose issue said the rendering should
+ * move here once a second client needed it. The TUI's `w` keybinding on its
+ * tool result view (#2571) is, for now, the only in-tree consumer; #2431 is
+ * expected to render through this module when it lands rather than carry its
+ * own copy. Only the rendering lives in `core/`: the write itself is
  * client-owned, because each client reports a failed write its own way (a CLI
  * exit code, a TUI status line) and the web client downloads rather than writes.
  *

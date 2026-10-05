@@ -159,7 +159,8 @@ export function ToolTestModal({
     if (!result?.callResult) {
       setSaveStatus({
         ok: false,
-        message: "No tool result to save — the call returned none.",
+        message:
+          "No tool result to save — no result came back from the server.",
       });
       return;
     }
