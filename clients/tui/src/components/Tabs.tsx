@@ -29,9 +29,11 @@ interface TabsProps {
     info?: number;
     auth?: number;
     resources?: number;
+    subscriptions?: number;
     prompts?: number;
     skills?: number;
     tools?: number;
+    tasks?: number;
     messages?: number;
     requests?: number;
     logging?: number;
@@ -47,6 +49,10 @@ interface TabsProps {
    * known after connecting.
    */
   showSkills?: boolean;
+  /** Server advertised `resources.subscribe` (#2432). */
+  showSubscriptions?: boolean;
+  /** Server supports Tasks (legacy capability or SEP-2663 extension) (#2432). */
+  showTasks?: boolean;
 }
 
 export function Tabs({
@@ -58,6 +64,8 @@ export function Tabs({
   showLogging = true,
   showRequests = false,
   showSkills = false,
+  showSubscriptions = false,
+  showTasks = false,
 }: TabsProps) {
   // Shared with `App`, which sizes the pane below this bar from the same list —
   // see `tabBarRows`.
@@ -66,6 +74,8 @@ export function Tabs({
     showLogging,
     showRequests,
     showSkills,
+    showSubscriptions,
+    showTasks,
   });
 
   return (
