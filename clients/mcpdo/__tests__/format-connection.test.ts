@@ -296,6 +296,35 @@ describe("format-human", () => {
     ).toContain("Server: s");
   });
 
+  it("annotates auth/list entries with knownAs, live, and IdP labelling", () => {
+    const out = formatAuthListHuman({
+      oauthStatePath: "/tmp/oauth.json",
+      servers: [
+        {
+          url: "https://mcp.example.com/mcp",
+          hasTokens: true,
+          hasRefreshToken: false,
+          knownAs: ["hosted"],
+          live: true,
+        },
+        {
+          url: "ema-idp:https://idp.example.com",
+          hasTokens: false,
+          hasRefreshToken: false,
+          idp: true,
+          issuer: "https://idp.example.com",
+        },
+      ],
+    });
+    expect(out).toContain("known as: hosted");
+    expect(out).toContain("● live");
+    // The IdP row shows its issuer and label, not the raw key or "(no local name)".
+    expect(out).toContain("enterprise IdP login");
+    expect(out).toContain("https://idp.example.com");
+    expect(out).not.toContain("ema-idp:");
+    expect(out).not.toContain("(no local name)");
+  });
+
   it("formats admin and app-info helpers", () => {
     expect(
       formatAuthListHuman({

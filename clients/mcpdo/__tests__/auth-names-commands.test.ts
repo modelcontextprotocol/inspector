@@ -47,6 +47,10 @@ beforeEach(() => {
   clearStoredAuth.mockReset();
   listServerEntries.mockResolvedValue([]);
   callDaemon.mockResolvedValue({ connections: [] });
+  listStoredAuth.mockResolvedValue({
+    oauthStatePath: "/state/oauth.json",
+    servers: [],
+  });
   clearStoredAuth.mockImplementation((url: string) => Promise.resolve({ url }));
 });
 
@@ -93,6 +97,28 @@ describe("auth/list friendly-name annotation", () => {
     expect(parsed.servers[0].live).toBeUndefined();
   });
 
+  it("labels an EMA IdP record and omits name annotation for it", async () => {
+    listStoredAuth.mockResolvedValue({
+      oauthStatePath: "/state/oauth.json",
+      servers: [
+        {
+          url: "ema-idp:https://idp.example.com",
+          hasTokens: false,
+          hasRefreshToken: false,
+        },
+      ],
+    });
+
+    const result = await runMcp(["auth/list", "--format", "json"]);
+    const parsed = JSON.parse(result.stdout.trim());
+    expect(parsed.servers[0]).toMatchObject({
+      url: "ema-idp:https://idp.example.com",
+      idp: true,
+      issuer: "https://idp.example.com",
+    });
+    expect(parsed.servers[0].knownAs).toBeUndefined();
+  });
+
   it("falls back to catalog names only when the daemon is down", async () => {
     listStoredAuth.mockResolvedValue({
       oauthStatePath: "/state/oauth.json",
@@ -128,6 +154,40 @@ describe("auth/clear by friendly name", () => {
     const result = await runMcp(["auth/clear", URL_A, "--format", "json"]);
     expect(clearStoredAuth).toHaveBeenCalledWith(URL_A);
     expect(JSON.parse(result.stdout.trim())).toEqual({ url: URL_A });
+  });
+
+  it("clears a non-http store key (EMA IdP) by its exact key", async () => {
+    // The `ema-idp:<issuer>` key auth/list shows verbatim does not start with
+    // https://, so it must still route to the direct store-key path rather than
+    // the friendly-name resolver (which would reject it as an unknown name).
+    const idpKey = "ema-idp:https://idp.example.com";
+    listStoredAuth.mockResolvedValue({
+      oauthStatePath: "/state/oauth.json",
+      servers: [{ url: idpKey, hasTokens: false, hasRefreshToken: false }],
+    });
+
+    const result = await runMcp(["auth/clear", idpKey, "--format", "json"]);
+    expect(clearStoredAuth).toHaveBeenCalledWith(idpKey);
+    expect(JSON.parse(result.stdout.trim())).toEqual({ url: idpKey });
+  });
+
+  it("clears an EMA IdP entry by its bare issuer URL", async () => {
+    // auth/list renders the IdP login by its issuer URL (prefix hidden), so
+    // auth/clear must map that issuer back to the prefixed store key.
+    const idpKey = "ema-idp:https://idp.example.com";
+    listStoredAuth.mockResolvedValue({
+      oauthStatePath: "/state/oauth.json",
+      servers: [{ url: idpKey, hasTokens: false, hasRefreshToken: false }],
+    });
+
+    const result = await runMcp([
+      "auth/clear",
+      "https://idp.example.com",
+      "--format",
+      "json",
+    ]);
+    expect(clearStoredAuth).toHaveBeenCalledWith(idpKey);
+    expect(JSON.parse(result.stdout.trim())).toEqual({ url: idpKey });
   });
 
   it("errors for a known stdio name (no stored auth)", async () => {

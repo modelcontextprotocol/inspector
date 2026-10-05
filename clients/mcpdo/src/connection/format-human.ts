@@ -492,6 +492,18 @@ export function formatAuthListHuman(
       flags.length > 0
         ? style.dim(` (${flags.join(", ")})`)
         : style.dim(" (no tokens)");
+    // An EMA IdP login record is not a server: label it as such and show its
+    // bare issuer URL (which auth/clear also accepts), rather than the raw
+    // `ema-idp:` store key with a misleading "(no local name)".
+    if (s.idp === true && typeof s.issuer === "string") {
+      lines.push(
+        `* ${style.dim("enterprise IdP login —")} ${code(
+          style,
+          s.issuer,
+        )}${flagText}`,
+      );
+      continue;
+    }
     const knownAs = Array.isArray(s.knownAs)
       ? s.knownAs.map((n) => String(n))
       : [];

@@ -94,7 +94,9 @@ more).
   connection holds it, so the store entries line up with the servers you use.
   `auth/clear` accepts either the store URL or one of those friendly names
   (`mcpdo auth/clear hosted-everything`); a name that resolves to no URL (a
-  stdio server) or to more than one URL is rejected with guidance. When a
+  stdio server) or to more than one URL is rejected with guidance. EMA IdP
+  login records show as `enterprise IdP login — <issuer>` and clear by their
+  bare issuer URL (`mcpdo auth/clear https://idp.example.com`). When a
   browser sign-in is needed and stdin is non-TTY,
   `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`:
   relay that URL to the user verbatim, then finish the job — the connection

@@ -88,12 +88,17 @@ import {
   clearStoredAuth,
   clearStoredAuthForRelogin,
   listStoredAuth,
+  normalizeServerUrl,
 } from "./stored-auth.js";
 import {
   type AuthNameIndex,
   buildAuthNameIndex,
   resolveFriendlyName,
 } from "./auth-names.js";
+import {
+  idpOAuthStorageKey,
+  parseIdpOAuthStorageKey,
+} from "@inspector/core/auth/ema/storage.js";
 import { styleFromOpts } from "@inspector/cli/style.js";
 import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
 import { createInterface } from "node:readline/promises";
@@ -781,6 +786,13 @@ function registerAuthCommands(program: CommandType): void {
       const list = await listStoredAuth();
       const index = await collectAuthNameIndex(opts);
       const servers = list.servers.map((s) => {
+        // EMA IdP login records live in the same store, keyed `ema-idp:<issuer>`.
+        // They are not servers, so they never carry a catalog/connection name —
+        // surface them as their own category rather than an unnamed server.
+        const issuer = parseIdpOAuthStorageKey(s.url);
+        if (issuer !== null) {
+          return { ...s, idp: true, issuer };
+        }
         const refs = index.urlToNames.get(s.url) ?? [];
         return {
           ...s,
@@ -859,10 +871,31 @@ function registerAuthCommands(program: CommandType): void {
         return;
       }
       const trimmed = key!.trim();
-      // A URL argument keeps the exact store-key path (exact → normalised);
-      // a bare name resolves against the catalog + live connections.
-      if (/^https?:\/\//i.test(trimmed)) {
+      // A URL argument — or any string that is already an exact key in the
+      // store (e.g. an `ema-idp:<issuer>` EMA login key, which auth/list shows
+      // verbatim) — keeps the direct store-key path. Only a bare friendly name
+      // falls through to catalog + live-connection resolution.
+      const storedKeys = (await listStoredAuth()).servers.map((s) => s.url);
+      if (storedKeys.includes(trimmed)) {
         const result = await clearStoredAuth(trimmed);
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "auth/clear",
+          result: { url: result.url },
+        });
+        return;
+      }
+      if (/^https?:\/\//i.test(trimmed)) {
+        // auth/list renders an EMA IdP login by its bare issuer URL (prefix
+        // hidden), so accept that issuer here and map it back to the prefixed
+        // store key — preferring a real server entry on the off chance both
+        // exist. Otherwise fall through to clearStoredAuth's own URL handling.
+        const idpKey = idpOAuthStorageKey(trimmed);
+        const target =
+          storedKeys.includes(idpKey) &&
+          !storedKeys.includes(normalizeServerUrl(trimmed))
+            ? idpKey
+            : trimmed;
+        const result = await clearStoredAuth(target);
         await writeConnectionOutput(outOpts(opts), {
           kind: "auth/clear",
           result: { url: result.url },
