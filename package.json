@@ -52,6 +52,7 @@
     "pr:review-wait": "node scripts/pr-review-wait.mjs",
     "pr:review-fetch": "node scripts/pr-review-fetch.mjs",
     "pr:link": "node scripts/pr-link-issue.mjs",
+    "dco:check": "node scripts/dco-check.mjs",
     "pr:upload": "node scripts/pr-upload-screenshot.mjs",
     "board:status": "node scripts/board-card-status.mjs",
     "board:add": "node scripts/board-card-add.mjs",

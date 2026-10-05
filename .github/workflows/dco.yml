@@ -1,0 +1,89 @@
+# DCO signoff check (#2566), replacing the probot DCO app.
+#
+# The app was suspended and its check silently stopped appearing after #1981
+# (2026-08-12). Nothing went red, because it was never a required check — so
+# for two months "the DCO check is a hard merge gate" was true only by habit.
+# This job is the repo-owned replacement: `scripts/dco-check.mjs` fails the PR
+# unless every commit in it carries a `Signed-off-by:` matching its author or
+# committer (merge and bot-authored commits exempt — the app's rule).
+#
+# ⚠️ A job only GATES when its check is required. Making `DCO` a required
+# status check is a ruleset change in repo settings (one covering `v2/main`
+# does not exist yet), not something a workflow file can do — without it, this
+# job going missing would pass as silently as the app did.
+#
+# Its own workflow because it needs the PR's base, which `main.yml` (push
+# only) never sees.
+#
+# ⚠️ `pull_request_target`, deliberately — a check that gates a PR must not run
+# code the PR can change. Under `pull_request` both this file and the script
+# come from the PR's merge ref, so a PR could rewrite either to pass itself.
+# `pull_request_target` takes the workflow from the repo's DEFAULT branch
+# (`main`), and the job checks out the PR's base (`v2/main`) for the script —
+# both already-merged code. The PR's commits are only FETCHED: `git log` reads
+# their metadata and nothing from the PR is ever executed, which is the
+# condition that makes `pull_request_target` safe. Keep it that way: never
+# check out, install, build or run the PR head in this job.
+#
+# ⚠️ Rollout follows from the workflow living on `main`: this file does
+# nothing until a milestone merge carries it from `v2/main` to `main`, and a
+# later edit to it takes effect only on the next milestone merge. An edit to
+# `scripts/dco-check.mjs` takes effect as soon as it merges to `v2/main`. Make
+# `DCO` a required check only once this file is on `main` — required before
+# then, every v2 PR would wait on a check that never reports.
+#
+# Scoped to `v2/main`. Once on `main` an unscoped trigger would also fire for
+# `v1/main` PRs (whose checkout has no script) and for milestone PRs into
+# `main` (whose range holds GitHub's squash-merge commits, signed under a
+# different name). `edited` re-runs it when a PR is retargeted, since the
+# checked range changes with the base even when the head does not.
+#
+# Only `contents: read`, no credential persisted, no secret — so it stays on
+# moving action tags (#2235; see verify:action-pins, #2484).
+name: DCO
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited]
+    branches: [v2/main]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    # A git fetch, a git log and a node script; expected to finish well inside
+    # a minute. Not yet observed on a runner — revisit with the measured range
+    # per the rule in main.yml (#2333) once it has a history.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout the base branch (trusted) with full history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the PR's commits (read as data, never checked out)
+        # `refs/pull/<N>/head` serves fork PRs too. Values pass through `env:`
+        # rather than being interpolated into the script.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+
+      - name: Check every commit is signed off
+        # The base is the branch as it stands now (`origin/<base_ref>`), not
+        # the event's `base.sha`, so commits that have since landed on the
+        # base are excluded exactly as the PR's own commit list excludes them.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/dco-check.mjs --base "origin/$BASE_REF" --head "$HEAD_SHA"
