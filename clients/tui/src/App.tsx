@@ -91,6 +91,8 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
+import { HelpOverlay } from "./components/HelpOverlay.js";
+import { keybindingSections } from "./utils/keybindings.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 
@@ -119,7 +121,10 @@ type FocusArea =
   | "messagesDetail"
   // Used only when activeTab === 'requests'
   | "requestsList"
-  | "requestsDetail";
+  | "requestsDetail"
+  // While the `?` help overlay is open (#2436). No pane matches it, so every
+  // tab's own key handler goes inert underneath the overlay.
+  | "help";
 
 interface AppProps {
   mcpServers: Record<string, TuiServer>;
@@ -154,6 +159,10 @@ function App({
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
   const [focus, setFocus] = useState<FocusArea>("serverList");
+  // Where focus returns when the help overlay closes; `null` while it is shut.
+  const [helpReturnFocus, setHelpReturnFocus] = useState<FocusArea | null>(
+    null,
+  );
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
@@ -1427,7 +1436,22 @@ function App({
 
   useInput((input: string, key: Key) => {
     // Don't process input when modal is open
-    if (toolTestModal || resourceTestModal || promptTestModal || detailsModal) {
+    if (
+      toolTestModal ||
+      resourceTestModal ||
+      promptTestModal ||
+      detailsModal ||
+      helpReturnFocus !== null
+    ) {
+      return;
+    }
+
+    // Open the keybinding help. It closes itself (on `?` or Esc), restoring
+    // the focus parked here; moving focus to "help" is what stops the panes
+    // underneath from acting on keys meant for the overlay.
+    if (input === "?") {
+      setHelpReturnFocus(focus);
+      setFocus("help");
       return;
     }
 
@@ -1724,7 +1748,7 @@ function App({
             backgroundColor="gray"
           >
             <Text bold color="white">
-              ESC to exit
+              ? help · ESC exit
             </Text>
           </Box>
         </Box>
@@ -2243,6 +2267,19 @@ function App({
           onAuthRecoveryRequired={(error) => {
             onAuthRecoveryRequired(error);
             setPromptTestModal(null);
+          }}
+        />
+      )}
+
+      {/* Keybinding help (#2436) - rendered at App level for full screen overlay */}
+      {helpReturnFocus !== null && (
+        <HelpOverlay
+          sections={keybindingSections(activeTab)}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => {
+            setFocus(helpReturnFocus);
+            setHelpReturnFocus(null);
           }}
         />
       )}

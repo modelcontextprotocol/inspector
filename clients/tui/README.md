@@ -89,6 +89,7 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - Use the **Arrow Keys** (Up/Down) to scroll through lists of items.
 - Press **Enter** to select an item, execute a tool, or fetch a resource.
 - Press **Escape** or `Ctrl+C` to exit the application.
+- Press **`?`** for an in-app list of the keybindings for the current tab; press `?` or **Escape** to close it. The list is the `src/utils/keybindings.ts` table, so a new keybinding is added there.
 
 ## Development
 
