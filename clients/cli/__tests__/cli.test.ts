@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runCli } from "./helpers/cli-runner.js";
@@ -83,6 +83,109 @@ describe("CLI Tests", () => {
       expect(toolNames).toContain("echo");
       expect(toolNames).toContain("get_sum");
       expect(toolNames).toContain("get_annotated_message");
+    });
+
+    // #2435. In-process, a stdio server's own stderr goes straight to the
+    // worker's fd 2 rather than through the captured `process.stderr.write`,
+    // so the child-stderr half is asserted out of process in e2e.test.ts.
+    it.each(["-q", "--quiet"])(
+      "%s prints only the result payload",
+      async (flag) => {
+        const { command, args } = getTestMcpServerCommand();
+        const result = await runCli([
+          command,
+          ...args,
+          flag,
+          "--method",
+          "tools/list",
+        ]);
+
+        expectCliSuccess(result);
+        expect(expectValidJson(result)).toHaveProperty("tools");
+        expect(result.stderr).toBe("");
+      },
+    );
+
+    // A usage error makes Commander print its own `error: …` line during
+    // `parse()`, before the envelope. Under `--quiet` that line is dropped and
+    // stderr is the envelope alone (Copilot on #2576).
+    it("drops Commander's usage diagnostic under --quiet, keeping only the envelope", async () => {
+      const loud = await runCli([NO_SERVER_SENTINEL, "--method"]);
+      expectCliFailure(loud);
+      expect(loud.stderr).toMatch(/^error: option '--method <method>'/);
+
+      const quiet = await runCli([NO_SERVER_SENTINEL, "-q", "--method"]);
+      expectCliFailure(quiet);
+      const lines = quiet.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toMatchObject({
+        error: { message: expect.stringMatching(/--method <method>/) },
+      });
+    });
+
+    // Core reports advisories with `console.warn` from many places — here
+    // `cleanRoots()` on a hand-edited entry. Vitest replaces `console`, so the
+    // captured stderr cannot show it; the spy is what observes the channel.
+    // Under `--quiet` the run swaps `console.warn` out and restores it after
+    // (Copilot on #2576).
+    it("mutes core's console.warn advisories for a --quiet run, and restores console.warn after", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const dir = mkdtempSync(join(tmpdir(), "cli-quiet-roots-"));
+      const configPath = join(dir, "mcp.json");
+      // A root with no `uri` is dropped with a warning (core/mcp/serverList.ts).
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            s: { type: "stdio", command, args, roots: [{ name: "no-uri" }] },
+          },
+        }),
+      );
+      const run = (extra: string[]) =>
+        runCli(["--config", configPath, ...extra, "--method", "tools/list"]);
+      try {
+        const loud = vi.spyOn(console, "warn").mockImplementation(() => {});
+        expectCliSuccess(await run([]));
+        expect(loud).toHaveBeenCalledWith(
+          "Dropping root without a string `uri`:",
+          expect.anything(),
+        );
+        loud.mockRestore();
+
+        const quiet = vi.spyOn(console, "warn").mockImplementation(() => {});
+        expectCliSuccess(await run(["-q"]));
+        expect(quiet).not.toHaveBeenCalled();
+        expect(console.warn).toBe(quiet);
+        quiet.mockRestore();
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    // Quiet is read from Commander's parsed state, so a combined `-qe` counts
+    // and a `-q` that is another option's value does not (Copilot on #2576).
+    it("applies the pre-parse --quiet handling when -q is combined with -e", async () => {
+      const result = await runCli([
+        NO_SERVER_SENTINEL,
+        "-qe",
+        "A=1",
+        "--method",
+      ]);
+      expectCliFailure(result);
+      const lines = result.stderr.trimEnd().split("\n");
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]!)).toHaveProperty("error");
+    });
+
+    it("does not treat -q as the flag when it is another option's value", async () => {
+      const result = await runCli([
+        NO_SERVER_SENTINEL,
+        "--client-secret",
+        "-q",
+        "--method",
+      ]);
+      expectCliFailure(result);
+      expect(result.stderr).toMatch(/^error: option '--method <method>'/);
     });
 
     it("should fail with nonexistent method", async () => {

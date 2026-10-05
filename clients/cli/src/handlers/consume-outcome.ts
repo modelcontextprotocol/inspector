@@ -33,8 +33,12 @@ export async function consumeMethodOutcome(
       await awaitableLog(JSON.stringify(line) + "\n");
     }
     // Summary on **stderr**, after the report, so it cannot contaminate the
-    // NDJSON a consumer is parsing on stdout.
-    if (outcome.summary) await awaitableError(`${outcome.summary}\n`);
+    // NDJSON a consumer is parsing on stdout. `--quiet` drops it: a failing
+    // report still reaches the error envelope below, which carries the same
+    // summary as its message (#2435).
+    if (outcome.summary && !args.quiet) {
+      await awaitableError(`${outcome.summary}\n`);
+    }
     // Thrown rather than returned so it routes through the CLI's single exit
     // path — the report has already been written, which is why this is the
     // last thing that happens.

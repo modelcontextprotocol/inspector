@@ -224,4 +224,23 @@ describe("--relogin token revocation", () => {
 
     expect(result.stderr).toMatch(/could not revoke the OAuth grant/i);
   });
+
+  // #2435: the warning is advisory, so `--quiet` drops it. The relogin itself
+  // (and the revocation attempt) still happen.
+  it("drops the revocation warning under --quiet", async () => {
+    seedStore();
+    const fetchSpy = stubFetch(500);
+
+    const result = await runCli([
+      "--relogin",
+      "--quiet",
+      "--server-url",
+      SERVER_URL,
+      "--method",
+      "tools/list",
+    ]);
+
+    expect(revocationCalls(fetchSpy)).toHaveLength(1);
+    expect(result.stderr).not.toMatch(/could not revoke/i);
+  });
 });
