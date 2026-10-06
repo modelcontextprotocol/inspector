@@ -390,4 +390,86 @@ describe("groupProtocolEntries", () => {
       { kind: "mrtr", requestState: "A", rounds: [a2] },
     ]);
   });
+
+  // #2608: `mrtr_two_step` mints a fresh token each round, so no single key
+  // spans the conversation — each retry echoes the token the round before it
+  // was issued.
+  function rotatingConversation(): MessageEntry[] {
+    return [
+      callEntry(
+        "orig",
+        1,
+        { name: "mrtr_two_step" },
+        { resultType: "input_required", requestState: "step2" },
+        1,
+      ),
+      callEntry(
+        "retry1",
+        2,
+        { name: "mrtr_two_step", requestState: "step2", inputResponses: {} },
+        { resultType: "input_required", requestState: "done" },
+        2,
+      ),
+      callEntry(
+        "retry2",
+        3,
+        { name: "mrtr_two_step", requestState: "done", inputResponses: {} },
+        { resultType: "complete", content: [] },
+        3,
+      ),
+    ];
+  }
+
+  it("chains rounds when the server rotates requestState each round", () => {
+    const rounds = rotatingConversation();
+    expect(groupProtocolEntries(rounds)).toEqual([
+      { kind: "mrtr", requestState: "step2", rounds },
+    ]);
+  });
+
+  it("chains a rotating conversation sorted newest-first, named by its first token", () => {
+    const rounds = rotatingConversation().reverse();
+    expect(groupProtocolEntries(rounds)).toEqual([
+      { kind: "mrtr", requestState: "step2", rounds },
+    ]);
+  });
+
+  it("names a lone retry by the token it echoed", () => {
+    const [, retry1] = rotatingConversation();
+    expect(groupProtocolEntries([retry1])).toEqual([
+      { kind: "mrtr", requestState: "step2", rounds: [retry1] },
+    ]);
+  });
+
+  it("clusters two retries that echo the same token after an error round", () => {
+    const original = callEntry(
+      "orig",
+      1,
+      {},
+      { resultType: "input_required", requestState: "tok" },
+      1,
+    );
+    const failed: MessageEntry = {
+      ...callEntry("failed", 2, { requestState: "tok" }, undefined, 2),
+      response: {
+        jsonrpc: "2.0",
+        id: 2,
+        error: { code: -32603, message: "boom" },
+      },
+    };
+    const retried = callEntry(
+      "retried",
+      3,
+      { requestState: "tok" },
+      { resultType: "complete", content: [] },
+      3,
+    );
+    expect(groupProtocolEntries([original, failed, retried])).toEqual([
+      {
+        kind: "mrtr",
+        requestState: "tok",
+        rounds: [original, failed, retried],
+      },
+    ]);
+  });
 });
