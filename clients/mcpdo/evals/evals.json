@@ -71,12 +71,18 @@
   },
   {
     "kind": "behavior",
-    "autoConsent": true,
-    "prompt": "Connect to the secure-add MCP server and use it to add 2 and 3. It requires signing in — share the sign-in link with me if one comes up, and finish the job once access is granted.",
+    "prompt": "Connect to the secure-add MCP server.",
     "servers": {
       "secure-add": {
-        "serverInfo": { "name": "secure-add", "version": "1.0.0" },
-        "tools": [{ "preset": "add" }],
+        "serverInfo": {
+          "name": "secure-add",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "add"
+          }
+        ],
         "oauth": {
           "enabled": true,
           "mode": "combined",
@@ -84,7 +90,49 @@
           "scopesSupported": ["mcp"],
           "supportDCR": true
         },
-        "transport": { "type": "streamable-http" }
+        "transport": {
+          "type": "streamable-http"
+        }
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "secure-add",
+        "exit": 0,
+        "stdoutMatch": "oauth/authorize"
+      }
+    ],
+    "expectReply": "https?://[^\\s\"'<>\\\\]+/oauth/authorize\\?",
+    "expectLastCallTurn1": "connect"
+  },
+  {
+    "kind": "behavior",
+    "autoConsent": true,
+    "consentAfterReply": true,
+    "prompt": "List the tools available on the secure-add MCP server.",
+    "followUp": "I have signed in now — please continue.",
+    "servers": {
+      "secure-add": {
+        "serverInfo": {
+          "name": "secure-add",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "add"
+          }
+        ],
+        "oauth": {
+          "enabled": true,
+          "mode": "combined",
+          "requireAuth": true,
+          "scopesSupported": ["mcp"],
+          "supportDCR": true
+        },
+        "transport": {
+          "type": "streamable-http"
+        }
       }
     },
     "expectCalls": [
@@ -95,24 +143,30 @@
         "stdoutMatch": "oauth/authorize"
       },
       {
-        "cmd": "tools/call",
+        "cmd": "tools/list",
         "connection": "secure-add",
-        "tool": "add",
-        "args": {
-          "a": 2,
-          "b": 3
-        },
-        "stdoutMatch": "5"
+        "exit": 0,
+        "stdoutMatch": "add"
       }
-    ]
+    ],
+    "expectReply": "https?://[^\\s\"'<>\\\\]+/oauth/authorize\\?",
+    "rejectCompletedTurn1": "tools/list",
+    "expectReplyFollowUp": "add"
   },
   {
     "kind": "behavior",
     "prompt": "File a ticket on the helpdesk server with the summary 'Printer on floor 3 is jammed'. If it needs contact details, I'm Ada Lovelace, ada@example.com. Tell me the ticket number.",
     "servers": {
       "helpdesk": {
-        "serverInfo": { "name": "helpdesk", "version": "1.0.0" },
-        "tools": [{ "preset": "submit_ticket" }]
+        "serverInfo": {
+          "name": "helpdesk",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "submit_ticket"
+          }
+        ]
       }
     },
     "expectCalls": [
@@ -120,7 +174,9 @@
         "cmd": "tools/call",
         "connection": "helpdesk",
         "tool": "submit_ticket",
-        "args": { "summary": "Printer on floor 3 is jammed" },
+        "args": {
+          "summary": "Printer on floor 3 is jammed"
+        },
         "exit": 0,
         "stdoutMatch": "elicitationPending|Input required"
       },
@@ -161,12 +217,26 @@
     "prompt": "My catalog has two MCP servers, alpha and beta. Use beta to compute the sum of 4 and 9.",
     "servers": {
       "alpha": {
-        "serverInfo": { "name": "alpha", "version": "1.0.0" },
-        "tools": [{ "preset": "echo" }]
+        "serverInfo": {
+          "name": "alpha",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "echo"
+          }
+        ]
       },
       "beta": {
-        "serverInfo": { "name": "beta", "version": "1.0.0" },
-        "tools": [{ "preset": "get_sum" }]
+        "serverInfo": {
+          "name": "beta",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "get_sum"
+          }
+        ]
       }
     },
     "expectCalls": [
@@ -187,8 +257,15 @@
     "prompt": "File a ticket on the helpdesk server with the summary 'Broken keyboard'. If it asks for contact details, do NOT share any personal information — decline that request — and tell me what happened.",
     "servers": {
       "helpdesk": {
-        "serverInfo": { "name": "helpdesk", "version": "1.0.0" },
-        "tools": [{ "preset": "submit_ticket" }]
+        "serverInfo": {
+          "name": "helpdesk",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "submit_ticket"
+          }
+        ]
       }
     },
     "expectCalls": [

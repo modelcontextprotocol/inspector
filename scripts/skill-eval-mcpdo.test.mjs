@@ -23,6 +23,7 @@ import {
   makeBehaviorEnv,
   readTranscript,
   startConsentClicker,
+  behaviorAgentArgs,
   loadCases,
   pool,
 } from "./skill-eval-mcpdo.mjs";
@@ -419,16 +420,79 @@ test("consent clicker: approves each authorize URL from the transcript once", as
   const clicker = startConsentClicker(logPath);
   try {
     const deadline = Date.now() + 5000;
-    while (hits.callback === 0 && Date.now() < deadline) {
+    // Wait on clickedCount, not hits.callback: the /cb hit fires INSIDE
+    // clickConsent, and succeeded++ only runs after it returns — so waiting on
+    // the callback races the increment and reads clickedCount() as 0.
+    while (clicker.clickedCount() === 0 && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 50));
     }
     assert.equal(hits.get, 1);
     assert.equal(hits.post, 1);
     assert.equal(hits.callback, 1);
+    // clickedCount reflects COMPLETED clicks — the multi-turn wait keys on it.
+    assert.equal(clicker.clickedCount(), 1);
     // Same URL appearing again (an agent re-printing it) is not re-clicked.
     writeFileSync(logPath, `${record}\n${record}\n`);
     await new Promise((r) => setTimeout(r, 700));
     assert.equal(hits.post, 1);
+    assert.equal(clicker.clickedCount(), 1);
+  } finally {
+    clicker.stop();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("consent clicker: replyText gate holds the click until the agent relays", async () => {
+  const { createServer } = await import("node:http");
+  const hits = { post: 0, callback: 0 };
+  const server = createServer((req, res) => {
+    const u = new URL(req.url, "http://127.0.0.1");
+    if (u.pathname === "/oauth/authorize" && req.method === "GET") {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end("<form>consent</form>");
+    } else if (u.pathname === "/oauth/authorize" && req.method === "POST") {
+      hits.post++;
+      res.writeHead(302, {
+        Location: `http://127.0.0.1:${server.address().port}/cb?code=x&state=s`,
+      });
+      res.end();
+    } else if (u.pathname === "/cb") {
+      hits.callback++;
+      res.writeHead(200);
+      res.end("done");
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const port = server.address().port;
+  const authUrl = `http://127.0.0.1:${port}/oauth/authorize?client_id=c&state=s`;
+  const dir = mkdtempSync(path.join(os.tmpdir(), "mcpdo-eval-test-"));
+  const logPath = path.join(dir, "log.ndjson");
+  writeFileSync(
+    logPath,
+    JSON.stringify({
+      argv: ["connect", "secure"],
+      exit: 0,
+      events: [{ t: 1, stream: "stdout", data: `"authUrl": "${authUrl}"` }],
+    }) + "\n",
+  );
+  let reply = "working on it";
+  const clicker = startConsentClicker(logPath, { replyText: () => reply });
+  try {
+    // URL is in the transcript but not in any reply: the simulated human
+    // cannot open a link the agent never showed them.
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(hits.post, 0);
+    reply = `open this to sign in: ${authUrl}`;
+    const deadline = Date.now() + 5000;
+    while (hits.callback === 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    assert.equal(hits.post, 1);
+    assert.equal(hits.callback, 1);
   } finally {
     clicker.stop();
     server.close();
@@ -460,6 +524,26 @@ test("loadCases: the committed evals file validates and partitions", () => {
   assert.ok(behavior.length >= 2);
   assert.ok(trigger.every((c) => c.kind === "trigger"));
   assert.ok(behavior.every((c) => c.kind === "behavior"));
+});
+
+test("behaviorAgentArgs: resume id becomes --resume (claude) / --session-id (copilot)", () => {
+  const fresh = behaviorAgentArgs("claude", 14);
+  assert.ok(!fresh.includes("--resume"));
+  const resumed = behaviorAgentArgs("claude", 14, "sess-abc");
+  const i = resumed.indexOf("--resume");
+  assert.ok(i >= 0, "resume flag present");
+  assert.equal(resumed[i + 1], "sess-abc");
+  // -p stays first; --resume rides right after it, before the output format.
+  assert.equal(resumed[0], "-p");
+  assert.ok(resumed.indexOf("--resume") < resumed.indexOf("--output-format"));
+  // Copilot takes the id too, as `--session-id` (one flag that both sets the
+  // session on turn 1 and resumes it on turn 2).
+  const copFresh = behaviorAgentArgs("copilot", 14);
+  assert.ok(!copFresh.includes("--session-id"));
+  const copResumed = behaviorAgentArgs("copilot", 14, "sess-abc");
+  const j = copResumed.indexOf("--session-id");
+  assert.ok(j >= 0, "session-id flag present for copilot");
+  assert.equal(copResumed[j + 1], "sess-abc");
 });
 
 // End-to-end: the launcher must actually SERVE the composed config. One MCP

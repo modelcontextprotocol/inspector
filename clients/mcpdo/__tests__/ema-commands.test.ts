@@ -128,8 +128,9 @@ describe("auth/ema-* commands", () => {
     const { runMcp } = await import("../src/connection/mcp.js");
     await runMcp(["node", "mcpdo", "auth/ema-logout"]);
     expect(stdout).toContain("Signed out");
+    expect(stdout).toContain("To end your IdP browser session, navigate to:");
     expect(stdout).toContain(
-      "To end your IdP browser session, navigate to: https://idp.example.com/session/end?id_token_hint=a.b.c",
+      "https://idp.example.com/session/end?id_token_hint=a.b.c",
     );
   });
 
@@ -150,6 +151,9 @@ describe("auth/ema-* commands", () => {
     expect(stdout).toContain("Sign-in required");
     expect(stdout).toContain("https://idp.example.com/authorize?state=abc");
     expect(stdout).toContain("auth/ema-status");
+    // Non-TTY: agent relay framing, same split as the connect surface.
+    expect(stdout).toContain("not usable yet until the user signs in");
+    expect(stdout).toContain("wait for them to confirm");
   });
 
   it("auth/ema-login non-TTY forwards --relogin and emits JSON with the authUrl", async () => {

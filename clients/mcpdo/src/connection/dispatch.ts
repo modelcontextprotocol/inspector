@@ -107,7 +107,7 @@ export async function dispatchConnectionRpc(
   const interactive =
     format === "text" &&
     (process.stdin.isTTY === true || process.stderr.isTTY === true);
-  if (!interactive) params.parkElicitations = true;
+  params.interactive = interactive;
   let outcome: RpcResult;
   try {
     outcome = await callDaemon<RpcResult>("rpc", params, {

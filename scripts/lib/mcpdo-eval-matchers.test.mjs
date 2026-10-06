@@ -6,6 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  assistantReplyText,
+  REPLY_TEXT_OPTIONS,
   parseMcpdoArgv,
   valuesMatch,
   matchCall,
@@ -15,6 +17,9 @@ import {
   validateBehaviorCase,
   validateCaseServers,
   validateServerSpec,
+  claudeSessionId,
+  lastCommandBefore,
+  succeededBefore,
 } from "./mcpdo-eval-matchers.mjs";
 
 const record = (argv, { exit = 0, stdout = "", stderr = "" } = {}) => ({
@@ -295,6 +300,232 @@ test("validateBehaviorCase: autoConsent must be a boolean", () => {
       /`autoConsent` must be a boolean/.test(e),
     ),
   );
+});
+
+test("validateBehaviorCase: consentDelayMs and expectReply", () => {
+  const base = { prompt: "p", expectCalls: [{ cmd: "connect" }] };
+  assert.deepEqual(
+    validateBehaviorCase(
+      { ...base, consentDelayMs: 20000, expectReply: "oauth/authorize\\?" },
+      0,
+    ),
+    [],
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, consentDelayMs: -1 }, 0).some((e) =>
+      /`consentDelayMs` must be a non-negative integer/.test(e),
+    ),
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, consentDelayMs: 1.5 }, 0).some((e) =>
+      /`consentDelayMs` must be a non-negative integer/.test(e),
+    ),
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, expectReply: "" }, 0).some((e) =>
+      /`expectReply` must be a non-empty string/.test(e),
+    ),
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, expectReply: "(" }, 0).some((e) =>
+      /`expectReply` is not a valid regex/.test(e),
+    ),
+  );
+  assert.deepEqual(
+    validateBehaviorCase({ ...base, consentAfterReply: true }, 0),
+    [],
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, consentAfterReply: "yes" }, 0).some((e) =>
+      /`consentAfterReply` must be a boolean/.test(e),
+    ),
+  );
+});
+
+test("validateBehaviorCase: multi-turn fields (followUp, expectReplyFollowUp, expectLastCallTurn1)", () => {
+  const base = { prompt: "p", expectCalls: [{ cmd: "connect" }] };
+  // A valid multi-turn case: followUp paired with expectReplyFollowUp.
+  assert.deepEqual(
+    validateBehaviorCase(
+      {
+        ...base,
+        followUp: "continue",
+        expectReplyFollowUp: "add",
+        expectLastCallTurn1: "connect",
+      },
+      0,
+    ),
+    [],
+  );
+  // followUp without expectReplyFollowUp is an error.
+  assert.ok(
+    validateBehaviorCase({ ...base, followUp: "go" }, 0).some((e) =>
+      /`followUp` requires `expectReplyFollowUp`/.test(e),
+    ),
+  );
+  // expectReplyFollowUp without followUp is an error.
+  assert.ok(
+    validateBehaviorCase({ ...base, expectReplyFollowUp: "add" }, 0).some((e) =>
+      /`expectReplyFollowUp` requires `followUp`/.test(e),
+    ),
+  );
+  // Empty / bad-regex / wrong-type checks.
+  assert.ok(
+    validateBehaviorCase(
+      { ...base, followUp: "", expectReplyFollowUp: "add" },
+      0,
+    ).some((e) => /`followUp` must be a non-empty string/.test(e)),
+  );
+  assert.ok(
+    validateBehaviorCase(
+      { ...base, followUp: "go", expectReplyFollowUp: "(" },
+      0,
+    ).some((e) => /`expectReplyFollowUp` is not a valid regex/.test(e)),
+  );
+  assert.ok(
+    validateBehaviorCase({ ...base, expectLastCallTurn1: "" }, 0).some((e) =>
+      /`expectLastCallTurn1` must be a non-empty string/.test(e),
+    ),
+  );
+  // expectLastCallTurn1 is valid on its own (a single-turn relay-and-stop gate).
+  assert.deepEqual(
+    validateBehaviorCase({ ...base, expectLastCallTurn1: "connect" }, 0),
+    [],
+  );
+  // rejectCompletedTurn1 (the robust list-tools gate) has the same shape rules.
+  assert.ok(
+    validateBehaviorCase({ ...base, rejectCompletedTurn1: "" }, 0).some((e) =>
+      /`rejectCompletedTurn1` must be a non-empty string/.test(e),
+    ),
+  );
+  assert.deepEqual(
+    validateBehaviorCase({ ...base, rejectCompletedTurn1: "tools/list" }, 0),
+    [],
+  );
+});
+
+test("claudeSessionId: last session_id wins, null when absent", () => {
+  const raw =
+    JSON.stringify({ type: "system", subtype: "init", session_id: "s-1" }) +
+    "\n" +
+    "not json\n" +
+    JSON.stringify({ type: "assistant", message: { content: [] } }) +
+    "\n" +
+    JSON.stringify({ type: "result", session_id: "s-2" }) +
+    "\n";
+  assert.equal(claudeSessionId(raw), "s-2");
+  assert.equal(claudeSessionId(""), null);
+  assert.equal(claudeSessionId(JSON.stringify({ type: "assistant" })), null);
+  // A torn final line (truncated mid-write) must not lose an earlier id.
+  assert.equal(
+    claudeSessionId(
+      JSON.stringify({ session_id: "s-1" }) + '\n{"session_id":"s-',
+    ),
+    "s-1",
+  );
+});
+
+test("lastCommandBefore: final command by start time, honoring the boundary", () => {
+  const rec = (cmd, start) => ({ argv: [cmd], start });
+  const records = [
+    rec("tools/list", 10), // failed pre-connect probe
+    rec("connect", 20), // relayed the URL, then stopped
+    rec("tools/list", 40), // turn 2, after the follow-up
+  ];
+  // Before the follow-up (boundary 30): connect was the last thing.
+  assert.equal(lastCommandBefore(records, 30), "connect");
+  // Infinity covers every record (a single-turn case).
+  assert.equal(lastCommandBefore(records, Infinity), "tools/list");
+  // A later-exiting but earlier-starting record does not displace connect.
+  assert.equal(
+    lastCommandBefore(
+      [rec("connect", 20), { argv: ["connections/show"], start: 15 }],
+      30,
+    ),
+    "connect",
+  );
+  // Records with no numeric start are ignored; nothing qualifying is null.
+  assert.equal(lastCommandBefore([{ argv: ["connect"] }], 30), null);
+  assert.equal(lastCommandBefore([], 30), null);
+});
+
+test("succeededBefore: exit-0 task command before the boundary", () => {
+  const rec = (cmd, start, exit) => ({ argv: [cmd], start, exit });
+  // A chained `connect && tools/list` where tools/list errors (auth_required)
+  // then succeeds in turn 2: NOT completed in turn 1.
+  const chained = [
+    rec("connect", 20, 0),
+    rec("tools/list", 22, 3), // optimistic, errored — agent waited
+    rec("tools/list", 40, 0), // turn 2, after sign-in
+  ];
+  assert.equal(succeededBefore(chained, 30, "tools/list"), false);
+  // A poll that ran tools/list to success in turn 1: completed without waiting.
+  const polled = [rec("connect", 20, 0), rec("tools/list", 25, 0)];
+  assert.equal(succeededBefore(polled, 30, "tools/list"), true);
+  // Argv carries a connection prefix (`@name tools/list`) — still matched.
+  assert.equal(
+    succeededBefore(
+      [{ argv: ["@secure-add", "tools/list"], start: 25, exit: 0 }],
+      30,
+      "tools/list",
+    ),
+    true,
+  );
+  // Records with no numeric start, or at/after the boundary, are ignored.
+  assert.equal(
+    succeededBefore([{ argv: ["tools/list"], exit: 0 }], 30, "tools/list"),
+    false,
+  );
+  assert.equal(
+    succeededBefore([rec("tools/list", 40, 0)], 30, "tools/list"),
+    false,
+  );
+});
+
+test("assistantReplyText: reads both agents' event shapes, skips noise", () => {
+  const claude =
+    JSON.stringify({
+      type: "assistant",
+      message: {
+        content: [
+          { type: "text", text: "open http://127.0.0.1:1/oauth/authorize?x=1" },
+          { type: "tool_use", name: "Bash", input: {} },
+          {
+            type: "thinking",
+            thinking: "narrated aside with a secret-ish url",
+          },
+        ],
+      },
+    }) + "\n";
+  const copilot =
+    JSON.stringify({
+      type: "assistant.message",
+      data: { content: "then sign in", toolRequests: [] },
+    }) + "\n";
+  const noise =
+    "not json\n" +
+    JSON.stringify({ type: "tool_result", content: "secret url" }) +
+    "\n" +
+    JSON.stringify({ type: "assistant.message_delta", data: { content: 5 } }) +
+    "\n";
+  const text = assistantReplyText(claude + noise + copilot);
+  assert.equal(
+    text,
+    "open http://127.0.0.1:1/oauth/authorize?x=1\nthen sign in",
+  );
+  // Tool results are what the agent SAW, not what it said — they must never
+  // satisfy a reply matcher.
+  assert.ok(!text.includes("secret url"));
+  // Thinking blocks count only when the host displays them (Claude Code
+  // narration) — opt-in via includeThinking, default off.
+  assert.ok(!text.includes("narrated aside"));
+  const withThinking = assistantReplyText(claude + noise + copilot, {
+    includeThinking: true,
+  });
+  assert.ok(withThinking.includes("narrated aside"));
+  assert.deepEqual(REPLY_TEXT_OPTIONS.claude, { includeThinking: true });
+  assert.deepEqual(REPLY_TEXT_OPTIONS.copilot, { includeThinking: false });
+  assert.equal(assistantReplyText(""), "");
 });
 
 test("matchPhases: interleaved prompt/answer/result ordering", () => {

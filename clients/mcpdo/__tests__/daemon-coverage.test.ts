@@ -659,7 +659,7 @@ describe("daemon coverage", () => {
       serverIdentity: "s-again",
     });
     expect(registry.use("s").serverIdentity).toBe("s-again");
-    expect(() => registry.resolve("missing", false)).toThrow(/not found/);
+    expect(() => registry.resolve("missing", false)).toThrow(/isn't connected/);
     await registry.disconnectAll();
   });
 

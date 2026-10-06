@@ -830,7 +830,34 @@ describe("writeConnectionOutput", () => {
     expect(stdout).toContain("Sign-in required");
     expect(stdout).toContain(authUrl);
     expect(stdout).toContain("Sign-in: pending");
+    // Non-interactive (agent) framing: a factual statement to relay the URL
+    // and wait, with the resume command named for after confirmation.
+    expect(stdout).toContain("not usable yet until the user signs in");
+    expect(stdout).toContain("wait for them to confirm");
+    expect(stdout).toContain("mcpdo connections/show @api");
+    expect(stdout).not.toContain("Open this link in a browser");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", interactive: true },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    // Interactive (human) framing: address the reader directly, and it is the
+    // human path that gets the "check with connections/show" nudge.
+    expect(stdout).toContain("Open this link in a browser to authenticate");
     expect(stdout).toContain("connections/show @api");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).not.toContain("not usable yet until the user signs in");
+    expect(stdout).not.toContain("wait for them to confirm");
   });
 
   it("pendingAuthSignedIn: human output flips to completed / completing-on-next-use", async () => {
@@ -892,7 +919,7 @@ describe("writeConnectionOutput", () => {
     const style = createStyle(true);
     stdout = "";
     await writeConnectionOutput(
-      { format: "text", style },
+      { format: "text", style, interactive: true },
       {
         kind: "connection",
         connection,
@@ -905,7 +932,7 @@ describe("writeConnectionOutput", () => {
     // text, never a clickable link.
     stdout = "";
     await writeConnectionOutput(
-      { format: "text", style },
+      { format: "text", style, interactive: true },
       {
         kind: "connection",
         connection,
@@ -966,6 +993,75 @@ describe("writeConnectionOutput", () => {
           alreadyLoggedIn: false,
           pendingLogin: true,
           authUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("pending ema-login in interactive mode renders the human sign-in block with the link gate", async () => {
+    // Safe https URL becomes a clickable OSC 8 link in the human block.
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true), interactive: true },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "https://idp.example.com/authorize?state=h1",
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain("\u001b]8");
+
+    // Unsafe scheme stays plain text even in the human block.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true), interactive: true },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("ema-logout routes the end-session URL through the same OSC 8 link gate", async () => {
+    // Safe https URL renders as a clickable OSC 8 link, like every other
+    // server-supplied URL in this formatter.
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-logout",
+        result: {
+          issuer: "https://idp.example.com",
+          endSessionUrl: "https://idp.example.com/session/end?id_token_hint=x",
+        },
+      },
+    );
+    expect(stdout).toContain("To end your IdP browser session, navigate to:");
+    expect(stdout).toContain("\u001b]8");
+
+    // Unsafe scheme stays plain text, never a clickable link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-logout",
+        result: {
+          issuer: "https://idp.example.com",
+          endSessionUrl: "file:///etc/passwd",
         },
       },
     );

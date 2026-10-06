@@ -75,14 +75,19 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { AGENTS, formatReport, runPrompt } from "./skill-eval.mjs";
 import { parseSkill, validateEvalCases } from "./lib/skill-manifest.mjs";
 import {
+  assistantReplyText,
+  REPLY_TEXT_OPTIONS,
   evalExpectCalls,
   streamText,
   validateBehaviorCase,
+  claudeSessionId,
+  lastCommandBefore,
+  succeededBefore,
 } from "./lib/mcpdo-eval-matchers.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -234,13 +239,23 @@ export function loadCases() {
  *
  * @param {string} agent
  * @param {number} maxTurns
+ * @param {string | null} [resumeSessionId] The session id for a multi-turn
+ *   OAuth behavior case. For claude it is the prior turn's captured id, added
+ *   as `--resume` on the second turn only. For copilot it is an id the harness
+ *   minted, added as `--session-id` on both turns (which that flag sets then
+ *   resumes). Null for a single-turn case, where both agents start fresh.
  * @returns {string[]}
  */
-export function behaviorAgentArgs(agent, maxTurns) {
+export function behaviorAgentArgs(agent, maxTurns, resumeSessionId = null) {
   if (agent === "copilot") {
     return [
       "--output-format",
       "json",
+      // One flag both sets and resumes: on turn 1 it mints the session under
+      // the id the harness chose, on turn 2 the same id continues it (verified
+      // against the live CLI). Unlike claude there is nothing to parse out of
+      // the stream — the harness owns the id — so it is passed on BOTH turns.
+      ...(resumeSessionId ? ["--session-id", resumeSessionId] : []),
       // No `--available-tools`: its availability names differ from the
       // approval-pattern names (the shell tool is `bash` in events but
       // `shell(...)` in patterns), and naming it wrong silently removes the
@@ -264,6 +279,9 @@ export function behaviorAgentArgs(agent, maxTurns) {
   if (agent !== "claude") throw new Error(`unknown agent \`${agent}\``);
   return [
     "-p",
+    // Continue the prior turn's session when resuming; reads the new prompt
+    // from stdin exactly as a fresh `-p` run does.
+    ...(resumeSessionId ? ["--resume", resumeSessionId] : []),
     "--output-format",
     "stream-json",
     "--verbose",
@@ -509,13 +527,31 @@ const AUTHORIZE_URL_RE =
  * the case then fails on its own matchers, with this as the diagnostic.
  *
  * @param {string} logPath The sample's transcript path.
- * @returns {{ stop: () => void }}
+ * @param {object} [opts]
+ * @param {number} [opts.delayMs] How long a discovered URL sits unclicked. The
+ *   simulated human signing in instantly would let the agent skip the relay
+ *   entirely (its first poll already shows the connection up), so an
+ *   `expectReply` case holds the click back long enough that the agent has
+ *   to tell the user about the link, exactly as in a real session.
+ * @param {(() => string) | null} [opts.replyText] When set, a URL is clicked
+ *   only once it appears verbatim in the text this getter returns — the
+ *   agent's own user-facing replies. This makes consent *causal* on the
+ *   relay: the simulated human can only open a link the agent actually
+ *   showed them, so a session where the agent hoards the URL never
+ *   authenticates and fails on `expectCalls` too, exactly as a real user is
+ *   stranded.
+ * @returns {{ stop: () => void, clickedCount: () => number }}
  */
-export function startConsentClicker(logPath) {
+export function startConsentClicker(logPath, opts = {}) {
+  const { delayMs = 0, replyText = null } = opts;
   const clicked = new Set();
+  const firstSeen = new Map();
   let inFlight = false;
+  let succeeded = 0;
   const timer = setInterval(() => {
     if (inFlight) return;
+    const now = Date.now();
+    const relayed = replyText === null ? null : replyText();
     const urls = new Set();
     for (const record of readTranscript(logPath)) {
       // Scan joined per-stream text, not individual chunks: a long authorize
@@ -525,7 +561,10 @@ export function startConsentClicker(logPath) {
       for (const stream of ["stdout", "stderr"]) {
         for (const url of streamText(record, stream).match(AUTHORIZE_URL_RE) ??
           []) {
-          if (!clicked.has(url)) urls.add(url);
+          if (clicked.has(url)) continue;
+          if (relayed !== null && !relayed.includes(url)) continue;
+          if (!firstSeen.has(url)) firstSeen.set(url, now);
+          if (now - firstSeen.get(url) >= delayMs) urls.add(url);
         }
       }
     }
@@ -536,6 +575,7 @@ export function startConsentClicker(logPath) {
       for (const url of urls) {
         try {
           await clickConsent(url);
+          succeeded++;
           console.error(`  autoConsent: clicked ${new URL(url).pathname}`);
         } catch (err) {
           console.error(`  autoConsent: click failed — ${err.message}`);
@@ -547,7 +587,69 @@ export function startConsentClicker(logPath) {
   }, 250);
   return {
     stop: () => clearInterval(timer),
+    // How many consent clicks have COMPLETED (not merely been scheduled) — the
+    // multi-turn flow waits on this to know the simulated sign-in happened
+    // before it resumes the session.
+    clickedCount: () => succeeded,
   };
+}
+
+/**
+ * One out-of-band `connections/show @name --format json` against the sample's
+ * daemon, read back as parsed JSON. Spawned as the REAL bin directly (not
+ * through the PATH shim), so it never appears in the scored transcript —
+ * `expectCalls` sees only what the AGENT ran.
+ *
+ * @param {NodeJS.ProcessEnv} env The sample's hermetic env (binds the daemon).
+ * @param {string} name Connection/catalog name.
+ * @returns {Promise<Record<string, unknown> | null>} Parsed result, or null
+ *   on any failure (daemon down, unknown connection, unparseable output).
+ */
+function daemonShowJson(env, name) {
+  return new Promise((resolve) => {
+    const child = spawn(
+      process.execPath,
+      [REAL_BIN, "connections/show", `@${name}`, "--format", "json"],
+      { env, stdio: ["ignore", "pipe", "ignore"] },
+    );
+    let out = "";
+    child.stdout.on("data", (d) => {
+      out += d;
+    });
+    child.on("error", () => resolve(null));
+    child.on("close", () => {
+      try {
+        resolve(JSON.parse(out));
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * Wait for a pending OAuth connection to finish signing in, driving the
+ * completion itself. `connections/show` revives a pending entry once tokens
+ * are on disk (see the daemon's show handler), so polling it both WAITS for
+ * the simulated human's consent click to land AND performs the revive the
+ * agent's next op would — leaving the connection live for the resumed turn.
+ * Ready ⇔ the result no longer carries `authUrl`/`pendingAuth`. Returns false
+ * on timeout (the agent likely never relayed the URL, so nothing was clicked);
+ * the case then fails on its own matchers, with the timeout as the signal.
+ *
+ * @param {NodeJS.ProcessEnv} env The sample's hermetic env.
+ * @param {string} name Connection/catalog name.
+ * @param {number} [timeoutMs]
+ * @returns {Promise<boolean>}
+ */
+async function waitForConnectionReady(env, name, timeoutMs = 20000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const result = await daemonShowJson(env, name);
+    if (result && !result.authUrl && result.pendingAuth !== true) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((r) => setTimeout(r, 400));
+  }
 }
 
 /**
@@ -584,9 +686,43 @@ async function runBehaviorSample(c, agent) {
     throw err;
   }
   const { env, logPath, envDir, teardown } = ready;
-  const clicker = c.autoConsent === true ? startConsentClicker(logPath) : null;
+  const rawLogPath = path.join(envDir, "agent-session.ndjson");
+  // The reply gate reads the live raw agent stream, appended per chunk by
+  // runPrompt — so mid-session the getter sees every reply sent so far.
+  const replyText = () =>
+    existsSync(rawLogPath)
+      ? assistantReplyText(
+          readFileSync(rawLogPath, "utf8"),
+          REPLY_TEXT_OPTIONS[agent],
+        )
+      : "";
+  const clicker =
+    c.autoConsent === true
+      ? startConsentClicker(logPath, {
+          delayMs: c.consentDelayMs ?? 0,
+          replyText: c.consentAfterReply === true ? replyText : null,
+        })
+      : null;
   let keepEnvDir = false;
   let artifactsDir = null;
+  // A multi-turn case (`followUp`) runs the prompt, completes the simulated
+  // sign-in out-of-band, then resumes the SAME claude session with the
+  // follow-up text — modelling a real session where the agent relays the URL,
+  // ends its turn, and continues once the user says they signed in. Turn 1's
+  // user-facing reply and the follow-up's send time are captured so the
+  // scorer can separate "shown the URL in turn 1" and "stopped after connect"
+  // from the resumed turn's work.
+  const isMultiTurn =
+    typeof c.followUp === "string" && c.followUp.trim() !== "";
+  const name = Object.keys(caseServers(c))[0];
+  // Copilot's session id is the harness's to choose — minted up front and set
+  // on turn 1 via `--session-id` so turn 2 can resume it. Claude instead
+  // stamps its own id, which turn 1 emits and we read back below; so turn 1
+  // passes no id for claude.
+  const copilotSessionId =
+    isMultiTurn && agent === "copilot" ? randomUUID() : null;
+  let turn1Reply = "";
+  let followUpAt = Number.POSITIVE_INFINITY;
   try {
     await runPrompt(c.prompt, {
       cwd: sandbox,
@@ -594,10 +730,107 @@ async function runBehaviorSample(c, agent) {
       maxTurns: BEHAVIOR_TURNS,
       env,
       agentArgsFn: behaviorAgentArgs,
-      rawLogPath: path.join(envDir, "agent-session.ndjson"),
+      rawLogPath,
+      resumeSessionId: copilotSessionId,
     });
+    if (isMultiTurn) {
+      turn1Reply = replyText();
+      // Drive + wait for the simulated sign-in the clicker performs, so the
+      // resumed turn finds the connection live (as `connect` promised the
+      // user it would "complete automatically").
+      const ready = await waitForConnectionReady(env, name);
+      if (!ready) {
+        console.error(
+          `  multi-turn: ${name} never finished signing in before the follow-up`,
+        );
+      }
+      // Copilot uses the id we minted; claude's is read back from its stream.
+      const sessionId =
+        agent === "copilot"
+          ? copilotSessionId
+          : existsSync(rawLogPath)
+            ? claudeSessionId(readFileSync(rawLogPath, "utf8"))
+            : null;
+      followUpAt = Date.now();
+      if (sessionId) {
+        await runPrompt(c.followUp, {
+          cwd: sandbox,
+          agent,
+          maxTurns: BEHAVIOR_TURNS,
+          env,
+          agentArgsFn: behaviorAgentArgs,
+          rawLogPath,
+          resumeSessionId: sessionId,
+        });
+      } else {
+        console.error(
+          `  multi-turn: no ${agent} session id captured — cannot resume`,
+        );
+      }
+    }
     const records = readTranscript(logPath);
-    const { ok, failures } = evalExpectCalls(c.expectCalls, records);
+    const { ok: callsOk, failures } = evalExpectCalls(c.expectCalls, records);
+    let ok = callsOk;
+    if (c.expectReply !== undefined) {
+      // What the agent SAID, not what it ran: the raw agent stream is the
+      // only record of the user-facing reply (see assistantReplyText). For a
+      // multi-turn case this is the FIRST turn's reply — the URL must reach
+      // the user before they sign in, not after.
+      const reply = isMultiTurn ? turn1Reply : replyText();
+      if (!new RegExp(c.expectReply).test(reply)) {
+        ok = false;
+        failures.push(
+          `expectReply: no assistant text matched /${c.expectReply}/ ` +
+            `(the agent never showed it to the user)`,
+        );
+      }
+    }
+    if (c.expectLastCallTurn1 !== undefined) {
+      // Pure-connect cases (no task command to run): the agent's final
+      // first-turn mcpdo command must be `connect` — it relayed the URL and
+      // stopped, with nothing legitimate to chain after it.
+      const last = lastCommandBefore(records, followUpAt);
+      if (last !== c.expectLastCallTurn1) {
+        ok = false;
+        failures.push(
+          `expectLastCallTurn1: turn 1's final mcpdo command was ` +
+            `\`${last ?? "(none)"}\`, expected \`${c.expectLastCallTurn1}\` ` +
+            `(did it poll/retry after showing the URL instead of ending the turn?)`,
+        );
+      }
+    }
+    if (c.rejectCompletedTurn1 !== undefined) {
+      // Cases with a task command (e.g. `tools/list`): did the agent STOP to
+      // let the user sign in, or barrel through? The signal is whether the
+      // task command SUCCEEDED in turn 1 — a poll that ran until the
+      // connection came up, or a genuine completion, exits 0; an optimistic
+      // `connect && tools/list` chain exits non-zero (auth_required) and the
+      // agent correctly waits. Last-command cannot tell those apart; this can.
+      if (succeededBefore(records, followUpAt, c.rejectCompletedTurn1)) {
+        ok = false;
+        failures.push(
+          `rejectCompletedTurn1: \`${c.rejectCompletedTurn1}\` succeeded ` +
+            `(exit 0) in turn 1 — the agent completed the task instead of ` +
+            `waiting for the user to sign in (polled/retried, or never stopped).`,
+        );
+      }
+    }
+    if (c.expectReplyFollowUp !== undefined) {
+      // What the RESUMED turn told the user — turn-2 text only, found by
+      // stripping the turn-1 prefix the full reply is built on.
+      const full = replyText();
+      const afterText = full.startsWith(turn1Reply)
+        ? full.slice(turn1Reply.length)
+        : full;
+      if (!new RegExp(c.expectReplyFollowUp).test(afterText)) {
+        ok = false;
+        failures.push(
+          `expectReplyFollowUp: no assistant text after the follow-up ` +
+            `matched /${c.expectReplyFollowUp}/ ` +
+            `(it never reported the result once access was granted)`,
+        );
+      }
+    }
     // Compact transcript for miss diagnostics: what the agent actually ran
     // and what it got back — the eval's equivalent of a stack trace.
     const transcript = ok
@@ -610,7 +843,7 @@ async function runBehaviorSample(c, agent) {
           out: streamText(r, "stdout").slice(0, 300),
           err: streamText(r, "stderr").slice(0, 300),
         }));
-    if (!ok) {
+    if (!ok || process.env.MCPDO_EVAL_KEEP === "1") {
       keepEnvDir = true;
       writeFileSync(
         path.join(envDir, "case.json"),
@@ -782,6 +1015,8 @@ async function runBehaviorSection(cases, agent) {
     );
     return 1;
   }
+  // Both agents can resume a prior session, so multi-turn cases run on all of
+  // them (claude via `--resume`, copilot via a minted `--session-id`).
   console.log(
     `skills:eval:mcpdo behavior — ${cases.length} cases x ${BEHAVIOR_RUNS} runs, agent ${agent}, budget ${BEHAVIOR_TURNS} turns`,
   );

@@ -428,4 +428,65 @@ describe("mcp.ts auth / daemon error paths", () => {
       envelope: { code: "usage" },
     });
   });
+
+  describe("connections/show pending-auth URL relay (surface 1 front-end)", () => {
+    const RELAY_URL = "https://as.example/authorize?client_id=abc&state=xyz";
+    const showResult = {
+      name: "api",
+      serverIdentity: "https://mcp.example.com/mcp",
+      pendingAuth: true,
+      authUrl: RELAY_URL,
+    };
+
+    it("--format json always carries authUrl (machine-readable), query intact", async () => {
+      process.stderr.isTTY = true; // TTY must not suppress it for JSON.
+      callDaemon.mockResolvedValueOnce(showResult);
+      const { runMcp } = await import("../src/connection/mcp.js");
+      await runMcp([
+        "node",
+        "mcpdo",
+        "connections/show",
+        "api",
+        "--format",
+        "json",
+      ]);
+      const parsed = JSON.parse(stdout) as { authUrl?: string };
+      expect(parsed.authUrl).toBe(RELAY_URL);
+    });
+
+    it("no human present (non-TTY): human text prints the relay block + URL", async () => {
+      process.stderr.isTTY = false;
+      process.stdin.isTTY = false;
+      callDaemon.mockResolvedValueOnce(showResult);
+      const { runMcp } = await import("../src/connection/mcp.js");
+      await runMcp([
+        "node",
+        "mcpdo",
+        "connections/show",
+        "api",
+        "--format",
+        "text",
+      ]);
+      expect(stdout).toContain("Sign-in required");
+      expect(stdout).toContain(RELAY_URL);
+    });
+
+    it("human present (TTY): human text omits the relay block entirely", async () => {
+      process.stderr.isTTY = true;
+      callDaemon.mockResolvedValueOnce(showResult);
+      const { runMcp } = await import("../src/connection/mcp.js");
+      await runMcp([
+        "node",
+        "mcpdo",
+        "connections/show",
+        "api",
+        "--format",
+        "text",
+      ]);
+      // The connection still renders (pending status), but the agent-relay
+      // URL block — and the URL — are suppressed for a human at a TTY.
+      expect(stdout).not.toContain("Sign-in required");
+      expect(stdout).not.toContain(RELAY_URL);
+    });
+  });
 });

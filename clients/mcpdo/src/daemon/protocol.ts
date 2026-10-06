@@ -63,16 +63,31 @@ export type RpcParams = ConnectionNameParams &
   MethodArgs & {
     method: string;
     /**
-     * When true and the call surfaces a legacy or modern non-task MRTR
-     * elicitation, don't relay it over the socket for an inline prompt —
-     * park it daemon-side and return immediately with
-     * `kind: "elicitation-pending"`. The caller answers via the
-     * `elicitation/respond` op, whose result is either the final call
-     * outcome or the next pending round. Set by the front-end for
-     * non-interactive callers (`--format json`, non-TTY), which have no
-     * human at the stream to answer an inline prompt.
+     * Whether a human is driving this call: set by the front-end to
+     * `format === "text" && (stdin.isTTY || stderr.isTTY)` (see dispatch.ts).
+     * One honest fact — "is there a human at the stream?" — drives two
+     * daemon behaviours, so the daemon reads interactivity here rather than
+     * inferring it from a side effect:
+     *
+     * - **Elicitation routing.** The daemon parks a legacy/modern non-task
+     *   MRTR elicitation — instead of relaying it for an inline prompt — only
+     *   when this field is *explicitly* `false` (`park = interactive === false`):
+     *   it returns immediately with `kind: "elicitation-pending"` and the
+     *   caller answers via the `elicitation/respond` op. Parking is opt-in, so
+     *   an absent field does NOT park (a caller that never announced itself
+     *   must not have its elicitations silently parked and hang). A
+     *   non-interactive caller (`--format json` or non-TTY) has no human at the
+     *   stream to answer an inline prompt.
+     * - **Agent-vs-human message text.** Auth-pending errors use agent-tuned
+     *   wording (relay instructions) unless this field is *explicitly* `true`.
+     *   See `ConnectionRegistry.reviveLocked`.
+     *
+     * The two reads differ in the absent case on purpose: parking defaults OFF
+     * (absent ⇒ don't park), message audience defaults to agent-facing
+     * (absent ⇒ non-interactive). The front-end always sends it, so absent is
+     * only ever a daemon-internal caller.
      */
-    parkElicitations?: boolean;
+    interactive?: boolean;
   };
 
 export type DaemonRequest = {
@@ -152,7 +167,7 @@ export type ElicitationResponseFrame = {
 
 /**
  * A parked elicitation, as reported to a non-interactive caller
- * ({@link RpcParams.parkElicitations}): everything an agent needs to relay
+ * ({@link RpcParams.interactive} false): everything an agent needs to relay
  * the request to a human and answer it with `elicitation/respond`. Rides the
  * normal success payload — like the pending-auth URL, an elicitation URL's
  * query string is meaningful data the error envelope would redact.
@@ -293,6 +308,17 @@ export type ConnectionShowResult = ConnectionInfo & {
    * something the user must act on.
    */
   transport?: "live" | "connecting" | "dormant";
+  /**
+   * Only alongside `pendingAuth: true`: the authorize URL the human must open
+   * to complete an out-of-band sign-in, present while the detached auth
+   * helper is still live (unexpired, PID alive — see
+   * `readLivePendingAuthMarker`). Rides the result payload, not the error
+   * envelope, because the envelope redacts URL query strings and this URL IS
+   * its query (client_id/PKCE/state). A poller reads it here and relays it;
+   * the `auth_required` error on other ops points here rather than carrying a
+   * (redacted, useless) copy.
+   */
+  authUrl?: string;
 };
 
 export type DaemonStatus = {
@@ -327,7 +353,7 @@ export type RpcResult =
   | {
       /**
        * The call surfaced an elicitation while
-       * {@link RpcParams.parkElicitations} was set: the call is parked
+       * {@link RpcParams.interactive} was false: the call is parked
        * daemon-side awaiting `elicitation/respond`, and this is everything
        * the caller needs to answer it.
        */

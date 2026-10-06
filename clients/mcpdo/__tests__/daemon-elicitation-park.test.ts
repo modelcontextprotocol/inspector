@@ -16,8 +16,8 @@ import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 
 /**
  * Covers daemon-side elicitation parking (dual-era support, phase 2):
- * `rpc` with `parkElicitations` returning `elicitation-pending` instead of
- * relaying an inline prompt, `elicitation/respond` resuming the parked call
+ * `rpc` from a non-interactive caller (`interactive: false`) returning
+ * `elicitation-pending` instead of relaying an inline prompt, `elicitation/respond` resuming the parked call
  * (final result, error, or the next round), expiry, the
  * one-parked-call-per-connection guard, and the registry/channel primitives.
  */
@@ -155,7 +155,7 @@ describe("daemon elicitation parking", () => {
         method: "tools/call",
         toolName: "collect",
         name: "srv",
-        parkElicitations: true,
+        interactive: false,
       },
     });
   }

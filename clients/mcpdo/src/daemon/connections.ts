@@ -38,6 +38,7 @@ import {
   isUnauthorizedError,
 } from "@inspector/core/auth/index.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
+import { readLivePendingAuthMarker } from "../connection/auth-helper.js";
 import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
 import type {
   ConnectionAuthInfo,
@@ -223,7 +224,7 @@ export class ConnectionRegistry {
     if (!connection) {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
-        `Connection '${name}' not found. Use mcpdo connections/list.`,
+        `Connection '${name}' isn't connected. Before using it you must connect using:\n  mcpdo connect ${name}`,
         { code: "connection_not_found" },
       );
     }
@@ -282,17 +283,21 @@ export class ConnectionRegistry {
   async liveClientFor(
     name: string | undefined,
     requireExplicit: boolean | undefined,
+    interactive?: boolean,
   ): Promise<InspectorClient> {
     const connection = this.connectionFor(name, requireExplicit);
     if (!isTerminalStatus(connection.client.getStatus())) {
       return connection.client;
     }
     return this.withNameLock(connection.name, () =>
-      this.reviveLocked(connection.name),
+      this.reviveLocked(connection.name, interactive),
     );
   }
 
-  private async reviveLocked(name: string): Promise<InspectorClient> {
+  private async reviveLocked(
+    name: string,
+    interactive?: boolean,
+  ): Promise<InspectorClient> {
     this.assertOpen();
     // Re-resolve under the lock: a disconnect or replacing connect queued
     // ahead of this revive changes what the name means (or removes it).
@@ -310,14 +315,7 @@ export class ConnectionRegistry {
         error instanceof CliExitCodeError &&
         error.envelope?.code === "auth_required"
       ) {
-        // Silent revive is out of credentials; only now does the user need
-        // to act. The front-end `connect` command runs the interactive flow.
-        throw new CliExitCodeError(
-          EXIT_CODES.AUTH_REQUIRED,
-          `Connection '${name}' needs re-authentication (stored credentials could not be refreshed). ` +
-            `Run mcpdo connect for this server to sign in again. (${error.message})`,
-          { code: "auth_required" },
-        );
+        throw this.authRequiredError(connection, interactive, error);
       }
       throw error;
     }
@@ -343,6 +341,74 @@ export class ConnectionRegistry {
       delete connection.auth;
     }
     return client;
+  }
+
+  /**
+   * The live authorize URL for a pending connection, or undefined. Keyed by
+   * the server URL (the OAuth marker key — see auth-helper.ts
+   * `obtainPendingAuthUrl`); stdio configs have no URL to key on and so never
+   * carry one. "Live" means the detached auth helper is still running and the
+   * marker is unexpired (see `readLivePendingAuthMarker`): a completed or
+   * crashed sign-in returns undefined, which is the discriminator between a
+   * sign-in still in flight and a genuine credential lapse.
+   */
+  pendingAuthUrlFor(connection: LiveConnection): string | undefined {
+    const cfg = connection.serverConfig;
+    if (!("url" in cfg) || typeof cfg.url !== "string" || cfg.url === "") {
+      return undefined;
+    }
+    return readLivePendingAuthMarker(cfg.url)?.url;
+  }
+
+  /**
+   * Compose the `auth_required` error a failed silent revive raises, picking
+   * the message by *why* it failed and *who* is reading it:
+   *
+   * - **Sign-in still pending** (`pendingAuth` + a live auth-helper marker):
+   *   the out-of-band flow the user was handed hasn't completed. The sign-in
+   *   URL is NOT embedded here — `connect` is the one reliable place it
+   *   surfaces with the right turn discipline (paste-as-last, end-turn), and
+   *   `connections/show @name` re-displays it the same way. So this error only
+   *   names the command to run; it never relays the URL itself, which keeps
+   *   the relay in one place instead of smeared across every RPC. An agent
+   *   (non-interactive) is told, as the message's last line, to run
+   *   `connections/show @name` if it needs to show the link again; a human
+   *   reads it from `connect` / `connections/show` and gets a terse pointer.
+   * - **Credentials lapsed** (no pending flow in flight): the stored tokens
+   *   could not be refreshed — re-run `mcpdo connect`. Unchanged wording.
+   */
+  private authRequiredError(
+    connection: LiveConnection,
+    interactive: boolean | undefined,
+    cause: CliExitCodeError,
+  ): CliExitCodeError {
+    const name = connection.name;
+    // A live sign-in marker is what distinguishes "flow in flight" from
+    // "credentials lapsed"; we branch on its presence but no longer relay the
+    // URL out of this error (connect / connections/show own that).
+    const signInInFlight =
+      connection.pendingAuth === true &&
+      this.pendingAuthUrlFor(connection) !== undefined;
+    if (signInInFlight) {
+      const message =
+        interactive === true
+          ? `Connection '${name}' sign-in is still pending. To see details, run:\n  mcpdo connections/show @${name}`
+          : `Connection '${name}' is not authenticated yet — sign-in is still pending; ` +
+            `the user must finish signing in. To display the sign-in link again ` +
+            `if you need it, run:\n  mcpdo connections/show @${name}`;
+      return new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, message, {
+        code: "auth_required",
+      });
+    }
+    // Silent revive is out of credentials with nothing in flight; only now
+    // does the user need to act. The front-end `connect` command runs the
+    // interactive flow.
+    return new CliExitCodeError(
+      EXIT_CODES.AUTH_REQUIRED,
+      `Connection '${name}' needs re-authentication — stored credentials could not be refreshed ` +
+        `(${cause.message}). To sign in again, run:\n  mcpdo connect ${name}`,
+      { code: "auth_required" },
+    );
   }
 
   /**

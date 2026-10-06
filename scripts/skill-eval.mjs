@@ -769,6 +769,10 @@ export function runPrompt(
     // Optional raw capture of the agent's stdout stream (NDJSON events) for
     // post-mortem diagnosis of failed samples.
     rawLogPath = null,
+    // Continue a prior session rather than starting fresh (multi-turn behavior
+    // eval). Passed to `agentArgsFn` as its third argument; the default
+    // `agentArgs` ignores it, and only the mcpdo behavior builder acts on it.
+    resumeSessionId = null,
   } = {},
 ) {
   return new Promise((resolve, reject) => {
@@ -780,7 +784,7 @@ export function runPrompt(
     // process table.
     const { command, args, options } = cliSpawnArgs(
       agent,
-      agentArgsFn(agent, maxTurns),
+      agentArgsFn(agent, maxTurns, resumeSessionId),
       {
         cwd,
         // Never the full inherited environment: see agentEnv.

@@ -336,7 +336,7 @@ describe("dispatchConnectionRpc", () => {
     );
   });
 
-  it("asks the daemon to park elicitations for --format json and for non-TTY text", async () => {
+  it("marks the daemon call non-interactive for --format json and for non-TTY text", async () => {
     callDaemon.mockResolvedValue({ kind: "result", result: {} });
     const stdinDesc = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
     const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
@@ -362,10 +362,10 @@ describe("dispatchConnectionRpc", () => {
         { format: "json", requireExplicit: false },
       );
       expect(callDaemon.mock.calls[0][1]).toMatchObject({
-        parkElicitations: true,
+        interactive: false,
       });
       expect(callDaemon.mock.calls[1][1]).toMatchObject({
-        parkElicitations: true,
+        interactive: false,
       });
     } finally {
       if (stdinDesc) Object.defineProperty(process.stdin, "isTTY", stdinDesc);
@@ -374,7 +374,7 @@ describe("dispatchConnectionRpc", () => {
     }
   });
 
-  it("omits parkElicitations for interactive text (TTY)", async () => {
+  it("marks the daemon call interactive for interactive text (TTY)", async () => {
     callDaemon.mockResolvedValue({ kind: "result", result: {} });
     const stderrDesc = Object.getOwnPropertyDescriptor(process.stderr, "isTTY");
     Object.defineProperty(process.stderr, "isTTY", {
@@ -390,9 +390,8 @@ describe("dispatchConnectionRpc", () => {
         { format: "text", requireExplicit: false },
       );
       expect(
-        (callDaemon.mock.calls[0][1] as Record<string, unknown>)
-          .parkElicitations,
-      ).toBeUndefined();
+        (callDaemon.mock.calls[0][1] as Record<string, unknown>).interactive,
+      ).toBe(true);
     } finally {
       if (stderrDesc)
         Object.defineProperty(process.stderr, "isTTY", stderrDesc);

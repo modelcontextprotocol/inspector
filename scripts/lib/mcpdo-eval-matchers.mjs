@@ -508,9 +508,247 @@ export function validateBehaviorCase(c, i) {
   if (c.autoConsent !== undefined && typeof c.autoConsent !== "boolean") {
     errors.push(`behavior case ${i}: \`autoConsent\` must be a boolean`);
   }
+  if (
+    c.consentAfterReply !== undefined &&
+    typeof c.consentAfterReply !== "boolean"
+  ) {
+    errors.push(`behavior case ${i}: \`consentAfterReply\` must be a boolean`);
+  }
+  if (
+    c.consentDelayMs !== undefined &&
+    (!Number.isInteger(c.consentDelayMs) || c.consentDelayMs < 0)
+  ) {
+    errors.push(
+      `behavior case ${i}: \`consentDelayMs\` must be a non-negative integer`,
+    );
+  }
+  for (const key of ["expectReply", "expectReplyFollowUp"]) {
+    if (c[key] === undefined) continue;
+    if (typeof c[key] !== "string" || c[key].trim() === "") {
+      errors.push(`behavior case ${i}: \`${key}\` must be a non-empty string`);
+    } else {
+      try {
+        new RegExp(c[key]);
+      } catch {
+        errors.push(`behavior case ${i}: \`${key}\` is not a valid regex`);
+      }
+    }
+  }
+  // `followUp` makes a case MULTI-TURN: turn 1 runs the prompt, the harness
+  // completes the simulated sign-in, then turn 2 resumes the same agent
+  // session with this text. Only meaningful alongside `autoConsent` (nothing
+  // completes the sign-in otherwise) and currently claude-only (session
+  // resume), but neither is enforced here — the harness skips a multi-turn
+  // case for a non-claude agent, and a missing clicker just fails the case.
+  if (c.followUp !== undefined) {
+    if (typeof c.followUp !== "string" || c.followUp.trim() === "") {
+      errors.push(
+        `behavior case ${i}: \`followUp\` must be a non-empty string`,
+      );
+    }
+    if (c.expectReplyFollowUp === undefined) {
+      errors.push(
+        `behavior case ${i}: \`followUp\` requires \`expectReplyFollowUp\` ` +
+          `(a multi-turn case must assert what the resumed turn told the user)`,
+      );
+    }
+  } else if (c.expectReplyFollowUp !== undefined) {
+    errors.push(
+      `behavior case ${i}: \`expectReplyFollowUp\` requires \`followUp\``,
+    );
+  }
+  // `expectLastCallTurn1` asserts the agent's LAST mcpdo command before the
+  // follow-up turn (all of a single-turn case) was this one — the gate that
+  // proves a pure-connect case STOPPED after relaying the sign-in URL instead
+  // of polling. For a case with a task command to run, use
+  // `rejectCompletedTurn1` instead (last-command is brittle under chaining).
+  if (c.expectLastCallTurn1 !== undefined) {
+    if (
+      typeof c.expectLastCallTurn1 !== "string" ||
+      c.expectLastCallTurn1.trim() === ""
+    ) {
+      errors.push(
+        `behavior case ${i}: \`expectLastCallTurn1\` must be a non-empty string`,
+      );
+    }
+  }
+  // `rejectCompletedTurn1` names the task command (e.g. `tools/list`) whose
+  // SUCCESS (exit 0) before the follow-up means the agent completed the task
+  // in turn 1 instead of stopping to let the user sign in — a poll or a
+  // genuine completion. See `succeededBefore` for why this replaced the
+  // brittle "last command was connect" check for the list-tools case.
+  if (c.rejectCompletedTurn1 !== undefined) {
+    if (
+      typeof c.rejectCompletedTurn1 !== "string" ||
+      c.rejectCompletedTurn1.trim() === ""
+    ) {
+      errors.push(
+        `behavior case ${i}: \`rejectCompletedTurn1\` must be a non-empty string`,
+      );
+    }
+  }
   errors.push(...validateCaseServers(c, i));
   return errors;
 }
+
+/**
+ * Claude's session id, read from its `-p --output-format stream-json` NDJSON
+ * (`rawLogPath`). Claude stamps the same `session_id` on its init system
+ * event and its final result event; `--resume <id>` continues that session,
+ * which is what makes the OAuth behavior cases multi-turn. Returns the last
+ * one seen (robust to a torn final line), or null when absent — a non-claude
+ * stream, or one never captured.
+ *
+ * @param {string} raw NDJSON text as captured via `rawLogPath`.
+ * @returns {string | null}
+ */
+export function claudeSessionId(raw) {
+  let id = null;
+  for (const line of raw.split("\n")) {
+    if (!line.includes("session_id")) continue;
+    let evt;
+    try {
+      evt = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (typeof evt?.session_id === "string" && evt.session_id !== "") {
+      id = evt.session_id;
+    }
+  }
+  return id;
+}
+
+/**
+ * The `cmd` of the last mcpdo invocation that STARTED before `boundaryTs`
+ * (epoch-ms), by start time — not array position, because a `connect` that
+ * relays a URL exits fast while an earlier failed `tools/list` may still be
+ * recorded around it. The multi-turn OAuth cases use this with the
+ * follow-up's send time as the boundary to assert the agent's final first-turn
+ * move was `connect` (it stopped to relay the URL) rather than a poll/retry.
+ * A single-turn case passes `Infinity` to cover every record. Returns null
+ * when nothing qualifies.
+ *
+ * @param {Array<{argv?: string[], start?: number}>} records
+ * @param {number} boundaryTs
+ * @returns {string | null}
+ */
+export function lastCommandBefore(records, boundaryTs) {
+  let last = null;
+  let lastStart = -Infinity;
+  for (const r of records) {
+    if (typeof r.start !== "number" || r.start >= boundaryTs) continue;
+    if (r.start >= lastStart) {
+      lastStart = r.start;
+      last = parseMcpdoArgv(r.argv ?? []).cmd;
+    }
+  }
+  return last;
+}
+
+/**
+ * Did any mcpdo invocation of `cmd` SUCCEED (exit 0) before `boundaryTs`?
+ *
+ * This is the behavioral completion signal the multi-turn OAuth cases gate on,
+ * and it is deliberately NOT `lastCommandBefore`. An agent that relays the
+ * sign-in URL and then waits still frequently runs the task command
+ * optimistically in the same turn — e.g. `connect && tools/list`, chained in a
+ * single shell line — because `connect` exits 0 even when sign-in is pending.
+ * That chained `tools/list` runs against a not-yet-connected server, exits
+ * NON-zero (`auth_required`), and the agent ignores it and waits: correct
+ * behavior, but `lastCommandBefore` reads the trailing `tools/list` and wrongly
+ * flags it. What actually distinguishes "waited" from "barged through" is
+ * whether the task command SUCCEEDED in turn 1 — a poll-until-connected or a
+ * genuine completion exits 0; an optimistic chained attempt does not.
+ *
+ * @param {Array<{argv?: string[], start?: number, exit?: number}>} records
+ * @param {number} boundaryTs
+ * @param {string} cmd
+ * @returns {boolean}
+ */
+export function succeededBefore(records, boundaryTs, cmd) {
+  for (const r of records) {
+    if (typeof r.start !== "number" || r.start >= boundaryTs) continue;
+    if (r.exit !== 0) continue;
+    if (parseMcpdoArgv(r.argv ?? []).cmd === cmd) return true;
+  }
+  return false;
+}
+
+/**
+ * The text an agent actually showed its user, from the raw agent-session
+ * NDJSON stream (`agent-session.ndjson`).
+ *
+ * This is deliberately a different surface from the shim transcript: a case's
+ * `expectCalls` assert what the agent RAN, while `expectReply` asserts what it
+ * SAID — the two can diverge exactly when the agent reads something in a
+ * command's output (a sign-in URL) and fails to relay it to the user, which
+ * no transcript matcher can see.
+ *
+ * Handles both agents' event shapes: Claude's `-p --output-format stream-json`
+ * (`{type:"assistant", message:{content:[{type:"text", text}]}}`) and the
+ * Copilot CLI's `--output-format json` (`{type:"assistant.message",
+ * data:{content: "<text>"}}`). Malformed lines are CLI noise, not
+ * observations, same as the collectors in skill-eval.mjs.
+ *
+ * What counts as "shown to the user" is host-specific, so it is a parameter
+ * rather than a rule: Claude Code renders `thinking` blocks whose signature
+ * is narration as ordinary foreground text — a sign-in URL relayed there
+ * reached the user (observed live) — while the Copilot CLI shows its
+ * reasoning in a dimmed font users routinely skip. The per-agent defaults
+ * live in {@link REPLY_TEXT_OPTIONS}; pass `options` to override in a test
+ * or when tuning what a given host actually surfaces.
+ *
+ * @param {string} raw NDJSON text as captured via `rawLogPath`.
+ * @param {object} [options]
+ * @param {boolean} [options.includeThinking] Also count Claude `thinking`
+ *   blocks as user-visible text.
+ * @returns {string} Every user-visible assistant text block, joined with
+ *   newlines.
+ */
+export function assistantReplyText(raw, options = {}) {
+  const { includeThinking = false } = options;
+  const texts = [];
+  for (const line of raw.split("\n")) {
+    if (!line.trim()) continue;
+    let evt;
+    try {
+      evt = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (evt?.type === "assistant") {
+      for (const block of evt.message?.content ?? []) {
+        if (block?.type === "text" && typeof block.text === "string") {
+          texts.push(block.text);
+        } else if (
+          includeThinking &&
+          block?.type === "thinking" &&
+          typeof block.thinking === "string"
+        ) {
+          texts.push(block.thinking);
+        }
+      }
+    } else if (
+      evt?.type === "assistant.message" &&
+      typeof evt.data?.content === "string"
+    ) {
+      texts.push(evt.data.content);
+    }
+  }
+  return texts.join("\n");
+}
+
+/**
+ * Per-agent defaults for {@link assistantReplyText}: what each host's UI
+ * actually puts in front of the user. Claude Code displays narration-style
+ * thinking as foreground text; the Copilot CLI dims its reasoning, so only
+ * proper assistant messages count there.
+ */
+export const REPLY_TEXT_OPTIONS = {
+  claude: { includeThinking: true },
+  copilot: { includeThinking: false },
+};
 
 /**
  * Validate a behavior case's server declaration: optional `server` (single

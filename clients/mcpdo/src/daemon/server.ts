@@ -85,8 +85,9 @@ export type DaemonServerOptions = {
    */
   flushTimeoutMs?: number;
   /**
-   * TTL for parked elicitations (`RpcParams.parkElicitations`); defaults to
-   * {@link PARKED_ELICITATION_TTL_MS}. Tests use a short value.
+   * TTL for parked elicitations (parked when `RpcParams.interactive` is
+   * false); defaults to {@link PARKED_ELICITATION_TTL_MS}. Tests use a short
+   * value.
    */
   elicitationTtlMs?: number;
 };
@@ -486,6 +487,15 @@ export class DaemonServer {
           protocolEra: client.getProtocolEra(),
           ...(auth && { auth }),
           ...(connection.pendingAuth && { pendingAuth: true }),
+          // While sign-in is still in flight, surface the authorize URL so a
+          // poller can relay it. Lives on the result (un-redacted), not the
+          // error envelope (which would strip its query string). Absent once
+          // the helper completes or dies — `pendingAuthUrlFor` checks liveness.
+          ...(connection.pendingAuth &&
+            (() => {
+              const authUrl = this.registry.pendingAuthUrlFor(connection);
+              return authUrl ? { authUrl } : {};
+            })()),
           capabilities: client.getCapabilities(),
           instructions: client.getInstructions(),
           supportedVersions: client.getDiscoverResult()?.supportedVersions,
@@ -560,7 +570,18 @@ export class DaemonServer {
         code: "invalid_params",
       });
     }
-    const park = params.parkElicitations === true;
+    // Two independent reads of `interactive`, and they differ in the ABSENT
+    // case on purpose:
+    //   - Parking is opt-in. Park only when the caller *explicitly* says it is
+    //     non-interactive (`interactive === false`); an absent field must NOT
+    //     park (matching the pre-rename `parkElicitations`-absent default), or
+    //     a caller that never announced itself would have its elicitations
+    //     silently parked and hang.
+    //   - Message audience defaults the other way: absent ⇒ agent-facing. The
+    //     raw `params.interactive` (boolean | undefined) is threaded to
+    //     `liveClientFor`, and `authRequiredError` treats only `=== true` as a
+    //     human — so absent falls to the agent-tuned wording.
+    const park = params.interactive === false;
     // Parking needs the connection *name* for the pending payload and for
     // teardown-keyed cancellation; resolve it before reviving the client.
     const connectionName = park
@@ -569,6 +590,7 @@ export class DaemonServer {
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
+      params.interactive,
     );
     const previous = this.rpcQueues.get(client) ?? Promise.resolve();
     const run = previous.then(() => {
@@ -665,10 +687,11 @@ export class DaemonServer {
   }
 
   /**
-   * `rpc` with `parkElicitations`: run the call racing its completion
-   * against the first elicitation. Completion first → ordinary result.
-   * Elicitation first → park the still-running call and return
-   * `elicitation-pending`; `elicitation/respond` picks it up from there.
+   * `rpc` from a non-interactive caller (`RpcParams.interactive` false): run
+   * the call racing its completion against the first elicitation. Completion
+   * first → ordinary result. Elicitation first → park the still-running call
+   * and return `elicitation-pending`; `elicitation/respond` picks it up from
+   * there.
    */
   private async runRpcParked(
     client: InspectorClient,
@@ -814,6 +837,7 @@ export class DaemonServer {
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
+      params.interactive,
     );
     const methodArgs = stripConnectionFields(params);
     const outcome = await runMethod(client, methodArgs);
@@ -1032,14 +1056,15 @@ function stripConnectionFields(
 ): MethodArgs & { method: string } {
   // `format` is a frontend-only output concern; forwarding it would make
   // runMethod's `format === "json"` branch collect app info (an extra
-  // resources/read) whose result the frontend discards. `parkElicitations`
-  // is daemon routing, not a method argument.
-  const { name, requireExplicit, format, parkElicitations, method, ...rest } =
+  // resources/read) whose result the frontend discards. `interactive` is
+  // daemon routing (elicitation parking, message audience), not a method
+  // argument.
+  const { name, requireExplicit, format, interactive, method, ...rest } =
     params;
   void name;
   void requireExplicit;
   void format;
-  void parkElicitations;
+  void interactive;
   return { method, ...rest };
 }
 

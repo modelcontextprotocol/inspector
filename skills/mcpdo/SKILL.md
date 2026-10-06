@@ -97,18 +97,28 @@ more).
   stdio server) or to more than one URL is rejected with guidance. EMA IdP
   login records lead with their bare issuer URL and carry a trailing
   `enterprise IdP login` marker, and clear by that bare issuer URL
-  (`mcpdo auth/clear https://idp.example.com`). When a
+  (`mcpdo auth/clear https://idp.example.com`). Run `connect` as its **own
+  command** — never chained with `&&`, `;`, or a follow-on
+  `tools/list`/`connections/show`. A connect that needs sign-in exits 0 while
+  the connection is still unusable, so a chained command runs against a
+  not-yet-connected server, errors, and clutters the output you relay to the
+  user. Connect, check whether it returned `pendingAuth`, and only then decide
+  the next step. When a
   browser sign-in is needed and stdin is non-TTY,
-  `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`:
-  relay that URL to the user verbatim, then finish the job — the connection
-  completes automatically once they sign in, which often takes only moments.
-  Retry the intended command (sleep a few seconds between attempts) and only
-  hand back to the user if sign-in still hasn't completed after a few tries.
-  To check progress without running the real command:
-  `connections/show @name` completes a finished sign-in itself, and
-  `connections/list` stays read-only but reports `pendingAuthSignedIn: true`
-  ("signed in — completing on next use") once the user's part is done.
-  Never reconnect to fix a pending sign-in.
+  `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`.
+  The connection is **not** connected and **not** usable until the user signs
+  in — exit 0 is not success here. Show that `authUrl` to the user as literal
+  plain text as the **last thing in your reply**, ask them to open it, sign in,
+  and tell you when they're done, then **end your turn and wait**. Do not retry
+  the command, poll, sleep, or say you are connected: the user can't see your
+  message until the turn ends, so any further tool call in the same turn only
+  delays the link reaching them. Once the user says they have signed in, run
+  `connections/show @name` to complete the sign-in, then continue the original
+  task. (`connections/show @name` completes a finished sign-in itself and
+  reprints the `authUrl` if you need to show it again; `connections/list` stays
+  read-only but reports `pendingAuthSignedIn: true` — "signed in — completing on
+  next use" — once the user's part is done.) Never reconnect to fix a pending
+  sign-in.
 - To force a fresh sign-in on an already-open connection, `mcpdo disconnect
   <name> --clear-auth` (`-c`) tears it down and clears its stored tokens in one
   step, so the next plain `connect` re-triggers the browser flow. Prefer it over
@@ -118,9 +128,12 @@ more).
   are reconnecting anyway.
 - Enterprise-managed auth (EMA) works the same way. `mcpdo auth/ema-login`
   from a non-TTY shell exits 0 immediately with `pendingLogin: true` and an
-  `authUrl`: relay that URL to the user verbatim, then poll
-  `mcpdo auth/ema-status` until `loginState` is `logged_in` — the sign-in
-  completes in the background. After that, connects to EMA servers mint
+  `authUrl`. Show that `authUrl` to the user as literal plain text as the last
+  thing in your reply, ask them to sign in and tell you when they're done, then
+  end your turn and wait — do not poll while they are signing in. Once they
+  confirm, run `mcpdo auth/ema-status`; `loginState` reads `logged_in` once the
+  sign-in has completed in the background. After that, connects to EMA servers
+  mint
   tokens silently with no further sign-in. Connecting to an EMA server
   *without* a prior IdP login parks like any other pending sign-in, with the
   IdP link as its `authUrl`. `mcpdo auth/ema-logout` clears local EMA state

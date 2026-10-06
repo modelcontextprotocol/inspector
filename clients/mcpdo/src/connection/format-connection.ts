@@ -157,6 +157,15 @@ export type ConnectionWriteOpts = {
   format?: OutputFormat;
   /** Human-output styling; ignored for `--format json`. Defaults to plain. */
   style?: Style;
+  /**
+   * Whether a human is reading this output live on a TTY. Sign-in prompts
+   * address the reader directly when `true` ("Open this link…") and instruct
+   * the *agent* to relay the link to its user when `false`/absent — the same
+   * split the `auth_required` error draws (see `connections.ts`
+   * `authRequiredError`), because a non-interactive agent's user never sees
+   * this command's output. Defaults to the agent framing.
+   */
+  interactive?: boolean;
 };
 
 /**
@@ -169,6 +178,7 @@ export async function writeConnectionOutput(
 ): Promise<void> {
   const format: OutputFormat = opts.format === "json" ? "json" : "text";
   const style = opts.style ?? PLAIN;
+  const interactive = opts.interactive === true;
 
   if (format === "json") {
     await awaitableLog(formatConnectionJson(jsonPayload(payload)));
@@ -183,7 +193,9 @@ export async function writeConnectionOutput(
   // ANSI styling is applied afterwards and stays intact. JSON output above
   // is made safe by formatConnectionJson (C0 via JSON.stringify, C1 via its
   // own escaping).
-  await awaitableLog(humanPayload(sanitizeDeep(payload), style) + "\n");
+  await awaitableLog(
+    humanPayload(sanitizeDeep(payload), style, interactive) + "\n",
+  );
   await writeNdjsonSummary(payload);
   applyExitCodes(payload);
 }
@@ -257,7 +269,58 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
   }
 }
 
-function humanPayload(payload: ConnectionWriteKind, style: Style): string {
+/**
+ * Headline for a pending browser sign-in, addressed to whoever reads it.
+ *
+ * - Interactive (a human on a TTY): ask them to open the link themselves.
+ * - Non-interactive (an agent relaying for its user): the user never sees this
+ *   command's output, so the link must be reproduced verbatim in the agent's
+ *   own reply — a bare reference ("the link above") reaches no one. Mirrors the
+ *   agent/human split the `auth_required` error already draws in
+ *   `connections.ts` `authRequiredError`.
+ */
+function signInHeadline(): string {
+  return "Sign-in required. Open this link in a browser to authenticate:";
+}
+
+/**
+ * Agent-facing (non-TTY) sign-in block.
+ *
+ * In a captured-stdout agent harness (e.g. Claude Code), assistant text written
+ * *before* a tool call in the same turn is not reliably shown to the user, and
+ * the command's own output is collapsed behind a disclosure. So the URL is
+ * embedded here as literal plain text (never an OSC 8 link) and the copy is a
+ * factual statement: the connection is pending and not usable, show the URL to
+ * the user, and wait for them to sign in before continuing. The authoritative
+ * stop-and-wait guidance lives in the mcpdo skill; this block is a concise
+ * restatement for the agent reading the command's own output.
+ *
+ * `resumeCmd` is the single command the agent runs *after* the user confirms.
+ */
+function agentSignInBlock(
+  url: string,
+  subject: string,
+  resumeCmd: string,
+  finishPhrase: string,
+): string {
+  return [
+    `Sign-in required for ${subject}. This command exited 0, but ${subject} is not usable yet until the user signs in — this is not an error and not success.`,
+    "",
+    `Show the sign-in URL below to the user as literal plain text (make it the last thing in your reply), ask them to open it and sign in, and wait for them to confirm before continuing. Do not retry, poll, sleep, or run another command this turn — the user cannot see your reply until the turn ends.`,
+    "",
+    "Sign-in URL (show this to the user):",
+    "",
+    `  ${url}`,
+    "",
+    `Once the user confirms they have signed in, run \`mcpdo ${resumeCmd}\` to ${finishPhrase}.`,
+  ].join("\n");
+}
+
+function humanPayload(
+  payload: ConnectionWriteKind,
+  style: Style,
+  interactive: boolean,
+): string {
   switch (payload.kind) {
     case "rpc": {
       if (asAppInfoProbe(payload.result)) {
@@ -289,10 +352,22 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
       );
       if (payload.authUrl === undefined) return info;
       const name = String((payload.connection as JsonObject).name ?? "");
+      if (!interactive) {
+        return [
+          info,
+          "",
+          agentSignInBlock(
+            payload.authUrl,
+            `@${name}`,
+            `connections/show @${name}`,
+            "finish the connection",
+          ),
+        ].join("\n");
+      }
       return [
         info,
         "",
-        "Sign-in required. The user needs to open this link in a browser to authenticate:",
+        signInHeadline(),
         // The URL comes from server-controlled OAuth metadata: only
         // allowlisted schemes become clickable OSC 8 links (same gate as
         // every other server-supplied link — see sanitize.ts).
@@ -356,8 +431,16 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
         return `${style.green("Already signed in")} to \`${style.bold(payload.result.issuer)}\` ${style.dim("(use auth/ema-login --relogin for a fresh connection)")}`;
       }
       if (payload.result.pendingLogin === true && payload.result.authUrl) {
+        if (!interactive) {
+          return agentSignInBlock(
+            payload.result.authUrl,
+            "enterprise IdP login",
+            "auth/ema-status",
+            "finish the login",
+          );
+        }
         return [
-          "Sign-in required. The user needs to open this link in a browser to authenticate:",
+          signInHeadline(),
           // Same OSC 8 allowlist gate as the connection authUrl above.
           `  ${isSafeLinkTarget(payload.result.authUrl) ? style.link(payload.result.authUrl) : payload.result.authUrl}`,
           style.dim(
@@ -373,7 +456,10 @@ function humanPayload(payload: ConnectionWriteKind, style: Style): string {
       // the RP-initiated logout URL so the user can end that session too.
       return [
         signedOut,
-        `To end your IdP browser session, navigate to: ${payload.result.endSessionUrl}`,
+        "To end your IdP browser session, navigate to:",
+        // Same OSC 8 allowlist gate as the sign-in URLs above, so the logout
+        // link renders clickable in a terminal instead of as plain text.
+        `  ${isSafeLinkTarget(payload.result.endSessionUrl) ? style.link(payload.result.endSessionUrl) : payload.result.endSessionUrl}`,
       ].join("\n");
     }
     case "generic": {

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -408,7 +408,7 @@ describe("ConnectionRegistry", () => {
       // A queued duplicate disconnect fails cleanly rather than tearing
       // down a successor's connection.
       await expect(registry.disconnect("dup", false)).rejects.toThrow(
-        /not found/,
+        /isn't connected/,
       );
     } finally {
       connectSpy.mockRestore();
@@ -526,6 +526,201 @@ describe("ConnectionRegistry", () => {
       authSpy.mockRestore();
       statusSpy.mockRestore();
     }
+  });
+
+  describe("pending auth URL relay (surfaces 1 & 2)", () => {
+    const RELAY_URL = "https://as.example/authorize?client_id=abc&state=xyz";
+    let markerDir: string;
+    let prevDaemonDir: string | undefined;
+
+    async function writeLiveMarker(serverUrl: string): Promise<void> {
+      const { pendingAuthMarkerPath } =
+        await import("../src/connection/auth-helper.js");
+      fs.writeFileSync(
+        pendingAuthMarkerPath(serverUrl),
+        JSON.stringify({
+          url: RELAY_URL,
+          pid: process.pid,
+          expiresAt: Date.now() + 60_000,
+        }),
+        { mode: 0o600 },
+      );
+    }
+
+    beforeEach(() => {
+      markerDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-relay-marker-"));
+      prevDaemonDir = process.env.MCP_INSPECTOR_DAEMON_DIR;
+      process.env.MCP_INSPECTOR_DAEMON_DIR = markerDir;
+    });
+
+    afterEach(() => {
+      if (prevDaemonDir === undefined)
+        delete process.env.MCP_INSPECTOR_DAEMON_DIR;
+      else process.env.MCP_INSPECTOR_DAEMON_DIR = prevDaemonDir;
+      fs.rmSync(markerDir, { recursive: true, force: true });
+    });
+
+    it("pendingAuthUrlFor returns a live marker's URL, keyed by server URL", async () => {
+      const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+      const serverUrl = "https://mcp.example.com/mcp";
+      const connectSpy = vi
+        .spyOn(InspectorClient.prototype, "connect")
+        .mockRejectedValue(Object.assign(new Error("boom"), { status: 401 }));
+      const disconnectSpy = vi
+        .spyOn(InspectorClient.prototype, "disconnect")
+        .mockResolvedValue(undefined);
+      const statusSpy = vi
+        .spyOn(InspectorClient.prototype, "getStatus")
+        .mockReturnValue("disconnected");
+      const registry = new ConnectionRegistry(0);
+      try {
+        await registry.connect({
+          name: "p",
+          serverConfig: { type: "streamable-http", url: serverUrl },
+          serverIdentity: serverUrl,
+          pendingOnAuthRequired: true,
+        });
+        const connection = registry.connectionFor("p", false);
+        // No marker yet → undefined (credential lapse, not a live sign-in).
+        expect(registry.pendingAuthUrlFor(connection)).toBeUndefined();
+        // Live marker keyed by the server URL → the relay URL.
+        await writeLiveMarker(serverUrl);
+        expect(registry.pendingAuthUrlFor(connection)).toBe(RELAY_URL);
+      } finally {
+        connectSpy.mockRestore();
+        disconnectSpy.mockRestore();
+        statusSpy.mockRestore();
+      }
+    });
+
+    it("pendingAuthUrlFor returns undefined for a stdio config (no URL to key on)", async () => {
+      const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+      const connectSpy = vi
+        .spyOn(InspectorClient.prototype, "connect")
+        .mockResolvedValue(undefined);
+      const disconnectSpy = vi
+        .spyOn(InspectorClient.prototype, "disconnect")
+        .mockResolvedValue(undefined);
+      const statusSpy = vi
+        .spyOn(InspectorClient.prototype, "getStatus")
+        .mockReturnValue("connected");
+      const registry = new ConnectionRegistry(0);
+      try {
+        await registry.connect({
+          name: "s",
+          serverConfig: {
+            type: "stdio",
+            command: "x",
+          },
+          serverIdentity: "stdio:test",
+        });
+        const connection = registry.connectionFor("s", false);
+        expect(registry.pendingAuthUrlFor(connection)).toBeUndefined();
+      } finally {
+        connectSpy.mockRestore();
+        disconnectSpy.mockRestore();
+        statusSpy.mockRestore();
+      }
+    });
+
+    it.each([
+      {
+        who: "agent (non-interactive)",
+        interactive: false,
+        expected: /display the sign-in link again/,
+        embedsUrl: false,
+      },
+      {
+        who: "human (interactive)",
+        interactive: true,
+        expected: /sign-in is still pending\. To see details/,
+        embedsUrl: false,
+      },
+    ])(
+      "a failed revive with a live sign-in gives $who the right message",
+      async ({ interactive, expected, embedsUrl }) => {
+        const { InspectorClient } =
+          await import("@inspector/core/mcp/index.js");
+        const serverUrl = "https://mcp.example.com/mcp";
+        const connectSpy = vi
+          .spyOn(InspectorClient.prototype, "connect")
+          // Initial dial → auth_required (registers pending); revive → same.
+          .mockRejectedValue(Object.assign(new Error("boom"), { status: 401 }));
+        const disconnectSpy = vi
+          .spyOn(InspectorClient.prototype, "disconnect")
+          .mockResolvedValue(undefined);
+        const statusSpy = vi
+          .spyOn(InspectorClient.prototype, "getStatus")
+          .mockReturnValue("disconnected");
+        const registry = new ConnectionRegistry(0);
+        try {
+          await registry.connect({
+            name: "p",
+            serverConfig: { type: "streamable-http", url: serverUrl },
+            serverIdentity: serverUrl,
+            pendingOnAuthRequired: true,
+          });
+          await writeLiveMarker(serverUrl);
+          await expect(
+            registry.liveClientFor("p", false, interactive),
+          ).rejects.toMatchObject({
+            envelope: { code: "auth_required" },
+          });
+          await expect(
+            registry.liveClientFor("p", false, interactive),
+          ).rejects.toThrow(expected);
+          // Neither message embeds the live sign-in URL anymore: the agent is
+          // pointed at `connections/show @name` (which relays it with the
+          // right turn discipline) and the human reads it from `connect` /
+          // `connections/show`. So neither should carry the client_id.
+          if (embedsUrl) {
+            await expect(
+              registry.liveClientFor("p", false, interactive),
+            ).rejects.toThrow(/client_id=abc/);
+          } else {
+            await expect(
+              registry.liveClientFor("p", false, interactive),
+            ).rejects.not.toThrow(/client_id=abc/);
+          }
+        } finally {
+          connectSpy.mockRestore();
+          disconnectSpy.mockRestore();
+          statusSpy.mockRestore();
+        }
+      },
+    );
+
+    it("a failed revive with no live sign-in keeps the 'needs re-authentication' message", async () => {
+      const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+      const serverUrl = "https://mcp.example.com/mcp";
+      const connectSpy = vi
+        .spyOn(InspectorClient.prototype, "connect")
+        .mockRejectedValue(Object.assign(new Error("boom"), { status: 401 }));
+      const disconnectSpy = vi
+        .spyOn(InspectorClient.prototype, "disconnect")
+        .mockResolvedValue(undefined);
+      const statusSpy = vi
+        .spyOn(InspectorClient.prototype, "getStatus")
+        .mockReturnValue("disconnected");
+      const registry = new ConnectionRegistry(0);
+      try {
+        await registry.connect({
+          name: "p",
+          serverConfig: { type: "streamable-http", url: serverUrl },
+          serverIdentity: serverUrl,
+          pendingOnAuthRequired: true,
+        });
+        // pendingAuth is set, but NO live marker: this is a credential lapse,
+        // not a sign-in in flight — so the message tells the user to connect.
+        await expect(registry.liveClientFor("p", false, false)).rejects.toThrow(
+          /needs re-authentication/,
+        );
+      } finally {
+        connectSpy.mockRestore();
+        disconnectSpy.mockRestore();
+        statusSpy.mockRestore();
+      }
+    });
   });
 
   it("pendingOnAuthRequired registers a dormant intent entry that completes via revive on first use", async () => {
@@ -843,6 +1038,80 @@ describe("ConnectionRegistry", () => {
       resetNodeOAuthStorageCache();
       await server.stop().catch(() => {});
       fs.rmSync(stateDir, { recursive: true, force: true });
+    }
+  });
+
+  it("connections/show carries the sign-in URL while the auth helper is live, and omits it otherwise", async () => {
+    const { InspectorClient } = await import("@inspector/core/mcp/index.js");
+    const { pendingAuthMarkerPath } =
+      await import("../src/connection/auth-helper.js");
+    const serverUrl = "https://mcp.example.com/mcp";
+    const relayUrl = "https://as.example/authorize?client_id=abc&state=xyz";
+    const markerDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "mcp-show-authurl-marker-"),
+    );
+    const prevDaemonDir = process.env.MCP_INSPECTOR_DAEMON_DIR;
+    process.env.MCP_INSPECTOR_DAEMON_DIR = markerDir;
+    const connectSpy = vi
+      .spyOn(InspectorClient.prototype, "connect")
+      .mockRejectedValue(Object.assign(new Error("boom"), { status: 401 }));
+    const disconnectSpy = vi
+      .spyOn(InspectorClient.prototype, "disconnect")
+      .mockResolvedValue(undefined);
+    const statusSpy = vi
+      .spyOn(InspectorClient.prototype, "getStatus")
+      .mockReturnValue("disconnected");
+    const server = new DaemonServer({
+      dir: fs.mkdtempSync(path.join(os.tmpdir(), "mcp-show-authurl-daemon-")),
+      idleMs: 0,
+    });
+    try {
+      await server.registry.connect({
+        name: "p",
+        serverConfig: { type: "streamable-http", url: serverUrl },
+        serverIdentity: serverUrl,
+        pendingOnAuthRequired: true,
+      });
+
+      // No marker yet: show reports pending but with no URL to relay.
+      const before = await server.handle({
+        id: "s0",
+        op: "connections/show",
+        params: { name: "p" },
+      });
+      expect(before.ok).toBe(true);
+      if (!before.ok) throw new Error("unreachable");
+      expect(before.result).toMatchObject({ pendingAuth: true });
+      expect((before.result as { authUrl?: string }).authUrl).toBeUndefined();
+
+      // Helper publishes a live marker: show now carries the URL verbatim
+      // (query intact — it rides the result, which is not redacted).
+      fs.writeFileSync(
+        pendingAuthMarkerPath(serverUrl),
+        JSON.stringify({
+          url: relayUrl,
+          pid: process.pid,
+          expiresAt: Date.now() + 60_000,
+        }),
+        { mode: 0o600 },
+      );
+      const after = await server.handle({
+        id: "s1",
+        op: "connections/show",
+        params: { name: "p" },
+      });
+      expect(after.ok).toBe(true);
+      if (!after.ok) throw new Error("unreachable");
+      expect((after.result as { authUrl?: string }).authUrl).toBe(relayUrl);
+    } finally {
+      connectSpy.mockRestore();
+      disconnectSpy.mockRestore();
+      statusSpy.mockRestore();
+      if (prevDaemonDir === undefined)
+        delete process.env.MCP_INSPECTOR_DAEMON_DIR;
+      else process.env.MCP_INSPECTOR_DAEMON_DIR = prevDaemonDir;
+      await server.stop().catch(() => {});
+      fs.rmSync(markerDir, { recursive: true, force: true });
     }
   });
 

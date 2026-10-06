@@ -205,6 +205,12 @@ function outOpts(opts: GlobalOpts) {
   return {
     format: opts.format,
     style: styleFromOpts({ plain: opts.plain === true, format: opts.format }),
+    // Matches dispatch.ts: a human is "present" only when output is text and a
+    // TTY is attached. `--format json` or no TTY means an agent is reading, so
+    // sign-in prompts switch to relay framing (see ConnectionWriteOpts).
+    interactive:
+      opts.format !== "json" &&
+      (process.stdin.isTTY === true || process.stderr.isTTY === true),
   };
 }
 
@@ -1096,9 +1102,16 @@ function registerConnectionAdmin(program: CommandType): void {
         { name, requireExplicit: requireExplicitConnection() },
         { socketPath },
       );
+      // `authUrl` rides the result, so `--format json` always carries it (the
+      // JSON payload spreads the result object). The human URL block, however,
+      // is agent-relay text — show it only when no human is present; a human
+      // at a TTY sees the plain pending status in the connection info.
+      const humanPresent =
+        process.stdin.isTTY === true || process.stderr.isTTY === true;
       await writeConnectionOutput(outOpts(opts), {
         kind: "connection",
         connection: result,
+        ...(!humanPresent && result.authUrl && { authUrl: result.authUrl }),
       });
     });
 }
