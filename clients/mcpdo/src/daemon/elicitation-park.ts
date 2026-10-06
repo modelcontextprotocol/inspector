@@ -110,6 +110,18 @@ export type ParkedCall = {
    */
   unwire: () => void;
   /**
+   * Cancels the still-running server call (sends `notifications/cancelled`).
+   * `unwire` only drops the dead subscriber; the abandoned call itself keeps
+   * running server-side, and a tool call that survives its errored elicitation
+   * could emit a *second* one. With this park's subscriber gone, the bridge —
+   * which cannot attribute an elicitation to a specific call — would misroute
+   * that second prompt to whatever new rpc has since started on this
+   * connection. Cancelling the call on teardown/expiry closes that window.
+   * A no-op when the parked method isn't a tool call (no active controller),
+   * the case where no second elicitation realistically arises. Idempotent.
+   */
+  cancelCall: () => void;
+  /**
    * `awaiting` = parked, answerable; `responding` = an `elicitation/respond`
    * is in flight for it (a concurrent respond must not double-answer).
    */
@@ -146,6 +158,7 @@ export class ElicitationParkRegistry {
     channel: ParkingElicitationChannel;
     outcome: Promise<RpcResult>;
     unwire: () => void;
+    cancelCall: () => void;
   }): ParkedCall {
     const parked: ParkedCall = {
       ...entry,
@@ -206,6 +219,10 @@ export class ElicitationParkRegistry {
 
   private cancel(entry: ParkedCall): void {
     this.finish(entry);
+    // Stop the abandoned call at the source before tearing down local state:
+    // a tool call that outlives this park could otherwise emit a second
+    // elicitation that misroutes to a new rpc (see ParkedCall.cancelCall).
+    entry.cancelCall();
     // The abandoned call may run server-side long after this park is gone;
     // unwire its bridge subscriber now so it cannot shadow a new call's
     // elicitations (see ParkedCall.unwire).
@@ -223,6 +240,7 @@ export class ElicitationParkRegistry {
     if (this.ttlMs <= 0) return;
     entry.timer = setTimeout(() => {
       this.finish(entry);
+      entry.cancelCall();
       entry.unwire();
       entry.channel.close(
         new CliExitCodeError(

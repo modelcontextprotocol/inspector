@@ -730,6 +730,13 @@ export class DaemonServer {
       channel,
       outcome,
       unwire,
+      // Cancel the whole call on expiry/teardown, not just its elicitation, so
+      // an abandoned tool call can't emit a second prompt that misroutes to a
+      // later rpc on this connection (see ParkedCall.cancelCall). Same lever
+      // runRpcOnClient uses on caller disconnect.
+      cancelCall: () => {
+        client.cancelToolCall();
+      },
       info: pendingInfo(first.frame, connectionName, {
         method: params.method,
         toolName: params.toolName,

@@ -115,6 +115,7 @@ function fakeClient(): { client: InspectorClient; emit: (m: unknown) => void } {
     removeEventListener: (type: string, listener: EventListener) =>
       target.removeEventListener(type, listener),
     getStatus: () => "connected",
+    cancelToolCall: () => false,
   } as unknown as InspectorClient;
   return {
     client,
@@ -469,6 +470,32 @@ describe("daemon elicitation parking", () => {
     expect(done.ok).toBe(true);
   });
 
+  it("expiry cancels the abandoned server call so it can't emit a second elicitation", async () => {
+    server = new DaemonServer({ dir, idleMs: 0, elicitationTtlMs: 40 });
+    const registry = server.registry as unknown as Record<string, unknown>;
+    registry.connectionFor = () => ({ name: "srv", client });
+    registry.liveClientFor = async () => client;
+    const cancelToolCall = vi.spyOn(client, "cancelToolCall");
+
+    // The server-side call never settles on its own, so without an explicit
+    // cancel it would keep running past expiry and could emit another
+    // elicitation — which, with this park's subscriber unwired, the bridge
+    // would misroute to whatever rpc started next on this connection.
+    const round = makeFormMessage("elicit-cancel");
+    const neverSettles = deferred<never>();
+    runMethodMock.impl = async () => {
+      emit(round.message);
+      await neverSettles.promise;
+      return { kind: "result", result: {} };
+    };
+    const parked = await rpcCallTool("r1");
+    expect((parked as { result: RpcResult }).result.kind).toBe(
+      "elicitation-pending",
+    );
+    await round.cancelled; // expiry fired
+    expect(cancelToolCall).toHaveBeenCalled();
+  });
+
   it("disconnect cancels the parked call; respond then reports not found", async () => {
     const registry = server.registry as unknown as Record<string, unknown>;
     registry.disconnect = async () => ({ name: "srv" });
@@ -600,6 +627,7 @@ describe("ParkingElicitationChannel / ElicitationParkRegistry primitives", () =>
       channel,
       outcome: new Promise<never>(() => {}),
       unwire: () => {},
+      cancelCall: () => {},
     });
     expect(registry.forClient({} as InspectorClient)).toBeUndefined();
     expect(registry.forClient(client)).toBeDefined();
@@ -615,6 +643,7 @@ describe("ParkingElicitationChannel / ElicitationParkRegistry primitives", () =>
     const channel = new ParkingElicitationChannel();
     const pending = channel.request(frame("e1"));
     const unwire = vi.fn();
+    const cancelCall = vi.fn();
     registry.add({
       info: {
         elicitationId: "e1",
@@ -628,19 +657,24 @@ describe("ParkingElicitationChannel / ElicitationParkRegistry primitives", () =>
       channel,
       outcome: new Promise<never>(() => {}),
       unwire,
+      cancelCall,
     });
     registry.cancelAll();
     await expect(pending).rejects.toThrow(/going away/);
     expect(() => registry.take("e1")).toThrow(/No pending elicitation/);
     // Cancel must also unwire the bridge subscriber of the abandoned call.
     expect(unwire).toHaveBeenCalled();
+    // ...and cancel the still-running server call so it can't emit a second
+    // elicitation that misroutes to a later rpc on this connection.
+    expect(cancelCall).toHaveBeenCalled();
   });
 
-  it("expiry unwires the bridge subscriber of the abandoned call", async () => {
+  it("expiry unwires and cancels the abandoned call", async () => {
     const registry = new ElicitationParkRegistry(20);
     const channel = new ParkingElicitationChannel();
     const pending = channel.request(frame("e2"));
     const unwire = vi.fn();
+    const cancelCall = vi.fn();
     registry.add({
       info: {
         elicitationId: "e2",
@@ -654,8 +688,10 @@ describe("ParkingElicitationChannel / ElicitationParkRegistry primitives", () =>
       channel,
       outcome: new Promise<never>(() => {}),
       unwire,
+      cancelCall,
     });
     await expect(pending).rejects.toThrow(/expired/);
     expect(unwire).toHaveBeenCalled();
+    expect(cancelCall).toHaveBeenCalled();
   });
 });
