@@ -1,4 +1,5 @@
 import type { MessageEntry, MessageMethod } from "@inspector/core/mcp/types.js";
+import type { SortDirection } from "../elements/SortToggle/SortToggle.js";
 import {
   isInputRequiredResult,
   SUBSCRIPTION_ID_META_KEY,
@@ -138,13 +139,20 @@ function conversationRequestState(first: MessageEntry): string | undefined {
  * Fold a (already filtered/sorted) entry list into rows, clustering contiguous
  * MRTR rounds into one MRTR row. Each round joins the row before it when the
  * two hand a `requestState` from one to the other (see
- * `continuesConversation`), checked in both directions because the list may
- * be sorted newest-first. Contiguity is safe because the SDK auto-fulfils MRTR
- * input in-process (no intervening wire frames) so an operation's rounds are
- * adjacent in the log. Order is preserved; everything without a
- * `requestState` stays a `single` row.
+ * `continuesConversation`). `sortDirection` says which of the two is the
+ * earlier round: the hand-off is checked in that direction only, because an
+ * opaque token may be reused (`A → B`, then `B → A`) and checking both ways
+ * would then name or group a conversation differently per sort order.
+ * Contiguity is safe because the SDK auto-fulfils MRTR input in-process (no
+ * intervening wire frames) so an operation's rounds are adjacent in the log.
+ * Order is preserved; everything without a `requestState` stays a `single`
+ * row.
  */
-export function groupProtocolEntries(entries: MessageEntry[]): ProtocolRow[] {
+export function groupProtocolEntries(
+  entries: MessageEntry[],
+  sortDirection: SortDirection = "oldest-first",
+): ProtocolRow[] {
+  const newestFirst = sortDirection === "newest-first";
   const rows: ProtocolRow[] = [];
   for (const entry of entries) {
     const requestState = conversationRequestState(entry);
@@ -152,15 +160,14 @@ export function groupProtocolEntries(entries: MessageEntry[]): ProtocolRow[] {
       const last = rows[rows.length - 1];
       if (last?.kind === "mrtr") {
         const neighbour = last.rounds[last.rounds.length - 1];
-        if (continuesConversation(neighbour, entry)) {
+        const joins = newestFirst
+          ? continuesConversation(entry, neighbour)
+          : continuesConversation(neighbour, entry);
+        if (joins) {
           last.rounds.push(entry);
-          continue;
-        }
-        // Newest-first: this entry is the earlier round, so the conversation
-        // is now named by its token.
-        if (continuesConversation(entry, neighbour)) {
-          last.rounds.push(entry);
-          last.requestState = requestState;
+          // Newest-first: this entry is the earlier round, so the
+          // conversation is now named by its token.
+          if (newestFirst) last.requestState = requestState;
           continue;
         }
       }

@@ -429,7 +429,7 @@ describe("groupProtocolEntries", () => {
 
   it("chains a rotating conversation sorted newest-first, named by its first token", () => {
     const rounds = rotatingConversation().reverse();
-    expect(groupProtocolEntries(rounds)).toEqual([
+    expect(groupProtocolEntries(rounds, "newest-first")).toEqual([
       { kind: "mrtr", requestState: "step2", rounds },
     ]);
   });
@@ -471,5 +471,39 @@ describe("groupProtocolEntries", () => {
         rounds: [original, failed, retried],
       },
     ]);
+  });
+
+  // A server may reuse an opaque token, so a hand-off can run back to a value
+  // already seen. Naming must not depend on the sort order (Copilot, #2610).
+  it("names a conversation with a reused token the same in both sort orders", () => {
+    const ab = callEntry(
+      "ab",
+      1,
+      { requestState: "A" },
+      { resultType: "input_required", requestState: "B" },
+      1,
+    );
+    const ba = callEntry(
+      "ba",
+      2,
+      { requestState: "B" },
+      { resultType: "input_required", requestState: "A" },
+      2,
+    );
+    expect(groupProtocolEntries([ab, ba], "oldest-first")).toEqual([
+      { kind: "mrtr", requestState: "A", rounds: [ab, ba] },
+    ]);
+    expect(groupProtocolEntries([ba, ab], "newest-first")).toEqual([
+      { kind: "mrtr", requestState: "A", rounds: [ba, ab] },
+    ]);
+  });
+
+  it("does not chain backwards in the opposite sort order", () => {
+    const [orig, retry1] = rotatingConversation();
+    // Oldest-first, a later entry that the earlier one would continue is not
+    // its successor, so the two stay separate rows.
+    expect(groupProtocolEntries([retry1, orig], "oldest-first")).toHaveLength(
+      2,
+    );
   });
 });
