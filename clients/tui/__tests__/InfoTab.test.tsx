@@ -396,4 +396,72 @@ describe("InfoTab", () => {
     );
     expect(lastFrame() ?? "").not.toContain("to scroll");
   });
+
+  describe("roots (#2432)", () => {
+    it("lists the advertised roots, with and without a name", () => {
+      const { lastFrame } = render(
+        <InfoTab
+          serverName="my-server"
+          serverConfig={stdioConfig}
+          serverState={baseState}
+          width={80}
+          height={60}
+          roots={[{ uri: "file:///a", name: "alpha" }, { uri: "file:///b" }]}
+        />,
+      );
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("Roots (2)");
+      expect(frame).toContain("file:///a (alpha)");
+      expect(frame).toContain("file:///b");
+    });
+
+    it("says None when no roots are advertised", () => {
+      const { lastFrame } = render(
+        <InfoTab
+          serverName="my-server"
+          serverConfig={stdioConfig}
+          serverState={baseState}
+          width={80}
+          height={60}
+        />,
+      );
+      expect(lastFrame() ?? "").toContain("Roots (0)");
+      expect(lastFrame() ?? "").toContain("None");
+    });
+
+    it("opens the roots editor on 'e' when focused", async () => {
+      const onEditRoots = vi.fn();
+      const { stdin, lastFrame } = render(
+        <InfoTab
+          serverName="my-server"
+          serverConfig={stdioConfig}
+          serverState={baseState}
+          width={80}
+          height={60}
+          focused
+          onEditRoots={onEditRoots}
+        />,
+      );
+      expect(lastFrame() ?? "").toContain("e to edit roots");
+      stdin.write("e");
+      await tick();
+      expect(onEditRoots).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores 'e' when no editor is wired", async () => {
+      const { stdin, lastFrame } = render(
+        <InfoTab
+          serverName="my-server"
+          serverConfig={stdioConfig}
+          serverState={baseState}
+          width={80}
+          height={60}
+          focused
+        />,
+      );
+      stdin.write("e");
+      await tick();
+      expect(lastFrame() ?? "").not.toContain("e to edit roots");
+    });
+  });
 });

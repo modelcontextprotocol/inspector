@@ -1,11 +1,21 @@
 import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "./helpers/renderTui";
+import { BodyLines } from "../src/components/BodyLines.js";
 
 type RenderResult = ReturnType<typeof render>;
 
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 vi.mock("ink-form", () => import("./helpers/inkFormMock.js"));
+
+// Passthrough spy on the shared, capped body renderer, so a test can prove a
+// view routes its body through it even where the modal is too short to show
+// the cap marker (#2539).
+vi.mock("../src/components/BodyLines.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/components/BodyLines.js")>();
+  return { ...actual, BodyLines: vi.fn(actual.BodyLines) };
+});
 
 // ---------------------------------------------------------------------------
 // Controllable mock of the entire @inspector/core surface App.tsx depends on.
@@ -29,6 +39,10 @@ const h = vi.hoisted(() => {
     messages: unknown[];
     fetchRequests: unknown[];
     stderrLogs: unknown[];
+    tasks: unknown[];
+    subscriptions: unknown[];
+    roots: unknown[];
+    tasksExtension: boolean;
   }
   const ctrl: Ctrl = {
     status: "disconnected",
@@ -46,10 +60,19 @@ const h = vi.hoisted(() => {
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
+    tasks: [],
+    subscriptions: [],
+    roots: [],
+    tasksExtension: false,
   };
+  const refreshTasks = vi.fn(async () => []);
+  const clearCompletedTasks = vi.fn();
   const connect = vi.fn().mockResolvedValue(undefined);
   const disconnect = vi.fn().mockResolvedValue(undefined);
   const openUrl = vi.fn().mockResolvedValue(undefined);
+  // The callback App hands each OAuth-capable server's CallbackNavigation, so
+  // a test can drive the browser-open path directly (#2533).
+  const navigationCallbacks: Array<(url: URL) => unknown> = [];
   // Shared OAuth-related spies so a test can configure resolve/reject and
   // assert calls regardless of which per-server FakeClient instance App built.
   // Each spy is typed against the real InspectorClient method signature so its
@@ -168,6 +191,13 @@ const h = vi.hoisted(() => {
     // "not declared" — the tab is hidden unless a test opts in by pointing
     // `ctrl.skillsExtension` at a declaration.
     getSkillsExtension = vi.fn(() => ctrl.skillsExtension);
+    isTasksExtensionNegotiated = vi.fn(() => ctrl.tasksExtension);
+    getRoots = vi.fn(() => ctrl.roots);
+    setRoots = vi.fn(async () => {});
+    subscribeToResource = vi.fn(async () => {});
+    unsubscribeFromResource = vi.fn(async () => {});
+    cancelRequestorTask = vi.fn(async () => {});
+    getRequestorTaskResult = vi.fn(async () => ({ content: [] }));
     authenticate = (...a: Parameters<InspectorClient["authenticate"]>) =>
       clientSpies.authenticate(...a);
     clearOAuthTokens = (
@@ -214,6 +244,7 @@ const h = vi.hoisted(() => {
     connect,
     disconnect,
     openUrl,
+    navigationCallbacks,
     clientSpies,
     cb,
     createOAuthCallbackServer,
@@ -248,6 +279,20 @@ const h = vi.hoisted(() => {
     useMessageLog: vi.fn(() => ({ messages: ctrl.messages })),
     useFetchRequestLog: vi.fn(() => ({ fetchRequests: ctrl.fetchRequests })),
     useStderrLog: vi.fn(() => ({ stderrLogs: ctrl.stderrLogs })),
+    refreshTasks,
+    clearCompletedTasks,
+    useManagedRequestorTasks: vi.fn(() => ({
+      tasks: ctrl.tasks,
+      refresh: refreshTasks,
+      clearCompleted: clearCompletedTasks,
+    })),
+    useResourceSubscriptions: vi.fn(() => ({
+      subscriptions: ctrl.subscriptions,
+      streamState: { active: false, status: "ended", honoredUris: [] },
+    })),
+    // Roots are read with a direct store snapshot; the fake client is not a
+    // real TypedEventTarget, so the snapshot is driven from `ctrl.roots`.
+    useStoreSnapshot: vi.fn(() => ctrl.roots),
   };
 });
 
@@ -263,6 +308,8 @@ vi.mock("@inspector/core/mcp/state/index.js", () => ({
   MessageLogState: h.FakeManager,
   FetchRequestLogState: h.FakeManager,
   StderrLogState: h.FakeManager,
+  ManagedRequestorTasksState: h.FakeManager,
+  ResourceSubscriptionsState: h.FakeManager,
 }));
 vi.mock("@inspector/core/mcp/node/index.js", () => ({
   createTransportNode: vi.fn(),
@@ -300,12 +347,25 @@ vi.mock("@inspector/core/react/useFetchRequestLog.js", () => ({
 vi.mock("@inspector/core/react/useStderrLog.js", () => ({
   useStderrLog: h.useStderrLog,
 }));
+vi.mock("@inspector/core/react/useManagedRequestorTasks.js", () => ({
+  useManagedRequestorTasks: h.useManagedRequestorTasks,
+}));
+vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
+  useResourceSubscriptions: h.useResourceSubscriptions,
+}));
+vi.mock("@inspector/core/react/useStoreSnapshot.js", () => ({
+  useStoreSnapshot: h.useStoreSnapshot,
+}));
 vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@inspector/core/auth/index.js")>();
   return {
     ...actual,
-    CallbackNavigation: class {},
+    CallbackNavigation: class {
+      constructor(callback: (url: URL) => unknown) {
+        h.navigationCallbacks.push(callback);
+      }
+    },
     MutableRedirectUrlProvider: class {
       redirectUrl = "";
     },
@@ -686,13 +746,20 @@ beforeEach(() => {
     messages: [],
     fetchRequests: [],
     stderrLogs: [],
+    tasks: [],
+    subscriptions: [],
+    roots: [],
+    tasksExtension: false,
   });
+  h.refreshTasks.mockClear();
+  h.clearCompletedTasks.mockClear();
   h.connect.mockClear();
   h.connect.mockResolvedValue(undefined);
   h.disconnect.mockClear();
   h.disconnect.mockResolvedValue(undefined);
   h.openUrl.mockClear();
   h.openUrl.mockResolvedValue(undefined);
+  h.navigationCallbacks.length = 0;
   h.cb.opts = null;
   h.callbackStart.mockClear();
   h.callbackStop.mockClear();
@@ -952,6 +1019,45 @@ describe("App (foundation)", () => {
     await expectFrame(r, "OAuth");
   });
 
+  it("shows the manual-open note on the Auth tab when the browser cannot be opened", async () => {
+    // #2533: the opener failing (e.g. missing from PATH) must surface as a
+    // note on the Auth tab rather than crash the TUI — switching to that tab,
+    // since the flow can start from anywhere.
+    h.ctrl.serverType = "streamable-http";
+    h.openUrl.mockImplementation(
+      async (_url: URL, onFailure?: (message: string) => void) => {
+        onFailure?.("Open it by hand");
+      },
+    );
+    const r = await mount(httpServer());
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
+    const navigate = h.navigationCallbacks.at(-1);
+    expect(navigate).toBeDefined();
+    await navigate!(new URL("https://auth.example/start"));
+    expect(h.openUrl).toHaveBeenCalledWith(
+      new URL("https://auth.example/start"),
+      expect.any(Function),
+    );
+    await expectFrame(r, "Open it by hand");
+    await expectFrame(r, "OAuth");
+  });
+
+  it("ignores a browser-open failure for a server that is no longer selected", async () => {
+    h.ctrl.serverType = "streamable-http";
+    h.openUrl.mockImplementation(
+      async (_url: URL, onFailure?: (message: string) => void) => {
+        onFailure?.("Open it by hand");
+      },
+    );
+    const r = await mount(twoHttp());
+    // One callback per OAuth-capable server, in catalog order: web, then api.
+    expect(h.navigationCallbacks).toHaveLength(2);
+    await h.navigationCallbacks[1]!(new URL("https://auth.example/api"));
+    await tick();
+    expect(h.openUrl).toHaveBeenCalledOnce();
+    expect(r.lastFrame() ?? "").not.toContain("Open it by hand");
+  });
+
   it("renders connected status with capabilities", async () => {
     h.ctrl.status = "connected";
     h.ctrl.capabilities = { tools: {}, resources: {}, prompts: {} };
@@ -1007,6 +1113,41 @@ describe("App (status, layout, modals)", () => {
     await expectFrame(r, "MOCK_FORM");
     await press(r, [ESC]); // ESC closes the modal
     expect(r.lastFrame() ?? "").not.toContain("MOCK_FORM");
+  });
+
+  it("mutes the global accelerators while a list filter is edited (#2430)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      sampleTool,
+      { ...sampleTool, name: "dpt-tool", description: "D" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/"]);
+    await expectFrame(r, "Enter keep");
+    // `d` disconnects, `p` switches to Prompts, Esc quits — none may fire
+    // while the keystrokes belong to the query.
+    await press(r, ["d", "p", "t"]);
+    await expectFrame(r, "Tools (1/2)");
+    expect(h.disconnect).not.toHaveBeenCalled();
+    expect(r.lastFrame() ?? "").toContain("/dpt");
+    // Esc clears the filter rather than quitting; the app still answers keys.
+    await press(r, [ESC]);
+    await expectFrame(r, "Tools (2)");
+    await press(r, ["d"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
+  it("types '?' into a list filter instead of opening the help (#2430 + #2436)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/", "?"]);
+    await expectFrame(r, "/?");
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+    // Once the filter is cleared, '?' is the help key again.
+    await press(r, [ESC, "?"]);
+    await expectFrame(r, "Keyboard shortcuts");
   });
 
   it("opens the tool details modal with '+' and closes it on ESC", async () => {
@@ -1092,6 +1233,41 @@ describe("App (status, layout, modals)", () => {
     const r = await mount(oneStdio());
     await press(r, ["p", TAB, TAB, "+"]);
     await expectFrame(r, "Response:");
+  });
+
+  // The zoom modal is bounded by the terminal, so a cap marker would sit below
+  // the visible frame. Assert instead that the zoom renders every body through
+  // the shared, capped BodyLines — the one the Network zoom uses (#2539). The
+  // `zoom-` key prefix tells the modal's calls apart from the Protocol pane's.
+  const zoomBodies = () =>
+    Object.fromEntries(
+      vi
+        .mocked(BodyLines)
+        .mock.calls.map(([props]) => [props.keyPrefix, props.body])
+        .filter(([key]) => key.startsWith("zoom-")),
+    );
+
+  it("renders Protocol zoom request and response bodies through the body cap (#2539)", async () => {
+    vi.mocked(BodyLines).mockClear();
+    h.ctrl.messages = [reqMessage];
+    const r = await mount(oneStdio());
+    await press(r, ["p", TAB, TAB, "+"]);
+    await expectFrame(r, "Response:");
+    expect(zoomBodies()).toEqual({
+      "zoom-req": JSON.stringify(reqMessage.message),
+      "zoom-resp": JSON.stringify(reqMessage.response),
+    });
+  });
+
+  it("renders a Protocol zoom response body through the body cap (#2539)", async () => {
+    vi.mocked(BodyLines).mockClear();
+    h.ctrl.messages = [respMessage];
+    const r = await mount(oneStdio());
+    await press(r, ["p", TAB, TAB, "+"]);
+    await expectFrame(r, "Response:");
+    expect(zoomBodies()).toEqual({
+      "zoom-msg": JSON.stringify(respMessage.message),
+    });
   });
 
   it("opens in-progress request details (no status, error, or bodies)", async () => {
@@ -1494,6 +1670,17 @@ describe("App (mid-session auth lifecycle events)", () => {
     await expectFrame(r, "unreachable");
   });
 
+  it("redacts URL query secrets in a failed revocation's detail (#2490)", async () => {
+    h.clientSpies.clearOAuthTokens.mockResolvedValue({
+      status: "failed",
+      detail: "at https://a.x/?token=s3cr3t",
+    });
+    const r = await mount(oneHttp());
+    await press(r, ["a", "s"]);
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
+  });
+
   // The wiring is the contract here, not just `AuthTab`'s own behavior: a
   // `void`-ing arrow between them resolves instantly, which makes the pending
   // state, the repeat lock and the rejection path all inert while revocation
@@ -1848,6 +2035,39 @@ describe("App (OAuth result branches)", () => {
     await expectFrame(r, "Authorization updated. Retry your action");
   });
 
+  // #2490: an OAuth error quoting a secret-bearing URL is redacted on screen.
+  it("redacts a thrown OAuth error on an interactive reauth", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => {
+      throw new Error("cb https://a.x/?code=s3cr3t");
+    };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: { reason: "unauthorized" },
+    });
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
+  });
+
+  it("redacts a thrown OAuth error on a standard step-up authorize", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    h.runner.override = async () => {
+      throw new Error("cb https://a.x/?code=s3cr3t");
+    };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: authUrl(),
+      challenge: stepUpChallenge,
+    });
+    await expectFrame(r, "needs additional OAuth scopes");
+    await press(r, ["a"]);
+    await expectFrame(r, "REDACTED");
+    expect(r.lastFrame() ?? "").not.toContain("s3cr3t");
+  });
+
   it("completes reauth when OAuth returns already_authorized", async () => {
     h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
     h.runner.override = async () => ({ kind: "already_authorized" });
@@ -1903,5 +2123,272 @@ describe("App (OAuth result branches)", () => {
     await expectFrame(r, "Refreshing authorization");
     h.fireClientEventFor(web, "oauthError", { error: new Error("web error") });
     await expectFrame(r, "web error");
+  });
+});
+
+describe("App (keybinding help, #2436)", () => {
+  it("advertises the help key in the footer", async () => {
+    const r = await mount(stdioServer());
+    await expectFrame(r, "? help");
+  });
+
+  it("opens with '?' showing the active tab's bindings and closes with '?'", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", "?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("Tools tab");
+    expect(r.lastFrame() ?? "").toContain("Test the tool");
+    await press(r, ["?"]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+
+  it("keeps the panes underneath inert, then restores focus on close", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "?"]); // tool details focused, then help
+    await expectFrame(r, "Keyboard shortcuts");
+    // '+' would open the details dialog if the details pane still had focus;
+    // a tab accelerator and disconnect are global keys it must swallow too.
+    await press(r, ["+", "i", "d"]);
+    expect(h.disconnect).not.toHaveBeenCalled();
+    await press(r, ["?"]); // close the help
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    expect(r.lastFrame() ?? "").not.toContain("Full JSON:");
+    expect(r.lastFrame() ?? "").toContain("Tools (1)");
+    await press(r, ["+"]); // focus is back on the details pane
+    await expectFrame(r, "Full JSON:");
+  });
+
+  it("closes on ESC without exiting the app", async () => {
+    const r = await mount(stdioServer());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    await press(r, [ESC]);
+    await waitUntil(
+      () => !(r.lastFrame() ?? "").includes("Keyboard shortcuts"),
+    );
+    // Still mounted and listening: the help opens again.
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+  });
+
+  it("lists only the visible tabs' accelerators", async () => {
+    // A stdio server shows no Auth, Network or Skills tab, so `a`, `n` and `k`
+    // do nothing and must not be advertised.
+    const r = await mount(oneStdio());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    expect(r.lastFrame() ?? "").toContain("i r m t p o ");
+  });
+
+  it("keeps a focus move made while it is open from waking a hidden pane", async () => {
+    h.clientSpies.checkAuthChallengeSatisfied.mockResolvedValue(false);
+    // Connected, so the global `c` (Connect) is inert and `c` can only mean
+    // the Auth pane's cancel.
+    h.ctrl.status = "connected";
+    const r = await mount(oneHttp());
+    await press(r, ["?"]);
+    await expectFrame(r, "Keyboard shortcuts");
+    // A step-up landing now moves focus to the Auth pane underneath.
+    h.fireClientEvent("authChallengeInteractive", {
+      authorizationUrl: new URL("https://as.example/authorize"),
+      challenge: {
+        reason: "insufficient_scope" as const,
+        requiredScopes: ["env:read"],
+        authorizationScopes: ["tools:read", "env:read"],
+        context: { toolName: "get-env" },
+      },
+    });
+    await expectFrame(r, "Auth tab");
+    await press(r, ["c"]); // would cancel the step-up if Auth were live
+    await press(r, ["?"]);
+    await expectFrame(r, "needs additional OAuth scopes");
+    expect(r.lastFrame() ?? "").not.toContain("Authorization cancelled");
+    // Once the help closes, the step-up's focus move takes effect.
+    await press(r, ["c"]);
+    await expectFrame(r, "Authorization cancelled");
+  });
+
+  it("holds back a details dialog that arrives while it is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.prompts = [{ name: "greet", description: "no-arg prompt" }];
+    const r = await mount(oneStdio());
+    let resolvePrompt: (value: { result: { messages: [] } }) => void = () => {};
+    const pending = new Promise<{ result: { messages: [] } }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+    for (const client of h.clientInstances) {
+      Object.assign(client, { getPrompt: vi.fn(() => pending) });
+    }
+    await press(r, ["m", TAB, ENTER, "?"]); // fetch starts, then help opens
+    await expectFrame(r, "Keyboard shortcuts");
+    resolvePrompt({ result: { messages: [] } });
+    await tick();
+    await press(r, [ESC]); // closes only the help
+    await expectFrame(r, "Prompt: greet");
+    await press(r, [ESC]); // and then the details dialog
+    await waitUntil(() => !(r.lastFrame() ?? "").includes("Prompt: greet"));
+    expect(r.lastFrame() ?? "").not.toContain("Prompt: greet");
+  });
+
+  it("ignores '?' while another dialog is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, TAB, "+"]);
+    await expectFrame(r, "Full JSON:");
+    await press(r, ["?"]);
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
+  });
+});
+
+/**
+ * The FakeClient App built for the first server. `clientInstances` is typed by
+ * the narrow config/options shape the mount-option tests read, while the
+ * instance is the hoisted `FakeClient`, which `vi.hoisted` cannot export as a
+ * type; the double cast bridges exactly that gap, and `InstanceType` keeps the
+ * spies typed against the real class rather than an ad-hoc shape.
+ */
+const firstFakeClient = () =>
+  h.clientInstances[0] as unknown as InstanceType<typeof h.FakeClient>;
+
+describe("App (tasks, subscriptions, roots — #2432)", () => {
+  const task = {
+    taskId: "task-1",
+    status: "completed",
+    createdAt: "2026-01-01T00:00:00Z",
+    lastUpdatedAt: "2026-01-01T00:00:01Z",
+    ttl: null,
+  };
+
+  it("hides the Subscriptions and Tasks tabs for a server that serves neither", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: {} };
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tools");
+    const frame = r.lastFrame() ?? "";
+    expect(frame).not.toContain("Subscriptions");
+    expect(frame).not.toContain("Tasks");
+  });
+
+  it("opens the Subscriptions tab with 'u' when the server can subscribe", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true } };
+    h.ctrl.resources = [{ uri: "file:///a", name: "a" }];
+    h.ctrl.subscriptions = [{ resource: { uri: "file:///a", name: "a" } }];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Subscriptions (1)");
+    await press(r, ["u", TAB, ENTER]);
+    await expectFrame(r, "Subscriptions (1/1)");
+    const client = firstFakeClient();
+    await waitUntil(() => client.unsubscribeFromResource.mock.calls.length > 0);
+    expect(client.unsubscribeFromResource).toHaveBeenCalledWith("file:///a");
+  });
+
+  it("opens the Tasks tab with 's' for a legacy tasks server and zooms a task", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { tasks: {} };
+    h.ctrl.tasks = [task];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tasks (1)");
+    await press(r, ["s", TAB]);
+    await expectFrame(r, "task-1");
+    // Fetch the result, then zoom the details pane into the modal.
+    await press(r, [ENTER, TAB]);
+    const client = firstFakeClient();
+    await waitUntil(() => client.getRequestorTaskResult.mock.calls.length > 0);
+    await press(r, ["+"]);
+    await press(r, ["f", "l"]);
+    expect(h.refreshTasks).not.toHaveBeenCalled();
+  });
+
+  it("zooms a task with no fetched result", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tasksExtension = true;
+    h.ctrl.tasks = [{ ...task, status: "working" }];
+    const r = await mount(oneStdio());
+    await press(r, ["s", TAB, TAB, "+"]);
+    // The details modal swallows App input, so 's' no longer switches tabs.
+    await press(r, [ESC]);
+    await expectFrame(r, "task-1");
+  });
+
+  it("refreshes and clears tasks through the store hook", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tasksExtension = true;
+    h.ctrl.tasks = [task];
+    const r = await mount(oneStdio());
+    await press(r, ["s", TAB, "f", "l"]);
+    await waitUntil(() => h.refreshTasks.mock.calls.length > 0);
+    expect(h.refreshTasks).toHaveBeenCalled();
+    expect(h.clearCompletedTasks).toHaveBeenCalled();
+  });
+
+  it("walks the new tabs with the arrow keys", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true }, tasks: {} };
+    const r = await mount(oneStdio());
+    // info -> resources -> subscriptions
+    await press(r, ["i", RIGHT, RIGHT]);
+    await expectFrame(r, "Subscriptions (0/0)");
+    // tools -> tasks
+    await press(r, ["t", RIGHT]);
+    await expectFrame(r, "No tasks yet");
+  });
+
+  it("does not jump to Tasks on 's' while the Auth pane is focused", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { tasks: {} };
+    const r = await mount(oneHttp());
+    await press(r, ["a"]);
+    await expectFrame(r, "Auth");
+    await press(r, ["s"]);
+    expect(r.lastFrame() ?? "").not.toContain("No tasks yet");
+    // From the tab bar, the accelerator works as usual.
+    await press(r, [STAB, "s"]);
+    await expectFrame(r, "No tasks yet");
+  });
+
+  it("leaves the Subscriptions and Tasks tabs when the server stops serving them", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.capabilities = { resources: { subscribe: true }, tasks: {} };
+    const r = await mount(oneStdio());
+    await press(r, ["s"]);
+    await expectFrame(r, "No tasks yet");
+    h.ctrl.capabilities = {};
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("No tasks yet");
+  });
+
+  it("lists roots on the Info tab and edits them in the roots modal", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.roots = [{ uri: "file:///work", name: "work" }];
+    const r = await mount(oneStdio());
+    // The 24-row test terminal shows the section heading; the entries below it
+    // are InfoTab's to render (covered in InfoTab.test.tsx).
+    await expectFrame(r, "Roots (1)");
+    await press(r, ["i", TAB, "e", "x"]);
+    const client = firstFakeClient();
+    await waitUntil(() => client.setRoots.mock.calls.length > 0);
+    expect(client.setRoots).toHaveBeenCalledWith([]);
+    // Esc closes the modal rather than exiting the app, and `e` reopens it.
+    await press(r, [ESC, "e", "x"]);
+    await waitUntil(() => client.setRoots.mock.calls.length > 1);
+    expect(client.setRoots).toHaveBeenCalledTimes(2);
   });
 });

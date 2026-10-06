@@ -14,6 +14,7 @@ import type {
   PackageInfo,
   ValidationResult,
 } from "../components/groups/ImportServerJsonPanel/ImportServerJsonPanel";
+import { errorMessage } from "../utils/errorFormat";
 
 /** Debounce (ms) before a textarea edit re-triggers parse/validation. */
 export const VALIDATE_DEBOUNCE_MS = 300;
@@ -48,7 +49,7 @@ function parseDraft(rawText: string): ParseState {
   } catch (err) {
     return {
       ok: false,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage(err),
     };
   }
 }
@@ -252,7 +253,7 @@ export function useServerJsonImport({
       const text = await file.text();
       setDraft((d) => ({ ...d, rawText: text }));
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : String(err));
+      setSubmitError(errorMessage(err));
     }
   }
 
@@ -283,7 +284,7 @@ export function useServerJsonImport({
       await onAddServer(sel.serverId, config);
       return true;
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : String(err));
+      setSubmitError(errorMessage(err));
       return false;
     }
   }

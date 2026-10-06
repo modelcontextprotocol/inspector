@@ -177,7 +177,7 @@ describe("BrowserOAuthStorage", () => {
       await storage.saveTokens(testServerUrl, {
         refresh_token: "rt-only",
         token_type: "Bearer",
-      } as unknown as OAuthTokens);
+      } as OAuthTokens);
       await expect(storage.getTokens(testServerUrl)).resolves.toBeUndefined();
     });
   });

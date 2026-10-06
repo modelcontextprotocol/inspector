@@ -61,7 +61,7 @@ inspector/
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards),
 │                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps),
 │                     maintainer-workflow helpers (the pr:*, board:*, advisory:*,
-│                     release:tag and action:resolve-pin aliases)
+│                     release:notes, release:tag and action:resolve-pin aliases)
 │                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications

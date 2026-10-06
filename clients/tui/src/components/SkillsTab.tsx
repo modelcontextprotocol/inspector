@@ -41,6 +41,13 @@ import {
   type SkillVerifyReport,
 } from "@inspector/core/mcp/skillsVerification.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
+import { useListFilter } from "../hooks/useListFilter.js";
+import {
+  ListFilterBar,
+  LIST_FILTER_ROWS,
+  filterCount,
+} from "./ListFilterBar.js";
 
 interface SkillsTabProps {
   skills: SkillEntry[];
@@ -54,6 +61,18 @@ interface SkillsTabProps {
   focusedPane?: "list" | "details" | null;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
+  /** Told when the list filter starts or stops capturing keys (#2430). */
+  onFilterEditingChange?: (editing: boolean) => void;
+}
+
+/**
+ * What the `/` filter matches a skill against (#2430): the name the row
+ * shows, and the declared frontmatter name when that differs from it.
+ */
+function skillFilterFields(
+  skill: SkillEntry,
+): ReadonlyArray<string | undefined> {
+  return [skillDisplayName(skill), skill.frontmatter.name];
 }
 
 /**
@@ -145,12 +164,18 @@ export function SkillsTab({
   focusedPane = null,
   onAuthRecoveryRequired,
   modalOpen = false,
+  onFilterEditingChange,
 }: SkillsTabProps) {
-  const visibleCount = Math.max(1, height - 7);
+  const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
+  const filter = useListFilter(skills, skillFilterFields, {
+    enabled: !modalOpen && focusedPane === "list",
+    onEditingChange: onFilterEditingChange,
+  });
+  const shownSkills = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    skills.length,
+    shownSkills.length,
     visibleCount,
-    { resetWhen: skills },
+    { resetWhen: shownSkills },
   );
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -176,7 +201,7 @@ export function SkillsTab({
   } | null>(null);
   const scrollViewRef = useRef<ScrollViewRef>(null);
 
-  const selectedSkill = skills[selectedIndex] ?? null;
+  const selectedSkill = shownSkills[selectedIndex] ?? null;
 
   const runVerify = useCallback(
     (skill: SkillEntry) => {
@@ -202,7 +227,7 @@ export function SkillsTab({
              visible message. Exercising it would mean faking a throw the walk
              cannot make, which tests the fake rather than the code. */
           setError(
-            err instanceof Error ? err.message : "Failed to verify skill",
+            err instanceof Error ? errorMessage(err) : "Failed to verify skill",
           );
           /* v8 ignore stop */
         } finally {
@@ -215,6 +240,9 @@ export function SkillsTab({
 
   useInput(
     (input: string, key: Key) => {
+      // The filter goes first: while it is editing, Enter and letters belong
+      // to the query, not to the list.
+      if (filter.handleInput(input, key)) return;
       if (key.return && selectedSkill && inspectorClient) {
         runVerify(selectedSkill);
         return;
@@ -222,7 +250,7 @@ export function SkillsTab({
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < skills.length - 1) {
+        } else if (key.downArrow && selectedIndex < shownSkills.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -302,17 +330,27 @@ export function SkillsTab({
             bold
             backgroundColor={focusedPane === "list" ? "yellow" : undefined}
           >
-            Skills ({skills.length}
+            Skills (
+            {filterCount(filter.active, shownSkills.length, skills.length)}
             {pageCount > 1 ? `, ${pageCount} pages` : ""})
           </Text>
         </Box>
+        <ListFilterBar
+          query={filter.query}
+          editing={filter.editing}
+          focused={focusedPane === "list" && !modalOpen}
+        />
         {loadError ? (
           <Box paddingY={1}>
-            <Text color="red">{loadError.message}</Text>
+            <Text color="red">{errorMessage(loadError)}</Text>
           </Box>
         ) : skills.length === 0 ? (
           <Box paddingY={1}>
             <Text dimColor>No skills available</Text>
+          </Box>
+        ) : shownSkills.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No skills match the filter</Text>
           </Box>
         ) : (
           <Box
@@ -321,10 +359,13 @@ export function SkillsTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {skills
+            {shownSkills
               .slice(firstVisible, firstVisible + visibleCount)
               .map((skill, i) => {
                 const index = firstVisible + i;
+                // Keyed by the UNFILTERED position, which stays unique even
+                // when a malformed listing repeats a URI (see below).
+                const ordinal = filter.indices[index];
                 const isSelected = index === selectedIndex;
                 // The per-row mark is the static conformance verdict, which
                 // costs nothing — it is what makes a bad skill visible in the
@@ -342,7 +383,7 @@ export function SkillsTab({
                   // collide them and let React drop or reuse the wrong row
                   // (Copilot).
                   <Box
-                    key={`${index}:${skill.uri}`}
+                    key={`${ordinal}:${skill.uri}`}
                     paddingY={0}
                     flexShrink={0}
                   >

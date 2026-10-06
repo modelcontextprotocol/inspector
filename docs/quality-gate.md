@@ -14,7 +14,9 @@ Each client self-validates from its own folder; the root scripts chain them. The
 | **GitHub CI** (`.github/workflows/main.yml`) | Automatically, on every push | `npm install`, then `validate`, `verify:skills:cli`, `verify:build-gate`, `verify:bundle-externals`, `smoke` (which includes `smoke:web:chromium`), `test:storybook` — plus `coverage` in a parallel job ([#2159](https://github.com/modelcontextprotocol/inspector/issues/2159)) |
 | **The local gate** (`npm run local:gate`) | By hand, before you push | Every check above (the install is yours to run; `local:validate` stands in for `validate`, see below), **plus** the Firefox engine pass (`smoke:web:firefox`) |
 
-The local gate runs **every check** CI runs, and is not a mirror. One of its steps has no GitHub CI counterpart:
+One more CI check runs outside that table: **`.github/workflows/dco.yml`**, on every *pull request targeting `v2/main`* rather than every push (v1 PRs and milestone PRs into `main` are out of its scope), fails a PR whose commits are not all signed off ([#2566](https://github.com/modelcontextprotocol/inspector/issues/2566)). It needs the PR's base branch, which a push run and the local gate never see, so the gate does not run it; `npm run dco:check -- --base origin/v2/main` is the same check by hand. It runs on `pull_request_target`, so neither the workflow (read from `main`) nor the script (checked out from the base) can be changed by the PR it gates — and so it is active only once a milestone merge has carried the workflow to `main`. It replaced the probot DCO app, whose check vanished unnoticed when the app was suspended because it was never required — the replacement gates merges only as a **required** status check, a ruleset setting the workflow cannot declare.
+
+The local gate runs **every check** `main.yml` runs, and is not a mirror. One of its steps has no GitHub CI counterpart:
 
 | Local-only step | Why it is local-only |
 | --- | --- |

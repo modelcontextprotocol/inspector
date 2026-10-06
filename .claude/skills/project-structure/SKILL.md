@@ -26,7 +26,7 @@ inspector/
 ├── test-servers/     Composable MCP test servers + JSON configs used by tests and by hand
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards)
 │                     and maintainer-workflow helpers (the pr:*, board:*, advisory:*,
-│                     release:tag and action:resolve-pin aliases)
+│                     release:notes, release:tag and action:resolve-pin aliases)
 ├── docs/             Task-oriented guides (see docs/README-style index in the root README)
 ├── specification/    Design/build specifications
 └── AGENTS.md         The rules contract — read this before changing anything
@@ -49,7 +49,7 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 | `core/client/` | Install-level client config (`client.json`): browser-safe parse plus Node load/save, remote backend, secrets, runner |
 | `core/json/` | JSON + parameter/argument conversion; the schema normalizations all three form builders share (nullable unions, root composition) and the tool-schema portability lint |
 | `core/react/` | React hooks over the state stores — consumed by both the web and TUI React trees. Every subscription reads its snapshot **during render** via `useSyncExternalStore` (#1955); `useStoreSnapshot.ts` caches the fresh-value-per-read getters |
-| `core/node/` | Node-only helpers: version reader, host normalization/detection |
+| `core/node/` | Node-only helpers: version reader, host normalization/detection, browser opener (`openUrl`) |
 | `core/storage/` | File I/O helpers used by the OAuth persist backends |
 | `core/logging/` | Silent pino logger singleton |
 

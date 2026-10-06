@@ -182,6 +182,21 @@ describe("ManagedRequestorTasksState", () => {
     expect(next.map((t) => t.taskId)).toEqual(["t1", "t2"]);
   });
 
+  it("owns a rejected automatic refresh instead of leaking it (#2432)", async () => {
+    // A leaked rejection fails this run as an unhandled error; the explicit
+    // refresh afterwards proves the store still works and the list held.
+    client.setStatus("connected");
+    client.listRequestorTasks.mockRejectedValueOnce(new Error("tasks/list"));
+    client.listRequestorTasks.mockRejectedValueOnce(new Error("tasks/list"));
+    client.dispatchTypedEvent("connect");
+    client.dispatchTypedEvent("tasksListChanged");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.listRequestorTasks).toHaveBeenCalledTimes(2);
+    expect(state.getTasks()).toEqual([]);
+    client.queueTaskPages({ tasks: [task("t1")] });
+    await expect(state.refresh()).resolves.toHaveLength(1);
+  });
+
   it("statusChange to disconnected clears tasks and dispatches tasksChange", async () => {
     client.setStatus("connected");
     client.queueTaskPages({ tasks: [task("t1")] });
