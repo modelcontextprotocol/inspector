@@ -95,7 +95,7 @@ previous one, not all cut from `v2/main`.
 
 **The `DCO` check fails the PR on any unsigned commit.** It is this repo's own
 job (`.github/workflows/dco.yml` → `scripts/dco-check.mjs`, #2566), run on every
-PR targeting `v2/main`, and it requires each commit to carry a `Signed-off-by: Name <email>`
+v2 PR, stacked PRs included, and it requires each commit to carry a `Signed-off-by: Name <email>`
 trailer whose name **and** email match either the commit's author or its
 committer (case-insensitively). Its only exemptions are merge commits and
 bot-authored commits; there is no partial credit — one unsigned commit out of six
