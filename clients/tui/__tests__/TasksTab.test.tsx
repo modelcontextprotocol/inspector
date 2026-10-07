@@ -163,7 +163,9 @@ describe("TasksTab", () => {
   it("redacts URL query secrets in a surfaced failure (#2638)", async () => {
     const { stdin, lastFrame } = renderTab({
       onRefresh: vi.fn(async () => {
-        throw new Error("Request failed: https://auth.example/cb?code=s3cret&state=ok");
+        throw new Error(
+          "Request failed: https://auth.example/cb?code=s3cret&state=ok",
+        );
       }),
     });
     stdin.write("f");

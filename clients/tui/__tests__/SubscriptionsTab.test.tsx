@@ -158,7 +158,9 @@ describe("SubscriptionsTab", () => {
   it("redacts URL query secrets in a surfaced failure (#2638)", async () => {
     const client = fakeClient({
       subscribeToResource: vi.fn(async () => {
-        throw new Error("Request failed: https://auth.example/cb?code=s3cret&state=ok");
+        throw new Error(
+          "Request failed: https://auth.example/cb?code=s3cret&state=ok",
+        );
       }),
     });
     const { stdin, lastFrame } = renderTab({ inspectorClient: client });
