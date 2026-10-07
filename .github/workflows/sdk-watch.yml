@@ -280,8 +280,9 @@ jobs:
           # an encoded value passes it.
           #
           # What makes that acceptable is WHAT THIS JOB READS, not the controls
-          # around it. Both upstreams — `modelcontextprotocol/typescript-sdk` and
-          # `modelcontextprotocol/ext-apps` — are in this repository's own org, so
+          # around it. Every upstream — `modelcontextprotocol/typescript-sdk`,
+          # `modelcontextprotocol/ext-apps`, and `modelcontextprotocol/ext-tasks`
+          # — is in this repository's own org, so
           # their release notes are first-party content, and anyone able to plant
           # an injection in them already holds release rights here. Closing the
           # channel properly means workload identity federation instead of a

@@ -443,12 +443,57 @@ async function describeFileStore(
  * Pick the fallback store for a host with no keychain. Exported for the
  * tests, which drive the container/mount predicates directly rather than
  * trying to make a real container appear.
+ *
+ * `allowMemory: false` (see {@link disallowMemorySecretStoreFallback})
+ * collapses the container special case to `file`: a multi-process consumer
+ * can never be served by a per-process Map, so a plaintext file in an
+ * ephemeral layer — imperfect, but shared — is strictly better than a
+ * store two of its three processes cannot see.
  */
 export function chooseFallbackKind(opts: {
   container: boolean;
   mounted: boolean;
+  allowMemory?: boolean;
 }): SecretStoreKind {
+  if (opts.allowMemory === false) return "file";
   return opts.container && !opts.mounted ? "memory" : "file";
+}
+
+let memoryFallbackAllowed = true;
+
+/**
+ * Rule out `memory` as an automatic fallback for this process.
+ *
+ * For consumers that split one logical session across processes (the mcpdo
+ * front-end, its OAuth helper, and the connection daemon): an in-memory
+ * store is a per-process Map, so a token saved by one process is invisible
+ * to the others and OAuth can never complete. Call before the first store
+ * use — the selection is cached process-wide. An explicit
+ * `MCP_INSPECTOR_SECRET_STORE=memory` still wins: a user override is a
+ * statement of intent, this only shapes the automatic choice.
+ */
+export function disallowMemorySecretStoreFallback(): void {
+  memoryFallbackAllowed = false;
+}
+
+let secretStorageWarningsQuiet = false;
+
+/**
+ * Silence the automatic {@link warnAboutSecretStorage} output for this
+ * process.
+ *
+ * For the same multi-process consumers as
+ * {@link disallowMemorySecretStoreFallback}: mcpdo runs a fresh front-end
+ * process for every command, and each one that touches a stored secret
+ * resolves the store and prints this banner — so an agent driving mcpdo
+ * sees the full fallback/caveat warning on *every* command (connect,
+ * `auth/list`, …). The front-end quiets it globally and re-surfaces it once,
+ * deliberately, on `connect` (passing `force`); the persistent daemon stays
+ * unquiet so the warning still lands once in its stderr log. A no-op for
+ * web/cli/tui, which never call this.
+ */
+export function setSecretStorageWarningsQuiet(quiet: boolean): void {
+  secretStorageWarningsQuiet = quiet;
 }
 
 /**
@@ -458,8 +503,16 @@ export function chooseFallbackKind(opts: {
  * who needs this is watching a terminal or `docker logs`, and store
  * selection happens before (and independently of) any logger being
  * configured.
+ *
+ * Suppressed when {@link setSecretStorageWarningsQuiet} is on, unless
+ * `force` is passed — the mcpdo front-end quiets the automatic (lazy) calls
+ * and re-emits once with `force` on `connect`.
  */
-export function warnAboutSecretStorage(info: SecretStorageInfo): void {
+export function warnAboutSecretStorage(
+  info: SecretStorageInfo,
+  opts?: { force?: boolean },
+): void {
+  if (secretStorageWarningsQuiet && opts?.force !== true) return;
   if (info.reason === "fallback") {
     console.warn(
       `\n[mcp-inspector] The OS keychain is not available, so secrets will be kept in: ${secretStorageSummary(info)}.` +
@@ -517,6 +570,7 @@ export function resolveSecretStore(): Promise<ResolvedSecretStore> {
     const kind = chooseFallbackKind({
       container: isContainer(),
       mounted: isOnMountPoint(path.dirname(defaultSecretFilePath())),
+      allowMemory: memoryFallbackAllowed,
     });
     const result = await buildStore(kind, "fallback", probe.detail);
     warnAboutSecretStorage(result.info);
@@ -983,4 +1037,19 @@ class DeferredSecretStore implements SecretStore {
  */
 export function defaultSecretStore(): SecretStore {
   return new DeferredSecretStore();
+}
+
+/**
+ * The concrete store behind `store`: the selected one for a
+ * {@link defaultSecretStore}, otherwise `store` itself. For callers that
+ * must know *which* backend holds an entry — the OAuth namespace ledger
+ * (#2560) records keys per backend — since the deferred wrapper is
+ * deliberately indistinguishable from the store it forwards to.
+ */
+export async function resolveConcreteSecretStore(
+  store: SecretStore,
+): Promise<SecretStore> {
+  return store instanceof DeferredSecretStore
+    ? (await resolveSecretStore()).store
+    : store;
 }

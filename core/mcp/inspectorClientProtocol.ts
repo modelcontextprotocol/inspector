@@ -22,6 +22,7 @@ import type {
   ResourceSubscriptionStreamState,
   ExcludedTool,
   RequestMetadata,
+  InspectorTask,
   AppRendererClient,
 } from "./types.js";
 import type {
@@ -35,7 +36,6 @@ import type {
   Resource,
   ResourceTemplateType as ResourceTemplate,
   ServerCapabilities,
-  Task,
   Tool,
 } from "@modelcontextprotocol/client";
 import type { JsonValue } from "../json/jsonUtils.js";
@@ -45,6 +45,7 @@ import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js
 import type { SkillEntry } from "./skillsSchemas.js";
 import type { SkillsExtensionSupport } from "./skills.js";
 import type { DirectoryReadResult } from "./skillsSchemas.js";
+import type { TaskCapabilities } from "@modelcontextprotocol/ext-tasks/client";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
 import type { ElicitationCreateMessage } from "./elicitationCreateMessage.js";
 
@@ -112,15 +113,17 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   ): Promise<{ resourceTemplates: ResourceTemplate[]; nextCursor?: string }>;
   listRequestorTasks(
     cursor?: string,
-  ): Promise<{ tasks: Task[]; nextCursor?: string }>;
-  /** Poll one requestor task's current status (era-aware: modern `DetailedTask`
-   * via `tasks/get`, or the legacy flattened task). Dispatches
-   * `requestorTaskUpdated`. Used by the modern task store's refresh (no
-   * `tasks/list`). */
-  getRequestorTask(taskId: string): Promise<Task>;
-  /** True when a modern (2026-07-28) connection negotiated the
-   * `io.modelcontextprotocol/tasks` extension (SEP-2663). Gates the Tasks tab
-   * and the modern task store's poll-based refresh. */
+  ): Promise<{ tasks: InspectorTask[]; nextCursor?: string }>;
+  /** Poll one requestor task's current status through the neutral task façade. */
+  getRequestorTask(taskId: string): Promise<InspectorTask>;
+  /**
+   * Authoritative generation-neutral capabilities for requester task
+   * behavior. Required (not optional) because the managed task store gates
+   * refresh routing on `inventory` — an unimplemented method would silently
+   * fall back to `tasks/list` against sessions that reject it.
+   */
+  getTaskSessionCapabilities(): TaskCapabilities | undefined;
+  /** Compatibility predicate for consumers that distinguish known-handle tasks. */
   isTasksExtensionNegotiated(): boolean;
 
   /** The Skills extension (SEP-2640) the server declared, or `undefined`.

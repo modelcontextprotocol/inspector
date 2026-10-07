@@ -9,8 +9,10 @@ import type {
   StreamableHttpServerConfig,
 } from "../types.js";
 import { isProtocolEra, normalizeServerType } from "../serverList.js";
+import { isSkillCatalogLimit } from "../skills.js";
 import type { ServerProtocolEra } from "../types.js";
 import { toRecord } from "../../json/jsonUtils.js";
+import { getOwnEntry } from "../../storage/own-entry.js";
 
 /**
  * Options object passed to resolveServerConfigs by runners (parsed from argv).
@@ -101,6 +103,31 @@ export function parseProtocolEra(value: string): ServerProtocolEra {
   return value;
 }
 
+/**
+ * Build the Commander coerce for a skills-catalog budget flag
+ * (`--skill-catalog-max-skills` / `--skill-catalog-max-bytes`), so the CLI and
+ * TUI can set the per-server budget the web exposes in Server Settings (#2420).
+ * Accepts only a plain run of decimal digits denoting a positive safe integer —
+ * the values {@link isSkillCatalogLimit} keeps when it reads `mcp.json` — so
+ * `0`, `-1`, `1.5`, `1e3` and `0x10` are rejected up front, rather than falling
+ * back to the default the way a hand-edited file value does. `flag` names the
+ * option in the error. Pure function; no Commander dependency.
+ */
+export function skillCatalogLimitParser(
+  flag: string,
+): (value: string) => number {
+  return (value: string): number => {
+    const trimmed = value.trim();
+    const n = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
+    if (!isSkillCatalogLimit(n)) {
+      throw new Error(
+        `Invalid ${flag}: ${value}. Expected a positive integer written as plain decimal digits, at most ${Number.MAX_SAFE_INTEGER}.`,
+      );
+    }
+    return n;
+  };
+}
+
 /** On-disk contents of a freshly seeded empty catalog (pretty-printed). */
 const EMPTY_CATALOG_CONTENT = `${JSON.stringify({ mcpServers: {} }, null, 2)}\n`;
 
@@ -174,6 +201,11 @@ function loadMcpServersConfig(
 /**
  * Loads a single server config from an MCP config file by name.
  * Delegates to loadMcpServersConfig (file existence and type normalization are done there).
+ *
+ * The lookup is an own-property read (`getOwnEntry`): `serverName` is user
+ * input, and a bare `mcpServers[serverName]` resolves an absent `constructor`
+ * or `toString` to the inherited `Object.prototype` member, which then fails
+ * downstream with an unrelated error instead of "not found" (#2537).
  */
 function loadServerFromConfig(
   configPath: string,
@@ -181,13 +213,14 @@ function loadServerFromConfig(
   writable: boolean,
 ): MCPServerConfig {
   const config = loadMcpServersConfig(configPath, writable);
-  if (!config.mcpServers[serverName]) {
+  const server = getOwnEntry(config.mcpServers, serverName);
+  if (!server) {
     const available = Object.keys(config.mcpServers).join(", ");
     throw new Error(
       `Server '${serverName}' not found in config file. Available servers: ${available}`,
     );
   }
-  return config.mcpServers[serverName];
+  return server;
 }
 
 /** Build one MCPServerConfig from ad-hoc options (no config file). */

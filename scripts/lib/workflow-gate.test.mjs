@@ -614,6 +614,25 @@ describe("the gate's name", () => {
     assert.match(scripts["local:gate:stages"], /local:storybook/);
   });
 
+  it("checks DCO signoffs before pushing, and only locally (#2616)", () => {
+    // The pre-push half of the DCO check: `dco.yml` reports on the PR, this
+    // catches the unsigned commit before it is pushed. It reads
+    // `origin/v2/main`, which CI's shallow push checkout does not have — so it
+    // must stay unreachable from `validate`, which CI runs.
+    assert.equal(
+      scripts["local:dco"],
+      "node scripts/dco-check.mjs --base origin/v2/main --exclude origin/main",
+    );
+    assert.ok(
+      scriptChainRuns(scripts, "local:gate", "local:dco"),
+      "local:gate must run local:dco",
+    );
+    assert.ok(
+      !reachableScripts(scripts, "validate").has("local:dco"),
+      "validate (CI) must not reach local:dco",
+    );
+  });
+
   it("runs its stages under the lease wrapper, and nothing else (#2339)", () => {
     // The wrapper serializes gates across worktrees. It must be the ONLY thing
     // `local:gate` does — a stage placed beside it would run outside the
@@ -639,7 +658,7 @@ describe("the gate's name", () => {
     // that keep it honest: the gate no longer reaches a client's bare `test`,
     // it still reaches every non-test check `validate` reaches, and `validate`
     // itself (CI's inner loop) is untouched.
-    const clients = ["web", "cli", "tui", "launcher"];
+    const clients = ["web", "cli", "mcpdo", "tui", "launcher"];
     const clientScripts = Object.fromEntries(
       clients.map((c) => [
         c,
@@ -693,7 +712,7 @@ describe("the gate's name", () => {
       for (const name of inner)
         if (
           name !== "validate" &&
-          !/^validate:(web|cli|tui|launcher)$/.test(name)
+          !/^validate:(web|cli|mcpdo|tui|launcher)$/.test(name)
         )
           assert.ok(gate.has(name), `local:validate must reach ${name}`);
     });

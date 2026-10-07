@@ -28,7 +28,7 @@ import { NodeOAuthStorage } from "@inspector/core/auth/node/index.js";
 import {
   connectInspectorWithOAuth,
   withCliAuthRecoveryRetry,
-} from "../src/cliOAuth.js";
+} from "@inspector/core/cli/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { makeFakeServerSettings } from "./helpers/oauth-test-fakes.js";
 

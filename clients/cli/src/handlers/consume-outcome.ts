@@ -1,7 +1,16 @@
-import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import {
+  awaitableError,
+  awaitableLog,
+} from "@inspector/core/cli/utils/awaitable-log.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { emitResult } from "./emit-result.js";
-import type { MethodArgs, MethodOutcome } from "./method-types.js";
+import type {
+  MethodArgs,
+  MethodOutcome,
+} from "@inspector/core/cli/handlers/method-types.js";
 
 /**
  * True for the error a write to a closed pipe raises — the reader went away
@@ -33,8 +42,12 @@ export async function consumeMethodOutcome(
       await awaitableLog(JSON.stringify(line) + "\n");
     }
     // Summary on **stderr**, after the report, so it cannot contaminate the
-    // NDJSON a consumer is parsing on stdout.
-    if (outcome.summary) await awaitableError(`${outcome.summary}\n`);
+    // NDJSON a consumer is parsing on stdout. `--quiet` drops it: a failing
+    // report still reaches the error envelope below, which carries the same
+    // summary as its message (#2435).
+    if (outcome.summary && !args.quiet) {
+      await awaitableError(`${outcome.summary}\n`);
+    }
     // Thrown rather than returned so it routes through the CLI's single exit
     // path — the report has already been written, which is why this is the
     // last thing that happens.

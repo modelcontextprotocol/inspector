@@ -2008,6 +2008,15 @@ describe("useOAuthRecovery", () => {
       expect(text).toContain("may still be valid");
     });
 
+    it("redacts URL query secrets in the failure detail (#2490)", () => {
+      const text = revocationSuffix({
+        status: "failed",
+        detail: "POST https://as.example/revoke?token=s3cr3t failed",
+      });
+      expect(text).toContain("token=%5BREDACTED%5D");
+      expect(text).not.toContain("s3cr3t");
+    });
+
     it("says nothing for a skip or an absent outcome", () => {
       expect(
         revocationSuffix({ status: "skipped", reason: "no_endpoint" }),

@@ -52,22 +52,29 @@ inspector/
 ├── clients/
 │   ├── web/          Web client (Vite + React + Mantine). src/ = browser app; server/ = Node backend
 │   ├── cli/          CLI client (tsup bundle, @inspector/core alias)
+│   ├── mcpdo/   Experimental connection CLI (`mcpdo` bin) — bundled into the
+│   │                 published package; see clients/mcpdo/README.md
 │   ├── tui/          TUI client (Ink + React, tsup bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
 ├── scripts/          Root build/verify tooling (install cascade, smokes, the verify:* guards),
-│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps)
+│                     repo automation run from CI (the dependency, Dependabot-alert and SDK sweeps),
+│                     maintainer-workflow helpers (the pr:*, board:*, advisory:*,
+│                     release:notes, release:tag and action:resolve-pin aliases)
 │                     and the Docker image's HEALTHCHECK probe
 ├── docs/             Task-oriented guides — see below
 ├── specification/    Design/build specifications
+├── skills/           End-user agent skills (e.g. skills/mcpdo teaches an agent to
+│                     drive the `mcpdo` CLI) — distinct from .claude/skills/,
+│                     which holds this repo's own procedures
 ├── .claude/skills/   Agent skills: the repo's procedures, invokable by name
 ├── AGENTS.md         Contribution rules for agents AND humans
 └── README.md         You are here
 ```
 
 Each client has its own README with client-specific detail:
-[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
+[web](./clients/web/README.md) · [cli](./clients/cli/README.md) · [mcpdo](./clients/mcpdo/README.md) · [tui](./clients/tui/README.md) · [launcher](./clients/launcher/README.md).
 
 ## Documentation
 

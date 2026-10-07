@@ -10,7 +10,7 @@
  *
  * The **CLI is deliberately not a consumer**: it has no template form, and its
  * `resources/read` passes the already-expanded `--uri` straight to
- * `readResource` (see `clients/cli/src/handlers/run-method.ts`). Nothing here
+ * `readResource` (see `core/cli/handlers/run-method.ts`). Nothing here
  * runs for it.
  *
  * ## Why this is not simply `new UriTemplate(t).expand(v)`

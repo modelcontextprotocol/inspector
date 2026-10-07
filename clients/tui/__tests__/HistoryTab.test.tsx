@@ -9,6 +9,7 @@ import type { MessageEntry } from "@inspector/core/mcp/index.js";
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
 import { HistoryTab } from "../src/components/HistoryTab.js";
+import { MAX_BODY_LINES } from "../src/utils/bodyLines.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write
 // and after rerender() before asserting.
@@ -200,6 +201,71 @@ describe("HistoryTab", () => {
     expect(frame).toContain("Notification:");
     // header uses the notification method
     expect(frame).toContain("notifications/message");
+  });
+
+  describe("caps large bodies like the Network pane (#2539)", () => {
+    // 600 tools pretty-print to well over MAX_BODY_LINES lines (6 per tool),
+    // so every body below must stop at the cap and say what it hid.
+    const bigTools = Array.from({ length: 600 }, (_, i) => ({
+      name: `tool_${i}`,
+    }));
+    const bigReq = entry({
+      id: "big-req",
+      direction: "request",
+      message: {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "x", arguments: { tools: bigTools } },
+      },
+      response: { jsonrpc: "2.0", id: 9, result: { tools: bigTools } },
+    });
+    const bigResp = entry({
+      id: "big-resp",
+      direction: "response",
+      message: { jsonrpc: "2.0", id: 10, result: { tools: bigTools } },
+    });
+    const bigNotif = entry({
+      id: "big-notif",
+      direction: "notification",
+      message: {
+        jsonrpc: "2.0",
+        method: "notifications/message",
+        params: { level: "info", data: bigTools },
+      },
+    });
+
+    const frameFor = (msg: MessageEntry) =>
+      render(
+        <HistoryTab
+          serverName="srv"
+          messages={[msg]}
+          width={120}
+          // Tall enough that the outer Box does not clip the cap marker.
+          height={4000}
+        />,
+      ).lastFrame() ?? "";
+
+    it("caps both the request and its response", () => {
+      const frame = frameFor(bigReq);
+      const markers = frame.match(/more lines not shown/g) ?? [];
+      expect(markers).toHaveLength(2);
+      expect(frame).not.toContain("tool_599");
+    });
+
+    it("caps a response entry", () => {
+      const frame = frameFor(bigResp);
+      expect(frame).toMatch(/… \d+ more lines not shown \(\d+ total\)/);
+      expect(frame).not.toContain("tool_599");
+      // The cap is the shared one, not a local constant that could drift.
+      expect(frame).toContain(`tool_${Math.floor(MAX_BODY_LINES / 3) - 2}`);
+    });
+
+    it("caps a notification entry", () => {
+      const frame = frameFor(bigNotif);
+      expect(frame).toContain("more lines not shown");
+      expect(frame).not.toContain("tool_599");
+    });
   });
 
   it("falls back to the Message header for a methodless notification", () => {

@@ -260,27 +260,6 @@ describe("tasks era fork (#1631)", () => {
       expect(methodsSent(messages)).toContain("tasks/update");
     });
 
-    it("bounds a never-completing input_required task with the round cap (#1631 review)", async () => {
-      const started = await startModernTasksServer();
-      const { connected } = await connect(started.url, "modern");
-      const { tools } = await connected.listTools();
-      const tool = tools.find((t) => t.name === "modern_loop_task")!;
-
-      // The server never advances past input_required, so the client re-prompts
-      // each poll; auto-answer, and the round cap must eventually abort instead
-      // of looping forever.
-      connected.addEventListener("newPendingElicitation", (event) => {
-        void event.detail.respond({
-          action: "accept",
-          content: { approved: true },
-        });
-      });
-
-      await expect(connected.callToolStream(tool, {})).rejects.toThrow(
-        /exceeded \d+ input_required rounds/,
-      );
-    });
-
     it("cancels a task paused at input_required — aborts the pending elicitation and unblocks the poll (#1631)", async () => {
       const started = await startModernTasksServer();
       const { connected, messages } = await connect(started.url, "modern");
@@ -317,6 +296,40 @@ describe("tasks era fork (#1631)", () => {
       expect(cancelledEventTaskId).toBe(capturedTaskId);
       // The pending elicitation was aborted, not left dangling behind a modal.
       expect(connected.getPendingElicitations()).toHaveLength(0);
+    });
+
+    it("re-prompts every round of a looping input task, then stops at the round cap (R1)", async () => {
+      const started = await startModernTasksServer();
+      const { connected, messages } = await connect(started.url, "modern");
+      const { tools } = await connected.listTools();
+      const tool = tools.find((t) => t.name === "modern_loop_task")!;
+
+      // Auto-approve every round. A correct server emits a *distinct* input key
+      // per round; the ext-tasks SDK fingerprints keys and silently skips a
+      // recurring one, so a fixture that reused a single key (the R1 bug) would
+      // deliver round 1, swallow the answer, and poll forever — this call would
+      // hang rather than reject.
+      let rounds = 0;
+      connected.addEventListener("newPendingElicitation", (event) => {
+        rounds += 1;
+        void event.detail.respond({
+          action: "accept",
+          content: { approved: true },
+        });
+      });
+
+      messages.length = 0;
+      // The client caps a modern task at MRTR_MAX_ROUNDS (10) input rounds and
+      // rejects once the server keeps asking past it.
+      await expect(connected.callTool(tool, {})).rejects.toThrow(
+        /input-required rounds/,
+      );
+      // Every round must actually have reached us and been answered — not a
+      // single round followed by a dedup-induced infinite poll.
+      expect(rounds).toBeGreaterThan(1);
+      expect(
+        methodsSent(messages).filter((m) => m === "tasks/update").length,
+      ).toBeGreaterThan(1);
     });
 
     it("passes a synchronous (non-task) tool result straight through", async () => {

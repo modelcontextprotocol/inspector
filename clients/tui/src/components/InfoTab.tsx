@@ -6,6 +6,7 @@ import type {
   ServerState,
 } from "@inspector/core/mcp/index.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
+import type { Root } from "@modelcontextprotocol/client";
 
 interface InfoTabProps {
   serverName: string | null;
@@ -19,6 +20,10 @@ interface InfoTabProps {
   width: number;
   height: number;
   focused?: boolean;
+  /** The roots the client currently advertises to this server (#2432). */
+  roots?: Root[];
+  /** Open the roots editor — bound to `e` while this pane is focused. */
+  onEditRoots?: () => void;
 }
 
 export function InfoTab({
@@ -29,6 +34,8 @@ export function InfoTab({
   width,
   height,
   focused = false,
+  roots = [],
+  onEditRoots,
 }: InfoTabProps) {
   const headerPairs = serverSettings?.headers ?? [];
   // Shared header display for the sse / streamable-http branches (identical for
@@ -48,7 +55,9 @@ export function InfoTab({
   useInput(
     (input: string, key: Key) => {
       if (focused) {
-        if (key.upArrow) {
+        if (input === "e" && onEditRoots) {
+          onEditRoots();
+        } else if (key.upArrow) {
           scrollViewRef.current?.scrollBy(-1);
         } else if (key.downArrow) {
           scrollViewRef.current?.scrollBy(1);
@@ -202,6 +211,27 @@ export function InfoTab({
                   <Text dimColor>Server not connected</Text>
                 </Box>
               )}
+              {/* Roots advertised to the server (#2432) */}
+              <Box flexShrink={0} marginTop={2}>
+                <Text bold>Roots ({roots.length})</Text>
+              </Box>
+              <Box
+                flexShrink={0}
+                marginTop={1}
+                paddingLeft={2}
+                flexDirection="column"
+              >
+                {roots.length === 0 ? (
+                  <Text dimColor>None</Text>
+                ) : (
+                  roots.map((root, idx) => (
+                    <Text key={`root-${idx}`} dimColor>
+                      {root.uri}
+                      {root.name ? ` (${root.name})` : ""}
+                    </Text>
+                  ))
+                )}
+              </Box>
             </ScrollView>
           </Box>
 
@@ -215,6 +245,7 @@ export function InfoTab({
             >
               <Text bold color="white">
                 ↑/↓ to scroll, + to zoom
+                {onEditRoots ? ", e to edit roots" : ""}
               </Text>
             </Box>
           )}

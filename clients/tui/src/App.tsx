@@ -18,6 +18,9 @@ import type {
   Prompt,
   PromptArgument,
   GetPromptResult,
+  Root,
+  Task,
+  CallToolResult,
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
@@ -31,6 +34,8 @@ import {
   MessageLogState,
   FetchRequestLogState,
   StderrLogState,
+  ManagedRequestorTasksState,
+  ResourceSubscriptionsState,
 } from "@inspector/core/mcp/state/index.js";
 import {
   createProxyFetch,
@@ -45,6 +50,9 @@ import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
+import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
+import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
+import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
@@ -91,8 +99,15 @@ import { ToolTestModal } from "./components/ToolTestModal.js";
 import { ResourceTestModal } from "./components/ResourceTestModal.js";
 import { PromptTestModal } from "./components/PromptTestModal.js";
 import { DetailsModal } from "./components/DetailsModal.js";
+import { toCopyText } from "./utils/clipboard.js";
+import { HelpOverlay } from "./components/HelpOverlay.js";
+import { keybindingSections } from "./utils/keybindings.js";
+import { TasksTab } from "./components/TasksTab.js";
+import { SubscriptionsTab } from "./components/SubscriptionsTab.js";
+import { RootsModal } from "./components/RootsModal.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
+import { errorMessage, redactErrorText } from "./utils/errorText.js";
 
 // Header branding. The version is the single source of truth — the root
 // package.json — read via the shared core reader; the name/description are the
@@ -105,6 +120,13 @@ const APP_VERSION = readInspectorVersion(import.meta.url);
 
 /** Client identity name the TUI reports to servers. */
 const TUI_CLIENT_NAME = "inspector-tui";
+
+/**
+ * Roots snapshot for `useStoreSnapshot`: module scope so both the reader and
+ * the fallback are referentially stable across renders (#2432).
+ */
+const NO_ROOTS: Root[] = [];
+const readRoots = (client: InspectorClient): Root[] => client.getRoots();
 
 // Focus management types
 type FocusArea =
@@ -119,7 +141,11 @@ type FocusArea =
   | "messagesDetail"
   // Used only when activeTab === 'requests'
   | "requestsList"
-  | "requestsDetail";
+  | "requestsDetail"
+  // What `focus` reads while the `?` help overlay is open (#2436). No pane
+  // matches it, so every tab's own key handler goes inert underneath. Never
+  // stored in `paneFocus`.
+  | "help";
 
 interface AppProps {
   mcpServers: Record<string, TuiServer>;
@@ -153,13 +179,26 @@ function App({
 
   const [selectedServer, setSelectedServer] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabType>("info");
-  const [focus, setFocus] = useState<FocusArea>("serverList");
+  const [paneFocus, setFocus] = useState<FocusArea>("serverList");
+  const [helpOpen, setHelpOpen] = useState(false);
+  // While the `?` help overlay is open, every pane sees focus as "help" — which
+  // none matches — so their key handlers go inert underneath it. Derived rather
+  // than set, so a focus move made while it is open (an async step-up landing
+  // on the Auth tab) updates `paneFocus` and takes effect only once the help
+  // closes, instead of re-activating a hidden pane (Copilot).
+  const focus: FocusArea = helpOpen ? "help" : paneFocus;
+  // True while a list tab's `/` filter is capturing keystrokes (#2430). The
+  // global accelerators below stand down then, or typing a query would switch
+  // tabs, connect, or quit on Esc. Reported by `useListFilter`.
+  const [listFilterEditing, setListFilterEditing] = useState(false);
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
+    subscriptions?: number;
     prompts?: number;
     skills?: number;
     tools?: number;
+    tasks?: number;
     messages?: number;
     requests?: number;
     logging?: number;
@@ -232,7 +271,12 @@ function App({
   const [detailsModal, setDetailsModal] = useState<{
     title: string;
     content: React.ReactNode;
+    /** Raw value behind `content`, for the modal's copy keys (#2421). */
+    copyText: string;
   } | null>(null);
+
+  // Roots editor (#2432), opened from the Info tab.
+  const [rootsModalOpen, setRootsModalOpen] = useState(false);
 
   // InspectorClient instances for each server
   const [inspectorClients, setInspectorClients] = useState<
@@ -262,6 +306,13 @@ function App({
   const [stderrLogStates, setStderrLogStates] = useState<
     Record<string, StderrLogState>
   >({});
+  // Created with the client, like the stores above, so a task status update or
+  // a resources/updated that lands while another tab is showing is not lost.
+  const [requestorTasksStates, setRequestorTasksStates] = useState<
+    Record<string, ManagedRequestorTasksState>
+  >({});
+  const [resourceSubscriptionsStates, setResourceSubscriptionsStates] =
+    useState<Record<string, ResourceSubscriptionsState>>({});
   const [dimensions, setDimensions] = useState({
     width: process.stdout.columns || 80,
     height: process.stdout.rows || 24,
@@ -294,6 +345,19 @@ function App({
 
   // Create InspectorClient and state managers for each server on mount
   useEffect(() => {
+    // The browser could not be launched for `serverName`'s authorization page
+    // (#2533). Show the manual-open note on the Auth tab, raised as a warning
+    // so it is coloured as one (see oauthMessageToneFor) — unless the user has
+    // since selected another server, where that URL would be the wrong one.
+    const showBrowserOpenFailure = (
+      serverName: string,
+      message: string,
+    ): void => {
+      if (selectedServerRef.current !== serverName) return;
+      setOauthWarningText(message);
+      setOauthMessage(message);
+      setActiveTab("auth");
+    };
     const newClients: Record<string, InspectorClient> = {};
     const newManagers: Record<string, ManagedToolsState> = {};
     const newManagedResourcesStates: Record<string, ManagedResourcesState> = {};
@@ -306,6 +370,12 @@ function App({
     const newMessageLogStates: Record<string, MessageLogState> = {};
     const newFetchRequestLogStates: Record<string, FetchRequestLogState> = {};
     const newStderrLogStates: Record<string, StderrLogState> = {};
+    const newRequestorTasksStates: Record<string, ManagedRequestorTasksState> =
+      {};
+    const newResourceSubscriptionsStates: Record<
+      string,
+      ResourceSubscriptionsState
+    > = {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
         const { config: serverConfig, settings: savedSettings } =
@@ -362,8 +432,12 @@ function App({
             formatRunnerOAuthRedirectUrl(callbackUrlConfig);
           environment.oauth = {
             storage: new NodeOAuthStorage(),
-            navigation: new CallbackNavigation(
-              async (url) => await openUrl(url),
+            // openUrl never rejects; a browser that could not be launched
+            // (#2533) surfaces as the manual-open note instead.
+            navigation: new CallbackNavigation((url) =>
+              openUrl(url, (message) =>
+                showBrowserOpenFailure(serverName, message),
+              ),
             ),
             redirectUrlProvider,
           };
@@ -371,9 +445,8 @@ function App({
         const client = new InspectorClient(serverConfig, opts);
         newClients[serverName] = client;
         newManagers[serverName] = new ManagedToolsState(client);
-        newManagedResourcesStates[serverName] = new ManagedResourcesState(
-          client,
-        );
+        const resourcesState = new ManagedResourcesState(client);
+        newManagedResourcesStates[serverName] = resourcesState;
         newManagedResourceTemplatesStates[serverName] =
           new ManagedResourceTemplatesState(client);
         newManagedPromptsStates[serverName] = new ManagedPromptsState(client);
@@ -381,6 +454,13 @@ function App({
         newMessageLogStates[serverName] = new MessageLogState(client);
         newFetchRequestLogStates[serverName] = new FetchRequestLogState(client);
         newStderrLogStates[serverName] = new StderrLogState(client);
+        newRequestorTasksStates[serverName] = new ManagedRequestorTasksState(
+          client,
+        );
+        // Given the resources store so a subscription carries the listed
+        // Resource's name rather than a bare URI.
+        newResourceSubscriptionsStates[serverName] =
+          new ResourceSubscriptionsState(client, resourcesState);
       }
     }
     if (Object.keys(newClients).length > 0) {
@@ -408,6 +488,14 @@ function App({
         ...newFetchRequestLogStates,
       }));
       setStderrLogStates((prev) => ({ ...prev, ...newStderrLogStates }));
+      setRequestorTasksStates((prev) => ({
+        ...prev,
+        ...newRequestorTasksStates,
+      }));
+      setResourceSubscriptionsStates((prev) => ({
+        ...prev,
+        ...newResourceSubscriptionsStates,
+      }));
     }
     // Omitted on purpose: `inspectorClients` is this effect's own output, so
     // depending on it would re-run the effect after every client it creates
@@ -453,6 +541,12 @@ function App({
       Object.values(stderrLogStates).forEach((manager) => {
         manager.destroy();
       });
+      Object.values(requestorTasksStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(resourceSubscriptionsStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(inspectorClients).forEach((client) => {
         client.disconnect().catch(() => {
           // Ignore errors during cleanup
@@ -469,6 +563,8 @@ function App({
     messageLogStates,
     fetchRequestLogStates,
     stderrLogStates,
+    requestorTasksStates,
+    resourceSubscriptionsStates,
   ]);
 
   // Preselect the first server on mount
@@ -659,6 +755,62 @@ function App({
     }
   }, [activeTab, inspectorStatus, showSkillsTab]);
 
+  // Tasks, resource subscriptions and roots (#2432) — all read from core
+  // stores, so nothing about their lifecycle is decided in the TUI.
+  const selectedRequestorTasksState = useMemo(
+    () =>
+      selectedServer && requestorTasksStates[selectedServer]
+        ? requestorTasksStates[selectedServer]
+        : null,
+    [selectedServer, requestorTasksStates],
+  );
+  const {
+    tasks: requestorTasks,
+    refresh: refreshRequestorTasks,
+    clearCompleted: clearCompletedRequestorTasks,
+  } = useManagedRequestorTasks(
+    selectedInspectorClient,
+    selectedRequestorTasksState,
+  );
+  const selectedResourceSubscriptionsState = useMemo(
+    () =>
+      selectedServer && resourceSubscriptionsStates[selectedServer]
+        ? resourceSubscriptionsStates[selectedServer]
+        : null,
+    [selectedServer, resourceSubscriptionsStates],
+  );
+  const {
+    subscriptions: resourceSubscriptions,
+    streamState: subscriptionStreamState,
+  } = useResourceSubscriptions(selectedResourceSubscriptionsState);
+  const advertisedRoots = useStoreSnapshot(
+    selectedInspectorClient ?? null,
+    "rootsChange",
+    readRoots,
+    NO_ROOTS,
+  );
+  // Server-declared, so only knowable once connected — the same gate the web
+  // client uses for its Resources subscribe control and its Tasks screen.
+  const showSubscriptionsTab =
+    inspectorStatus === "connected" &&
+    inspectorCapabilities?.resources?.subscribe === true;
+  const showTasksTab =
+    inspectorStatus === "connected" &&
+    (!!inspectorCapabilities?.tasks ||
+      (selectedInspectorClient?.isTasksExtensionNegotiated() ?? false));
+
+  // Switch away from a tab the server stops serving, for the Skills reason
+  // above: the bar drops it, but `activeTab` would keep rendering its pane.
+  useEffect(() => {
+    if (inspectorStatus !== "connected") return;
+    if (
+      (activeTab === "subscriptions" && !showSubscriptionsTab) ||
+      (activeTab === "tasks" && !showTasksTab)
+    ) {
+      setActiveTab("info");
+    }
+  }, [activeTab, inspectorStatus, showSubscriptionsTab, showTasksTab]);
+
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
     | "success"
@@ -838,8 +990,7 @@ function App({
             setOauthMessage("OAuth already in progress.");
           }
         } catch (authErr) {
-          const authMsg =
-            authErr instanceof Error ? authErr.message : String(authErr);
+          const authMsg = errorMessage(authErr);
           setOauthStatus("error");
           setOauthMessage(authMsg);
         }
@@ -882,12 +1033,12 @@ function App({
     try {
       await finishConnect();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errorMessage(err);
       setConnectError(msg);
 
       if (isEmaClientNotConfiguredError(err)) {
         setOauthStatus("error");
-        setOauthMessage(err.message);
+        setOauthMessage(errorMessage(err));
         return;
       }
 
@@ -914,12 +1065,11 @@ function App({
             handleAuthRecoveryRequired(selectedServer, authErr);
             return;
           }
-          const authMsg =
-            authErr instanceof Error ? authErr.message : String(authErr);
+          const authMsg = errorMessage(authErr);
           setConnectError(authMsg);
           if (isEmaClientNotConfiguredError(authErr)) {
             setOauthStatus("error");
-            setOauthMessage(authErr.message);
+            setOauthMessage(authMsg);
             return;
           }
           setOauthStatus("error");
@@ -970,10 +1120,7 @@ function App({
       };
       const onOAuthError = (event: TypedEvent<"oauthError">): void => {
         if (selectedServerRef.current !== serverName) return;
-        const message =
-          event.detail.error instanceof Error
-            ? event.detail.error.message
-            : String(event.detail.error);
+        const message = errorMessage(event.detail.error);
         setOauthStatus("error");
         setOauthMessage(message);
       };
@@ -1023,7 +1170,7 @@ function App({
       ) {
         return;
       }
-      setDisconnectError(err instanceof Error ? err.message : String(err));
+      setDisconnectError(errorMessage(err));
     }
   }, [selectedServer, disconnectInspector]);
 
@@ -1052,7 +1199,9 @@ function App({
     }
     setOauthStatus("idle");
     if (revocation.status === "failed") {
-      const warning = `Cleared locally, but revoking the grant at the authorization server failed: ${revocation.detail}. It may still be valid there.`;
+      // The detail is a caught revocation/network error's text, so it can quote
+      // a secret-bearing URL (#2490).
+      const warning = `Cleared locally, but revoking the grant at the authorization server failed: ${redactErrorText(revocation.detail)}. It may still be valid there.`;
       setOauthWarningText(warning);
       setOauthMessage(warning);
     } else {
@@ -1067,7 +1216,7 @@ function App({
       try {
         await disconnectInspector();
       } catch (err) {
-        setDisconnectError(err instanceof Error ? err.message : String(err));
+        setDisconnectError(errorMessage(err));
       }
       // Revalidate: the disconnect is a second await, and a switch during it
       // would make the revision bump below land on the new selection.
@@ -1092,7 +1241,12 @@ function App({
     if (!selectedServer) return null;
     return {
       status: inspectorStatus,
-      error: connectError ?? inspectorLastError ?? null,
+      // `connectError` is already redacted where it is set; `lastError` comes
+      // from core's client event untouched, so it is redacted here, at the one
+      // place it reaches the screen (#2490).
+      error:
+        connectError ??
+        (inspectorLastError ? redactErrorText(inspectorLastError) : null),
       capabilities: inspectorCapabilities,
       serverInfo: inspectorServerInfo,
       instructions: inspectorInstructions,
@@ -1318,6 +1472,25 @@ function App({
     </>
   );
 
+  const renderTaskDetails = (task: Task, result: CallToolResult | null) => (
+    <>
+      <Box flexShrink={0} flexDirection="column">
+        <Text bold>Task:</Text>
+        <Box paddingLeft={2}>
+          <Text dimColor>{JSON.stringify(task, null, 2)}</Text>
+        </Box>
+      </Box>
+      {result && (
+        <Box marginTop={1} flexShrink={0} flexDirection="column">
+          <Text bold>Result:</Text>
+          <Box paddingLeft={2}>
+            <Text dimColor>{JSON.stringify(result, null, 2)}</Text>
+          </Box>
+        </Box>
+      )}
+    </>
+  );
+
   const renderMessageDetails = (message: MessageEntry) => (
     <>
       <Box flexShrink={0}>
@@ -1329,34 +1502,41 @@ function App({
           {message.duration !== undefined && ` (${message.duration}ms)`}
         </Text>
       </Box>
+      {/* Bodies go through the same capped BodyLines as the Network zoom
+          above, so a huge payload cannot render unbounded here (#2539). */}
       {message.direction === "request" ? (
         <>
-          <Box marginTop={1} flexShrink={0} flexDirection="column">
+          <Box marginTop={1} flexShrink={0}>
             <Text bold>Request:</Text>
-            <Box paddingLeft={2}>
-              <Text dimColor>{JSON.stringify(message.message, null, 2)}</Text>
-            </Box>
           </Box>
+          <BodyLines
+            body={JSON.stringify(message.message)}
+            keyPrefix="zoom-req"
+          />
           {message.response && (
-            <Box marginTop={1} flexShrink={0} flexDirection="column">
-              <Text bold>Response:</Text>
-              <Box paddingLeft={2}>
-                <Text dimColor>
-                  {JSON.stringify(message.response, null, 2)}
-                </Text>
+            <>
+              <Box marginTop={1} flexShrink={0}>
+                <Text bold>Response:</Text>
               </Box>
-            </Box>
+              <BodyLines
+                body={JSON.stringify(message.response)}
+                keyPrefix="zoom-resp"
+              />
+            </>
           )}
         </>
       ) : (
-        <Box marginTop={1} flexShrink={0} flexDirection="column">
-          <Text bold>
-            {message.direction === "response" ? "Response:" : "Notification:"}
-          </Text>
-          <Box paddingLeft={2}>
-            <Text dimColor>{JSON.stringify(message.message, null, 2)}</Text>
+        <>
+          <Box marginTop={1} flexShrink={0}>
+            <Text bold>
+              {message.direction === "response" ? "Response:" : "Notification:"}
+            </Text>
           </Box>
-        </Box>
+          <BodyLines
+            body={JSON.stringify(message.message)}
+            keyPrefix="zoom-msg"
+          />
+        </>
       )}
     </>
   );
@@ -1373,6 +1553,8 @@ function App({
       prompts: managedPrompts.length || 0,
       skills: managedSkills.length || 0,
       tools: managedTools.length || 0,
+      subscriptions: resourceSubscriptions.length,
+      tasks: requestorTasks.length,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
       logging: inspectorStderrLogs.length || 0,
@@ -1383,6 +1565,8 @@ function App({
     managedPrompts,
     managedSkills,
     managedTools,
+    resourceSubscriptions,
+    requestorTasks,
     inspectorMessages,
     inspectorFetchRequests,
     inspectorStderrLogs,
@@ -1391,25 +1575,25 @@ function App({
   // Keep focus state consistent when switching tabs (only adjust if focus is already in tab content)
   useEffect(() => {
     if (activeTab === "messages") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
+      if (paneFocus === "tabContentList" || paneFocus === "tabContentDetails") {
         setFocus("messagesList");
       }
     } else if (activeTab === "requests") {
-      if (focus === "tabContentList" || focus === "tabContentDetails") {
+      if (paneFocus === "tabContentList" || paneFocus === "tabContentDetails") {
         setFocus("requestsList");
       }
     } else {
       if (
-        focus === "messagesList" ||
-        focus === "messagesDetail" ||
-        focus === "requestsList" ||
-        focus === "requestsDetail"
+        paneFocus === "messagesList" ||
+        paneFocus === "messagesDetail" ||
+        paneFocus === "requestsList" ||
+        paneFocus === "requestsDetail"
       ) {
         setFocus("tabContentList");
       }
     }
-    // Runs on a tab switch only. `focus` is read, not reacted to: this is a
-    // one-time adjustment when the tab changes, and depending on `focus`
+    // Runs on a tab switch only. `paneFocus` is read, not reacted to: this is
+    // a one-time adjustment when the tab changes, and depending on it
     // would re-run it on every focus move, turning it into a standing
     // constraint on focus that no caller asked for.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- react to tab switches, not focus moves
@@ -1427,12 +1611,32 @@ function App({
 
   useInput((input: string, key: Key) => {
     // Don't process input when modal is open
-    if (toolTestModal || resourceTestModal || promptTestModal || detailsModal) {
+    if (
+      toolTestModal ||
+      resourceTestModal ||
+      promptTestModal ||
+      detailsModal ||
+      helpOpen ||
+      rootsModalOpen
+    ) {
       return;
     }
 
     if (key.ctrl && input === "c") {
       exit();
+    }
+
+    // A list filter owns the keyboard while it is being edited (#2430) —
+    // including `?`, which is a legitimate query character there.
+    if (listFilterEditing) {
+      return;
+    }
+
+    // Open the keybinding help. It closes itself (on `?` or Esc); see
+    // `focus` above for how the panes underneath are kept inert meanwhile.
+    if (input === "?") {
+      setHelpOpen(true);
+      return;
     }
 
     // Exit accelerators
@@ -1460,6 +1664,8 @@ function App({
           if (tab.id === "logging" && !showLoggingTab) return false;
           if (tab.id === "requests" && !showRequestsTab) return false;
           if (tab.id === "skills" && !showSkillsTab) return false;
+          if (tab.id === "subscriptions" && !showSubscriptionsTab) return false;
+          if (tab.id === "tasks" && !showTasksTab) return false;
           return true;
         })
         .map((tab: { id: TabType; label: string; accelerator: string }) => [
@@ -1474,7 +1680,13 @@ function App({
         nextTab === "auth" &&
         activeTab === "auth" &&
         pendingStepUp?.serverName === selectedServer;
-      if (!authStepUpAccelerator) {
+      // AuthTab binds `s` to "clear OAuth state" while its pane is focused, so
+      // the Tasks accelerator must not also fire there (#2432).
+      const authClearKey =
+        nextTab === "tasks" &&
+        activeTab === "auth" &&
+        (focus === "tabContentList" || focus === "tabContentDetails");
+      if (!authStepUpAccelerator && !authClearKey) {
         setActiveTab(nextTab);
         setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
       }
@@ -1546,9 +1758,11 @@ function App({
         "info",
         "auth",
         "resources",
+        "subscriptions",
         "prompts",
         "skills",
         "tools",
+        "tasks",
         "messages",
         "requests",
         "logging",
@@ -1558,6 +1772,8 @@ function App({
         if (t === "logging" && !showLoggingTab) return false;
         if (t === "requests" && !showRequestsTab) return false;
         if (t === "skills" && !showSkillsTab) return false;
+        if (t === "subscriptions" && !showSubscriptionsTab) return false;
+        if (t === "tasks" && !showTasksTab) return false;
         return true;
       });
       const currentIndex = tabs.indexOf(activeTab);
@@ -1597,26 +1813,27 @@ function App({
   // terminal width — which a stdio server with Skills does at any ordinary
   // width — and a hard-coded 1 sized every pane below it one row too tall,
   // clipping the bottom of the TUI (Copilot).
-  const tabsHeight = tabBarRows(
-    visibleTabs({
-      showAuth: !!(
-        selectedServer &&
-        selectedServerConfig &&
-        isOAuthCapableServerConfig(selectedServerConfig)
-      ),
-      showLogging:
-        !!selectedServer &&
-        inspectorClients[selectedServer]?.getServerType() === "stdio",
-      showRequests:
-        !!selectedServer &&
-        (inspectorClients[selectedServer]?.getServerType() === "sse" ||
-          inspectorClients[selectedServer]?.getServerType() ===
-            "streamable-http"),
-      showSkills: showSkillsTab,
-    }),
-    tabCounts,
-    contentWidth,
-  );
+  // Also what the help overlay lists accelerators for: a hidden tab's letter
+  // does nothing, so advertising it would be wrong (Copilot).
+  const shownTabs = visibleTabs({
+    showAuth: !!(
+      selectedServer &&
+      selectedServerConfig &&
+      isOAuthCapableServerConfig(selectedServerConfig)
+    ),
+    showLogging:
+      !!selectedServer &&
+      inspectorClients[selectedServer]?.getServerType() === "stdio",
+    showRequests:
+      !!selectedServer &&
+      (inspectorClients[selectedServer]?.getServerType() === "sse" ||
+        inspectorClients[selectedServer]?.getServerType() ===
+          "streamable-http"),
+    showSkills: showSkillsTab,
+    showSubscriptions: showSubscriptionsTab,
+    showTasks: showTasksTab,
+  });
+  const tabsHeight = tabBarRows(shownTabs, tabCounts, contentWidth);
   // Server details will be flexible - calculate remaining space for content
   const availableHeight = dimensions.height - headerHeight - tabsHeight;
   // Reserve space for server details (will grow as needed, but we'll use flexGrow)
@@ -1724,7 +1941,7 @@ function App({
             backgroundColor="gray"
           >
             <Text bold color="white">
-              ESC to exit
+              ? help · ESC exit
             </Text>
           </Box>
         </Box>
@@ -1819,6 +2036,8 @@ function App({
                 : false
             }
             showSkills={showSkillsTab}
+            showSubscriptions={showSubscriptionsTab}
+            showTasks={showTasksTab}
             showRequests={
               selectedServer && inspectorClients[selectedServer]
                 ? (() => {
@@ -1851,7 +2070,15 @@ function App({
                 width={contentWidth}
                 height={contentHeight}
                 focused={
-                  focus === "tabContentList" || focus === "tabContentDetails"
+                  (focus === "tabContentList" ||
+                    focus === "tabContentDetails") &&
+                  !rootsModalOpen
+                }
+                roots={advertisedRoots}
+                onEditRoots={
+                  selectedInspectorClient
+                    ? () => setRootsModalOpen(true)
+                    : undefined
                 }
               />
             )}
@@ -1923,7 +2150,9 @@ function App({
                         if (outcome.kind === "failed") {
                           setOauthStatus("error");
                           setOauthMessage(
-                            emaStepUpFailureMessage(outcome.error.message),
+                            emaStepUpFailureMessage(
+                              errorMessage(outcome.error),
+                            ),
                           );
                           return;
                         }
@@ -1950,10 +2179,7 @@ function App({
                         setOauthMessage("OAuth already in progress.");
                       }
                     } catch (authErr) {
-                      const authMsg =
-                        authErr instanceof Error
-                          ? authErr.message
-                          : String(authErr);
+                      const authMsg = errorMessage(authErr);
                       setOauthStatus("error");
                       setOauthMessage(authMsg);
                     }
@@ -1982,6 +2208,7 @@ function App({
             selectedInspectorClient ? (
               <ResourcesTab
                 key={`resources-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 resources={currentServerState.resources}
                 resourceTemplates={currentServerState.resourceTemplates}
                 inspectorClient={selectedInspectorClient}
@@ -2001,6 +2228,7 @@ function App({
                   setDetailsModal({
                     title: `Resource: ${"uri" in resource ? resource.name || resource.uri || "Unknown" : "Resource content"}`,
                     content: renderResourceDetails(resource),
+                    copyText: toCopyText(resource),
                   })
                 }
                 onFetchResource={() => {
@@ -2023,11 +2251,64 @@ function App({
                   )
                 }
               />
+            ) : activeTab === "subscriptions" &&
+              showSubscriptionsTab &&
+              selectedInspectorClient ? (
+              <SubscriptionsTab
+                key={`subscriptions-${selectedServer}`}
+                resources={managedResources}
+                subscriptions={resourceSubscriptions}
+                streamState={subscriptionStreamState}
+                messages={inspectorMessages}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                modalOpen={!!detailsModal}
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
+              />
+            ) : activeTab === "tasks" &&
+              showTasksTab &&
+              selectedInspectorClient ? (
+              <TasksTab
+                key={`tasks-${selectedServer}`}
+                tasks={requestorTasks}
+                inspectorClient={selectedInspectorClient}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                modalOpen={!!detailsModal}
+                onRefresh={refreshRequestorTasks}
+                onClearCompleted={clearCompletedRequestorTasks}
+                onViewDetails={(task, result) =>
+                  setDetailsModal({
+                    title: `Task: ${task.taskId}`,
+                    content: renderTaskDetails(task, result),
+                    copyText: toCopyText(
+                      result === null ? task : { task, result },
+                    ),
+                  })
+                }
+                onAuthRecoveryRequired={onAuthRecoveryRequired}
+              />
             ) : activeTab === "skills" &&
               currentServerState?.status === "connected" &&
               selectedInspectorClient ? (
               <SkillsTab
                 key={`skills-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 skills={managedSkills}
                 pageCount={managedSkillsPageCount}
                 loadError={managedSkillsError}
@@ -2056,6 +2337,7 @@ function App({
               selectedInspectorClient ? (
               <PromptsTab
                 key={`prompts-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 prompts={currentServerState.prompts}
                 inspectorClient={selectedInspectorClient}
                 width={contentWidth}
@@ -2074,6 +2356,7 @@ function App({
                   setDetailsModal({
                     title: `Prompt: ${prompt.name || "Unknown"}`,
                     content: renderPromptDetails(prompt),
+                    copyText: toCopyText(prompt),
                   })
                 }
                 onFetchPrompt={(prompt) => {
@@ -2097,6 +2380,7 @@ function App({
               selectedInspectorClient ? (
               <ToolsTab
                 key={`tools-${selectedServer}`}
+                onFilterEditingChange={setListFilterEditing}
                 tools={currentServerState.tools}
                 isConnected={inspectorStatus === "connected"}
                 width={contentWidth}
@@ -2121,6 +2405,7 @@ function App({
                   setDetailsModal({
                     title: `Tool: ${tool.name || "Unknown"}`,
                     content: renderToolDetails(tool),
+                    copyText: toCopyText(tool),
                   })
                 }
                 modalOpen={!!(toolTestModal || detailsModal)}
@@ -2156,6 +2441,7 @@ function App({
                   setDetailsModal({
                     title: `Message: ${label}`,
                     content: renderMessageDetails(message),
+                    copyText: toCopyText(message),
                   });
                 }}
               />
@@ -2183,6 +2469,7 @@ function App({
                   setDetailsModal({
                     title: `Request: ${request.method} ${request.url}`,
                     content: renderRequestDetails(request),
+                    copyText: toCopyText(request),
                   });
                 }}
               />
@@ -2247,14 +2534,40 @@ function App({
         />
       )}
 
-      {/* Details Modal - rendered at App level for full screen overlay */}
-      {detailsModal && (
+      {/* Keybinding help (#2436) - rendered at App level for full screen overlay */}
+      {helpOpen && (
+        <HelpOverlay
+          sections={keybindingSections(activeTab, shownTabs)}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setHelpOpen(false)}
+        />
+      )}
+
+      {/* Roots editor (#2432) - rendered at App level for full screen overlay */}
+      {rootsModalOpen && (
+        <RootsModal
+          roots={advertisedRoots}
+          inspectorClient={selectedInspectorClient}
+          connected={inspectorStatus === "connected"}
+          width={dimensions.width}
+          height={dimensions.height}
+          onClose={() => setRootsModalOpen(false)}
+        />
+      )}
+
+      {/* Details Modal - rendered at App level for full screen overlay. Held
+          back while the help is open: one can arrive asynchronously (a
+          no-argument prompt fetch completing), and both overlays would then
+          take the same Esc. It appears once the help closes (Copilot). */}
+      {detailsModal && !helpOpen && (
         <DetailsModal
           title={detailsModal.title}
           content={detailsModal.content}
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setDetailsModal(null)}
+          copyText={detailsModal.copyText}
         />
       )}
     </Box>

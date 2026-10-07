@@ -43,46 +43,23 @@ answer "who has this?", and an assigned issue whose card still says `Todo` tells
 the board nobody has started. `@me` resolves to whoever `gh` is authenticated
 as, so an agent assigns the maintainer it is working for.
 
-Run the whole block. It is the assignment, the card move, and a check; **the
-step is done only when the last line prints `card: In Progress`.**
+Run the chained command. **The step is done only when it prints
+`card: In Progress`** — the `&&` makes that line unreachable when the
+assignment fails:
 
 ```sh
-N=<ISSUE_NUMBER>; STATUS="In Progress"
-BOARD=28   # 11 for a v1 issue — board #11 has the same column names
-ASSIGNED=
-gh issue edit "$N" --repo modelcontextprotocol/inspector --add-assignee @me \
-  && ASSIGNED=1 || echo "assignment failed — this step is NOT done" >&2
-
-# Every id is resolved BY NAME at run time, so none is copied from /board-ops
-# and an option recreated after a deletion (its hazard) still resolves.
-PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
-PROJECT_ID=$(gh project view "$BOARD" --owner modelcontextprotocol --format json --jq .id)
-FIELDS=$(gh project field-list "$BOARD" --owner modelcontextprotocol --format json) &&
-  FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
-  OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
-    | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
-# The card is found from the issue, not from a board listing (see /board-ops).
-card() {
-  gh api graphql -F n="$N" -f query='query($n:Int!){
-    repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){
-      projectItems(first:100){nodes{id project{id}
-        fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}' \
-  | jq -r --arg p "$PROJECT_ID" '.data.repository.issue.projectItems.nodes[]
-      | select(.project.id==$p) | "\(.id) \(.fieldValueByName.name // "(none)")"'
-}
-ITEM_ID=$(card | cut -d' ' -f1)
-if [ -n "$PROJECT_ID" ] && [ -n "$FIELD_ID" ] && [ -n "$OPTION_ID" ] && [ -n "$ITEM_ID" ]; then
-  gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" \
-    --field-id "$FIELD_ID" --single-select-option-id "$OPTION_ID" >/dev/null
-else
-  echo "lookup failed (project='$PROJECT_ID' field='$FIELD_ID' option='$OPTION_ID' item='$ITEM_ID') — nothing edited" >&2
-fi
-NOW=$(card | cut -d' ' -f2-)
-[ "$NOW" = "$STATUS" ] && [ -n "$ASSIGNED" ] && echo "card: $NOW" \
-  || echo "card is '$NOW', assigned='${ASSIGNED:-no}' — this step is NOT done" >&2
+gh issue edit <ISSUE_NUMBER> --repo modelcontextprotocol/inspector --add-assignee @me \
+  && npm run board:status -- --issue <ISSUE_NUMBER> --status "In Progress"   # add --board 11 for a v1 issue
 ```
 
-An issue with no card on board `$BOARD` fails the lookup; board it there first with
+The script (`scripts/board-card-status.mjs`, #2558) resolves every id by name
+at run time — so nothing is copied from `/board-ops` and an option recreated
+after a deletion (its hazard) still resolves — finds the card from the issue
+rather than a board listing, edits it, re-reads it, and prints `card: <Status>`
+only when the re-read confirms the move. Any other output means the step is
+NOT done.
+
+An issue with no card on that board fails the lookup; board it there first with
 `/issue-create`'s card step rather than skipping the move.
 
 ## 2. Branch
@@ -116,12 +93,47 @@ previous one, not all cut from `v2/main`.
 
 ## 3. Sign off every commit
 
-**The DCO check is a hard merge gate.** The [probot DCO
-app](https://probot.github.io/apps/dco/) fails the PR unless each commit carries
-a `Signed-off-by: Name <email>` trailer whose name **and** email match either the
-commit's author or its committer. Its only exemptions are merge commits and
+**The `DCO` check fails the PR on any unsigned commit.** It is this repo's own
+job (`.github/workflows/dco.yml` → `scripts/dco-check.mjs`, #2566), run on every
+v2 PR, stacked PRs included, and it requires each commit to carry a `Signed-off-by: Name <email>`
+trailer whose name **and** email match either the commit's author or its
+committer (case-insensitively). One relaxation: a commit GitHub itself
+committed (`GitHub <noreply@github.com>`, as on a squash merge, whose author
+name GitHub takes from the profile) passes on an author **email** match alone.
+Its only exemptions are merge commits and
 bot-authored commits; there is no partial credit — one unsigned commit out of six
-fails the whole check.
+fails the whole check, and the job's output names each offending commit and the
+repair below.
+
+⚠️ **It is a merge gate because it is a _required_ status check** — a
+ruleset setting, not something the workflow file can declare. The
+`v2/main - DCO` repository ruleset (#2621) requires `DCO` on every PR into
+`v2/main`, pinned to the GitHub Actions app (integration `15368`) so a commit
+status someone posts by hand under the same name cannot satisfy it; it also
+blocks deleting or force-pushing `v2/main`, which the push backstop below
+relies on. Repository admins can bypass it. A **stacked** PR's check runs but
+gates nothing until the PR is retargeted to `v2/main`. The job runs on
+`pull_request`, from the PR's own ref, so it reports on every v2 PR — stacked
+ones included, any `v2/**` base — with no wait for a
+milestone merge (#2616). A second job, `DCO (v2/main push)`,
+re-runs the check over every push that lands on `v2/main` — a backstop for
+anything that merged without a passing PR check — so a red there means an
+unsigned commit is already on the branch. The probot DCO app
+it replaced was never required, so when the app was suspended its check simply
+stopped appearing (after #1981) and nothing went red for two months. If the
+`DCO` check is ever missing from a PR, treat that as the outage it is.
+
+**Check before you push.** `npm run local:gate` already does it: its
+`local:dco` stage runs the same script over `origin/v2/main..HEAD` (minus
+anything already on `origin/main`), right after
+`local:validate`. On a **stacked** branch that range covers the whole stack,
+parents included, which is stricter than the child PR's own check (that one
+runs against the parent's branch). To check on its own, against the range the
+PR will show, pass the PR's actual base:
+
+```sh
+npm run dco:check -- --base origin/v2/main      # or origin/<parent branch> when stacked
+```
 
 **Prevent it with `git commit -s`.** Two things that look like automation and are
 not:
@@ -138,16 +150,22 @@ not:
 **Repairing already-pushed commits** means rewriting them:
 
 ```sh
-git rebase HEAD~<n> --signoff
+git rebase --rebase-merges --signoff origin/v2/main   # the base the PR targets
 git push --force-with-lease
 ```
 
-Use `--force-with-lease` rather than `--force`, and only rewrite when you are the
-sole author and nobody else has based work on the branch. The two apparent
-alternatives are not alternatives: the app's empty "remediation commit" flow
-requires `allowRemediationCommits.individual` and this repo ships no
-`.github/dco.yml`, so it runs disabled; and the override button anyone with write
-access sees only silences the check without anyone certifying anything.
+⚠️ **On a stacked branch, rebase against the parent branch, never
+`origin/v2/main`.** A `--signoff` rebase onto `origin/v2/main` rewrites every
+parent commit too, which forks the child from its parent and breaks the stack.
+If the unsigned commit is in the parent, repair the parent's own branch first,
+then rebase the child onto the repaired parent.
+
+`--rebase-merges` keeps any merge commit on the branch — without it the rebase
+flattens them, silently dropping a conflict resolution that lives only in the
+merge. Use `--force-with-lease` rather than `--force`, and only rewrite when you are the
+sole author and nobody else has based work on the branch. There is no
+remediation-commit or override path: the check reads each commit's own message,
+so a later commit cannot certify an earlier one.
 
 The signoff is a [Developer Certificate of
 Origin](https://developercertificate.org/) assertion made in **your own name**. It
@@ -241,25 +259,21 @@ you. Re-shoot rather than shipping one that "mostly" shows the change.
 
 ### 5c. Upload
 
-To host them, upload to GitHub's attachment endpoint with your `gh` token. Two
-mechanics, both of which bite:
+To host them, upload to GitHub's attachment endpoint with the script
+(`scripts/pr-upload-screenshot.mjs`, #2558); it prints the hosted URL to embed:
+
+```sh
+npm run pr:upload -- --file pr-screenshots/tools-tab-after.png
+```
+
+Two mechanics it handles, both of which bite when done by hand:
 
 - The parameters go in the **query string**, with the raw bytes as the body. A
   JSON body fails with a misleading "Invalid name for request".
-- ⚠️ **Do not put the token in argv.** `-H "Authorization: token $(gh auth
-token)"` puts your credential in curl's command line, where any local user or
+- ⚠️ **The token never goes in argv.** A `-H "Authorization: token $(gh auth
+token)"` puts your credential in a command line, where any local user or
   process can read it off the process table while the upload runs (Copilot).
-  Feed it through `--config -` instead: curl reads its options from stdin, so
-  the token never becomes an argument.
-
-```sh
-printf 'header = "Authorization: token %s"\n' "$(gh auth token)" | curl -sS --config - \
-  -X POST --data-binary @pr-screenshots/tools-tab-after.png \
-  "https://uploads.github.com/user-attachments/assets?repository_id=<REPO_ID>&name=tools-tab-after.png&content_type=image/png"
-```
-
-(The token is still in the shell's environment and in `printf`'s _stdin_, which
-is not world-readable the way `/proc/<pid>/cmdline` is.)
+  The script sends it only as a request header.
 
 ## 6. Open the PR
 
@@ -282,64 +296,32 @@ is only a cross-reference — it will **not** create a hard link or close the is
 on merge. Keep it anyway, so the issues close if/when `v2/main` reaches `main`.
 
 **So link the PR to its issue explicitly, right after creating it.** The
-`addCloseIssueReferences` GraphQL mutation adds a manual closing reference, the
-same link as the UI's **Development** sidebar, and it works whatever the base
-branch. It is what puts the PR in the card's **Linked pull requests** field,
-which the board shows as a column in table views and as a chip on kanban cards.
-Without it a v2 card shows no PR at all.
+script (`scripts/pr-link-issue.mjs`, #2558) runs the `addCloseIssueReferences`
+GraphQL mutation — a manual closing reference, the same link as the UI's
+**Development** sidebar, working whatever the base branch — and verifies it by
+reading the PR's `closingIssuesReferences` back. It is what puts the PR in the
+card's **Linked pull requests** field, which the board shows as a column in
+table views and as a chip on kanban cards. Without it a v2 card shows no PR at
+all.
 
 ```sh
-ISSUE_ID=$(gh api graphql -F n=<ISSUE_NUMBER> -f query='query($n:Int!){
-  repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){id}}}' \
-  --jq .data.repository.issue.id)
-PR_ID=$(gh pr view <N> --repo modelcontextprotocol/inspector --json id --jq .id)
-gh api graphql -f query='mutation($i:ID!,$p:[ID!]!){
-  addCloseIssueReferences(input:{issueId:$i, pullRequestIds:$p}){clientMutationId}}' \
-  -f i="$ISSUE_ID" -f p="$PR_ID"
-
-# Verify: the PR should list the issue.
-gh api graphql -F n=<N> -f query='query($n:Int!){
-  repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:$n){
-    closingIssuesReferences(first:10){nodes{number}}}}}' \
-  --jq '[.data.repository.pullRequest.closingIssuesReferences.nodes[].number]'
+npm run pr:link -- --pr <N> --issue <ISSUE_NUMBER>   # prints linked: … only on a verified link
 ```
 
 The link does not change how the issue closes on a v2 merge; that is still
-step 9. `removeCloseIssueReferences` takes the same input and undoes the link.
+step 9. The `removeCloseIssueReferences` mutation takes the same input and
+undoes the link.
 
 **Then move the card to In Review. Step 6 is done only when the PR is linked
-_and_ the card says `In Review`.** It is step 1's block with a different
-column and no assignment. Run it in full and check that the last line prints
-`card: In Review`:
+_and_ the card says `In Review`.** Same script as step 1, different column —
+and it takes the **issue** number, not the PR's:
 
 ```sh
-N=<ISSUE_NUMBER>; STATUS="In Review"   # the ISSUE number, not the PR's
-BOARD=28   # 11 for a v1 issue — board #11 has the same column names
-
-PROJECT_ID= FIELD_ID= OPTION_ID= ITEM_ID=   # no id survives a failed lookup
-PROJECT_ID=$(gh project view "$BOARD" --owner modelcontextprotocol --format json --jq .id)
-FIELDS=$(gh project field-list "$BOARD" --owner modelcontextprotocol --format json) &&
-  FIELD_ID=$(jq -r '.fields[] | select(.name=="Status") | .id' <<<"$FIELDS") &&
-  OPTION_ID=$(jq -r --arg s "$STATUS" '.fields[] | select(.name=="Status")
-    | .options[] | select(.name==$s) | .id' <<<"$FIELDS")
-card() {
-  gh api graphql -F n="$N" -f query='query($n:Int!){
-    repository(owner:"modelcontextprotocol",name:"inspector"){issue(number:$n){
-      projectItems(first:100){nodes{id project{id}
-        fieldValueByName(name:"Status"){... on ProjectV2ItemFieldSingleSelectValue{name}}}}}}}' \
-  | jq -r --arg p "$PROJECT_ID" '.data.repository.issue.projectItems.nodes[]
-      | select(.project.id==$p) | "\(.id) \(.fieldValueByName.name // "(none)")"'
-}
-ITEM_ID=$(card | cut -d' ' -f1)
-if [ -n "$PROJECT_ID" ] && [ -n "$FIELD_ID" ] && [ -n "$OPTION_ID" ] && [ -n "$ITEM_ID" ]; then
-  gh project item-edit --project-id "$PROJECT_ID" --id "$ITEM_ID" \
-    --field-id "$FIELD_ID" --single-select-option-id "$OPTION_ID" >/dev/null
-else
-  echo "lookup failed (project='$PROJECT_ID' field='$FIELD_ID' option='$OPTION_ID' item='$ITEM_ID') — nothing edited" >&2
-fi
-NOW=$(card | cut -d' ' -f2-)
-[ "$NOW" = "$STATUS" ] && echo "card: $NOW" || echo "card is '$NOW', not '$STATUS' — this step is NOT done" >&2
+npm run board:status -- --issue <ISSUE_NUMBER> --status "In Review"   # add --board 11 for a v1 issue
 ```
+
+It prints `card: In Review` only when the post-edit re-read confirms the move;
+any other output means this step is NOT done.
 
 Then go straight to step 7.
 
@@ -354,71 +336,40 @@ request again if anything was pushed. It stops only on one of the exits in 7c.
 
 Only the GraphQL `requestReviews` mutation with the Copilot **bot id** works —
 REST, `gh pr edit --add-reviewer`, `userIds`, and `copilot-swe-agent` all fail or
-silently drop.
+silently drop. `scripts/pr-review-request.mjs` (#2558) owns that mutation and
+the bot id:
 
 ```sh
-PR_ID=$(gh pr view <N> --repo modelcontextprotocol/inspector --json id --jq .id)
-gh api graphql -f query='
-  mutation($pr:ID!,$bot:[ID!]!) {
-    requestReviews(input:{pullRequestId:$pr, botIds:$bot, union:true}) {
-      pullRequest { id }
-    }
-  }' -f pr="$PR_ID" -f bot='BOT_kgDOCnlnWA'
+npm run pr:review-request -- --pr <N>
 ```
+
+It prints `requested: Copilot review on PR #<N>` on success and the
+`pr:review-wait` invocation to run next.
 
 ### 7b. Wait for it — review posted, or session ended
 
 A round ends one of two ways: Copilot **posts a review**, or its **pending
 request disappears without one** — it failed, or occasionally has nothing to
 say and posts nothing. Waiting only for the review hangs forever on the second
-case, so the wait watches both, plus a hard cap. **Put it in one backgrounded
-loop that exits when the round resolves, and wait for its notification** rather
-than re-fetching once per turn; a review is remote state the harness cannot
-observe, which is exactly the exception described in [Waiting on long-running
-work](../../../AGENTS.md#waiting-on-long-running-work).
+case, so the wait watches both, plus a hard cap. `scripts/pr-review-wait.mjs`
+(#2558) implements exactly that loop. **Background it and wait for its
+notification** rather than re-fetching once per turn; a review is remote state
+the harness cannot observe, which is exactly the exception described in
+[Waiting on long-running work](../../../AGENTS.md#waiting-on-long-running-work).
 
 ```sh
-EXPECTED=1   # the review COUNT you are waiting to reach — see below
-DEADLINE=$(( $(date +%s) + 1500 ))   # 25 min; rounds normally land in 2–10
-count() {
-  # Capture first, so a gh failure stops the loop instead of being swallowed by
-  # a pipeline. --slurp cannot be combined with --jq, hence the separate jq.
-  raw=$(gh api --paginate --slurp \
-    repos/modelcontextprotocol/inspector/pulls/<N>/reviews) || {
-      echo "gh api failed ($?) — not retrying blind" >&2; exit 1; }
-  n=$(jq '[.[][] | select(.user.login | startswith("copilot-pull-request-reviewer"))] | length' <<<"$raw") || {
-      echo "jq failed ($?) on an unexpected response shape" >&2; exit 1; }
-  case $n in '' | *[!0-9]*) echo "not a count: '$n'" >&2; exit 1 ;; esac
-}
-pending() {
-  p=$(gh api graphql -f query='{repository(owner:"modelcontextprotocol",name:"inspector"){pullRequest(number:<N>){reviewRequests(first:20){nodes{requestedReviewer{... on Bot{login} ... on User{login}}}}}}}' \
-    --jq '[.data.repository.pullRequest.reviewRequests.nodes[].requestedReviewer.login // empty | select(test("copilot";"i"))] | length') || {
-      echo "gh graphql failed ($?)" >&2; exit 1; }
-}
-while :; do
-  count; [ "$n" -ge "$EXPECTED" ] && { echo "ROUND=posted"; break; }
-  pending
-  if [ "$p" = 0 ]; then
-    sleep 30; count   # the request can clear a beat before the review is visible
-    [ "$n" -ge "$EXPECTED" ] && echo "ROUND=posted" || echo "ROUND=ended-without-review"
-    break
-  fi
-  [ "$(date +%s)" -ge "$DEADLINE" ] && { echo "ROUND=timed-out"; break; }
-  sleep 30
-done
+npm run pr:review-wait -- --pr <N> --expected <K>   # --timeout-minutes 25 is the default
 ```
 
-`EXPECTED` is the review **count** you are waiting to reach, so it is `1` only
-on the first round — on round two the first round's review is still there and an
-existence check returns immediately. `sleep 30` is the remote-API floor the rule
-above sets. **Every step that can fail exits the loop rather than
-retrying.** Piping the count straight into `awk` would make an auth or API error
-read as a count of `0`; and a `jq` failure on an unexpected shape leaves `n`
-empty, whereupon `[ "" -ge 1 ]` exits non-zero, `break` never fires, and the job
-sleeps and retries forever — the same unbounded wait, reached from the other
-end. A background task that can never succeed is worse than one that never
-started, because it looks like progress. On `ROUND=posted`, give the inline
-comments a further ~60s; they arrive late (see step 8).
+Its last line is the outcome: `ROUND=posted`, `ROUND=ended-without-review`, or
+`ROUND=timed-out` (all exit 0). A nonzero exit means the wait itself failed —
+a `gh` failure (the script never retries blind on one, for the reason its
+header records), a malformed response, or a bad argument — not a round outcome.
+
+`--expected` is the review **count** to reach, so it is `1` only on the first
+round — on round two the first round's review is still there and an existence
+check would return immediately. On `ROUND=posted`, give the inline comments a
+further ~60s; they arrive late (see step 8).
 
 ### 7c. Decide: another round, or stop
 
@@ -463,17 +414,19 @@ why (which exit fired), and report the same in your reply to the user.
   reply is what makes resolving it defensible.
 
   ```sh
-  # Fetch the round's comments by REVIEW id — the unpaginated /reviews listing
-  # hides later rounds behind your own replies.
-  # --paginate: this endpoint returns 30 per page, and a round you only half
-  # fetch is a round you only half answer.
-  gh api --paginate repos/modelcontextprotocol/inspector/pulls/<N>/reviews/<REVIEW_ID>/comments \
-    --jq '.[]|"\(.id) \(.path):\(.line)\n\(.body)"'
+  # Fetch the latest Copilot round — review header + body, then every inline
+  # comment as `COMMENT=<id> <path>:<line>` with its body. Pass
+  # --review <REVIEW_ID> to fetch an earlier round instead.
+  npm run pr:review-fetch -- --pr <N>
 
-  # Reply into one thread, keyed by the comment id from above.
+  # Reply into one thread, keyed by the COMMENT= id from above.
   gh api repos/modelcontextprotocol/inspector/pulls/<N>/comments/<COMMENT_ID>/replies \
     -f body='Fixed in <sha> — …'
   ```
+
+  The script fetches by **review id** and paginates, because the unpaginated
+  `/reviews` listing hides later rounds behind your own replies, and a round
+  you only half fetch is a round you only half answer (#2558).
 
 - ⚠️ **Then mirror the round at PR level, in addition — never instead.** Inline
   replies go hidden once the fix is pushed, because the threads become outdated,

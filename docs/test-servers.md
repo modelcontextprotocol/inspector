@@ -6,6 +6,7 @@ The catalogue below is the reference. For how to build and run one, use the `/te
 
 - **In-process** — import the factories (`createTestServerHttp`, `createEchoTool`, …) and run the server inside the test's event loop (used by the HTTP integration paths).
 - **As a subprocess** — `test-servers/build/test-server-stdio.js` is spawned as a real stdio child (used by the CLI smoke and stdio integration tests).
+  Started with `--crashable` (`getCrashableTestMcpServerCommand()`), it also serves a `crash_server` tool that exits the process at a point the test picks, for exercising the client's mid-session crash handling. That tool is deliberately absent from the presets: it calls `process.exit`, which in-process would end the test runner.
 
 Configure a server declaratively with a JSON config (see `test-servers/configs/*.json`) selecting presets, then load it via `--config`. Because the servers are spawned as real subprocesses, the build output must exist first:
 
@@ -735,12 +736,12 @@ The first resource-subscription listen is acknowledged **so the badge is reachab
 
 **Legacy** (`tasks-legacy-http.json`) advertises `capabilities.tasks` (`tasks: { list, cancel }`) with the `simple_task` / `progress_task` / `elicitation_task` presets. Run one of those tools with **Run as task** on, and the **Tasks** tab lists it (populated via `tasks/list`), polls `tasks/get`, fetches the payload with the blocking `tasks/result`, and cancels with `tasks/cancel`.
 
-**Modern** (`tasks-modern-http.json`) sets `transport.modern: true` and `tasksExtension: true`, advertising the `io.modelcontextprotocol/tasks` extension (SEP-2663) and serving `modern_task` / `modern_input_task`. The **Tasks** tab is gated on the negotiated extension, not `capabilities.tasks`.
+**Modern** (`tasks-modern-http.json`) sets `transport.modern: true` and `tasksExtension: true`, advertising the `io.modelcontextprotocol/tasks` extension (SEP-2663) and serving `modern_task` / `modern_input_task`. Connect with **Server Settings → Options → Protocol Era = Modern**; on the default Legacy era the handshake is `initialize` and no task is ever created. The **Tasks** tab is gated on the negotiated extension, not `capabilities.tasks`.
 
-- Run `modern_task` as a task — the `tools/call` returns a `CreateTaskResult` (`resultType: "task"`, visible in the Protocol/Network tabs), the client polls **`tasks/get`** (no `tasks/list`), and the completed task inlines its result (no blocking `tasks/result`).
+- Run `modern_task` — the tools declare no `taskSupport`, so there is no **Run as task** switch; the server answers the plain call with a task anyway. The `tools/call` returns a `CreateTaskResult` (`resultType: "task"`, visible in the Protocol/Network tabs), the client polls **`tasks/get`** (no `tasks/list`), and the completed task inlines its result (no blocking `tasks/result`).
 - Run `modern_input_task` — the task moves to `input_required`, surfacing an embedded elicitation through the pending-request modal. Answering it sends **`tasks/update`** with the `inputResponses`, and the next poll completes.
 
-SDK v2 removed all tasks support **and** era-gates the `tasks/*` spec methods out of the modern era on both sides. So the Inspector drives the extension itself — the `resultType: "task"` frame is rewritten at the transport into a `CallToolResult` carrying the handle, and `tasks/get` / `update` / `cancel` ride a raw-wire request channel with the full modern envelope. The test server serves `tasks/*` from an Express interceptor ahead of the SDK handler, since the SDK's modern leg would answer them `-32601`.
+SDK v2 removed all tasks support **and** era-gates the `tasks/*` spec methods out of the modern era on both sides. So the Inspector drives the extension through `@modelcontextprotocol/ext-tasks` (#2316): on the modern era every `tools/call` and `tasks/*` request goes out on the raw-wire channel the package requires as `rawDispatch` (`core/extension/tasks/rawWireChannel.ts`), below the SDK codec, and the package handles the `resultType: "task"` result, the `tasks/get` polling and `tasks/update` itself. The test server serves `tasks/*` from an Express interceptor ahead of the SDK handler, since the SDK's modern leg would answer them `-32601`.
 
 The Tasks tab's **Refresh** re-polls the handles already known to the client — modern has no server-side task list.
 

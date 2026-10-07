@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import * as z from "zod/v4";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
-import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import {
   createTestServerHttp,
   type TestServerHttp,

@@ -22,6 +22,7 @@ import {
   type ServerConfigOptions,
 } from "./config.js";
 import { rehydrateMcpConfigFromKeychain } from "./server-secrets.js";
+import { getOwnEntry } from "../../storage/own-entry.js";
 
 /**
  * A server resolved from a catalog/config file or an ad-hoc target, paired with
@@ -42,6 +43,10 @@ export type ServerLoadOptions = ServerConfigOptions & {
   /** `--protocol-era`: overrides the file's `protocolEra` (or the legacy
    * default) the way `--header` overrides its headers (#2208). */
   protocolEra?: ServerProtocolEra;
+  /** `--skill-catalog-max-skills` / `--skill-catalog-max-bytes`: override the
+   * file's per-server skills catalog budget the same way (#2420). */
+  skillCatalogMaxSkills?: number;
+  skillCatalogMaxBytes?: number;
   /** Test injection; defaults to the selected store (see
    * `secret-store-selection.ts`) for catalog/config loads. */
   secretStore?: SecretStore;
@@ -81,14 +86,17 @@ function defaultServerSettings(): InspectorServerSettings {
 }
 
 /**
- * Overlay `--header` / `--protocol-era` onto the settings lifted from the file
- * (or onto nothing, for an ad-hoc target). Only those two fields are overridden
- * — timeouts, OAuth, and the rest of the file's settings are preserved. Returns
- * `base` untouched when neither flag was given.
+ * Overlay `--header` / `--protocol-era` / `--skill-catalog-max-*` onto the
+ * settings lifted from the file (or onto nothing, for an ad-hoc target). Only
+ * those fields are overridden — timeouts, OAuth, and the rest of the file's
+ * settings are preserved. Returns `base` untouched when no such flag was given.
  */
 function mergeSettings(
   base: InspectorServerSettings | undefined,
-  overrides: Pick<ServerLoadOptions, "headers" | "protocolEra">,
+  overrides: Pick<
+    ServerLoadOptions,
+    "headers" | "protocolEra" | "skillCatalogMaxSkills" | "skillCatalogMaxBytes"
+  >,
 ): InspectorServerSettings | undefined {
   let settings = base;
   const fromHeaders = headersToServerSettings(overrides.headers);
@@ -101,6 +109,18 @@ function mergeSettings(
     settings = {
       ...(settings ?? defaultServerSettings()),
       protocolEra: overrides.protocolEra,
+    };
+  }
+  if (overrides.skillCatalogMaxSkills !== undefined) {
+    settings = {
+      ...(settings ?? defaultServerSettings()),
+      skillCatalogMaxSkills: overrides.skillCatalogMaxSkills,
+    };
+  }
+  if (overrides.skillCatalogMaxBytes !== undefined) {
+    settings = {
+      ...(settings ?? defaultServerSettings()),
+      skillCatalogMaxBytes: overrides.skillCatalogMaxBytes,
     };
   }
   return settings;
@@ -144,10 +164,10 @@ export async function loadServerEntries(
           env: serverOptions.env,
           cwd: serverOptions.cwd,
         }),
-        // Deliberate broadcast: a single `--header` set (and `--protocol-era`)
-        // is merged into EVERY server in the catalog/config (fine for the
-        // common single-server case; for multi-server files, prefer per-server
-        // settings in the file itself).
+        // Deliberate broadcast: a single `--header` set (and `--protocol-era`,
+        // `--skill-catalog-max-*`) is merged into EVERY server in the
+        // catalog/config (fine for the common single-server case; for
+        // multi-server files, prefer per-server settings in the file itself).
         settings: mergeSettings(entry.settings, serverOptions),
       };
     }
@@ -177,6 +197,10 @@ export async function loadServerEntries(
  * in config file") because `entries` may come from a file *or* a single ad-hoc
  * target — e.g. `--server foo` alongside a positional command resolves to just
  * `{ default }`, where "in config file" would be misleading.
+ *
+ * The lookup is an own-property read (`getOwnEntry`), so `--server constructor`
+ * (or any other inherited `Object.prototype` name) absent from `entries`
+ * reports "not found" rather than returning the inherited member (#2537).
  */
 export function selectServerEntry(
   entries: Record<string, ResolvedServer>,
@@ -184,7 +208,7 @@ export function selectServerEntry(
 ): ResolvedServer {
   const names = Object.keys(entries);
   if (serverName) {
-    const entry = entries[serverName];
+    const entry = getOwnEntry(entries, serverName);
     if (!entry) {
       throw new Error(
         `Server '${serverName}' not found. Available servers: ${names.join(", ")}`,

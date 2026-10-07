@@ -4,6 +4,7 @@ import type { ReadResourceResult } from "@modelcontextprotocol/client";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { ResourceLinkInfo } from "../../elements/ResourceLinkInfo/ResourceLinkInfo";
+import { errorMessage } from "../../../utils/errorFormat";
 
 export interface ResourceLinkProps {
   /** The linked resource's URI (always shown). */
@@ -96,7 +97,7 @@ export function ResourceLink({
     try {
       setResult(await onReadResource(uri));
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       setLoading(false);
     }

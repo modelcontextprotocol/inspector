@@ -439,7 +439,7 @@ try {
   }
   let envelope;
   try {
-    // The documented envelope contract (clients/cli/src/error-handler.ts) is
+    // The documented envelope contract (core/cli/error-handler.ts) is
     // that the envelope is the *last* stderr line — `2>&1 | tail -1 | jq
     // .error` — because stderr legitimately carries diagnostics first (the
     // secret-store fallback banner on a host without a usable keychain, e.g.

@@ -1,0 +1,161 @@
+# DCO signoff check (#2566), replacing the probot DCO app.
+#
+# The app was suspended and its check silently stopped appearing after #1981
+# (2026-08-12). Nothing went red, because it was never a required check — so
+# for two months "the DCO check is a hard merge gate" was true only by habit.
+# This workflow is the repo-owned replacement: `scripts/dco-check.mjs` fails
+# unless every commit in a range carries a `Signed-off-by:` matching its
+# author or committer (merge and bot-authored commits exempt — the app's rule).
+#
+# Two jobs, one script:
+#
+#   - `DCO` — on every v2 PR, over the PR's commits. This is a REQUIRED
+#     status check on `v2/main`, set by the `v2/main - DCO` repository ruleset
+#     (#2621), not by this file — no workflow can make itself required. The
+#     ruleset pins the check to GitHub Actions (integration 15368), so a commit
+#     status posted by hand under the name `DCO` cannot satisfy it. ⚠️ Renaming
+#     this job renames the check, and the ruleset would then wait forever on a
+#     name nothing reports: change both together.
+#   - `DCO (v2/main push)` — a backstop over every push that lands on
+#     `v2/main`, for whatever reached the branch without a passing PR check
+#     while this file and the script stayed intact: an admin merge, a direct
+#     push, a merge made while the PR check was red or missing. NOT a PR that
+#     edited the check itself (below).
+#     It reports when the commit lands, not one milestone later — it cannot
+#     un-merge anything, but an unsigned commit found the same day is still
+#     cheap to deal with.
+#
+# ⚠️ `pull_request`, not `pull_request_target` (#2616). #2603 shipped on
+# `pull_request_target` so a PR could not rewrite its own check to pass — but
+# GitHub reads `pull_request_target` workflows from the DEFAULT branch
+# (`main`), so the check reported on no v2 PR at all until a milestone merge
+# carried this file there, and unsigned commits would have surfaced only when
+# the milestone PR into `main` was opened. Under `pull_request` the workflow
+# runs from the PR's own ref and works the moment it is on `v2/main`, and an
+# edit to this file takes effect on the PR that makes it.
+#
+# The trade-off, accepted deliberately: a PR can now edit this file to pass
+# itself. That is tolerable here because PRs are opened by maintainers only
+# (AGENTS.md, Contributing) and the check exists to catch a FORGOTTEN signoff,
+# not a forged one — the trailer is self-asserted text either way (see the
+# header of `scripts/dco-check.mjs`). ⚠️ The push job does NOT cover that
+# case: a `push` run also reads this file, and runs the script, from the
+# pushed revision — so a PR that edits the check edits the backstop with it.
+# Nothing in a workflow the repo's own branches carry can close that; only a
+# check read from elsewhere could, which is what `pull_request_target` was and
+# what this change gives up. The control for it is review: an edit to this
+# file or to `scripts/dco-check.mjs` is in the PR's diff. The PR job keeps the
+# trigger safe anyway: it checks out the PR's BASE for the script and only
+# FETCHES the PR's commits, reading their metadata with `git log` — nothing
+# from the PR is checked out, installed, built or run.
+#
+# The PR job runs on every `v2/**` base — `v2/main` and, since branch names
+# carry their version segment, every v2 feature branch — so a stacked PR is
+# checked on its own range rather than only once its parent merges (the
+# servers repo's #5055 checks stacks too). A positive filter rather than a
+# list of exclusions, so the scope is the v2 line by construction: `main`
+# (milestone PRs carry GitHub's squash-merge commits and reach back before the
+# check existed) and the whole v1 line, `v1/main` and its stacks alike (no copy
+# of the script), are out of it without being named. A stacked PR's base must
+# be a branch cut after #2603, since the script is read from it. `edited` re-runs the PR job when a PR is retargeted,
+# since the checked range changes with the base even when the head does not.
+#
+# Before either job, `npm run local:gate` runs the same script over
+# `origin/v2/main..HEAD`, minus anything already on `origin/main` so it holds
+# on a milestone-merge branch too (`local:dco`), so an unsigned commit is normally
+# caught before it is pushed at all.
+#
+# Only `contents: read`, no credential persisted, no secret — so it stays on
+# moving action tags (#2235; see verify:action-pins, #2484).
+name: DCO
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+    branches: ['v2/**']
+  push:
+    branches: [v2/main]
+
+permissions:
+  contents: read
+
+jobs:
+  dco:
+    name: DCO
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # A newer push to the same PR supersedes the range being checked. Job-level
+    # and PR-keyed on purpose: the push job below must NOT share it, since a
+    # cancelled push run is a range that is never checked.
+    concurrency:
+      group: dco-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # A git fetch, a git log and a node script; expected to finish well inside
+    # a minute. Not yet observed on a runner — revisit with the measured range
+    # per the rule in main.yml (#2333) once it has a history.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout the base branch with full history
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.base_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch the PR's commits (read as data, never checked out)
+        # `refs/pull/<N>/head` serves fork PRs too. Values pass through `env:`
+        # rather than being interpolated into the script.
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: git fetch --no-tags origin "refs/pull/$PR_NUMBER/head"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+
+      - name: Check every commit is signed off
+        # The base is the branch as it stands now (`origin/<base_ref>`), not
+        # the event's `base.sha`, so commits that have since landed on the
+        # base are excluded exactly as the PR's own commit list excludes them.
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node scripts/dco-check.mjs --base "origin/$BASE_REF" --head "$HEAD_SHA"
+
+  dco-push:
+    name: DCO (v2/main push)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    # Same work as the PR job; same unmeasured budget.
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout the pushed commit with full history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+
+      - name: Check every pushed commit is signed off
+        # `before..after` is exactly what the push added: for a PR merge, the
+        # merge commit (exempt) plus every commit it brought in. A zero
+        # `before` means the branch was just created, which leaves no range to
+        # check. A `before` missing from the history (a force-push that
+        # rewrote it away) makes `git log` fail and the script exit 2 — loud
+        # on purpose, since `v2/main` is never meant to be rewritten.
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            echo "Branch creation push: no prior commit, nothing to check."
+            exit 0
+          fi
+          node scripts/dco-check.mjs --base "$BEFORE" --head "$AFTER"

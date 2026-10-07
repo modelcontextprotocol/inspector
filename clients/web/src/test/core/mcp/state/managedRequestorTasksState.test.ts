@@ -23,10 +23,19 @@ describe("ManagedRequestorTasksState", () => {
   let state: ManagedRequestorTasksState;
 
   beforeEach(() => {
-    // Default to a server that advertises `tasks` so the existing flow tests
-    // exercise the live `listRequestorTasks` path; capability-absent tests
-    // below override this.
+    // Default to a session whose inventory is server-list so the existing
+    // flow tests exercise the live `listRequestorTasks` path; the refresh
+    // gate reads the authoritative task-session capabilities (round-12
+    // finding), so the fake presents those rather than the legacy
+    // `capabilities.tasks` shape. Capability-absent tests below override it.
     client = new FakeInspectorClient({ capabilities: { tasks: {} } });
+    client.taskSessionCapabilities = {
+      inventory: "server-list",
+      execution: true,
+      cancellation: true,
+      inputResponses: false,
+      requestedRetention: true,
+    };
     state = new ManagedRequestorTasksState(client);
   });
 
@@ -75,6 +84,39 @@ describe("ManagedRequestorTasksState", () => {
     await changePromise;
     expect(taskless.listRequestorTasks).not.toHaveBeenCalled();
     expect(tasklessState.getTasks()).toEqual([]);
+  });
+
+  it("routes a known-handles legacy session to re-polling, never tasks/list", async () => {
+    // A legacy Tasks session without `list` capability has inventory
+    // "known-handles": ext-tasks rejects listTasks() there, so refresh must
+    // re-poll known handles like a modern session (round-12 finding).
+    const knownHandles = new FakeInspectorClient({
+      capabilities: { tasks: { cancel: {} } },
+    });
+    knownHandles.taskSessionCapabilities = {
+      inventory: "known-handles",
+      execution: true,
+      cancellation: true,
+      inputResponses: false,
+      requestedRetention: true,
+    };
+    knownHandles.setStatus("connected");
+    const knownHandlesState = new ManagedRequestorTasksState(knownHandles);
+
+    // Seed a known task first: with an empty store this test would pass even
+    // if the branch returned immediately, and re-polling known handles is the
+    // behavior this branch exists to protect (round-15 finding).
+    const changePromise = waitForChange(knownHandlesState);
+    knownHandles.dispatchTypedEvent("taskStatusChange", {
+      taskId: "legacy-1",
+      task: task("legacy-1", "working"),
+    });
+    await changePromise;
+
+    const result = await knownHandlesState.refresh();
+    expect(result.map((t) => t.taskId)).toEqual(["legacy-1"]);
+    expect(knownHandles.getRequestorTask).toHaveBeenCalledWith("legacy-1");
+    expect(knownHandles.listRequestorTasks).not.toHaveBeenCalled();
   });
 
   it("refresh fetches a single page and dispatches tasksChange", async () => {
@@ -138,6 +180,21 @@ describe("ManagedRequestorTasksState", () => {
     client.dispatchTypedEvent("tasksListChanged");
     const next = await changePromise;
     expect(next.map((t) => t.taskId)).toEqual(["t1", "t2"]);
+  });
+
+  it("owns a rejected automatic refresh instead of leaking it (#2432)", async () => {
+    // A leaked rejection fails this run as an unhandled error; the explicit
+    // refresh afterwards proves the store still works and the list held.
+    client.setStatus("connected");
+    client.listRequestorTasks.mockRejectedValueOnce(new Error("tasks/list"));
+    client.listRequestorTasks.mockRejectedValueOnce(new Error("tasks/list"));
+    client.dispatchTypedEvent("connect");
+    client.dispatchTypedEvent("tasksListChanged");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(client.listRequestorTasks).toHaveBeenCalledTimes(2);
+    expect(state.getTasks()).toEqual([]);
+    client.queueTaskPages({ tasks: [task("t1")] });
+    await expect(state.refresh()).resolves.toHaveLength(1);
   });
 
   it("statusChange to disconnected clears tasks and dispatches tasksChange", async () => {
