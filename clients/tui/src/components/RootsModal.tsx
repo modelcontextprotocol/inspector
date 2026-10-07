@@ -18,6 +18,7 @@ import { Form, type FormStructure } from "ink-form";
 import type { Root } from "@modelcontextprotocol/client";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
 
 export const ADD_ROOT_FORM: FormStructure = {
   title: "Add Root",
@@ -89,7 +90,7 @@ export function RootsModal({
       await inspectorClient.setRoots(next);
       setMode("list");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       savingRef.current = false;
       setSaving(false);

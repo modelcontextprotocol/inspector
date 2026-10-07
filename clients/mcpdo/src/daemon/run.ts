@@ -7,6 +7,7 @@ import { DaemonServer } from "./server.js";
 import { generateDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
 import { ensureDaemonDir } from "./paths.js";
 import { disallowMemorySecretStoreFallback } from "@inspector/core/auth/node/secret-store-selection.js";
+import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
 
 // Name the process `mcpdod` (Unix d-suffix convention) so `ps`/`pgrep`/`pkill`
 // see the daemon under a greppable name instead of a bare `node .../mcpdod.js`.
@@ -44,8 +45,10 @@ async function main(): Promise<void> {
   await server.start();
 }
 
-main().catch((error: unknown) => {
+main().catch(async (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`mcpdo daemon: ${message}\n`);
+  // Exit only once the write has been performed: on a pipe or file stderr is
+  // asynchronous, and process.exit() would discard the diagnostic (#2638).
+  await awaitableError(`mcpdo daemon: ${message}\n`);
   process.exit(1);
 });

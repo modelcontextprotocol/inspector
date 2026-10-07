@@ -213,9 +213,14 @@ complete -o default -F ${FUNCTION_NAME} ${COMPLETION_COMMAND}
 `;
 }
 
-/** `name:description` for zsh `_describe`; colons in the name are escaped. */
+/**
+ * `name:description` for zsh `_describe`. `_describe` reads `\` as an escape
+ * and the first unescaped `:` as the separator, so backslashes in the name are
+ * escaped first, then colons (CodeQL #78).
+ */
 function zshDescribeEntry(name: string, description: string): string {
-  return shQuote(`${name.replace(/:/g, "\\:")}:${description}`);
+  const escaped = name.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+  return shQuote(`${escaped}:${description}`);
 }
 
 export function renderZsh(flags: readonly CompletionFlag[]): string {

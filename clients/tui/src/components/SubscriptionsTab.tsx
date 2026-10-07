@@ -28,6 +28,7 @@ import {
   findNestedAuthError,
 } from "@inspector/core/auth/challenge.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
 import {
   resourceUpdateFeed,
   subscribableResources,
@@ -116,7 +117,7 @@ export function SubscriptionsTab({
         onAuthRecoveryRequired?.(authErr);
         return;
       }
-      setError(err instanceof Error ? err.message : String(err));
+      setError(errorMessage(err));
     } finally {
       inFlightRef.current = false;
       setPendingUri(null);
