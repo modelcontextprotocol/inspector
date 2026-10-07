@@ -155,6 +155,22 @@ describe("SubscriptionsTab", () => {
     expect(lastFrame()).toContain("does not support resource subscriptions");
   });
 
+  it("redacts URL query secrets in a surfaced failure (#2638)", async () => {
+    const client = fakeClient({
+      subscribeToResource: vi.fn(async () => {
+        throw new Error(
+          "Request failed: https://auth.example/cb?code=s3cret&state=ok",
+        );
+      }),
+    });
+    const { stdin, lastFrame } = renderTab({ inspectorClient: client });
+    stdin.write("\r");
+    await tick();
+    const frame = (lastFrame() ?? "").replace(/\s+/g, "");
+    expect(frame).toContain("code=%5BREDACTED%5D&state=ok");
+    expect(frame).not.toContain("s3cret");
+  });
+
   it("surfaces a non-Error failure", async () => {
     const client = fakeClient({
       subscribeToResource: vi.fn(() => Promise.reject("nope")),

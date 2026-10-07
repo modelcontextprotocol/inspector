@@ -25,6 +25,8 @@ import type { Command, Option } from "commander";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
 import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
+import { OUTPUT_FILE_FORMATS } from "@inspector/core/cli/handlers/output-file.js";
+import { CATALOG_WRITE_METHODS } from "./handlers/servers-write.js";
 
 export const COMPLETION_SHELLS = ["bash", "zsh", "fish"] as const;
 export type CompletionShell = (typeof COMPLETION_SHELLS)[number];
@@ -39,8 +41,20 @@ const MODE_FLAGS: readonly CompletionFlag[] = [
   { long: "--tui", takesValue: false, description: "Run the terminal UI" },
 ];
 
-/** Catalog-only methods `parseArgs` accepts alongside `ONE_SHOT_METHODS`. */
-export const CATALOG_METHODS = ["servers/list", "servers/show"] as const;
+/**
+ * Catalog-only methods `parseArgs` accepts alongside `ONE_SHOT_METHODS` —
+ * the reads plus the writes `servers-write` implements. `parseArgs` validates
+ * `--method` against this same list, so the two cannot drift (#2629).
+ */
+export const CATALOG_METHODS = [
+  "servers/list",
+  "servers/show",
+  ...CATALOG_WRITE_METHODS,
+] as const;
+
+export function isCatalogMethod(method: string): boolean {
+  return (CATALOG_METHODS as readonly string[]).includes(method);
+}
 
 /**
  * Finite value sets for flags whose values the CLI validates in a custom
@@ -51,6 +65,7 @@ export const VALUE_CHOICES: Readonly<Record<string, readonly string[]>> = {
   "--transport": ["stdio", "sse", "http"],
   "--log-level": Object.values(LoggingLevelSchema.enum),
   "--format": ["text", "json"],
+  "--output-format": OUTPUT_FILE_FORMATS,
   "--protocol-era": ["legacy", "auto", "modern"],
   "--completion": COMPLETION_SHELLS,
 };
@@ -198,9 +213,14 @@ complete -o default -F ${FUNCTION_NAME} ${COMPLETION_COMMAND}
 `;
 }
 
-/** `name:description` for zsh `_describe`; colons in the name are escaped. */
+/**
+ * `name:description` for zsh `_describe`. `_describe` reads `\` as an escape
+ * and the first unescaped `:` as the separator, so backslashes in the name are
+ * escaped first, then colons (CodeQL #78).
+ */
 function zshDescribeEntry(name: string, description: string): string {
-  return shQuote(`${name.replace(/:/g, "\\:")}:${description}`);
+  const escaped = name.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+  return shQuote(`${escaped}:${description}`);
 }
 
 export function renderZsh(flags: readonly CompletionFlag[]): string {

@@ -160,6 +160,21 @@ describe("TasksTab", () => {
     expect(lastFrame()).toContain("list failed");
   });
 
+  it("redacts URL query secrets in a surfaced failure (#2638)", async () => {
+    const { stdin, lastFrame } = renderTab({
+      onRefresh: vi.fn(async () => {
+        throw new Error(
+          "Request failed: https://auth.example/cb?code=s3cret&state=ok",
+        );
+      }),
+    });
+    stdin.write("f");
+    await tick();
+    const frame = (lastFrame() ?? "").replace(/\s+/g, "");
+    expect(frame).toContain("code=%5BREDACTED%5D&state=ok");
+    expect(frame).not.toContain("s3cret");
+  });
+
   it("surfaces a non-Error failure with no task selected", async () => {
     const { stdin, lastFrame } = renderTab({
       tasks: [],
