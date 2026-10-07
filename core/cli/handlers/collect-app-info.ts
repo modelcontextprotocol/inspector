@@ -1,8 +1,8 @@
-import { InspectorClient } from "@inspector/core/mcp/index.js";
-import { extractAppInfo } from "@inspector/core/mcp/apps.js";
-import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import { InspectorClient } from "../../mcp/index.js";
+import { extractAppInfo } from "../../mcp/apps.js";
+import type { AppInfo } from "../../mcp/apps.js";
 import type { CliAppInfo } from "./method-types.js";
-import type { RequestMetadata } from "@inspector/core/mcp/types.js";
+import type { RequestMetadata } from "../../mcp/types.js";
 
 /**
  * Build the CLI's app-info for a tool. Never throws — failures fold into

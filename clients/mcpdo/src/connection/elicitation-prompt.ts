@@ -13,7 +13,7 @@
  *   Schemas outside the spec's restricted primitive-field shape (should
  *   never happen from a well-behaved server) fall back to a clear decline.
  */
-import type { Style } from "@inspector/cli/style.js";
+import type { Style } from "@inspector/core/cli/style.js";
 import type {
   ElicitationRequestFrame,
   ElicitationResponseFrame,

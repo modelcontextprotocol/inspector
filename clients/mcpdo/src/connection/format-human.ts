@@ -3,7 +3,7 @@
  * Styling (color / bold / dim / OSC 8 links) is parameterized via {@link Style}.
  */
 
-import { PLAIN, type Style } from "@inspector/cli/style.js";
+import { PLAIN, type Style } from "@inspector/core/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";

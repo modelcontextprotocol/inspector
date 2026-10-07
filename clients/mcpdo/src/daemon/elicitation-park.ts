@@ -9,7 +9,10 @@
  * for both eras because the bridge funnels legacy server→client requests and
  * modern non-task MRTR rounds through the same `ElicitationChannel` seam.
  */
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { ElicitationChannel } from "./ipc-glue.js";
 import type {

@@ -2,7 +2,7 @@
 
 **Experimental** separate client — **bundled into the published `@modelcontextprotocol/inspector` package** as the `mcpdo` bin. Connect once, then run many MCP commands against a named connection via an implicit local daemon (ssh-agent style).
 
-> **Layout note:** Source lives in `clients/mcpdo/`. At build time it bundles some modules from `clients/cli/src` (`handlers/`, `error-handler`, OAuth helpers) via the `@inspector/cli` alias. That reach-in is intentional and temporary — not a published library API — until a cleaner shared package exists (tracked by [#2461](https://github.com/modelcontextprotocol/inspector/issues/2461)).
+> **Layout note:** Source lives in `clients/mcpdo/`. The method handlers, exit codes / `CliExitCodeError`, interactive OAuth flow and output styling it shares with the one-shot CLI live in [`core/cli/`](../../core/cli), consumed through the ordinary `@inspector/core` alias and bundled like the rest of `core/` (#2461).
 
 ## Install
 

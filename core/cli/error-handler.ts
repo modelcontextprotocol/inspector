@@ -1,11 +1,8 @@
-import {
-  redactUrlQuery,
-  redactUrlsInText,
-} from "@inspector/core/mcp/fetchTracking.js";
+import { redactUrlQuery, redactUrlsInText } from "../mcp/fetchTracking.js";
 import { awaitableError } from "./utils/awaitable-log.js";
-import { isUnauthorizedError } from "@inspector/core/auth/index.js";
-import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-store.js";
-import { OAuthStateFileUnrecognizedError } from "@inspector/core/auth/node/oauth-persist-file.js";
+import { isUnauthorizedError } from "../auth/index.js";
+import { SecretStoreUnavailableError } from "../auth/node/secret-store.js";
+import { OAuthStateFileUnrecognizedError } from "../auth/node/oauth-persist-file.js";
 
 /**
  * Exit-code map. Non-zero codes let an automated caller (CI, an agent) branch
@@ -94,13 +91,18 @@ export interface ErrorEnvelope {
  * the real code and stderr.
  */
 export class CliExitCodeError extends Error {
+  readonly exitCode: number;
+  readonly envelope?: Partial<ErrorEnvelope>;
+
   constructor(
-    public readonly exitCode: number,
+    exitCode: number,
     message: string,
-    public readonly envelope?: Partial<ErrorEnvelope>,
+    envelope?: Partial<ErrorEnvelope>,
   ) {
     super(message);
     this.name = "CliExitCodeError";
+    this.exitCode = exitCode;
+    this.envelope = envelope;
   }
 }
 

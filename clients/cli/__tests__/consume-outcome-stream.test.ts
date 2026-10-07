@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { consumeMethodOutcome } from "../src/handlers/consume-outcome.js";
-import type { MethodOutcome } from "../src/handlers/method-types.js";
+import type { MethodOutcome } from "@inspector/core/cli/handlers/method-types.js";
 
 /**
  * The long-lived stream path's stdout error handling (#2412). A reader that

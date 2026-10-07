@@ -1,15 +1,15 @@
 import type {
   InspectorServerSettings,
   MCPServerConfig,
-} from "@inspector/core/mcp/types.js";
-import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
+} from "../../mcp/types.js";
+import { InMemorySecretStore } from "../../auth/node/secret-store.js";
 import {
   loadServerEntries,
   resolveServerSource,
   selectServerEntry,
   withDefaultCatalogPath,
   type ServerLoadOptions,
-} from "@inspector/core/mcp/node/index.js";
+} from "../../mcp/node/index.js";
 
 /** One catalog/config entry as returned by `servers/list`. */
 export type ServerListEntry = {

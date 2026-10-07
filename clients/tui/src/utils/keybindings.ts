@@ -105,6 +105,10 @@ export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
   skills: [
     { keys: "↑/↓", action: "Select a skill (list focused)" },
     { keys: "Enter", action: "Verify the skill's digests and frontmatter" },
+    {
+      keys: "v",
+      action: "Verify every listed skill, under the catalog budget",
+    },
     LIST_FILTER,
     { keys: "↑/↓", action: "Scroll the details pane (details focused)" },
     { keys: "PgUp/PgDn", action: "Scroll the details pane a page" },

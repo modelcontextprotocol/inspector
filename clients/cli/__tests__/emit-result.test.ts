@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { emitResult, collectAppInfo } from "../src/cli.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 
 /**

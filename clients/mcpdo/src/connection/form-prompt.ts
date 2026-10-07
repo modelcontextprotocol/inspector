@@ -6,7 +6,7 @@
  * range), then shows a review step before submitting so the user can
  * re-edit any field or cancel outright.
  */
-import type { Style } from "@inspector/cli/style.js";
+import type { Style } from "@inspector/core/cli/style.js";
 import type { PromptInput } from "./prompt-reader.js";
 import type { FormField } from "./form-schema.js";
 import { codePointLength } from "./form-schema.js";

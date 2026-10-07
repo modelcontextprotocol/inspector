@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { createStyle } from "@inspector/cli/style.js";
+import { createStyle } from "@inspector/core/cli/style.js";
 import type { ElicitationRequestFrame } from "../src/daemon/protocol.js";
 
 const question = vi.fn();

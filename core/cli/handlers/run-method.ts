@@ -1,4 +1,4 @@
-import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import type { InspectorClient } from "../../mcp/index.js";
 import type { Root } from "@modelcontextprotocol/client";
 import {
   ManagedToolsState,
@@ -8,15 +8,15 @@ import {
   ManagedRequestorTasksState,
   ManagedSkillsState,
   MessageLogState,
-} from "@inspector/core/mcp/state/index.js";
-import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
+} from "../../mcp/state/index.js";
+import { SKILLS_EXTENSION_KEY } from "../../mcp/skillsSchemas.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { collectAppInfo } from "./collect-app-info.js";
 import {
   skillVerificationExitCode,
   summarizeSkillVerification,
 } from "./skills-verify.js";
-import { verifySkills } from "@inspector/core/mcp/skillsVerification.js";
+import { verifySkills } from "../../mcp/skillsVerification.js";
 import type {
   CliAppInfo,
   McpResponse,

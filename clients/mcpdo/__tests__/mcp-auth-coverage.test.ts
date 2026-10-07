@@ -3,7 +3,10 @@ import {
   createSampleTestConfig,
   deleteConfigFile,
 } from "../../cli/__tests__/helpers/fixtures.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 
 const callDaemon = vi.fn();
 const ensureDaemon = vi.fn();

@@ -1,14 +1,17 @@
 import {
   awaitableError,
   awaitableLog,
-} from "@inspector/cli/utils/awaitable-log.js";
+} from "@inspector/core/cli/utils/awaitable-log.js";
 import type {
   ConnectionInfo,
   ElicitationPendingInfo,
 } from "../daemon/protocol.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
-import type { CliAppInfo } from "@inspector/cli/handlers/method-types.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
+import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
+import type { CliAppInfo } from "@inspector/core/cli/handlers/method-types.js";
 import {
   formatAppInfoHuman,
   formatAppInfoListHuman,
@@ -24,7 +27,7 @@ import {
   formatStreamEventHuman,
 } from "./format-human.js";
 import { isSafeLinkTarget, sanitizeDeep, sanitizeText } from "./sanitize.js";
-import { PLAIN, type Style } from "@inspector/cli/style.js";
+import { PLAIN, type Style } from "@inspector/core/cli/style.js";
 
 type JsonObject = Record<string, unknown>;
 

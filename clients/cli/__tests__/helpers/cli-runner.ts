@@ -1,5 +1,5 @@
 import { runCli as invokeCli } from "../../src/cli.js";
-import { formatErrorOutput } from "../../src/error-handler.js";
+import { formatErrorOutput } from "@inspector/core/cli/error-handler.js";
 
 export interface CliResult {
   exitCode: number | null;
@@ -45,7 +45,7 @@ function captureWrite(append: (text: string) => void) {
 
 /**
  * Run the CLI **in-process** by importing and invoking `runCli` directly, so
- * its source (`clients/cli/src/**`) is measured under vitest's coverage
+ * its source (`clients/cli/src/**`, plus the shared `core/cli/**`) is measured under vitest's coverage
  * instrumentation. The previous implementation spawned `build/index.js` as a
  * subprocess, which left CLI source invisible to coverage (#1484).
  *

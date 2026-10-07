@@ -1,7 +1,16 @@
-import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import {
+  awaitableError,
+  awaitableLog,
+} from "@inspector/core/cli/utils/awaitable-log.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { emitResult } from "./emit-result.js";
-import type { MethodArgs, MethodOutcome } from "./method-types.js";
+import type {
+  MethodArgs,
+  MethodOutcome,
+} from "@inspector/core/cli/handlers/method-types.js";
 
 /**
  * True for the error a write to a closed pipe raises — the reader went away

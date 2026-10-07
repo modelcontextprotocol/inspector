@@ -15,7 +15,7 @@ import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 const runMethodMock = vi.hoisted(() => ({
   impl: undefined as unknown as (...args: unknown[]) => Promise<unknown>,
 }));
-vi.mock("@inspector/cli/handlers/run-method.js", () => ({
+vi.mock("@inspector/core/cli/handlers/run-method.js", () => ({
   runMethod: (...args: unknown[]) => runMethodMock.impl(...args),
 }));
 

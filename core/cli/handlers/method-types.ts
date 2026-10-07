@@ -1,6 +1,6 @@
-import type { JsonValue } from "@inspector/core/mcp/index.js";
-import type { RequestMetadata } from "@inspector/core/mcp/types.js";
-import type { AppInfo } from "@inspector/core/mcp/apps.js";
+import type { JsonValue } from "../../mcp/index.js";
+import type { RequestMetadata } from "../../mcp/types.js";
+import type { AppInfo } from "../../mcp/apps.js";
 import type { LoggingLevel } from "@modelcontextprotocol/client";
 import type { OutputFormat } from "./format-output.js";
 import type { OutputFileFormat } from "./output-file.js";

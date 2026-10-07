@@ -21,7 +21,7 @@
  * with a file encoding would make `--format json --output x` ambiguous.
  */
 import { writeFile } from "node:fs/promises";
-import { base64ToBytes } from "@inspector/core/mcp/skills.js";
+import { base64ToBytes } from "../../mcp/skills.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import type { McpResponse } from "./method-types.js";
 

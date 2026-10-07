@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "../..");
-const cliSrc = path.resolve(dirname, "../cli/src");
 
 export default defineConfig({
   entry: {
@@ -19,15 +18,13 @@ export default defineConfig({
   sourcemap: false,
   target: "node22",
   platform: "node",
-  // Bundle core + one-shot CLI internals (handlers, error-handler, OAuth helpers).
-  // Temporary reach-in until a dedicated shared package exists — tracked by
-  // https://github.com/modelcontextprotocol/inspector/issues/2461 (see README).
-  noExternal: [/^@inspector\/core/, /^@inspector\/cli/],
+  // Bundle core, including the CLI-client surface it shares with the one-shot
+  // CLI (`core/cli/` — handlers, error-handler, OAuth helpers; #2461).
+  noExternal: [/^@inspector\/core/],
   // Mirrors clients/cli/tsup.config.ts (which documents each entry's story):
   // this client declares NO runtime dependencies (AGENTS.md dependency-
   // placement rule), so tsup's nearest-manifest auto-externalization sees
-  // nothing — every root-declared runtime package `core/` (or the bundled
-  // one-shot CLI source) imports must be named here or esbuild inlines it,
+  // nothing — every root-declared runtime package `core/` imports must be named here or esbuild inlines it,
   // and inlining a CJS module into this ESM bundle leaves esbuild's
   // `Dynamic require of "..." is not supported` shim (#2067).
   // `npm run verify:bundle-externals` enforces this against the built output.
@@ -53,7 +50,6 @@ export default defineConfig({
   esbuildOptions(options) {
     options.alias = {
       "@inspector/core": path.join(repoRoot, "core"),
-      "@inspector/cli": cliSrc,
     };
   },
 });

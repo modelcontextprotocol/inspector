@@ -11,7 +11,7 @@ import {
   getDaemonLockPath,
   getDaemonSocketPath,
 } from "../src/daemon/paths.js";
-import { writeFormattedResult } from "@inspector/cli/handlers/format-output.js";
+import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
 
 describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};

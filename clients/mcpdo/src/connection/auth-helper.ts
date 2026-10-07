@@ -7,7 +7,10 @@ import type {
   InspectorServerSettings,
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { getDaemonDir } from "../daemon/paths.js";
 import { authorizeInFrontend } from "./authorize.js";
 import { sanitizeText } from "./sanitize.js";

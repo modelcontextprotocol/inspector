@@ -3,10 +3,11 @@
   "compilerOptions": {
     "noEmit": true,
     // Match clients/cli/tsconfig.json's module/lib *resolution* options (mcpdo
-    // reaches into @inspector/cli/* and @inspector/core/* the same way cli
-    // does) so core/ and cli/ are validated the same way their own gates
-    // validate them, rather than under base's stricter
-    // noUncheckedIndexedAccess, which core/cli were never written against.
+    // reaches into @inspector/core/* — including the core/cli/ surface it
+    // shares with the one-shot CLI — the same way cli does) so core/ is
+    // validated the same way its own gates validate it, rather than under
+    // base's stricter noUncheckedIndexedAccess, which core/ was never written
+    // against.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "moduleResolution": "bundler",
@@ -14,8 +15,7 @@
     "module": "ESNext",
     "noUncheckedIndexedAccess": false,
     "paths": {
-      "@inspector/core/*": ["../../core/*"],
-      "@inspector/cli/*": ["../cli/src/*"]
+      "@inspector/core/*": ["../../core/*"]
     }
   },
   "include": ["src/**/*", "vitest.config.ts", "tsup.config.ts"],
