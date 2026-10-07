@@ -20,6 +20,8 @@ const tick = async () => {
     await new Promise((resolve) => setTimeout(resolve, 4));
 };
 
+const squashWhitespace = (s: string) => s.replace(/\s+/g, "");
+
 /** Renders the hook's status and records whether each key was consumed. */
 function Harness({
   value,
@@ -69,17 +71,25 @@ describe("useCopyKeys", () => {
   });
 
   it("W saves the value to a file and shows its path", async () => {
+    // Take the path from the directory mkdtemp actually created rather than
+    // parsing it out of the frame: Ink wraps the status line at the frame
+    // width, and a long os.tmpdir() (macOS's /var/folders/…/T/) moves the
+    // wrap to wherever it falls, so no regex over the frame is reliable (#2609).
+    const mkdtemp = vi.spyOn(fs, "mkdtempSync");
     const { stdin, lastFrame } = render(
       <Harness value="saved-value" consumed={[]} />,
     );
     await tick();
     stdin.write(SAVE_KEY);
     await tick();
-    const frame = (lastFrame() ?? "").replace(/\n/g, "");
-    const match = /Saved thing to (\S+value\.txt)/.exec(frame);
-    expect(match).not.toBeNull();
-    savedPaths.push(match![1]!);
-    expect(fs.readFileSync(match![1]!, "utf8")).toBe("saved-value");
+    const file = path.join(String(mkdtemp.mock.results[0]?.value), "value.txt");
+    savedPaths.push(file);
+    expect(fs.readFileSync(file, "utf8")).toBe("saved-value");
+    // Compare with all whitespace removed, so a wrap anywhere in the line —
+    // including mid-path — cannot fail the check.
+    expect(squashWhitespace(lastFrame() ?? "")).toContain(
+      squashWhitespace(`[success] Saved thing to ${file}`),
+    );
   });
 
   it("reports a save failure (Error and non-Error)", async () => {
