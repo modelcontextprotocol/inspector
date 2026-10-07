@@ -673,8 +673,7 @@ export function buildNewAdvisoryComment(group, added) {
   const rows = group.advisories
     .filter((a) => added.includes(a.ghsa))
     .map(
-      (a) =>
-        `| [${a.ghsa}](${a.url}) | ${a.severity} | ${cell(a.summary)} |`,
+      (a) => `| [${a.ghsa}](${a.url}) | ${a.severity} | ${cell(a.summary)} |`,
     )
     .join("\n");
   return [
