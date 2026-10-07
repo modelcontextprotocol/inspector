@@ -344,6 +344,23 @@ function createPendingAbortError(): Error {
 const TOOL_CALL_CANCELLED_REASON = "Tool call cancelled by user";
 
 /**
+ * Combine two optional abort signals into one for {@link RequestOptions}: the
+ * result aborts when either source does (#1783). Returns the lone signal when
+ * only one is present and `undefined` when neither is, so a request that needs
+ * no cancellation keeps carrying no signal. `AbortSignal.any` (Node 20.3+)
+ * creates a fresh composite per call, GC'd when the request settles.
+ */
+function combineAbortSignals(
+  a?: AbortSignal,
+  b?: AbortSignal,
+): AbortSignal | undefined {
+  if (a && b) {
+    return AbortSignal.any([a, b]);
+  }
+  return a ?? b;
+}
+
+/**
  * Close a modern listen stream best-effort, absorbing both failure modes a
  * third-party `close()` can produce: a rejected promise and a synchronous
  * throw. All three stream closes go through here, and every one of them has
@@ -682,6 +699,16 @@ export class InspectorClient extends InspectorClientEventTarget {
   // Task-augmented calls have a server-side task and are cancelled via
   // `cancelRequestorTask` instead, so they don't use this (#1458).
   private activeToolCallAbortController?: AbortController;
+  // An "ambient" abort signal folded into *every* request's options by
+  // {@link getRequestOptions} while it is set (#1783). Unlike
+  // `activeToolCallAbortController`, which only cancels tool calls, this covers
+  // any method — a list, a read, a prompt get. The daemon sets it for the span
+  // of one serialized command so a caller disconnect cancels whatever request
+  // is in flight, freeing the per-connection rpc queue instead of wedging it
+  // behind a request the server never answers. It is opt-in per consumer: web
+  // and tui never set it, so their behavior is unchanged, and it is per-client
+  // rather than global, so it never cross-cancels concurrent requests.
+  private ambientRequestSignal?: AbortSignal;
   /** Enable ext-tasks receiver ownership for advertised sampling/elicitation methods. */
   private readonly receiverTasks: boolean;
   // Per-extension advertise overrides (#1738); undefined key falls back to the
@@ -1344,9 +1371,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     // When provided, aborting this signal cancels the request and rejects it
     // (#1458). The SDK picks the wire signal from the transport: an aborted
     // per-request SSE stream on a 2026-era Streamable HTTP connection, and
-    // `notifications/cancelled` everywhere else (#2140).
-    if (signal) {
-      opts.signal = signal;
+    // `notifications/cancelled` everywhere else (#2140). The per-call `signal`
+    // is combined with any ambient request signal (#1783) so a caller
+    // disconnect aborts the request even for methods that pass no signal of
+    // their own.
+    const effectiveSignal = combineAbortSignals(
+      signal,
+      this.ambientRequestSignal,
+    );
+    if (effectiveSignal) {
+      opts.signal = effectiveSignal;
     }
     if (this.progress) {
       const token = progressToken;
@@ -2527,6 +2561,28 @@ export class InspectorClient extends InspectorClientEventTarget {
     // cancel from other aborts of the same controller, e.g. a disconnect).
     controller.abort(TOOL_CALL_CANCELLED_REASON);
     return true;
+  }
+
+  /**
+   * Set the ambient abort signal that {@link getRequestOptions} folds into every
+   * request made while it is set, and return a disposer that restores the prior
+   * value (#1783). The daemon wraps a single serialized command in this so a
+   * caller disconnect cancels whatever request is in flight — for any method,
+   * not just tool calls — and the per-connection rpc queue frees instead of
+   * wedging behind a request the server never answers.
+   *
+   * It composes with a per-call `signal` via {@link combineAbortSignals}, so a
+   * tool call still runs its own {@link cancelToolCall} flow; this only adds
+   * coverage for the methods that pass no signal of their own. Pass `undefined`
+   * to clear. Nested scopes restore correctly because the disposer puts back
+   * exactly the value it replaced.
+   */
+  setAmbientRequestSignal(signal: AbortSignal | undefined): () => void {
+    const previous = this.ambientRequestSignal;
+    this.ambientRequestSignal = signal;
+    return () => {
+      this.ambientRequestSignal = previous;
+    };
   }
 
   /** List server-held tasks created by this client. */

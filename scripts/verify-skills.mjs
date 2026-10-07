@@ -312,6 +312,26 @@ function main(argv = process.argv.slice(2)) {
     );
   }
 
+  // Shipped skills (`skills/`, packaged with a client rather than loaded from
+  // `.claude/skills`) get the same frontmatter/structure validation — a
+  // truncated SKILL.md would otherwise ship silently — but no eval-case or
+  // listing-budget requirements: they are not part of this repo's own
+  // agent skill listing.
+  if (!override && existsSync(path.join(ROOT, "skills"))) {
+    const shippedDir = path.join(ROOT, "skills");
+    for (const dir of skillDirs(shippedDir)) {
+      const file = path.join(shippedDir, dir, "SKILL.md");
+      if (!existsSync(file)) {
+        failures.push(`skills/${dir}: no SKILL.md`);
+        continue;
+      }
+      const skill = parseSkill(dir, readFileSync(file, "utf8"));
+      for (const e of skill.errors) {
+        failures.push(`skills/${dir}/SKILL.md: ${e}`);
+      }
+    }
+  }
+
   if (failures.length > 0) {
     console.error(`verify:skills — ${failures.length} problem(s):\n`);
     for (const f of failures) console.error("  " + f);

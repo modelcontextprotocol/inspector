@@ -1,0 +1,165 @@
+---
+name: mcpdo
+description: Access MCP (Model Context Protocol) servers and their tools, resources, and prompts through the mcpdo CLI — connections it holds extend your capabilities alongside any built-in MCP support. Use this skill for any question or task about MCP servers, connections, or tools (e.g. "what MCP servers am I connected to?", "what MCP tools do I have?"), and whenever a task requires inspecting, testing, or scripting against an MCP server (stdio or HTTP) rather than writing custom client code.
+disable-model-invocation: false
+---
+
+# mcpdo — MCP Inspector connection CLI
+
+Connect to an MCP server once, then run many commands against that named
+connection.
+
+```bash
+mcpdo servers/list                           # catalog entries you can connect
+mcpdo connect entry-name                     # connect a catalog entry
+mcpdo connect https://example.com/mcp        # ad-hoc HTTP/SSE target
+mcpdo connect node server.js                 # ad-hoc stdio target
+
+mcpdo connections/list                       # open connections
+mcpdo @entry-name tools/list
+mcpdo @entry-name tools/call <toolName> arg:=value
+mcpdo @entry-name resources/list
+mcpdo @entry-name resources/read <uri>
+mcpdo @entry-name prompts/list
+
+mcpdo --connection entry-name tools/list     # flag form of @entry-name
+
+mcpdo disconnect entry-name
+```
+
+The canonical flow is `servers/list` → `connect <entry>` → `@entry <command>`.
+Run `mcpdo help` or `mcpdo <command> --help` for the full, authoritative list of
+commands and flags (auth management, elicitation controls, daemon control, and
+more).
+
+## How to think about mcpdo
+
+- **Connections extend your toolset.** Treat every open connection's tools,
+  resources, and prompts as part of your available capabilities: when facing a
+  task (or before saying "I can't do that"), check `mcpdo connections/list`
+  and the connected servers' `tools/list`, and call those tools mid-task like
+  any built-in tool.
+- **Answer capability questions with it.** "What MCP servers/tools do I have?"
+  includes mcpdo connections (`connections/list`) and catalog entries that are
+  connectable but not connected (`servers/list`).
+- **Don't auto-connect.** Catalog entries don't describe capabilities, and
+  connecting can start an auth flow involving the human. Connect when the user
+  directs it, or when a task clearly needs it — and say so first.
+- **Inspect via commands, not the filesystem.** Entries, connections, auth
+  state, and daemon state all have read commands; never list or read
+  `~/.mcp-inspector` directly. The one exception is _editing_ the catalog
+  (below).
+- **Make it always-on (optional).** Skills load only on demand; for standing
+  awareness of mcpdo in a project, append `mcpdo agent-help --instructions`
+  output to the project's `CLAUDE.md`/`AGENTS.md`. (`mcpdo agent-help`
+  prints this guide; `--skill-path` prints the installable skill file's
+  path.)
+
+## The catalog
+
+- `servers/list` / `servers/show <name>` read the **catalog**: the writable
+  entry file at `~/.mcp-inspector/mcp.json` (standard `mcpServers` shape),
+  overridable per shell via `--catalog <path>` or `MCP_CATALOG_PATH`.
+  `servers/list` prints the resolved source path.
+- `servers/*` shows entries on disk; `connections/*` shows live daemon state.
+  Two shells with different catalogs share the same connections.
+- There are no CLI edit commands, by design: add or remove entries by editing
+  the catalog file directly. `mcpdo connect entry --config path/to/mcp.json`
+  instead connects an entry from a read-only foreign config file.
+
+## Conventions
+
+- `--format json` outputs JSON; the default, `--format text`, is
+  human-readable.
+- Always qualify commands with `@name` or `--connection <name>` (shorthand
+  `--conn`) from an agent shell: with non-interactive (non-TTY) stdin, mcpdo
+  requires an explicit connection and errors without one. Omitting it falls
+  back to the most-recently-used connection only on an interactive TTY, or
+  anywhere when `MCP_ALLOW_DEFAULT_CONNECTION=1` is set.
+- Connections persist across separate `mcpdo` invocations and **self-heal**: a
+  dropped transport (expired session, exited stdio child) transparently
+  re-dials on next use with stored credentials. Don't monitor or reconnect
+  manually; only an `auth_required` error needs action (re-run `connect`).
+  `mcpdo disconnect` ends one connection; `mcpdo daemon stop` resets
+  everything.
+- The `[legacy]` / `[modern]` era tag on `connections/list` is the negotiated
+  protocol generation (`legacy` = classic `initialize` handshake — current and
+  fine, not deprecated). Informational only.
+
+## Auth
+
+- Auth is automatic at connect time and stored for reuse (`mcpdo auth/list` /
+  `mcpdo auth/clear`). `auth/list` shows each stored URL with the catalog or
+  connection names it is "known as" and a `● live` marker when a current
+  connection holds it, so the store entries line up with the servers you use.
+  `auth/clear` accepts either the store URL or one of those friendly names
+  (`mcpdo auth/clear hosted-everything`); a name that resolves to no URL (a
+  stdio server) or to more than one URL is rejected with guidance. EMA IdP
+  login records lead with their bare issuer URL and carry a trailing
+  `enterprise IdP login` marker, and clear by that bare issuer URL
+  (`mcpdo auth/clear https://idp.example.com`). Run `connect` as its **own
+  command** — never chained with `&&`, `;`, or a follow-on
+  `tools/list`/`connections/show`. A connect that needs sign-in exits 0 while
+  the connection is still unusable, so a chained command runs against a
+  not-yet-connected server, errors, and clutters the output you relay to the
+  user. Connect, check whether it returned `pendingAuth`, and only then decide
+  the next step. When a
+  browser sign-in is needed and stdin is non-TTY,
+  `connect` exits 0 immediately with `pendingAuth: true` and an `authUrl`.
+  The connection is **not** connected and **not** usable until the user signs
+  in — exit 0 is not success here. Show that `authUrl` to the user as literal
+  plain text as the **last thing in your reply**, ask them to open it, sign in,
+  and tell you when they're done, then **end your turn and wait**. Do not retry
+  the command, poll, sleep, or say you are connected: the user can't see your
+  message until the turn ends, so any further tool call in the same turn only
+  delays the link reaching them. Once the user says they have signed in, run
+  `connections/show @name` to complete the sign-in, then continue the original
+  task. (`connections/show @name` completes a finished sign-in itself and
+  reprints the `authUrl` if you need to show it again; `connections/list` stays
+  read-only but reports `pendingAuthSignedIn: true` — "signed in — completing on
+  next use" — once the user's part is done.) Never reconnect to fix a pending
+  sign-in.
+- To force a fresh sign-in on an already-open connection, `mcpdo disconnect
+  <name> --clear-auth` (`-c`) tears it down and clears its stored tokens in one
+  step, so the next plain `connect` re-triggers the browser flow. Prefer it over
+  a separate `disconnect` + `auth/clear <url>` — it takes the connection name
+  (not the URL) and closes the window where the live connection keeps working on
+  in-memory tokens. `connect <name> --relogin` (`-r`) is the equivalent when you
+  are reconnecting anyway.
+- Enterprise-managed auth (EMA) works the same way. `mcpdo auth/ema-login`
+  from a non-TTY shell exits 0 immediately with `pendingLogin: true` and an
+  `authUrl`. Show that `authUrl` to the user as literal plain text as the last
+  thing in your reply, ask them to sign in and tell you when they're done, then
+  end your turn and wait — do not poll while they are signing in. Once they
+  confirm, run `mcpdo auth/ema-status`; `loginState` reads `logged_in` once the
+  sign-in has completed in the background. After that, connects to EMA servers
+  mint
+  tokens silently with no further sign-in. Connecting to an EMA server
+  *without* a prior IdP login parks like any other pending sign-in, with the
+  IdP link as its `authUrl`. `mcpdo auth/ema-logout` clears local EMA state
+  only; when the IdP advertises an end-session endpoint the output includes a
+  URL to end the IdP browser session too — relay it to the user, who may
+  ignore it if they only meant to reset local state.
+- Tokens live in the OS keychain when one is available. On keychain-less
+  hosts mcpdo falls back to the shared secrets file (never the in-memory
+  store — mcpdo is multi-process, so a per-process store can't carry a token
+  from the sign-in helper to the daemon). `MCP_INSPECTOR_SECRET_STORE`
+  (`keyring|file|memory`) still overrides explicitly.
+
+## Elicitations (server asks a question mid-call)
+
+- On an interactive TTY, mcpdo prompts inline. From an agent shell (non-TTY or
+  `--format json`), the **command returns immediately** (exit 0) with an
+  `elicitationPending` payload carrying the question, schema, and an
+  `elicitationId`; the underlying MCP **tool call stays parked** on the daemon
+  awaiting your response. Never wait on or time-box the mcpdo command itself —
+  it has already exited; the pending work lives daemon-side.
+- Answer with `mcpdo elicitation/respond <elicitationId> field:=value ...`
+  (repeat if the server asks again), or end it with `--decline` or `--cancel`.
+  For URL-mode elicitations, relay the URL to the user, then confirm with
+  `elicitation/respond <id> --done` (or `--cancel`; URL mode has no decline).
+  The response returns the
+  final tool result.
+- Parked calls expire after 10 minutes; one parked call per connection. Pass
+  `--elicit off` on `connect` to have well-behaved servers fall back to their
+  own defaults instead of asking.

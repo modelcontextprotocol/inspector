@@ -17,6 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  agentEnv,
   caseHit,
   chainHit,
   formatReport,
@@ -1052,4 +1053,93 @@ test("a rejected Copilot run leaves the in-flight set", async () => {
     /exit_3/,
   );
   assert.equal(stopLiveCopilotRuns(), 0);
+});
+
+test("agentEnv: agents get only process basics and their own credentials", () => {
+  const source = {
+    PATH: "/usr/bin",
+    HOME: "/Users/dev",
+    AWS_SECRET_ACCESS_KEY: "bedrock-key",
+    GOOGLE_APPLICATION_CREDENTIALS: "/creds.json",
+    CLOUD_ML_REGION: "us-east5",
+    NPM_TOKEN: "leak-me-not",
+    ANTHROPIC_API_KEY: "claude-key",
+    CLAUDE_CODE_FLAG: "1",
+    GH_TOKEN: "copilot-key",
+    GITHUB_TOKEN: "copilot-key-2",
+    COPILOT_MODEL: "m",
+    XDG_CONFIG_HOME: "/Users/dev/.config",
+  };
+  const claude = agentEnv("claude", source);
+  assert.equal(claude.PATH, "/usr/bin");
+  assert.equal(claude.HOME, "/Users/dev");
+  assert.equal(claude.ANTHROPIC_API_KEY, "claude-key");
+  assert.equal(claude.CLAUDE_CODE_FLAG, "1");
+  assert.equal(claude.XDG_CONFIG_HOME, "/Users/dev/.config");
+  // Bedrock/Vertex credentials are claude's own auth route
+  // (CLAUDE_CODE_USE_BEDROCK/VERTEX), so AWS_/GOOGLE_/CLOUD_ML_ pass through.
+  assert.equal(claude.AWS_SECRET_ACCESS_KEY, "bedrock-key");
+  assert.equal(claude.GOOGLE_APPLICATION_CREDENTIALS, "/creds.json");
+  assert.equal(claude.CLOUD_ML_REGION, "us-east5");
+  assert.ok(!("NPM_TOKEN" in claude));
+  assert.ok(!("GH_TOKEN" in claude));
+  assert.ok(!("GITHUB_TOKEN" in claude));
+  const copilot = agentEnv("copilot", source);
+  assert.equal(copilot.GH_TOKEN, "copilot-key");
+  assert.equal(copilot.GITHUB_TOKEN, "copilot-key-2");
+  assert.equal(copilot.COPILOT_MODEL, "m");
+  assert.ok(!("ANTHROPIC_API_KEY" in copilot));
+  assert.ok(!("AWS_SECRET_ACCESS_KEY" in copilot));
+  assert.ok(!("GOOGLE_APPLICATION_CREDENTIALS" in copilot));
+});
+
+test("agentEnv: mixed-case Windows base keys pass through with spelling intact", () => {
+  const source = {
+    Path: "C:\\Windows;C:\\Windows\\System32",
+    SystemRoot: "C:\\Windows",
+    ComSpec: "C:\\Windows\\System32\\cmd.exe",
+    AppData: "C:\\Users\\dev\\AppData\\Roaming",
+    // Mixed case only helps base-list names; prefixes stay case-sensitive.
+    Anthropic_Api_Key: "not-a-real-prefix-match",
+  };
+  const env = agentEnv("claude", source);
+  assert.equal(env.Path, source.Path);
+  assert.equal(env.SystemRoot, source.SystemRoot);
+  assert.equal(env.ComSpec, source.ComSpec);
+  assert.equal(env.AppData, source.AppData);
+  assert.ok(!("Anthropic_Api_Key" in env));
+});
+
+test("runPrompt: spawned agent env is minimal plus the caller's overlay", async () => {
+  process.env.SKILL_EVAL_TEST_SECRET = "leak-me-not";
+  try {
+    let seen;
+    const spawnFn = (command, args, options) => {
+      seen = options.env;
+      const child = new EventEmitter();
+      child.stdout = new EventEmitter();
+      child.stdin = { end: () => {} };
+      queueMicrotask(() => {
+        child.stdout.emit(
+          "data",
+          Buffer.from(
+            JSON.stringify({ type: "result", subtype: "success" }) + "\n",
+          ),
+        );
+        child.emit("close", 0);
+      });
+      return child;
+    };
+    await runPrompt("p", {
+      agent: "claude",
+      spawnFn,
+      killFn: () => {},
+      env: { MCPDO_EVAL_LOG: "/tmp/x" },
+    });
+    assert.ok(!("SKILL_EVAL_TEST_SECRET" in seen));
+    assert.equal(seen.MCPDO_EVAL_LOG, "/tmp/x");
+    assert.equal(seen.PATH, process.env.PATH);
+  } finally {
+    delete process.env.SKILL_EVAL_TEST_SECRET;
+  }
 });

@@ -53,7 +53,7 @@ export type MethodArgs = {
   output?: string;
   /** `--output-format`: how the `--output` file is encoded (default `json`). */
   outputFormat?: OutputFileFormat;
-  /** Task id for tasks/get, tasks/cancel, tasks/result. */
+  /** Task id for tasks/get, tasks/cancel, tasks/result, tasks/update. */
   taskId?: string;
   /** When true, tools/call uses callToolStream (task-augmented). */
   task?: boolean;
@@ -77,6 +77,12 @@ export type MethodArgs = {
   cursor?: string;
   /** roots/set payload (JSON array of {uri, name?}). */
   rootsJson?: string;
+  /**
+   * tasks/update payload (JSON object keyed by the server's `inputRequests`
+   * ids). Resumes a modern (SEP-2663) task paused on `input_required` —
+   * modern-only, symmetric with `roots/set`'s JSON-blob convention.
+   */
+  inputResponsesJson?: string;
   /** prompts/complete: argument name / value / ref. */
   completeRefType?: "ref/prompt" | "ref/resource";
   completeRef?: string;
@@ -117,12 +123,18 @@ export type MethodOutcome =
 /**
  * Full method set supported by {@link runMethod}.
  *
- * TODO(#1432): several of these (subscribe, tasks, roots, logging/tail, …) are
- * not exposed by `mcp-inspector --cli` today; they exist for the experimental
- * session CLI (`mcpi`) and other Node runners that share this dispatcher.
+ * Several of these (subscribe, tasks, roots, logging/tail, …) are not exposed
+ * by `mcp-inspector --cli`; they exist for the connection CLI (`mcpdo`) and
+ * other Node runners that share this dispatcher.
+ *
+ * Deliberately excludes `"initialize"` — that's still a valid {@link
+ * ONE_SHOT_METHODS} entry (scripting parity with the literal wire method
+ * name), but for `mcpdo` it read as "send another initialize", which it never
+ * did (it only replays cached connect-time state). `mcpdo connections/show`
+ * covers the same data (server info, capabilities, negotiated era) alongside
+ * daemon connection bookkeeping instead.
  */
-export const SESSION_RPC_METHODS = [
-  "initialize",
+export const CONNECTION_RPC_METHODS = [
   "tools/list",
   "tools/call",
   "resources/list",
@@ -140,13 +152,14 @@ export const SESSION_RPC_METHODS = [
   "tasks/get",
   "tasks/cancel",
   "tasks/result",
+  "tasks/update",
   "roots/list",
   "roots/set",
   "skills/list",
   "skills/get",
 ] as const;
 
-export type SessionRpcMethod = (typeof SESSION_RPC_METHODS)[number];
+export type ConnectionRpcMethod = (typeof CONNECTION_RPC_METHODS)[number];
 
 /**
  * Methods accepted by `mcp-inspector --cli` (plus catalog-only

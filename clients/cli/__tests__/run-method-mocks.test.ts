@@ -12,6 +12,7 @@ function mockClient(overrides: Partial<InspectorClient> = {}): InspectorClient {
     getRequestorTask: vi.fn().mockResolvedValue({ taskId: "t1" }),
     cancelRequestorTask: vi.fn().mockResolvedValue(undefined),
     getRequestorTaskResult: vi.fn().mockResolvedValue({ content: [] }),
+    updateRequestorTask: vi.fn().mockResolvedValue(undefined),
     getRoots: vi.fn().mockReturnValue([]),
     setRoots: vi.fn().mockResolvedValue(undefined),
     setLoggingLevel: vi.fn().mockResolvedValue(undefined),
@@ -65,6 +66,192 @@ vi.mock("@inspector/core/mcp/state/index.js", async (importOriginal) => {
 });
 
 describe("runMethod (mocked client)", () => {
+  it("reference-counts same-URI subscribe streams", async () => {
+    const client = mockClient();
+    const s1 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://x",
+    });
+    const s2 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://x",
+    });
+    // Both streams share one core subscription.
+    expect(client.subscribeToResource).toHaveBeenCalledTimes(1);
+    expect(s1.kind).toBe("stream");
+    expect(s2.kind).toBe("stream");
+    if (s1.kind === "stream" && s2.kind === "stream") {
+      const stop1 = s1.start(() => {});
+      const stop2 = s2.start(() => {});
+      stop1();
+      // The survivor keeps the subscription alive.
+      expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+      stop2();
+      expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+    }
+
+    // A rejected unsubscribe (e.g. after daemon disconnectAll) is caught at
+    // the source instead of surfacing as an unhandled rejection.
+    const failing = mockClient({
+      unsubscribeFromResource: vi
+        .fn()
+        .mockRejectedValue(new Error("client closed")),
+    } as Partial<InspectorClient>);
+    const s3 = await runMethod(failing, {
+      method: "resources/subscribe",
+      uri: "test://y",
+    });
+    if (s3.kind === "stream") {
+      s3.start(() => {})();
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(failing.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("buffers updates that land between subscribe and start", async () => {
+    const listeners = new Set<(ev: Event) => void>();
+    const client = mockClient({
+      addEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.add(fn),
+      ),
+      removeEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.delete(fn),
+      ),
+    } as unknown as Partial<InspectorClient>);
+    const outcome = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://early",
+    });
+    // The listener is live before any consumer starts the stream...
+    expect(listeners.size).toBe(1);
+    // ...so an update in the subscribe→start window is captured, not lost.
+    const dispatch = (uri: string) => {
+      for (const fn of listeners)
+        fn(new CustomEvent("resourceUpdated", { detail: { uri } }));
+    };
+    dispatch("test://early");
+    dispatch("test://other"); // different URI: filtered out
+    const lines: unknown[] = [];
+    expect(outcome.kind).toBe("stream");
+    if (outcome.kind !== "stream") return;
+    const stop = outcome.start((obj) => lines.push(obj));
+    expect(lines).toEqual([
+      { type: "subscribed", uri: "test://early" },
+      { type: "resources/updated", uri: "test://early" },
+    ]);
+    // Post-start events flow straight through.
+    dispatch("test://early");
+    expect(lines).toHaveLength(3);
+    stop();
+    expect(listeners.size).toBe(0);
+  });
+
+  it("detaches the early listener when the subscribe fails", async () => {
+    const listeners = new Set<(ev: Event) => void>();
+    const client = mockClient({
+      addEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.add(fn),
+      ),
+      removeEventListener: vi.fn((_type: string, fn: (ev: Event) => void) =>
+        listeners.delete(fn),
+      ),
+      subscribeToResource: vi.fn().mockRejectedValue(new Error("nope")),
+    } as unknown as Partial<InspectorClient>);
+    await expect(
+      runMethod(client, { method: "resources/subscribe", uri: "test://f" }),
+    ).rejects.toThrow("nope");
+    expect(listeners.size).toBe(0);
+  });
+
+  it("concurrent same-URI subscribes share one in-flight subscription", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const client = mockClient({
+      subscribeToResource: vi.fn().mockImplementation(() => gate),
+    } as Partial<InspectorClient>);
+    // Both setups race before the subscribe resolves; the reservation is
+    // synchronous, so they must join one in-flight subscribe rather than
+    // each subscribing and writing a count of 1.
+    const p1 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://race",
+    });
+    const p2 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://race",
+    });
+    release();
+    const [s1, s2] = await Promise.all([p1, p2]);
+    expect(client.subscribeToResource).toHaveBeenCalledTimes(1);
+    const stop1 = s1.kind === "stream" ? s1.start(() => {}) : () => {};
+    const stop2 = s2.kind === "stream" ? s2.start(() => {}) : () => {};
+    stop1();
+    stop1(); // double-stop must not corrupt the shared count
+    expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+    stop2();
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("rolls back reservations when the shared subscribe fails, allowing retry", async () => {
+    const subscribe = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("subscribe boom"))
+      .mockResolvedValue(undefined);
+    const client = mockClient({
+      subscribeToResource: subscribe,
+    } as Partial<InspectorClient>);
+    const p1 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    const p2 = runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    await expect(p1).rejects.toThrow("subscribe boom");
+    await expect(p2).rejects.toThrow("subscribe boom");
+    // Both joined the same failed attempt…
+    expect(subscribe).toHaveBeenCalledTimes(1);
+    // …and both rolled back, so a retry issues a fresh subscribe.
+    const s3 = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://fail",
+    });
+    expect(subscribe).toHaveBeenCalledTimes(2);
+    expect(s3.kind).toBe("stream");
+  });
+
+  it("rejects explicit unsubscribe while subscribe streams share the URI", async () => {
+    const client = mockClient();
+    const sub = await runMethod(client, {
+      method: "resources/subscribe",
+      uri: "test://shared",
+    });
+    expect(sub.kind).toBe("stream");
+    const stop = sub.kind === "stream" ? sub.start(() => {}) : () => {};
+
+    // Tearing down the shared subscription out from under the open stream
+    // (and double-unsubscribing later) is refused with guidance.
+    await expect(
+      runMethod(client, {
+        method: "resources/unsubscribe",
+        uri: "test://shared",
+      }),
+    ).rejects.toThrow(/active resources\/subscribe stream/);
+    expect(client.unsubscribeFromResource).not.toHaveBeenCalled();
+
+    // Once the last stream closes, its cleanup unsubscribes and an explicit
+    // unsubscribe is allowed again.
+    stop();
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(1);
+    const out = await runMethod(client, {
+      method: "resources/unsubscribe",
+      uri: "test://shared",
+    });
+    expect(out.kind).toBe("result");
+    expect(client.unsubscribeFromResource).toHaveBeenCalledTimes(2);
+  });
+
   it("covers subscribe stream, tasks, complete, and app-info call", async () => {
     const client = mockClient({
       callTool: vi.fn().mockResolvedValue({
@@ -104,11 +291,14 @@ describe("runMethod (mocked client)", () => {
       listener?.(
         new CustomEvent("resourceUpdated", { detail: { uri: "test://x" } }),
       );
-      expect(
-        lines.some(
-          (l) => (l as { type?: string }).type === "resources/updated",
-        ),
-      ).toBe(true);
+      // Updates for other URIs on the same connection are filtered out.
+      listener?.(
+        new CustomEvent("resourceUpdated", { detail: { uri: "test://other" } }),
+      );
+      const updated = lines.filter(
+        (l) => (l as { type?: string }).type === "resources/updated",
+      );
+      expect(updated).toEqual([{ type: "resources/updated", uri: "test://x" }]);
       stop();
     }
 
@@ -132,6 +322,19 @@ describe("runMethod (mocked client)", () => {
       taskId: "t1",
     });
     expect(result.kind).toBe("result");
+
+    const updated = await runMethod(client, {
+      method: "tasks/update",
+      taskId: "t1",
+      inputResponsesJson: '{"confirm":{"approved":true}}',
+    });
+    expect(updated.kind).toBe("result");
+    if (updated.kind === "result") {
+      expect(updated.result).toMatchObject({ updated: true, taskId: "t1" });
+    }
+    expect(client.updateRequestorTask).toHaveBeenCalledWith("t1", {
+      confirm: { approved: true },
+    });
 
     const complete = await runMethod(client, {
       method: "prompts/complete",
@@ -190,6 +393,36 @@ describe("runMethod (mocked client)", () => {
     await expect(runMethod(client, { method: "tasks/result" })).rejects.toThrow(
       /tasks\/result/,
     );
+
+    await expect(runMethod(client, { method: "tasks/update" })).rejects.toThrow(
+      /tasks\/update/,
+    );
+    await expect(
+      runMethod(client, { method: "tasks/update", taskId: "t1" }),
+    ).rejects.toThrow(/--input-responses/);
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: "not-json",
+      }),
+    ).rejects.toThrow(/--input-responses is invalid/);
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: "[1,2,3]",
+      }),
+    ).rejects.toThrow(/--input-responses is invalid/);
+    // 1e999 parses as Infinity, which serialization would silently send as
+    // null — reject it instead of answering with a different value.
+    await expect(
+      runMethod(client, {
+        method: "tasks/update",
+        taskId: "t1",
+        inputResponsesJson: '{"a":{"b":[1e999]}}',
+      }),
+    ).rejects.toThrow(/no JSON representation/);
 
     await expect(
       runMethod(client, {
