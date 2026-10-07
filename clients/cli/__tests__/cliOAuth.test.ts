@@ -10,7 +10,7 @@ import {
   assertInteractiveOAuthAllowed,
   withCliAuthRecoveryRetry,
   STEP_UP_PIPE_TIMEOUT_MS,
-} from "../src/cliOAuth.js";
+} from "@inspector/core/cli/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import {
@@ -1183,5 +1183,128 @@ describe("cliOAuth", () => {
         process.env.MCP_AUTO_OPEN_ENABLED = prev;
       }
     }
+  });
+
+  // #2435: `--quiet` drops the status lines, never the prompts a human has to
+  // act on. The step-up [y/N] still prints, because the flow cannot finish
+  // without an answer to it.
+  describe("--quiet", () => {
+    const QUIET_CALLBACK = CALLBACK_URL_CONFIG;
+    function fakeClient(connect = vi.fn().mockResolvedValue(undefined)) {
+      return {
+        connect,
+        disconnect: vi.fn().mockResolvedValue(undefined),
+        authenticate: vi.fn(),
+        beginInteractiveAuthorization: vi.fn(),
+        completeOAuthFlow: vi.fn(),
+        checkAuthChallengeSatisfied: vi.fn().mockResolvedValue(false),
+      };
+    }
+
+    it("runCliInteractiveOAuth writes no success line", async () => {
+      vi.spyOn(
+        runnerInteractive,
+        "runRunnerInteractiveOAuth",
+      ).mockResolvedValue({ kind: "success" });
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+
+      await runCliInteractiveOAuth(
+        fakeClient(),
+        new MutableRedirectUrlProvider(),
+        QUIET_CALLBACK,
+        { quiet: true },
+      );
+
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
+
+    it("withCliAuthRecoveryRetry writes no retry line after AuthRecoveryRequired, but keeps the step-up prompt", async () => {
+      vi.spyOn(
+        runnerInteractive,
+        "runRunnerInteractiveOAuth",
+      ).mockResolvedValue({ kind: "success" });
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new AuthRecoveryRequiredError(
+            new URL("https://as.example/authorize"),
+            { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
+          ),
+        )
+        .mockResolvedValueOnce("ok");
+
+      const result = await withCliAuthRecoveryRetry(
+        fakeClient(),
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        QUIET_CALLBACK,
+        makeFakeServerSettings(),
+        fn,
+        { ...INTERACTIVE, confirmStepUp: async () => true, quiet: true },
+      );
+
+      expect(result).toBe("ok");
+      const written = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(written).toContain("Proceed with step-up authorization? [y/N]");
+      expect(written).not.toContain("Authorization complete");
+    });
+
+    it("withCliAuthRecoveryRetry writes no retry line after a plain 401", async () => {
+      vi.spyOn(
+        runnerInteractive,
+        "runRunnerInteractiveOAuth",
+      ).mockResolvedValue({ kind: "success" });
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      const fn = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("RPC failed (401)"))
+        .mockResolvedValueOnce("ok");
+
+      const result = await withCliAuthRecoveryRetry(
+        fakeClient(),
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        QUIET_CALLBACK,
+        undefined,
+        fn,
+        { ...INTERACTIVE, quiet: true },
+      );
+
+      expect(result).toBe("ok");
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
+
+    it("connectInspectorWithOAuth writes no success line after a 401 on connect", async () => {
+      vi.spyOn(
+        runnerInteractive,
+        "runRunnerInteractiveOAuth",
+      ).mockResolvedValue({ kind: "success" });
+      const stderrSpy = vi
+        .spyOn(process.stderr, "write")
+        .mockImplementation(() => true);
+      const connect = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("RPC failed (401)"))
+        .mockResolvedValue(undefined);
+
+      await connectInspectorWithOAuth(
+        fakeClient(connect),
+        OAUTH_HTTP_CONFIG,
+        new MutableRedirectUrlProvider(),
+        QUIET_CALLBACK,
+        undefined,
+        { ...INTERACTIVE, quiet: true },
+      );
+
+      expect(connect).toHaveBeenCalledTimes(2);
+      expect(stderrSpy).not.toHaveBeenCalled();
+    });
   });
 });

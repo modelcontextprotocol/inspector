@@ -19,6 +19,7 @@ The `server/` directory holds the Node-only backend:
 - **`web-server-config.ts`** — env parsing, the `GET /api/config` payload, the startup banner, the default origin allow-list.
 - **`resolve-bind-host.ts`** — the shared bind-host guard (refuses an all-interfaces `HOST` unless `DANGEROUSLY_BIND_ALL_INTERFACES`), used by both bind points (`web-server-config.ts` + `vite.config.ts`); see [Host binding & the origin allow-list](#host-binding--the-origin-allow-list).
 - **`inject-auth-token.ts`** — embeds the API token into the served `index.html` (see [Auth token](#auth-token)).
+- **`health.ts`** — the unauthenticated `GET /healthz` liveness/readiness probe both backends answer (see [Health check](#health-check)).
 - **`sandbox-controller.ts`** — the MCP Apps sandbox HTTP server; **`app-origin-controller.ts`** — the dedicated app-origin server for `_meta.ui.domain` (see [MCP App dedicated origins](#mcp-app-dedicated-origins-metauidomain)); **`public-address.ts`** — validates `MCP_SANDBOX_FULL_ADDRESS` / `MCP_APP_ORIGIN_FULL_ADDRESS`, the public addresses those two advertise behind a reverse proxy; **`ensure-web-build.ts`** — builds `dist/` on demand for prod `--web`; **`vite-base-config.ts`** — shared `optimizeDeps` exclusions.
 - **`browser-externalized-builtin-gate.ts`** — Vite-agnostic build-gate logic that fails `vite build` when a Node built-in reaches the browser bundle (#1769); the thin Vite plugin wiring lives in `vite.config.ts`. It sits under `server/` (rather than `src/`) as the home for Node-only, build-time tooling — it's imported by the Vite config, never by the browser — alongside the other `vite-*` config helpers here.
 
@@ -385,6 +386,18 @@ Storybook is first-class here because the components are presentational — each
 ## Auth token
 
 The dev/prod backend guards every `/api/*` route with `x-mcp-remote-auth: Bearer <MCP_INSPECTOR_API_TOKEN>`. The browser recovers the token, in priority order (see `App.tsx` `getAuthToken()`): the `window.__INSPECTOR_API_TOKEN__` global injected into `index.html` on every page load (`server/inject-auth-token.ts`), then a `?MCP_INSPECTOR_API_TOKEN=…` query param, then `sessionStorage`. Injection is a no-op when auth is disabled (`DANGEROUSLY_OMIT_AUTH`). See the root [AGENTS.md](../../AGENTS.md) for the full rationale, and [Environment variables](../../docs/environment-variables.md) for every variable the backend reads.
+
+## Health check
+
+Both the prod server and the dev Vite backend answer **`GET /healthz`** (and `HEAD`) with `200` and a fixed `{"status":"ok"}` body, `Cache-Control: no-store` (#2438). It is meant for an orchestrator — a Docker or Kubernetes probe, a process manager — that needs to know the backend is up without exercising a real proxy/connect flow.
+
+- **It is unauthenticated, by design.** It sits outside `/api/*`, so neither the bearer-token check nor the origin allow-list applies; a probe has no way to learn a token that is generated per start.
+- **It discloses nothing beyond "up"** — no version, uptime, servers, config or storage state. Anything that can reach the port can read it, so it says nothing `GET /` does not already say.
+- **Liveness and readiness are one answer.** The backend only starts listening once the sandbox, the app-origin listener and the API are constructed, so any response means it is ready.
+
+```sh
+curl -fsS http://127.0.0.1:6274/healthz   # {"status":"ok"}
+```
 
 ## Host binding & the origin allow-list
 

@@ -7,13 +7,14 @@ import {
 } from "./helpers/fixtures.js";
 import { expectCliSuccess } from "./helpers/assertions.js";
 import {
-  annotateServerEntriesWithSessions,
+  annotateServerEntriesWithConnections,
   listServerEntries,
+  resolveServerListSource,
   sanitizeServerConfig,
   sanitizeServerSettings,
   showServerEntry,
   summarizeServerConfig,
-} from "../src/handlers/servers-list.js";
+} from "@inspector/core/cli/handlers/servers-list.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -60,35 +61,68 @@ describe("summarizeServerConfig", () => {
   });
 });
 
-describe("annotateServerEntriesWithSessions", () => {
+describe("annotateServerEntriesWithConnections", () => {
   const entries = [
     { name: "a", type: "stdio", detail: "node a" },
     { name: "b", type: "stdio", detail: "node b" },
   ];
 
-  it("returns entries unchanged when there are no sessions", () => {
-    expect(annotateServerEntriesWithSessions(entries, [])).toBe(entries);
+  it("returns entries unchanged when there are no connections", () => {
+    expect(annotateServerEntriesWithConnections(entries, [])).toBe(entries);
   });
 
   it("marks matching entry names and MRU", () => {
     expect(
-      annotateServerEntriesWithSessions(entries, [
+      annotateServerEntriesWithConnections(entries, [
         { name: "b", isMru: true },
         { name: "other" },
       ]),
     ).toEqual([
       { name: "a", type: "stdio", detail: "node a" },
-      { name: "b", type: "stdio", detail: "node b", session: "b", isMru: true },
+      {
+        name: "b",
+        type: "stdio",
+        detail: "node b",
+        connection: "b",
+        isMru: true,
+      },
     ]);
   });
 
-  it("omits isMru when the session is not MRU", () => {
+  it("omits isMru when the connection is not MRU", () => {
     expect(
-      annotateServerEntriesWithSessions(entries, [{ name: "a", isMru: false }]),
+      annotateServerEntriesWithConnections(entries, [
+        { name: "a", isMru: false },
+      ]),
     ).toEqual([
-      { name: "a", type: "stdio", detail: "node a", session: "a" },
+      { name: "a", type: "stdio", detail: "node a", connection: "a" },
       { name: "b", type: "stdio", detail: "node b" },
     ]);
+  });
+});
+
+describe("resolveServerListSource", () => {
+  it("reports catalog (writable) vs config (read-only) with the resolved path", () => {
+    expect(resolveServerListSource({ catalogPath: "/tmp/cat.json" })).toEqual({
+      kind: "catalog",
+      path: "/tmp/cat.json",
+    });
+    expect(resolveServerListSource({ configPath: "/tmp/conf.json" })).toEqual({
+      kind: "config",
+      path: "/tmp/conf.json",
+    });
+  });
+
+  it("falls back to the default writable catalog when no source is given", () => {
+    const source = resolveServerListSource({});
+    expect(source?.kind).toBe("catalog");
+    expect(source?.path).toMatch(/mcp\.json$/);
+  });
+
+  it("is null for ad-hoc targets (no list source)", () => {
+    expect(
+      resolveServerListSource({ target: ["https://example.com/mcp"] }),
+    ).toBeNull();
   });
 });
 

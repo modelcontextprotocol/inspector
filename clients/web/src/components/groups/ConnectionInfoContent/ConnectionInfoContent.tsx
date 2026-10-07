@@ -26,7 +26,7 @@ import {
   NO_OUTSTANDING_REQUESTS_LABEL,
 } from "../../../utils/connectionActivity";
 import { useTickingClock } from "../../../hooks/useTickingClock";
-import { TASKS_EXTENSION_KEY } from "@inspector/core/mcp/modernTaskSchemas.js";
+import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {

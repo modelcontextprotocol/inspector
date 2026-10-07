@@ -57,25 +57,19 @@ a fix exists. The flow is `/security-advisory`.
 
 ⚠️ **A draft card has no repository and no issue number, so the issue-side
 lookup below cannot find one**, and `item-add --url` has no URL to be given.
-Look it up by **title** in the full listing instead, then feed that item id to
-`item-edit` or `item-delete` exactly as usual:
+Look it up by **title** with the script (`scripts/board-draft-find.mjs`,
+#2558), then feed the printed item id to `item-edit` or `item-delete` exactly
+as usual:
 
 ```sh
-GHSA=GHSA-xxxx-yyyy-zzzz   # the advisory's real id
-ITEM_ID=   # never let an earlier lookup's id survive a failed one
-BOARD=$(gh project item-list 28 --owner modelcontextprotocol --format json --limit 2000)
-if jq -e '(.items | length) == .totalCount' <<<"$BOARD" >/dev/null; then
-  ITEM_ID=$(jq -r '.items[] | select(.content.type=="DraftIssue")
-        | select(.content.title | startswith("['"$GHSA"']")) | .id' <<<"$BOARD")
-  [ -n "$ITEM_ID" ] || echo "no draft card titled [$GHSA] on #28" >&2
-else
-  echo "item-list incomplete or failed — raise --limit; not concluding anything" >&2
-fi
+npm run board:find-draft -- --ghsa GHSA-xxxx-yyyy-zzzz   # prints ITEM=<id> <title>
 ```
 
-Match on the **bracketed GHSA id**, not on words from the summary — a summary is
-free text and two advisories can share one. Advisory drafts live on #28 only;
-`/issue-triage`'s audit reports one found anywhere else.
+It matches on the **bracketed GHSA id**, not on words from the summary — a
+summary is free text and two advisories can share one — and it trusts the
+listing only when complete, so a truncated dump reads as an error rather than
+as "no draft card". Advisory drafts live on #28 only; `/issue-triage`'s audit
+reports one found anywhere else.
 
 ## V2 board (#28) IDs
 
@@ -142,34 +136,40 @@ Don't try to set one here; the field id doesn't exist.
 
 ### Add a card and set its fields
 
+Use the script (`scripts/board-card-add.mjs`, #2558) — it adds the card,
+resolves every field and option id by name, sets Status (and Priority when
+given), and verifies each by reading it back before printing `card: …`:
+
 ```sh
-# Prints the item id (PVTI_…); capture it.
-ITEM_ID=$(gh project item-add 28 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
-
-# Status → Todo (an issue you filed through the create flow is approved by definition)
-gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" \
-  --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id fbdaf21e
-
-# Priority → Medium
-gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$ITEM_ID" \
-  --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iJE4 --single-select-option-id da944a9c
+# An issue you filed through the create flow is approved by definition → Todo.
+npm run board:add -- --issue <N> --status Todo --priority Medium
 ```
 
-Each `item-edit` sets **one** field, so setting both takes two calls — there is
-no combined form.
+For an issue swept in at triage, the differences are `--status Incoming`, a
+`--priority` still scored with the rubric in `/issue-triage` (every v2 card
+carries one — `board:audit` flags a card without it), and that you do **not**
+set a milestone.
 
-For an issue swept in at triage, the only difference is Status → **Incoming**
-(`721a3d4c`) and that you do **not** set a milestone.
-
-For **v1**, the same shape against board #11:
+For **v1**, the same against board #11 — and **no `--priority`**, which that
+board has no field for:
 
 ```sh
-ITEM_ID=$(gh project item-add 11 --owner modelcontextprotocol --url <issue-url> --format json --jq '.id')
-gh project item-edit --project-id PVT_kwDOCt2Azc4BA5sz --id "$ITEM_ID" \
-  --field-id PVTSSF_lADOCt2Azc4BA5szzgzkS-g --single-select-option-id f75ad846
+npm run board:add -- --issue <N> --status Todo --board 11
 ```
 
 ### Move an existing card
+
+**For a plain Status move, use the script** (`scripts/board-card-status.mjs`,
+#2558) — it does everything this recipe describes (name-resolved ids,
+issue-side lookup, edit, verify re-read) and prints `card: <Status>` only on a
+confirmed move:
+
+```sh
+npm run board:status -- --issue <N> --status "In Review"   # --board 11 for a v1 issue
+```
+
+The manual recipe below remains for what the scripts do not do — adapting the
+lookup for another field — and as the record of how the lookup works.
 
 Look the item id up **from the issue** rather than re-adding it. An issue's
 `projectItems` lists the cards it has on every board, so the lookup does not
@@ -219,17 +219,19 @@ fi
 
 **`Done` means the work shipped.** An issue closed as duplicate / won't fix /
 not planned / obsolete / superseded shipped nothing, so its card is **deleted**,
-not parked in Done:
+not parked in Done. Use the script (`scripts/board-card-delete.mjs`, #2558) —
+it looks the card up from the issue, deletes it, and verifies it is gone:
 
 ```sh
-# ITEM_ID from the issue-side LOOKUP block in "Move an existing card" above —
-# the lookup only, not the item-edit that follows it.
-if [ -n "$ITEM_ID" ]; then
-  gh project item-delete 28 --owner modelcontextprotocol --id "$ITEM_ID"
-else
-  echo "no ITEM_ID — nothing deleted" >&2
-fi
+npm run board:delete -- --issue <N>                       # --board 11 for a v1 card
+npm run board:delete -- --issue <N> --reason duplicate    # …and close the issue
 ```
+
+An absent card always fails the run — including with `--reason`, so a wrong
+`--board` or a typo'd issue number cannot close an issue whose real card
+survives. The one legitimate absent-card case is retrying a run that deleted
+the card and then failed the close; declare it with `--allow-missing-card` to
+proceed to the close anyway.
 
 Deleting the card removes it from the board only — **the issue itself is
 untouched**, keeps its labels and comments, and stays searchable and linkable
@@ -240,15 +242,9 @@ later.
 
 The close **reason** is the machine-readable form of the same distinction.
 `gh issue close --reason` accepts only `completed` and `not planned`, so
-**`duplicate` must be set through the API**:
-
-```sh
-gh api repos/modelcontextprotocol/inspector/issues/<N> -X PATCH \
-  -f state=closed -f state_reason=duplicate
-```
-
-(or "Mark as duplicate" in the web UI, which additionally records a
-duplicate-of link).
+`--reason duplicate` goes through the API (a PATCH setting
+`state_reason=duplicate`) — the script does that for you. "Mark as duplicate"
+in the web UI additionally records a duplicate-of link.
 
 ## ⚠️ The option-deletion hazard
 
@@ -272,10 +268,9 @@ Safe alternatives, in order of preference:
    `id`s**, then call `updateProjectV2Field` echoing back every existing option
    **including its `id`**, appending only the new one.
    `ProjectV2SingleSelectFieldOptionInput.id` is an optional `String`, so a mixed
-   list works. Verify afterward that no card lost its value — snapshot
-   `gh project item-list … --format json --limit 2000` before and after, check
-   each is complete the way the snapshot below does, and diff; don't just
-   spot-check. Send those dumps to `$BOARD_TMP` too, for the reason above.
+   list works. Verify afterward that no card lost its value — take a
+   `npm run board:snapshot` before and after and diff the two dumps; don't just
+   spot-check. The script keeps both out of the worktree, for the reason below.
 
 Both the `Incoming` Status option and the Urgent/High/Medium/Low Priority
 options were added this way (#1891), with the before/after diff confirming all
@@ -294,15 +289,13 @@ so a snapshot is a full dump of item IDs and every card's Status and Priority.
 Left in the working tree it is one `git add -A` away from being published in a
 PR (Copilot).
 
+The script (`scripts/board-snapshot.mjs`, #2558) enforces both hazards: it
+writes to a fresh temp dir by default, refuses a `--dir` inside the working
+tree, and writes nothing from a truncated listing — a truncated snapshot
+cannot restore the cards it dropped:
+
 ```sh
-BOARD_TMP=$(mktemp -d)
-gh project item-list 28 --owner modelcontextprotocol --format json --limit 2000 \
-  > "$BOARD_TMP/board-snapshot.json"
-# A truncated snapshot cannot restore the cards it dropped — refuse to proceed on one.
-jq -e '(.items | length) == .totalCount' "$BOARD_TMP/board-snapshot.json" >/dev/null \
-  && echo "snapshot: $BOARD_TMP/board-snapshot.json" \
-  || { echo "SNAPSHOT INCOMPLETE — raise --limit and retake it before editing options" >&2
-       rm -f "$BOARD_TMP/board-snapshot.json"; false; }
+npm run board:snapshot          # prints snapshot: <path> (<count> items)
 ```
 
 Note the printed path; you need it to recover.
@@ -313,55 +306,41 @@ This has happened twice — once via the API (~197 items, reconstructed by
 inference) and once via the UI (the `Done` column, 247 items, restored from a
 snapshot in minutes). With a snapshot the recovery is mechanical.
 
-The recipe below is written for a deleted **Status** option. For a deleted
-**Priority** option it is the same three steps with two substitutions: read
-`.priority` instead of `.status` (`gh project item-list --format json` exposes
-each single-select field under its lowercased name, so both keys are present),
-and pass the Priority field id `PVTSSF_lADOCt2Azc4BJVxtzg5iJE4`.
+The recipe is three steps; the two mechanical ones are the script
+(`scripts/board-recover.mjs`, #2558), written for Status by default — pass
+`--field Priority` for a deleted **Priority** option. Step 2 — the one that
+edits the field schema, which is what the hazard above is about — stays a
+deliberate human act.
 
 ```sh
-# 0. Same temp dir the snapshot went to — keep every dump out of the worktree.
-BOARD_TMP=${BOARD_TMP:-$(mktemp -d)}
+# 1. Which cards lost their value, and what did they hold? Writes
+#    lost-ids.json beside the snapshot, from a complete dump only, and prints
+#    "was <value>: <count>" from the snapshot.
+npm run board:recover -- --phase diff --snapshot <path-from-board:snapshot>
 
-# 1. Which cards lost their value, and what did they hold? lost-ids.json is
-#    kept ONLY when the dump is complete AND the snapshot reports what those cards
-#    held — step 3 refuses to run without it, so neither a truncated dump nor a
-#    missing snapshot can turn into a silent no-op or an unconfirmed re-apply.
-rm -f "$BOARD_TMP/lost-ids.json"
-gh project item-list 28 --owner modelcontextprotocol --format json --limit 2000 \
-  > "$BOARD_TMP/board-broken.json"
-if jq -e '(.items | length) == .totalCount' "$BOARD_TMP/board-broken.json" >/dev/null; then
-  jq -r '[.items[]|select(.status==null)|.id]' "$BOARD_TMP/board-broken.json" \
-    > "$BOARD_TMP/lost-ids.json" || rm -f "$BOARD_TMP/lost-ids.json"
-  jq -r --slurpfile L "$BOARD_TMP/lost-ids.json" '($L[0]) as $lost
-    | [.items[] | select(.id as $i | $lost|index($i)) | .status // "(none)"]
-    | group_by(.) | map({s:.[0],c:length}) | .[] | "was \(.s): \(.c)"' \
-    "$BOARD_TMP/board-snapshot.json" \
-    || { echo "no usable snapshot — cannot confirm what these cards held; not re-applying" >&2
-         rm -f "$BOARD_TMP/lost-ids.json"; }
-else
-  echo "board-broken.json INCOMPLETE — raise --limit and re-run step 1" >&2
-  rm -f "$BOARD_TMP/board-broken.json"
-fi
+# 2. Recreate the option — in the web UI, or echoing every surviving option's
+#    id (see above). NOTE: the recreated option gets a NEW id — the deleted
+#    one never comes back.
 
-# 2. Recreate the option, echoing every surviving option's id (see above).
-#    NOTE: the recreated option gets a NEW id — the deleted one never comes back.
-
-# 3. Re-apply it to the orphaned cards.
-if [ -s "$BOARD_TMP/lost-ids.json" ]; then
-  for id in $(jq -r '.[]' "$BOARD_TMP/lost-ids.json"); do
-    gh project item-edit --project-id PVT_kwDOCt2Azc4BJVxt --id "$id" \
-      --field-id PVTSSF_lADOCt2Azc4BJVxtzg5iI8c --single-select-option-id <NEW_OPTION_ID>
-    sleep 0.4
-  done
-else
-  echo "no lost-ids.json — step 1 did not complete; nothing re-applied" >&2
-fi
+# 3. Re-apply the new option id to the orphaned cards (paced).
+npm run board:recover -- --phase reapply --lost <dir>/lost-ids.json --option-id <NEW_OPTION_ID>
 ```
 
-Step 1's grouping is the safety check: confirm the orphaned set is exactly the
-cards that held the deleted option, so you don't overwrite a card someone
-legitimately moved in the meantime.
+Step 1's grouping is the safety check, and the script enforces it: a card is
+counted as lost only when it is blank now **and** held a value in the snapshot
+(a card blank before the deletion, or added since, is excluded), and
+`lost-ids.json` is written only when every lost card held the **same** value —
+a mixed grouping is printed and refused, since one option id cannot restore
+two. Step 3 refuses to run without step 1's file, so neither a truncated dump
+nor a missing snapshot can turn into a silent no-op or an unconfirmed
+re-apply. The file also records the board, the field and the value the lost
+cards held, and step 3 verifies `--option-id` against them — an option id that
+is valid on the field but is not the recreated option for that value is
+refused rather than rewriting every lost card to the wrong one. Finally, step
+3 re-reads each card immediately before editing it and aborts — naming how far
+it got — if any card was deleted or set in the meantime, so a stale lost list
+never overwrites a value a maintainer legitimately set; re-run step 1 and
+retry with the remainder.
 
 Because the recreated option carries a **new id**, the tables above and every
 reference to it must be updated in the same change — `grep` the old id across

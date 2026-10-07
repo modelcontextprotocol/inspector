@@ -1,0 +1,1489 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import {
+  formatCallToolResultHuman,
+  formatToolsHuman,
+  formatResourcesHuman,
+  formatResourceTemplatesHuman,
+  formatPromptsHuman,
+  formatResourceReadHuman,
+  formatPromptResultHuman,
+  formatCompletionsHuman,
+  formatTasksHuman,
+  formatTaskHuman,
+  formatInitializeHuman,
+  formatRootsHuman,
+  formatAuthListHuman,
+  formatServersListHuman,
+  formatServerShowHuman,
+  formatConnectionsListHuman,
+  formatConnectionInfoHuman,
+  formatAppInfoListHuman,
+  formatAppInfoHuman,
+  formatSkillVerifyListHuman,
+  formatSkillsHuman,
+  formatSkillGetHuman,
+  formatStreamEventHuman,
+  formatRpcResultHuman,
+  formatElicitationPendingHuman,
+} from "../src/connection/format-human.js";
+import { writeConnectionOutput } from "../src/connection/format-connection.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
+import { createStyle, PLAIN } from "@inspector/core/cli/style.js";
+
+describe("format-human", () => {
+  it("formats tools with schema variants and empty list", () => {
+    expect(formatToolsHuman([])).toContain("(none)");
+    const text = formatToolsHuman([
+      {
+        name: "echo",
+        description: "Echo back\nmore",
+        inputSchema: {
+          type: "object",
+          properties: {
+            message: { type: "string" },
+            n: { type: "number" },
+            tags: { type: "array", items: { type: "string" } },
+            extra: { type: "boolean" },
+          },
+          required: ["message"],
+        },
+        annotations: {
+          readOnlyHint: true,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      {
+        name: "types",
+        inputSchema: {
+          type: "object",
+          properties: {
+            emptyArr: { type: "array" },
+            multi: { type: ["string", "number"] },
+            bare: {},
+          },
+        },
+      },
+      {
+        name: "more",
+        inputSchema: {
+          type: "object",
+          properties: {
+            flag: { type: ["boolean", "null"] },
+            choice: { enum: ["a", "b"] },
+            obj: { type: "object" },
+          },
+        },
+      },
+      {
+        name: "ints",
+        inputSchema: {
+          type: "object",
+          properties: {
+            i: { type: "integer" },
+            unknownType: { type: "custom" },
+            nonObjProp: "x",
+          },
+        },
+        annotations: {},
+      },
+      { name: "plain", inputSchema: null },
+      { name: "emptyProps", inputSchema: { type: "object", properties: {} } },
+      { name: "noProps", inputSchema: { type: "object" } },
+      {},
+    ]);
+    expect(text).toContain("Tools (8):");
+    expect(text).toContain("`echo(message:str, n?:num, tags?:[str], …)`");
+    expect(text).toContain("[read-only, destructive, idempotent, open-world]");
+    expect(text).toContain("emptyArr?:[any]");
+    expect(text).toContain("multi?:str | num");
+    expect(text).toContain("bare?:any");
+    expect(text).toContain("flag?:bool");
+    expect(text).toContain("choice?:enum");
+    expect(text).toContain("`plain()`");
+    expect(text).toContain("`?()`");
+  });
+
+  it("formats list helpers for resources, templates, prompts, roots, tasks", () => {
+    expect(
+      formatResourcesHuman([
+        { name: "r", uri: "u://x", description: "d\n2" },
+        { uri: "u://only" },
+        { name: "n", uri: 1, description: "   " },
+        { name: "no-uri" },
+      ]),
+    ).toContain("`r` (u://x)");
+    expect(formatResourcesHuman([])).toContain("(none)");
+
+    expect(
+      formatResourceTemplatesHuman([
+        { name: "t", uriTemplate: "u://{id}", description: "tpl" },
+        { description: "   " },
+        { name: "x", uriTemplate: 1 },
+      ]),
+    ).toContain("u://{id}");
+    expect(formatResourceTemplatesHuman([])).toContain("(none)");
+
+    expect(
+      formatPromptsHuman([
+        { name: "p", description: "hi\nmore" },
+        { description: "   " },
+        {},
+      ]),
+    ).toContain("`p`");
+    expect(formatPromptsHuman([])).toContain("(none)");
+
+    expect(
+      formatRootsHuman([{ uri: "file:///a", name: "a" }, { uri: "file:///b" }]),
+    ).toContain("file:///a (a)");
+    expect(formatRootsHuman([])).toContain("(none)");
+
+    expect(
+      formatTasksHuman([
+        { taskId: "1", status: "running", statusMessage: "go" },
+        { id: "2", status: "done" },
+        {},
+      ]),
+    ).toContain("`1` running");
+    expect(formatTasksHuman([])).toContain("(none)");
+
+    expect(
+      formatTaskHuman({
+        taskId: "t1",
+        status: "ok",
+        statusMessage: "fine",
+        createdAt: "c",
+        lastUpdatedAt: "u",
+      }),
+    ).toContain("Created: c");
+    expect(formatTaskHuman(null)).toContain("Task: `?`");
+    expect(formatTaskHuman({})).toContain("Status: ?");
+  });
+
+  it("formats call tool results across content block types", () => {
+    const structured = { ok: true };
+    const withDupe = formatCallToolResultHuman({
+      isError: true,
+      content: [
+        { type: "text", text: JSON.stringify(structured) },
+        { type: "text", text: "hello" },
+        { type: "text", text: "{not-json" },
+        {
+          type: "resource_link",
+          uri: "u://r",
+          name: "n",
+          description: "d",
+          mimeType: "text/plain",
+        },
+        { type: "image", mimeType: "image/png", data: "abc" },
+        { type: "audio", mimeType: "audio/wav" },
+        {
+          type: "resource",
+          resource: { uri: "u://e", mimeType: "text/plain", text: "body" },
+        },
+        { type: "custom", x: 1 },
+      ],
+      structuredContent: structured,
+      _meta: { a: 1 },
+    });
+    expect(withDupe).toContain("Tool error:");
+    expect(withDupe).toContain("hello");
+    expect(withDupe).toContain("Resource link");
+    expect(withDupe).toContain("[Image:");
+    expect(withDupe).toContain("[Audio:");
+    expect(withDupe).toContain("Embedded resource");
+    expect(withDupe).toContain('"x": 1');
+    // The JSON duplicate of structuredContent is filtered from the content
+    // blocks, but the structured payload itself must still be rendered once.
+    expect(withDupe).toContain("Structured content:");
+    expect(withDupe).toContain('"ok": true');
+
+    expect(
+      formatCallToolResultHuman({
+        isError: true,
+        structuredContent: { only: true },
+        content: [],
+      }),
+    ).toContain("Structured content:");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "image" }, { type: "audio", data: "x" }],
+      }),
+    ).toContain("[Image: unknown");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "resource" }],
+      }),
+    ).toContain("Embedded resource");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [
+          {
+            type: "resource",
+            resource: { uri: "u://e" },
+          },
+        ],
+      }),
+    ).toContain("URI: u://e");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "resource_link", uri: "u" }],
+      }),
+    ).toContain("Resource link");
+
+    expect(
+      formatCallToolResultHuman({
+        content: [{ type: "text" }],
+        structuredContent: {},
+        _meta: {},
+      }),
+    ).toContain("Content:");
+
+    expect(formatCallToolResultHuman({})).toBe("(no content)");
+  });
+
+  it("formats resource read, prompt get, completions, initialize", () => {
+    expect(formatResourceReadHuman({ contents: [] })).toBe("(empty resource)");
+    expect(
+      formatResourceReadHuman({
+        contents: [
+          { uri: "u://a", mimeType: "text/plain", text: "hi" },
+          { uri: "u://b", blob: "zzzz" },
+        ],
+      }),
+    ).toContain("[Blob:");
+
+    expect(formatPromptResultHuman({})).toBe("(empty prompt)");
+    expect(
+      formatPromptResultHuman({
+        description: "desc",
+        messages: [
+          { role: "user", content: "plain" },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "block" }],
+          },
+          { role: "user", content: { type: "text", text: "obj" } },
+        ],
+      }),
+    ).toContain("[assistant]");
+
+    expect(formatCompletionsHuman({ values: ["a"], hasMore: true })).toContain(
+      "(more available)",
+    );
+    expect(formatCompletionsHuman({ values: [] })).toContain("(none)");
+
+    expect(
+      formatInitializeHuman({
+        serverInfo: { name: "s", version: "1" },
+        protocolVersion: "2025-01-01",
+        instructions: " use me ",
+        capabilities: { tools: {} },
+      }),
+    ).toContain("Capabilities: tools");
+    expect(formatInitializeHuman({})).toContain("(unknown)");
+    expect(
+      formatInitializeHuman({
+        serverInfo: { name: "s" },
+        instructions: "   ",
+        capabilities: {},
+      }),
+    ).toContain("Server: s");
+  });
+
+  it("annotates auth/list entries with knownAs, live, and IdP labelling", () => {
+    const out = formatAuthListHuman({
+      oauthStatePath: "/tmp/oauth.json",
+      servers: [
+        {
+          url: "https://mcp.example.com/mcp",
+          hasTokens: true,
+          hasRefreshToken: false,
+          knownAs: ["hosted"],
+          live: true,
+        },
+        {
+          url: "ema-idp:https://idp.example.com",
+          hasTokens: false,
+          hasRefreshToken: false,
+          idp: true,
+          issuer: "https://idp.example.com",
+        },
+      ],
+    });
+    expect(out).toContain("known as: hosted");
+    expect(out).toContain("● live");
+    // The IdP row shows its issuer and label, not the raw key or "(no local name)".
+    expect(out).toContain("enterprise IdP login");
+    expect(out).toContain("https://idp.example.com");
+    expect(out).not.toContain("ema-idp:");
+    expect(out).not.toContain("(no local name)");
+  });
+
+  it("formats admin and app-info helpers", () => {
+    expect(
+      formatAuthListHuman({
+        oauthStatePath: "/tmp/oauth.json",
+        servers: [
+          {
+            url: "https://example.com/mcp",
+            hasTokens: true,
+            hasRefreshToken: true,
+          },
+          { url: "https://empty.example/mcp" },
+        ],
+      }),
+    ).toMatch(/Stored auth[\s\S]*example\.com[\s\S]*tokens[\s\S]*no tokens/);
+    expect(
+      formatAuthListHuman({ oauthStatePath: "/tmp/x", servers: [] }),
+    ).toContain("(none)");
+    expect(formatServersListHuman([])).toContain("(none)");
+    expect(
+      formatServersListHuman([], PLAIN, {
+        kind: "catalog",
+        path: "/home/u/.mcp-inspector/mcp.json",
+      }),
+    ).toContain("Source: catalog /home/u/.mcp-inspector/mcp.json");
+    expect(
+      formatServersListHuman([], PLAIN, {
+        kind: "config",
+        path: "./mcp.json",
+      }),
+    ).toContain("Source: config ./mcp.json");
+    expect(
+      formatServersListHuman([{ name: "s", type: "stdio", detail: "x" }]),
+    ).toContain("`s`");
+    expect(
+      formatServersListHuman([
+        {
+          name: "s",
+          type: "stdio",
+          detail: "x",
+          connection: "s",
+          isMru: true,
+        },
+      ]),
+    ).toMatch(/@s \(MRU\)/);
+    expect(
+      formatServerShowHuman(
+        { name: "s", type: "stdio", detail: "x", config: {} },
+        PLAIN,
+        { kind: "catalog", path: "/tmp/cat.json" },
+      ),
+    ).toContain("Source: catalog /tmp/cat.json");
+    expect(
+      formatServerShowHuman({
+        name: "s",
+        type: "stdio",
+        detail: "node x",
+        config: { type: "stdio", command: "node" },
+      }),
+    ).toMatch(/Server[\s\S]*`s`[\s\S]*node x/);
+
+    expect(formatConnectionsListHuman([])).toContain("connect first");
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: true, serverIdentity: "id" },
+      ]),
+    ).toContain("(MRU)");
+    // protocolEra is on every ConnectionInfo now (#2298 follow-up), not just
+    // connections/show — connections/list renders it inline; its absence (an older
+    // daemon reply, hypothetically) must not print a bare "[undefined]".
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: true, serverIdentity: "id", protocolEra: "modern" },
+      ]),
+    ).toContain("— id [modern]");
+    expect(
+      formatConnectionsListHuman([
+        { name: "a", isMru: false, serverIdentity: "id" },
+      ]),
+    ).not.toContain("[");
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        isMru: true,
+        serverIdentity: "id",
+      }),
+    ).toContain("Connection `@a`");
+    // connections/show enrichment: era without a protocolVersion, serverInfo
+    // without a version, empty capabilities, an empty/non-array
+    // supportedVersions, and blank instructions each take the "nothing to
+    // append" branch rather than the populated one exercised elsewhere.
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        protocolEra: "legacy",
+        serverInfo: { name: "demo" },
+        capabilities: {},
+        supportedVersions: [],
+        instructions: "",
+      }),
+    ).toMatch(/Era: legacy\nServer info: demo\nCapabilities: \(none\)/);
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        protocolEra: undefined,
+        protocolVersion: "2025-11-25",
+        serverInfo: { name: "demo", version: "1.2.3" },
+        supportedVersions: ["2025-11-25", "2025-06-18"],
+        instructions: "Say hi.",
+      }),
+    ).toMatch(
+      /Era: unknown \(2025-11-25\)[\s\S]*demo v1\.2\.3[\s\S]*Supported versions: 2025-11-25, 2025-06-18[\s\S]*Instructions: Say hi\./,
+    );
+
+    // Auth snapshot line: OAuth with full detail, EMA with IdP session state,
+    // and a bare not-authorized snapshot (no scope/clientId branches).
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: {
+          method: "oauth",
+          authorized: true,
+          scope: "mcp:tools",
+          clientId: "client-123",
+        },
+      }),
+    ).toContain(
+      "Auth: OAuth (authorized; scope: mcp:tools; client: client-123)",
+    );
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: { method: "ema", authorized: true, idpSession: "logged_in" },
+      }),
+    ).toContain("Auth: EMA (authorized; IdP session: logged_in)");
+    expect(
+      formatConnectionInfoHuman({
+        name: "a",
+        auth: { method: "oauth", authorized: false },
+      }),
+    ).toContain("Auth: OAuth (not authorized)");
+
+    expect(
+      formatAppInfoListHuman([
+        { toolName: "with", hasApp: true, resourceUri: "ui://x" },
+        { toolName: "err", hasApp: false, resourceError: "boom" },
+        { toolName: "no", hasApp: false },
+      ]),
+    ).toContain("no app");
+
+    const verifyText = formatSkillVerifyListHuman([
+      { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+      {
+        name: "bad-skill",
+        uri: "skill://bad/SKILL.md",
+        outcome: "failed",
+        conformance: [{ severity: "error" }],
+        files: [{ status: "mismatch" }],
+      },
+      {
+        name: "cut-short",
+        uri: "skill://cut/SKILL.md",
+        outcome: "incomplete",
+        incomplete: "read bounds hit",
+      },
+    ]);
+    expect(verifyText).toContain("Skill verification (3):");
+    expect(verifyText).toContain("`ok-skill`");
+    expect(verifyText).toContain("verified");
+    expect(verifyText).toContain(
+      "`bad-skill` (skill://bad/SKILL.md) — failed — 1 issue(s), 1 file mismatch(es)",
+    );
+    expect(verifyText).toContain("`cut-short`");
+    expect(verifyText).toContain("read bounds hit");
+
+    // Unverifiable is its own verdict — "failed — 0 issue(s)" misreads as a
+    // pass narrowly missed when nothing was checked at all.
+    const unverifiableText = formatSkillVerifyListHuman([
+      {
+        name: "dyn-skill",
+        uri: "skill://dyn/SKILL.md",
+        outcome: "unverifiable",
+      },
+    ]);
+    expect(unverifiableText).toContain("`dyn-skill`");
+    expect(unverifiableText).toContain("unverifiable");
+    expect(unverifiableText).toContain("advertised no digests");
+    expect(unverifiableText).not.toContain("failed");
+    expect(unverifiableText).not.toContain("0 issue(s)");
+
+    const skillsText = formatSkillsHuman([
+      {
+        uri: "skill://ok/SKILL.md",
+        frontmatter: { name: "ok-skill", description: "Does things" },
+        resources: [{ uri: "skill://ok/a.md" }, { uri: "skill://ok/b.md" }],
+      },
+      {
+        uri: "skill://dyn/SKILL.md",
+        frontmatter: { name: "dyn-skill" },
+        resources: "dynamic",
+      },
+    ]);
+    expect(skillsText).toContain("Skills (2):");
+    expect(skillsText).toContain("`ok-skill` (skill://ok/SKILL.md)");
+    expect(skillsText).toContain("Does things");
+    expect(skillsText).toContain("2 file(s)");
+    expect(skillsText).toContain("dynamic resources");
+    expect(formatSkillsHuman([])).toContain("(none)");
+
+    const skillGetText = formatSkillGetHuman({
+      skill: {
+        uri: "skill://one/SKILL.md",
+        frontmatter: { name: "one" },
+        resources: [],
+      },
+      ttlMs: 60000,
+      cacheScope: "session",
+    });
+    expect(skillGetText).toContain("Skill:");
+    expect(skillGetText).toContain("`one`");
+    expect(skillGetText).toContain("ttlMs: 60000");
+    expect(skillGetText).toContain("cacheScope: session");
+
+    // Degenerate shapes: a bare entry (no frontmatter/uri/resources) and a
+    // bare envelope (no skill/ttlMs/cacheScope) must still render.
+    const bareEntry = formatSkillsHuman([{}]);
+    expect(bareEntry).toContain("`?`");
+    expect(bareEntry).not.toContain("file(s)");
+    const bareGet = formatSkillGetHuman({});
+    expect(bareGet).toContain("Skill:");
+    expect(bareGet).not.toContain("ttlMs");
+    expect(bareGet).not.toContain("cacheScope");
+
+    expect(
+      formatAppInfoHuman({
+        toolName: "t",
+        hasApp: true,
+        resourceUri: "ui://x",
+        csp: { a: 1 },
+      }),
+    ).toContain("CSP:");
+    expect(
+      formatAppInfoHuman({ toolName: "t", hasApp: false, resourceError: "e" }),
+    ).toContain("e");
+    expect(formatAppInfoHuman({ toolName: "t", hasApp: false })).toContain(
+      "No MCP App",
+    );
+  });
+
+  it("formats stream events and rpc dispatch", () => {
+    expect(formatStreamEventHuman(null)).toBe("null");
+    // Empty URI: formatUri must pass it through without linkifying.
+    expect(formatStreamEventHuman({ type: "subscribed" })).toBe("Subscribed: ");
+    // colorLevel groups: red, yellow, dim, and the default (cyan) bucket.
+    const s = createStyle(true);
+    for (const [level, colored] of [
+      ["error", s.red("error")],
+      ["warning", s.yellow("warning")],
+      ["debug", s.dim("debug")],
+      ["notice", s.dim("notice")],
+      ["info", s.cyan("info")],
+    ] as const) {
+      expect(
+        formatStreamEventHuman(
+          {
+            direction: "notification",
+            message: { params: { level, data: "x" } },
+          },
+          s,
+        ),
+      ).toContain(`[${colored}]`);
+    }
+    expect(formatStreamEventHuman({ type: "subscribed", uri: "u" })).toBe(
+      "Subscribed: u",
+    );
+    expect(
+      formatStreamEventHuman({ type: "resources/updated", uri: "u" }),
+    ).toBe("Resource updated: u");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {
+          method: "notifications/message",
+          params: { level: "warn", logger: "L", data: "hi" },
+        },
+      }),
+    ).toBe("[warn] L: hi");
+    // Object `data` renders as JSON, not "[object Object]".
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {
+          method: "notifications/message",
+          params: { level: "info", data: { job: "sync", ok: true } },
+        },
+      }),
+    ).toBe('[info] {"job":"sync","ok":true}');
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: { params: { message: "m" } },
+      }),
+    ).toBe("[info] m");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: { params: { nested: true } },
+      }),
+    ).toContain("nested");
+    expect(
+      formatStreamEventHuman({
+        direction: "notification",
+        message: {},
+      }),
+    ).toContain("[info]");
+    expect(formatStreamEventHuman({ other: 1 })).toContain('"other": 1');
+    expect(formatStreamEventHuman("raw")).toBe("raw");
+
+    expect(formatRpcResultHuman("tools/list", { tools: [] })).toContain(
+      "Tools",
+    );
+    expect(formatRpcResultHuman("tools/call", { content: [] })).toBe(
+      "(no content)",
+    );
+    expect(formatRpcResultHuman("resources/list", { resources: [] })).toContain(
+      "Resources",
+    );
+    expect(formatRpcResultHuman("resources/read", { contents: [] })).toBe(
+      "(empty resource)",
+    );
+    expect(
+      formatRpcResultHuman("resources/templates/list", {
+        resourceTemplates: [],
+      }),
+    ).toContain("templates");
+    expect(formatRpcResultHuman("resources/unsubscribe", { uri: "u" })).toBe(
+      "Unsubscribed: u",
+    );
+    expect(formatRpcResultHuman("prompts/list", { prompts: [] })).toContain(
+      "Prompts",
+    );
+    expect(formatRpcResultHuman("prompts/get", {})).toBe("(empty prompt)");
+    expect(formatRpcResultHuman("skills/list", { skills: [] })).toContain(
+      "Skills (0):",
+    );
+    expect(
+      formatRpcResultHuman("skills/get", { skill: { uri: "skill://x" } }),
+    ).toContain("Skill:");
+    expect(formatRpcResultHuman("prompts/complete", { values: [] })).toContain(
+      "Completions",
+    );
+    expect(
+      formatRpcResultHuman("initialize", { serverInfo: { name: "s" } }),
+    ).toContain("Server: s");
+    expect(formatRpcResultHuman("logging/setLevel", {})).toBe(
+      "Logging level updated.",
+    );
+    expect(formatRpcResultHuman("tasks/list", { tasks: [] })).toContain(
+      "Tasks",
+    );
+    expect(
+      formatRpcResultHuman("tasks/get", { task: { taskId: "1", status: "x" } }),
+    ).toContain("Task: `1`");
+    expect(formatRpcResultHuman("tasks/cancel", { taskId: "1" })).toBe(
+      "Cancelled task: 1",
+    );
+    expect(formatRpcResultHuman("tasks/result", { content: [] })).toBe(
+      "(no content)",
+    );
+    expect(formatRpcResultHuman("roots/list", { roots: [] })).toContain(
+      "Roots",
+    );
+    expect(formatRpcResultHuman("roots/set", { roots: [] })).toContain("Roots");
+    expect(formatRpcResultHuman("unknown/op", { x: 1 })).toBeNull();
+  });
+});
+
+describe("formatElicitationPendingHuman", () => {
+  it("formatElicitationPendingHuman renders form fields and respond guidance", () => {
+    const text = formatElicitationPendingHuman({
+      elicitationId: "e-9",
+      connection: "srv",
+      method: "tools/call",
+      toolName: "collect",
+      mode: "form",
+      message: "Pick a color",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          color: { type: "string", description: "Favourite color" },
+          size: { type: "string", enum: ["s", "m", "l"] },
+          count: { type: "integer" },
+        },
+        required: ["color"],
+      },
+      origin: "server-request",
+      expiresAt: Date.now() + 600_000,
+    });
+    expect(text).toContain("Input required");
+    expect(text).toContain("@srv");
+    expect(text).toContain("Pick a color");
+    expect(text).toContain("color (string, required)");
+    expect(text).toContain("Favourite color");
+    expect(text).toContain("size (enum) [s, m, l]");
+    expect(text).toContain("count (integer)");
+    expect(text).toContain("elicitation/respond e-9 field:=value");
+    expect(text).toContain("--decline | --cancel");
+    expect(text).toContain("expires");
+  });
+
+  it("formatElicitationPendingHuman renders url mode with --done guidance; unsafe schemes stay plain", () => {
+    const info = {
+      elicitationId: "e-u",
+      connection: "srv",
+      method: "tools/call",
+      mode: "url",
+      message: "Finish signup",
+      url: "https://example.com/signup?flow=abc",
+      origin: "server-request",
+      expiresAt: 0,
+    } satisfies Parameters<typeof formatElicitationPendingHuman>[0];
+    const styled = formatElicitationPendingHuman(info, createStyle(true));
+    expect(styled).toContain("https://example.com/signup?flow=abc");
+    expect(styled).toContain("\u001b]8;;https://example.com/signup?flow=abc");
+    expect(styled).toContain("elicitation/respond e-u --done");
+    expect(styled).toContain("elicitation/respond e-u --cancel");
+
+    const unsafe = formatElicitationPendingHuman(
+      { ...info, url: "file:///etc/passwd" },
+      createStyle(true),
+    );
+    expect(unsafe).toContain("file:///etc/passwd");
+    expect(unsafe).not.toContain("\u001b]8");
+  });
+});
+
+describe("writeConnectionOutput", () => {
+  let stdout: string;
+  let stderr: string;
+  let original: typeof process.stdout.write;
+  let originalErr: typeof process.stderr.write;
+
+  beforeEach(() => {
+    stdout = "";
+    stderr = "";
+    original = process.stdout.write;
+    originalErr = process.stderr.write;
+    process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stdout += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stdout.write;
+    process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+      stderr += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stderr.write;
+  });
+
+  afterEach(() => {
+    process.stdout.write = original;
+    process.stderr.write = originalErr;
+  });
+
+  it("connection with authUrl: json carries the URL verbatim (query intact), human prints relay guidance", async () => {
+    const authUrl = "https://as.example/authorize?client_id=abc&state=xyz";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.pendingAuth).toBe(true);
+    expect(parsed.authUrl).toBe(authUrl);
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).toContain("Sign-in: pending");
+    // Non-interactive (agent) framing: a factual statement to relay the URL
+    // and wait, with the resume command named for after confirmation.
+    expect(stdout).toContain("not usable yet until the user signs in");
+    expect(stdout).toContain("wait for them to confirm");
+    expect(stdout).toContain("mcpdo connections/show @api");
+    expect(stdout).not.toContain("Open this link in a browser");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", interactive: true },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          auth: { method: "oauth", authorized: false },
+        },
+        authUrl,
+      },
+    );
+    // Interactive (human) framing: address the reader directly, and it is the
+    // human path that gets the "check with connections/show" nudge.
+    expect(stdout).toContain("Open this link in a browser to authenticate");
+    expect(stdout).toContain("connections/show @api");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).not.toContain("not usable yet until the user signs in");
+    expect(stdout).not.toContain("wait for them to confirm");
+  });
+
+  it("pendingAuthSignedIn: human output flips to completed / completing-on-next-use", async () => {
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: {
+          name: "api",
+          serverIdentity: "https://mcp.example.com/mcp",
+          pendingAuth: true,
+          pendingAuthSignedIn: true,
+          auth: { method: "oauth", authorized: true },
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in: completed");
+    expect(stdout).toContain("finishes on next use");
+    expect(stdout).not.toContain("Sign-in: pending");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connections/list",
+        connections: [
+          {
+            name: "api",
+            serverIdentity: "https://mcp.example.com/mcp",
+            connectedAt: 1,
+            lastAccessedAt: 1,
+            isMru: true,
+            pendingAuth: true,
+            pendingAuthSignedIn: true,
+          },
+          {
+            name: "other",
+            serverIdentity: "https://mcp2.example.com/mcp",
+            connectedAt: 1,
+            lastAccessedAt: 1,
+            isMru: false,
+            pendingAuth: true,
+          },
+        ],
+      },
+    );
+    expect(stdout).toContain("signed in — completing on next use");
+    expect(stdout).toContain("(sign-in pending)");
+  });
+
+  it("connection authUrl: only allowlisted schemes become OSC 8 links", async () => {
+    const connection = {
+      name: "api",
+      serverIdentity: "https://mcp.example.com/mcp",
+      pendingAuth: true,
+      auth: { method: "oauth", authorized: false },
+    };
+    const style = createStyle(true);
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style, interactive: true },
+      {
+        kind: "connection",
+        connection,
+        authUrl: "https://as.example/authorize?state=ok",
+      },
+    );
+    expect(stdout).toContain("\u001b]8;;https://as.example/authorize?state=ok");
+
+    // Server-controlled OAuth metadata: an unsafe scheme renders as plain
+    // text, never a clickable link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style, interactive: true },
+      {
+        kind: "connection",
+        connection,
+        authUrl: "file:///etc/passwd",
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("pending ema-login renders relay guidance with the same link gate", async () => {
+    const authUrl = "https://idp.example.com/authorize?state=p1";
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl,
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain(authUrl);
+    expect(stdout).toContain("auth/ema-status");
+
+    // JSON passthrough carries the pending fields verbatim.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl,
+        },
+      },
+    );
+    const parsed = JSON.parse(stdout) as Record<string, unknown>;
+    expect(parsed.pendingLogin).toBe(true);
+    expect(parsed.authUrl).toBe(authUrl);
+
+    // Unsafe scheme renders as plain text, never a clickable OSC 8 link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("pending ema-login in interactive mode renders the human sign-in block with the link gate", async () => {
+    // Safe https URL becomes a clickable OSC 8 link in the human block.
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true), interactive: true },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "https://idp.example.com/authorize?state=h1",
+        },
+      },
+    );
+    expect(stdout).toContain("Sign-in required");
+    expect(stdout).toContain("\u001b]8");
+
+    // Unsafe scheme stays plain text even in the human block.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true), interactive: true },
+      {
+        kind: "auth/ema-login",
+        result: {
+          issuer: "https://idp.example.com",
+          loginState: "none",
+          alreadyLoggedIn: false,
+          pendingLogin: true,
+          authUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("ema-logout routes the end-session URL through the same OSC 8 link gate", async () => {
+    // Safe https URL renders as a clickable OSC 8 link, like every other
+    // server-supplied URL in this formatter.
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-logout",
+        result: {
+          issuer: "https://idp.example.com",
+          endSessionUrl: "https://idp.example.com/session/end?id_token_hint=x",
+        },
+      },
+    );
+    expect(stdout).toContain("To end your IdP browser session, navigate to:");
+    expect(stdout).toContain("\u001b]8");
+
+    // Unsafe scheme stays plain text, never a clickable link.
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "text", style: createStyle(true) },
+      {
+        kind: "auth/ema-logout",
+        result: {
+          issuer: "https://idp.example.com",
+          endSessionUrl: "file:///etc/passwd",
+        },
+      },
+    );
+    expect(stdout).toContain("file:///etc/passwd");
+    expect(stdout).not.toContain("\u001b]8");
+  });
+
+  it("connection without authUrl renders exactly as before (no sign-in block)", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "connection",
+        connection: { name: "api", serverIdentity: "id" },
+      },
+    );
+    expect(stdout).not.toContain("Sign-in");
+  });
+
+  it("pretty-prints json without a result envelope", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/list",
+        result: { tools: [] },
+      },
+    );
+    expect(stdout).toBe('{\n  "tools": []\n}\n');
+  });
+
+  it("escapes C1 controls in json output (JSON.stringify only escapes C0)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: {
+          content: [{ type: "text", text: "before\u009b31mafter" }],
+        },
+      },
+    );
+    // U+009B is 8-bit CSI: it must reach the terminal as a \u escape, and
+    // parsing the output must restore the original value byte-for-byte.
+    expect(stdout).not.toContain("\u009b");
+    expect(stdout).toContain("\\u009b");
+    const parsed = JSON.parse(stdout) as {
+      content: { text: string }[];
+    };
+    expect(parsed.content[0]!.text).toBe("before\u009b31mafter");
+  });
+
+  it("sanitizes server-supplied terminal escapes in text mode", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: {
+          content: [{ type: "text", text: "\u001b]52;c;c3RvbGVu\u0007hi" }],
+        },
+      },
+    );
+    expect(stdout).not.toContain("\u001b");
+    expect(stdout).not.toContain("\u0007");
+    expect(stdout).toContain("\u241b]52;c;c3RvbGVu\u2407hi");
+  });
+
+  it("leaves json output verbatim (JSON escaping already protects it)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { content: [{ type: "text", text: "\u001bhi" }] },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      content: [{ type: "text", text: "\u001bhi" }],
+    });
+    expect(stdout).toContain("\\u001bhi");
+  });
+
+  it("sanitizes the ndjson stderr summary line", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [],
+        summary: "done \u001b[2J",
+      },
+    );
+    expect(stderr).toContain("done \u241b[2J");
+    expect(stderr).not.toContain("\u001b");
+  });
+
+  it("ignores auto-collected appInfo on tools/call json", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { content: [{ type: "text", text: "ok" }] },
+        appInfo: { hasApp: false, toolName: "echo" },
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      content: [{ type: "text", text: "ok" }],
+    });
+  });
+
+  it("throws NO_APP after printing app-info text", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "text" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { hasApp: false, toolName: "x" },
+        },
+      ),
+    ).rejects.toMatchObject({ exitCode: EXIT_CODES.NO_APP });
+    expect(stdout).toContain("has no MCP App");
+  });
+
+  it("allows hasApp true app-info probes", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "tools/call",
+        result: { hasApp: true, toolName: "x", resourceUri: "ui://x" },
+      },
+    );
+    expect(stdout).toContain("has an MCP App");
+  });
+
+  it("throws TOOL_ERROR when isError", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+          toolName: "echo",
+        },
+      ),
+    ).rejects.toBeInstanceOf(CliExitCodeError);
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+        },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining("tool") });
+    // Server-influenced tool names are sanitized before reaching the
+    // terminal-bound error message (C0/C1 → visible stand-ins).
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "rpc",
+          method: "tools/call",
+          result: { isError: true, content: [] },
+          toolName: "evil\u001b]0;pwned\u0007",
+        },
+      ),
+    ).rejects.toMatchObject({
+      message: expect.not.stringContaining("\u001b"),
+    });
+  });
+
+  it("falls back to pretty JSON for unknown rpc methods in text mode", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "rpc",
+        method: "custom/x",
+        result: { ok: 1 },
+      },
+    );
+    expect(stdout).toContain('"ok": 1');
+  });
+
+  it("renders skill-verify NDJSON with its own formatter, not app-info's", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "ndjson",
+        variant: "skill-verify",
+        lines: [
+          { name: "ok-skill", uri: "skill://ok/SKILL.md", outcome: "verified" },
+        ],
+        summary: "Verified 1 skill and 0 files: no conformance errors.",
+      },
+    );
+    expect(stdout).toContain("Skill verification (1):");
+    expect(stdout).not.toContain("App info");
+    expect(stderr).toBe(
+      "Verified 1 skill and 0 files: no conformance errors.\n",
+    );
+  });
+
+  it("throws with the verify exit code after printing the report and summary", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "ndjson",
+          variant: "skill-verify",
+          lines: [
+            {
+              name: "bad-skill",
+              uri: "skill://bad/SKILL.md",
+              outcome: "failed",
+            },
+          ],
+          summary: "1 of 1 skill failed verification.",
+          exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+        },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: EXIT_CODES.SKILL_NONCONFORMANT,
+      envelope: { code: "skills_nonconformant" },
+    });
+    // Report already on stdout, summary on stderr — both happen before the throw.
+    expect(stdout).toContain("bad-skill");
+    expect(stderr).toBe("1 of 1 skill failed verification.\n");
+  });
+
+  it("formats every admin/stream payload kind", async () => {
+    const kinds = [
+      {
+        kind: "ndjson" as const,
+        lines: [{ toolName: "a", hasApp: false }],
+      },
+      { kind: "stream-event" as const, data: { type: "subscribed", uri: "u" } },
+      {
+        kind: "servers/list" as const,
+        servers: [{ name: "s", type: "stdio", detail: "d" }],
+      },
+      {
+        kind: "servers/show" as const,
+        server: {
+          name: "s",
+          type: "stdio",
+          detail: "d",
+          config: { type: "stdio", command: "n" },
+        },
+      },
+      {
+        kind: "connections/list" as const,
+        connections: [{ name: "a", serverIdentity: "id" }],
+      },
+      {
+        kind: "connection" as const,
+        connection: { name: "a", serverIdentity: "id" },
+      },
+      { kind: "disconnect" as const, name: "a" },
+      {
+        kind: "daemon/status" as const,
+        status: { pid: 1, socketPath: "/tmp/s", connections: [] },
+      },
+      {
+        kind: "daemon/status" as const,
+        status: { pid: 2, connections: "bad" },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: false },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: true },
+      },
+      {
+        kind: "daemon/stop" as const,
+        result: { stopping: false, message: "was idle" },
+      },
+      {
+        kind: "auth/list" as const,
+        list: {
+          oauthStatePath: "/tmp/oauth.json",
+          servers: [
+            {
+              url: "https://example.com/mcp",
+              hasTokens: true,
+              hasRefreshToken: false,
+            },
+          ],
+        },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { all: true, cleared: 1 },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { all: true, cleared: 2 },
+      },
+      {
+        kind: "auth/clear" as const,
+        result: { url: "https://example.com/mcp" },
+      },
+      { kind: "generic" as const, data: { x: 1 }, title: "Title" },
+      { kind: "generic" as const, data: { y: 2 } },
+    ];
+
+    for (const payload of kinds) {
+      stdout = "";
+      await writeConnectionOutput({ format: "text" }, payload);
+      expect(stdout.length).toBeGreaterThan(0);
+      stdout = "";
+      await writeConnectionOutput({ format: "json" }, payload);
+      expect(() => JSON.parse(stdout)).not.toThrow();
+    }
+  });
+
+  it("defaults undefined format to text", async () => {
+    await writeConnectionOutput(
+      {},
+      {
+        kind: "disconnect",
+        name: "z",
+      },
+    );
+    expect(stdout).toContain("Disconnected `@z`");
+  });
+
+  it("notes cleared stored auth on disconnect --clear-auth (text + json)", async () => {
+    await writeConnectionOutput(
+      { format: "text" },
+      {
+        kind: "disconnect",
+        name: "z",
+        clearedAuthUrl: "https://example.com/mcp",
+      },
+    );
+    expect(stdout).toContain("Disconnected `@z`");
+    expect(stdout).toContain("Cleared stored auth for https://example.com/mcp");
+    expect(stdout).toContain("re-trigger sign-in");
+
+    stdout = "";
+    await writeConnectionOutput(
+      { format: "json" },
+      {
+        kind: "disconnect",
+        name: "z",
+        clearedAuthUrl: "https://example.com/mcp",
+      },
+    );
+    expect(JSON.parse(stdout)).toEqual({
+      name: "z",
+      clearedAuthUrl: "https://example.com/mcp",
+    });
+  });
+
+  it("omits the clearedAuthUrl field when auth was not cleared (json)", async () => {
+    await writeConnectionOutput(
+      { format: "json" },
+      { kind: "disconnect", name: "z" },
+    );
+    expect(JSON.parse(stdout)).toEqual({ name: "z" });
+  });
+});
+
+describe("format-human ANSI styling", () => {
+  it("styles human tool lists and log levels when enabled", () => {
+    const s = createStyle(true);
+    const tools = formatToolsHuman(
+      [
+        {
+          name: "echo",
+          description: "hi",
+          inputSchema: {
+            type: "object",
+            properties: { message: { type: "string" } },
+            required: ["message"],
+          },
+        },
+      ],
+      s,
+    );
+    expect(tools).toContain("\u001b[1m"); // bold name
+    expect(tools).toContain("\u001b[36m"); // cyan params
+    expect(tools).toContain("\u001b[2m"); // dim description
+    expect(tools).toContain("echo");
+
+    const log = formatStreamEventHuman(
+      {
+        direction: "notification",
+        message: { params: { level: "error", data: "boom" } },
+      },
+      s,
+    );
+    expect(log).toContain("\u001b[31m");
+    expect(log).toContain("boom");
+  });
+
+  it("hyperlinks only allowlisted schemes as OSC 8", () => {
+    const s = createStyle(true);
+    const out = formatResourcesHuman(
+      [
+        { uri: "https://example.com/r", name: "web" },
+        { uri: "file:///etc/passwd", name: "local" },
+        { uri: "vscode://malicious/payload", name: "custom" },
+      ],
+      s,
+    );
+    // https renders as a clickable link; file:/custom-handler URIs must not
+    // invite the terminal to invoke a local protocol handler.
+    expect(out).toContain("\u001b]8;;https://example.com/r");
+    expect(out).not.toContain("]8;;file://");
+    expect(out).not.toContain("]8;;vscode://");
+    expect(out).toContain("file:///etc/passwd");
+    expect(out).toContain("vscode://malicious/payload");
+  });
+});

@@ -1,0 +1,427 @@
+import type { AuthChallenge } from "../auth/challenge.js";
+import {
+  AuthRecoveryRequiredError,
+  isStandardOAuthStepUp as isCoreStandardOAuthStepUp,
+  isUnauthorizedError,
+  stepUpConfirmMessage,
+  stepUpInsufficientScopeMessage,
+  MutableRedirectUrlProvider,
+} from "../auth/index.js";
+import {
+  createOAuthCallbackServer,
+  runRunnerInteractiveOAuth,
+} from "../auth/node/index.js";
+import type { RunnerInteractiveOAuthClient } from "../auth/node/runner-interactive-oauth.js";
+import type { RunnerOAuthCallbackConfig } from "../auth/node/runner-oauth-callback.js";
+import type { InspectorServerSettings } from "../mcp/types.js";
+import { isOAuthCapableServerConfig } from "../client/runner.js";
+import type { MCPServerConfig } from "../mcp/types.js";
+import { createInterface } from "node:readline/promises";
+import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
+import {
+  isCliAutoOpenForced,
+  type CliOAuthAutoOpenControl,
+} from "./cli-oauth-navigation.js";
+
+/** Client surface needed for connect + mid-RPC OAuth recovery. */
+export type CliOAuthClient = RunnerInteractiveOAuthClient & {
+  connect(): Promise<void>;
+  disconnect(): Promise<void>;
+};
+
+/** Default bound for a non-TTY step-up [y/N] that never sends a line. */
+export const STEP_UP_PIPE_TIMEOUT_MS = 5_000;
+
+export type CliOAuthConnectOptions = {
+  /**
+   * When true, never open interactive OAuth / step-up prompts. Use the shared
+   * store if it can satisfy the challenge; otherwise fail with AUTH_REQUIRED.
+   */
+  storedAuthOnly?: boolean;
+  /**
+   * Arms browser auto-open only around the CLI-owned interactive OAuth flow
+   * (callback server listening). See {@link createCliOAuthNavigation}.
+   */
+  autoOpenControl?: CliOAuthAutoOpenControl;
+  /**
+   * Override “human present” detection for interactive-OAuth admit gating
+   * (tests and programmatic callers). When omitted, production uses
+   * `stdin.isTTY || stderr.isTTY` so `2>&1 | tee` still works (stdin remains a
+   * TTY). Does **not** gate the step-up [y/N] confirmer — that accepts piped
+   * answers and bounds silent pipes via {@link stepUpPromptTimeoutMs}.
+   */
+  isTTY?: boolean;
+  /**
+   * Override the step-up [y/N] confirmer (tests and programmatic callers).
+   * When omitted, prompts on stderr and reads from stdin.
+   */
+  confirmStepUp?: () => Promise<boolean>;
+  /**
+   * Bound (ms) for the default step-up confirmer when stdin is not a TTY, so a
+   * pipe that never writes cannot hang forever. Ignored on a TTY stdin (humans
+   * may pause). When set explicitly (including in tests), always applied.
+   * Default: {@link STEP_UP_PIPE_TIMEOUT_MS}.
+   */
+  stepUpPromptTimeoutMs?: number;
+  /**
+   * `--quiet`: drop the "Authorization complete" status lines (#2435). The
+   * authorization URL and the step-up [y/N] still print — a human has to act
+   * on those for the flow to finish at all.
+   */
+  quiet?: boolean;
+};
+
+function authRequiredFailure(message: string): never {
+  throw new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, message, {
+    code: "auth_required",
+  });
+}
+
+/**
+ * Interactive OAuth waits up to 15 minutes on the loopback callback. Admit the
+ * flow when a human is present (`stdin` or `stderr` is a TTY — so `2>&1 | tee`
+ * still works), or when `MCP_AUTO_OPEN_ENABLED=true` (explicit non-TTY /
+ * automation opt-in, which also force-opens a browser).
+ *
+ * Browser auto-open stays stderr-only — see {@link createCliOAuthNavigation}.
+ * Step-up [y/N] accepts piped stdin (`echo y | …`); EOF and silent pipes are
+ * bounded in the default confirmer (close race + {@link STEP_UP_PIPE_TIMEOUT_MS}).
+ */
+export function assertInteractiveOAuthAllowed(
+  options?: Pick<CliOAuthConnectOptions, "isTTY">,
+): void {
+  const humanPresent =
+    options?.isTTY !== undefined
+      ? options.isTTY
+      : process.stdin.isTTY === true || process.stderr.isTTY === true;
+  if (humanPresent || isCliAutoOpenForced()) return;
+  authRequiredFailure(
+    "Interactive OAuth requires a TTY on stdin or stderr (or MCP_AUTO_OPEN_ENABLED=true). For CI/non-interactive runs use --stored-auth-only.",
+  );
+}
+
+/** Standard-OAuth step-up (not EMA silent re-mint). */
+export function isStandardOAuthStepUp(
+  challenge: AuthChallenge,
+  settings?: InspectorServerSettings,
+): boolean {
+  return isCoreStandardOAuthStepUp(challenge, {
+    enterpriseManaged: settings?.enterpriseManaged,
+  });
+}
+
+/**
+ * Read [y/N] from stdin. Piped answers work when newline-terminated or when
+ * stdin closes (`echo y | …`, `printf y | …`). On EOF with no line
+ * (`< /dev/null`), decline. A non-TTY stdin that never sends a line within
+ * {@link STEP_UP_PIPE_TIMEOUT_MS} fails with `auth_required` (timed out —
+ * distinct from an explicit **N**).
+ *
+ * Partial last lines without a trailing newline are captured via the `line`
+ * event — on stream end readline emits the buffer then `close` without
+ * settling `question()`, so close alone would otherwise silently decline.
+ * An open pipe that writes `y` without `\n` or EOF never flushes that buffer.
+ */
+async function confirmStepUpFromStdin(timeoutMs?: number): Promise<boolean> {
+  const rl = createInterface({ input: process.stdin, output: process.stderr });
+  const applyTimeoutMs =
+    timeoutMs !== undefined
+      ? timeoutMs
+      : process.stdin.isTTY === true
+        ? undefined
+        : STEP_UP_PIPE_TIMEOUT_MS;
+  try {
+    const answer = await new Promise<string>((resolve, reject) => {
+      let settled = false;
+      let lastLine: string | undefined;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      function cleanup(): void {
+        if (timer !== undefined) clearTimeout(timer);
+        rl.removeListener("close", onClose);
+        rl.removeListener("line", onLine);
+      }
+      function finish(value: string): void {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      }
+      function finishTimeout(): void {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(
+          new CliExitCodeError(
+            EXIT_CODES.AUTH_REQUIRED,
+            `Step-up authorization timed out (no answer on stdin within ${String(applyTimeoutMs)}ms). For CI/non-interactive runs use --stored-auth-only.`,
+            { code: "auth_required" },
+          ),
+        );
+      }
+      function onLine(line: string): void {
+        lastLine = line;
+      }
+      function onClose(): void {
+        finish(lastLine ?? "n");
+      }
+      rl.on("line", onLine);
+      rl.once("close", onClose);
+      if (applyTimeoutMs !== undefined) {
+        timer = setTimeout(finishTimeout, applyTimeoutMs);
+      }
+      void rl.question("").then(
+        (line) => finish(line),
+        () => finish(lastLine ?? "n"),
+      );
+    });
+    const normalized = answer.trim().toLowerCase();
+    return normalized === "y" || normalized === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptStepUpConfirm(
+  challenge: AuthChallenge,
+  confirmStepUp: () => Promise<boolean>,
+): Promise<boolean> {
+  process.stderr.write(`${stepUpConfirmMessage(challenge)}\n`);
+  process.stderr.write("Proceed with step-up authorization? [y/N] ");
+  return confirmStepUp();
+}
+
+async function withArmedAutoOpen<T>(
+  control: CliOAuthAutoOpenControl | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!control) return fn();
+  control.armed = true;
+  try {
+    return await fn();
+  } finally {
+    control.armed = false;
+  }
+}
+
+export async function runCliInteractiveOAuth(
+  client: RunnerInteractiveOAuthClient,
+  redirectUrlProvider: MutableRedirectUrlProvider,
+  callbackUrlConfig: RunnerOAuthCallbackConfig,
+  options?: {
+    authorizationUrl?: URL;
+    authChallenge?: AuthChallenge;
+    autoOpenControl?: CliOAuthAutoOpenControl;
+    quiet?: boolean;
+  },
+): Promise<void> {
+  const result = await withArmedAutoOpen(options?.autoOpenControl, () =>
+    runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: callbackUrlConfig,
+      createCallbackServer: createOAuthCallbackServer,
+      authorizationUrl: options?.authorizationUrl,
+      authChallenge: options?.authChallenge,
+      // The CLI has no other Ctrl-C owner; cancel the wait cleanly.
+      handleSignals: true,
+    }),
+  );
+
+  if (result.kind === "insufficient_scope") {
+    throw new Error(stepUpInsufficientScopeMessage(result.challenge));
+  }
+  if (result.kind === "success" && !options?.quiet) {
+    process.stderr.write("Authorization complete.\n");
+  }
+}
+
+export async function handleCliAuthRecoveryRequired(
+  client: RunnerInteractiveOAuthClient,
+  error: AuthRecoveryRequiredError,
+  redirectUrlProvider: MutableRedirectUrlProvider,
+  callbackUrlConfig: RunnerOAuthCallbackConfig,
+  serverSettings?: InspectorServerSettings,
+  options?: CliOAuthConnectOptions,
+): Promise<void> {
+  const confirmStepUp =
+    options?.confirmStepUp ??
+    (() => confirmStepUpFromStdin(options?.stepUpPromptTimeoutMs));
+  if (isStandardOAuthStepUp(error.authChallenge, serverSettings)) {
+    if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
+      return;
+    }
+    assertInteractiveOAuthAllowed(options);
+    const proceed = await promptStepUpConfirm(
+      error.authChallenge,
+      confirmStepUp,
+    );
+    if (!proceed) {
+      throw new Error("Step-up authorization declined.");
+    }
+  } else if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
+    return;
+  } else {
+    assertInteractiveOAuthAllowed(options);
+  }
+
+  await runCliInteractiveOAuth(client, redirectUrlProvider, callbackUrlConfig, {
+    authorizationUrl: error.authorizationUrl,
+    autoOpenControl: options?.autoOpenControl,
+    quiet: options?.quiet,
+    ...(error.authChallenge.reason === "insufficient_scope" && {
+      authChallenge: error.authChallenge,
+    }),
+  });
+}
+
+export async function connectInspectorWithOAuth(
+  inspectorClient: CliOAuthClient,
+  serverConfig: MCPServerConfig,
+  redirectUrlProvider: MutableRedirectUrlProvider,
+  callbackUrlConfig: RunnerOAuthCallbackConfig,
+  serverSettings?: InspectorServerSettings,
+  options?: CliOAuthConnectOptions,
+): Promise<void> {
+  try {
+    await inspectorClient.connect();
+  } catch (err) {
+    if (!isOAuthCapableServerConfig(serverConfig)) {
+      throw err;
+    }
+
+    if (err instanceof AuthRecoveryRequiredError) {
+      // Under --stored-auth-only, give the store one chance then bail — avoid
+      // calling handle (which would re-check) on the failure path.
+      if (options?.storedAuthOnly) {
+        if (
+          await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)
+        ) {
+          await inspectorClient.connect();
+          return;
+        }
+        authRequiredFailure(
+          err.message ||
+            "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      await handleCliAuthRecoveryRequired(
+        inspectorClient,
+        err,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        serverSettings,
+        options,
+      );
+      // Belt-and-braces: this branch never disconnects today, so connect() is
+      // usually a no-op (already connected). Fresh tokens are picked up from
+      // storage per request; keep the call if handle later gains a disconnect.
+      await inspectorClient.connect();
+      return;
+    }
+
+    if (isUnauthorizedError(err)) {
+      if (options?.storedAuthOnly) {
+        authRequiredFailure(
+          err instanceof Error
+            ? err.message
+            : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      assertInteractiveOAuthAllowed(options);
+      await inspectorClient.disconnect().catch(() => {});
+      await runCliInteractiveOAuth(
+        inspectorClient,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        { autoOpenControl: options?.autoOpenControl, quiet: options?.quiet },
+      );
+      await inspectorClient.connect();
+      return;
+    }
+
+    throw err;
+  }
+}
+
+/**
+ * Run `fn` once; on auth recovery errors, complete interactive OAuth,
+ * reconnect, and retry `fn` a single time. Mirrors
+ * {@link connectInspectorWithOAuth}: handles both
+ * {@link AuthRecoveryRequiredError} and plain unauthorized errors, and skips
+ * OAuth machinery for non-OAuth-capable server configs.
+ */
+export async function withCliAuthRecoveryRetry<T>(
+  inspectorClient: CliOAuthClient,
+  serverConfig: MCPServerConfig,
+  redirectUrlProvider: MutableRedirectUrlProvider,
+  callbackUrlConfig: RunnerOAuthCallbackConfig,
+  serverSettings: InspectorServerSettings | undefined,
+  fn: () => Promise<T>,
+  options?: CliOAuthConnectOptions,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isOAuthCapableServerConfig(serverConfig)) {
+      throw err;
+    }
+
+    if (err instanceof AuthRecoveryRequiredError) {
+      // Satisfied-check lives in handleCliAuthRecoveryRequired for the
+      // interactive path; under --stored-auth-only check once here then bail.
+      if (options?.storedAuthOnly) {
+        if (
+          await inspectorClient.checkAuthChallengeSatisfied(err.authChallenge)
+        ) {
+          return await fn();
+        }
+        authRequiredFailure(
+          err.message ||
+            "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      await handleCliAuthRecoveryRequired(
+        inspectorClient,
+        err,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        serverSettings,
+        options,
+      );
+      // Belt-and-braces: this branch never disconnects today, so connect() is
+      // usually a no-op (already connected). See connectInspectorWithOAuth.
+      await inspectorClient.connect();
+      if (!options?.quiet) {
+        process.stderr.write("Authorization complete. Retrying…\n");
+      }
+      return await fn();
+    }
+
+    if (isUnauthorizedError(err)) {
+      if (options?.storedAuthOnly) {
+        authRequiredFailure(
+          err instanceof Error
+            ? err.message
+            : "Authentication required and --stored-auth-only is set; refusing interactive OAuth.",
+        );
+      }
+      assertInteractiveOAuthAllowed(options);
+      await inspectorClient.disconnect().catch(() => {});
+      await runCliInteractiveOAuth(
+        inspectorClient,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        { autoOpenControl: options?.autoOpenControl, quiet: options?.quiet },
+      );
+      // Load-bearing: disconnect() above closed the session.
+      // connect() is a no-op when already connected.
+      await inspectorClient.connect();
+      if (!options?.quiet) {
+        process.stderr.write("Authorization complete. Retrying…\n");
+      }
+      return await fn();
+    }
+
+    throw err;
+  }
+}

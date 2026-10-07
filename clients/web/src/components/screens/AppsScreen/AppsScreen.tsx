@@ -43,6 +43,7 @@ import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { LogLevelBadge } from "../../elements/LogLevelBadge/LogLevelBadge";
 import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
+import { errorMessage } from "../../../utils/errorFormat";
 
 export interface AppsScreenProps {
   tools: Tool[];
@@ -605,7 +606,9 @@ export function AppsScreen({
       <ContentCard
         data-testid="apps-form"
         data-app-status={running ? appStatus : "idle"}
-        data-app-error={running ? appError?.message : undefined}
+        data-app-error={
+          running && appError ? errorMessage(appError) : undefined
+        }
       >
         {selectedTool ? (
           <ContentStack>
@@ -683,7 +686,7 @@ export function AppsScreen({
                 {appError && (
                   <AppErrorPanel data-testid="apps-error">
                     <AppErrorTitle>App failed to load</AppErrorTitle>
-                    <AppErrorMessage>{appError.message}</AppErrorMessage>
+                    <AppErrorMessage>{errorMessage(appError)}</AppErrorMessage>
                   </AppErrorPanel>
                 )}
               </RendererContainer>

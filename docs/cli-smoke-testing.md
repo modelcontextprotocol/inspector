@@ -357,6 +357,12 @@ npx @modelcontextprotocol/inspector --cli --server-url "$SERVER_URL" --list-stor
 # → {"oauthStatePath":"/tmp/tmp.XXXX/oauth.json","storedServerUrls":[]}
 ```
 
+The secret store needs no equivalent isolation: each state file's store
+entries are scoped by a namespace stamped into the file itself, so a smoke
+run's tokens and the developer's real keychain entries for the same server
+URL never share a slot (see [Where secrets are
+stored](./secret-storage.md)).
+
 For a server that genuinely needs a credential in CI, prefer a static header
 over OAuth entirely — `--header 'Authorization: Bearer <token>'`, with the token
 from your CI secret store. And **do not** put a credential in the URL: the CLI

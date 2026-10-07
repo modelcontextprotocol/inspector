@@ -44,6 +44,7 @@ export default defineConfig({
     // zod-to-json-schema in with it — which the #2067 guard surfaced. ESM, so it
     // was not failing the way `undici` did; the rule is what it violated.
     "@modelcontextprotocol/ext-apps",
+    "@modelcontextprotocol/ext-tasks",
     "commander",
     "pino",
     // Consolidated to the ROOT manifest by #2195, along with every other

@@ -1,5 +1,8 @@
 import React from "react";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { render } from "./helpers/renderTui";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { Tool } from "@modelcontextprotocol/client";
@@ -396,6 +399,199 @@ describe("ToolTestModal", () => {
     await tick();
     process.stdout.emit("resize");
     await tick();
+    api.unmount();
+  });
+});
+
+// The frame is empty (see the note at the top), so these assert on what lands
+// on disk. The prompt and status text themselves are asserted in
+// SaveResultBar.test.tsx.
+describe("ToolTestModal — w saves the result to a file (#2571)", () => {
+  const BACKSPACE = "\b";
+  const DELETE = "\x7f";
+  const TAB = "\t";
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "tui-save-"));
+    // Relative save paths resolve against the launch directory.
+    vi.spyOn(process, "cwd").mockReturnValue(dir);
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const okClient = (result: unknown) =>
+    fakeClient(vi.fn().mockResolvedValue({ success: true, result }));
+
+  const TEXT_RESULT = { content: [{ type: "text", text: "hello" }] };
+
+  // The write is async; wait for it to land rather than racing the fs call.
+  const waitForFile = async (path: string) => {
+    for (let i = 0; i < 50 && !existsSync(path); i++) await tick();
+    await tick();
+  };
+
+  const press = async (stdin: { write: (s: string) => void }, s: string) => {
+    stdin.write(s);
+    await tick();
+  };
+
+  it("w then Enter writes the whole result as pretty JSON to <tool>-result.json", async () => {
+    const { stdin, onClose, unmount } = await renderAndSubmit(
+      okClient(TEXT_RESULT),
+    );
+    await press(stdin, "w");
+    await press(stdin, "\r");
+    const target = join(dir, "alpha-result.json");
+    await waitForFile(target);
+    expect(readFileSync(target, "utf8")).toBe(
+      JSON.stringify(TEXT_RESULT, null, 2) + "\n",
+    );
+    expect(onClose).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("Tab switches to raw and its default name; Tab again switches back", async () => {
+    const { stdin, unmount } = await renderAndSubmit(okClient(TEXT_RESULT));
+    await press(stdin, "w");
+    await press(stdin, TAB);
+    await press(stdin, TAB);
+    await press(stdin, TAB);
+    await press(stdin, "\r");
+    const target = join(dir, "alpha-result.txt");
+    await waitForFile(target);
+    expect(readFileSync(target, "utf8")).toBe("hello");
+    unmount();
+  });
+
+  it("a typed path is kept across a format switch, and backspace/delete edit it", async () => {
+    const { stdin, unmount } = await renderAndSubmit(okClient(TEXT_RESULT));
+    await press(stdin, "w");
+    // Clear "alpha-result.json" (17 chars), alternating the two erase keys.
+    for (let i = 0; i < 9; i++) {
+      await press(stdin, BACKSPACE);
+      await press(stdin, DELETE);
+    }
+    await press(stdin, "out.txtx");
+    await press(stdin, BACKSPACE);
+    // A ctrl chord is not text and must not land in the path.
+    await press(stdin, "\x01");
+    await press(stdin, TAB);
+    await press(stdin, "\r");
+    const target = join(dir, "out.txt");
+    await waitForFile(target);
+    expect(readFileSync(target, "utf8")).toBe("hello");
+    unmount();
+  });
+
+  it("ESC cancels the prompt without closing the modal; a second ESC closes it", async () => {
+    const { stdin, onClose, unmount } = await renderAndSubmit(
+      okClient(TEXT_RESULT),
+    );
+    await press(stdin, "w");
+    await press(stdin, ESC);
+    await tick();
+    expect(onClose).not.toHaveBeenCalled();
+    // The prompt is gone, so Enter no longer saves.
+    await press(stdin, "\r");
+    await tick();
+    expect(existsSync(join(dir, "alpha-result.json"))).toBe(false);
+    await press(stdin, ESC);
+    await tick();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("saves an isError result too — it is still the server's result", async () => {
+    const errResult = {
+      isError: true,
+      content: [{ type: "text", text: "oops" }],
+    };
+    const { stdin, unmount } = await renderAndSubmit(okClient(errResult));
+    await press(stdin, "w");
+    await press(stdin, "\r");
+    const target = join(dir, "alpha-result.json");
+    await waitForFile(target);
+    expect(JSON.parse(readFileSync(target, "utf8"))).toEqual(errResult);
+    unmount();
+  });
+
+  it("w with no result to save opens no prompt and writes nothing", async () => {
+    const callTool = vi
+      .fn()
+      .mockResolvedValue({ success: false, result: null, error: "boom" });
+    const { stdin, onClose, unmount } = await renderAndSubmit(
+      fakeClient(callTool),
+    );
+    await press(stdin, "w");
+    await press(stdin, "\r");
+    await tick();
+    expect(existsSync(join(dir, "alpha-result.json"))).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("a failed write is reported in the TUI, not thrown, and a retry still works", async () => {
+    const { stdin, onClose, unmount } = await renderAndSubmit(
+      okClient(TEXT_RESULT),
+    );
+    await press(stdin, "w");
+    // Point the default name into a directory that does not exist.
+    for (let i = 0; i < 17; i++) await press(stdin, BACKSPACE);
+    await press(stdin, "missing/dir/x.json");
+    await press(stdin, "\r");
+    await tick();
+    await tick();
+    expect(existsSync(join(dir, "missing"))).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    // The modal is still alive and the default comes back on the next w.
+    await press(stdin, "w");
+    await press(stdin, "\r");
+    const target = join(dir, "alpha-result.json");
+    await waitForFile(target);
+    expect(existsSync(target)).toBe(true);
+    unmount();
+  });
+
+  it("a result with no raw form is refused when saved as raw", async () => {
+    const linkOnly = {
+      content: [{ type: "resource_link", uri: "x://a", name: "a" }],
+    };
+    const { stdin, onClose, unmount } = await renderAndSubmit(
+      okClient(linkOnly),
+    );
+    await press(stdin, "w");
+    await press(stdin, TAB);
+    await press(stdin, "\r");
+    await tick();
+    await tick();
+    expect(existsSync(join(dir, "alpha-result.txt"))).toBe(false);
+    expect(onClose).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("falls back to a 'tool' file name when the tool has no name", async () => {
+    const onClose = vi.fn();
+    const api = render(
+      <ToolTestModal
+        tool={makeTool({ name: "" })}
+        inspectorClient={okClient(TEXT_RESULT)}
+        width={80}
+        height={24}
+        onClose={onClose}
+      />,
+    );
+    await tick();
+    setSubmitValue({});
+    await press(api.stdin, "\r");
+    await tick();
+    await press(api.stdin, "w");
+    await press(api.stdin, "\r");
+    const target = join(dir, "tool-result.json");
+    await waitForFile(target);
+    expect(existsSync(target)).toBe(true);
     api.unmount();
   });
 });

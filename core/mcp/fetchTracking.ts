@@ -107,6 +107,65 @@ export function redactUrlQuery(url: string): string {
   }
 }
 
+/**
+ * An `http(s)://` URL embedded in free text. Stops at whitespace, at the
+ * double-quote/angle-bracket characters that commonly delimit a URL inside a
+ * message, and where a second `http(s)://` begins — so two URLs joined by a
+ * comma are redacted separately rather than the second one's query being read
+ * as part of the first one's last value (Copilot). An apostrophe is kept in the
+ * match because it is legal inside a query value; a *trailing* one is peeled
+ * off as punctuation below, which still handles a `'…'`-quoted URL.
+ * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
+ * URL and must not slip past the redaction (Copilot).
+ */
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
+
+/** Sentence punctuation (or a closing quote) a message may put right after a URL. */
+const TRAILING_PUNCTUATION = new Set([
+  ".",
+  ",",
+  ";",
+  ":",
+  "!",
+  "?",
+  ")",
+  "]",
+  "'",
+]);
+
+/**
+ * Length of `match` once its trailing {@link TRAILING_PUNCTUATION} run is
+ * removed. A backward scan rather than an unanchored `/[…]+$/`: that regex
+ * rescans a punctuation run from every start position when the run does not
+ * end the string, which is quadratic, and the text here is server-controlled
+ * (an HTTP error body lands in the message), so a long `!!!…x` stalled the
+ * CLI's error path (#2540).
+ */
+function trailingPunctuationStart(match: string): number {
+  let end = match.length;
+  while (end > 0 && TRAILING_PUNCTUATION.has(match.charAt(end - 1))) end--;
+  return end;
+}
+
+/**
+ * Apply {@link redactUrlQuery} to every URL embedded in `text`. Trailing
+ * sentence punctuation is split off first and re-appended, so a URL ending a
+ * sentence (`…?code=abc.`) keeps its full stop instead of having it folded into
+ * the redacted parameter value.
+ *
+ * This is the free-text counterpart of {@link redactUrlQuery}: every client
+ * routes error text it shows or writes through it — the CLI's stderr envelope
+ * (#2423) and the web and TUI clients' on-screen error messages (#2490) — so a
+ * server or SDK error quoting `https://…?code=…` never reaches a terminal,
+ * toast or screenshot verbatim.
+ */
+export function redactUrlsInText(text: string): string {
+  return text.replace(EMBEDDED_URL_PATTERN, (match) => {
+    const end = trailingPunctuationStart(match);
+    return redactUrlQuery(match.slice(0, end)) + match.slice(end);
+  });
+}
+
 /** Recursively redact sensitive keys in a parsed JSON value (in place). */
 function redactJsonValue(value: unknown): unknown {
   if (Array.isArray(value)) {

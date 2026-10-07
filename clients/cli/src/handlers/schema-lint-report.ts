@@ -5,8 +5,8 @@ import {
   summarizeFindings,
   type ToolSchemaFindings,
 } from "@inspector/core/json/schemaLint.js";
-import { awaitableError } from "../utils/awaitable-log.js";
-import type { McpResponse } from "./method-types.js";
+import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
+import type { McpResponse } from "@inspector/core/cli/handlers/method-types.js";
 
 /**
  * Read the `tools` array out of a `tools/list` result. The result is typed as
@@ -47,13 +47,19 @@ export function lintListResult(result: McpResponse): ToolSchemaFindings[] {
  * count and how to see the detail: a server author who has not asked for the
  * lint should still learn it found something, but a multi-page report nobody
  * requested would be worse than silence.
+ *
+ * `quiet` (`--quiet`) drops that one-line hint, since it is advisory. It does
+ * not drop the `--strict` report: that was asked for explicitly, and it is the
+ * detail behind the exit-6 failure the error envelope only counts (#2435).
  */
 export async function writeSchemaLintReport(
   results: readonly ToolSchemaFindings[],
   strict: boolean,
+  quiet = false,
 ): Promise<void> {
   if (results.length === 0) return;
   if (!strict) {
+    if (quiet) return;
     await awaitableError(
       `Schema portability: ${summarizeFindings(results)}. Re-run with --strict for details.\n`,
     );

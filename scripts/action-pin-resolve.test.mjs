@@ -1,0 +1,117 @@
+// Tests for scripts/action-pin-resolve.mjs (#2558) — the SHA and the exact
+// version come from the SAME tag listing (the offline guard cannot check they
+// agree), numeric semver selection, and the no-exact-tag refusal. Run via
+// `npm run test:scripts`.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { exactVersionFor, main, parsePinArgs } from "./action-pin-resolve.mjs";
+
+test("parsePinArgs validates the repo slug and the tag shape", () => {
+  assert.deepEqual(
+    parsePinArgs(["--repo", "actions/checkout", "--tag", "v5"]),
+    {
+      repo: "actions/checkout",
+      tag: "v5",
+      major: 5,
+    },
+  );
+  assert.equal(parsePinArgs(["--repo", "a/b", "--tag", "v5.1.2"]).major, 5);
+  assert.throws(
+    () => parsePinArgs(["--repo", "checkout", "--tag", "v5"]),
+    /owner\/name/,
+  );
+  assert.throws(() => parsePinArgs(["--repo", "a/b"]), /--tag/);
+  assert.throws(
+    () => parsePinArgs(["--repo", "a/b", "--tag", "main"]),
+    /vN moving tag/,
+  );
+  // Only the two documented forms — a partial tag such as v5.1 is an
+  // undocumented minor moving tag and must be rejected, not resolved.
+  assert.throws(
+    () => parsePinArgs(["--repo", "a/b", "--tag", "v5.1"]),
+    /vN moving tag/,
+  );
+});
+
+const SHA = "deadbeef";
+const tag = (name, sha = SHA) => ({ name, commit: { sha } });
+
+test("exactVersionFor picks the highest exact tag on the SHA, numerically", () => {
+  // v5.10.0 > v5.9.1 numerically though not lexically.
+  assert.equal(
+    exactVersionFor(
+      [tag("v5"), tag("v5.9.1"), tag("v5.10.0"), tag("v4.9.9", "other")],
+      SHA,
+      5,
+    ),
+    "v5.10.0",
+  );
+  assert.equal(exactVersionFor([tag("v5")], SHA, 5), undefined);
+});
+
+test("exactVersionFor stays within the requested major", () => {
+  // One commit can carry exact tags from several majors (a lagging line
+  // re-released from the same tree) — the comment must name the line asked
+  // for, not the numerically highest.
+  const tags = [tag("v5.2.0"), tag("v6.0.0")];
+  assert.equal(exactVersionFor(tags, SHA, 5), "v5.2.0");
+  assert.equal(exactVersionFor(tags, SHA, 6), "v6.0.0");
+  assert.equal(exactVersionFor(tags, SHA, 4), undefined);
+});
+
+function spawnScript({ tags }) {
+  return (cmd, args) => {
+    const joined = args.join(" ");
+    if (!joined.includes("/tags")) {
+      // The SHA must come from the same /tags listing as the version — a
+      // separate /commits/<tag> request would race an upstream retag.
+      assert.fail(`unexpected gh call: ${joined}`);
+    }
+    return { status: 0, stdout: JSON.stringify([tags]), stderr: "" };
+  };
+}
+
+test("main prints the uses: line with SHA and matching exact version", (t) => {
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  main(
+    ["--repo", "actions/checkout", "--tag", "v5"],
+    spawnScript({ tags: [tag("v5"), tag("v5.0.1")] }),
+  );
+  assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.0.1`]);
+});
+
+test("main preserves an exact requested tag over a same-SHA higher tag", (t) => {
+  // v5.1.2 re-released unchanged as v5.2.0 shares its commit; asking for
+  // v5.1.2 must print v5.1.2, not the highest tag on the same tree.
+  const lines = [];
+  t.mock.method(console, "log", (line) => lines.push(line));
+  main(
+    ["--repo", "actions/checkout", "--tag", "v5.1.2"],
+    spawnScript({ tags: [tag("v5"), tag("v5.1.2"), tag("v5.2.0")] }),
+  );
+  assert.deepEqual(lines, [`uses: actions/checkout@${SHA} # v5.1.2`]);
+});
+
+test("main throws when the requested tag is not in the listing", () => {
+  assert.throws(
+    () =>
+      main(
+        ["--repo", "actions/checkout", "--tag", "v9"],
+        spawnScript({ tags: [tag("v5"), tag("v5.0.1")] }),
+      ),
+    /could not resolve actions\/checkout@v9 .* no such tag/,
+  );
+});
+
+test("main throws when no exact tag in the requested major points at the SHA", () => {
+  assert.throws(
+    () =>
+      main(
+        ["--repo", "actions/checkout", "--tag", "v5"],
+        spawnScript({ tags: [tag("v5"), tag("v6.0.0")] }),
+      ),
+    /no exact v5\.Y\.Z tag/,
+  );
+});

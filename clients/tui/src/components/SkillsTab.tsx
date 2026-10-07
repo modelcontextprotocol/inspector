@@ -18,7 +18,13 @@
  * that gate, and the reset that leaves the tab when it goes false, live in
  * `App.tsx` because they are navigation concerns rather than this pane's.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -41,6 +47,13 @@ import {
   type SkillVerifyReport,
 } from "@inspector/core/mcp/skillsVerification.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
+import { useListFilter } from "../hooks/useListFilter.js";
+import {
+  ListFilterBar,
+  LIST_FILTER_ROWS,
+  filterCount,
+} from "./ListFilterBar.js";
 
 interface SkillsTabProps {
   skills: SkillEntry[];
@@ -54,6 +67,18 @@ interface SkillsTabProps {
   focusedPane?: "list" | "details" | null;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
   modalOpen?: boolean;
+  /** Told when the list filter starts or stops capturing keys (#2430). */
+  onFilterEditingChange?: (editing: boolean) => void;
+}
+
+/**
+ * What the `/` filter matches a skill against (#2430): the name the row
+ * shows, and the declared frontmatter name when that differs from it.
+ */
+function skillFilterFields(
+  skill: SkillEntry,
+): ReadonlyArray<string | undefined> {
+  return [skillDisplayName(skill), skill.frontmatter.name];
 }
 
 /**
@@ -119,6 +144,80 @@ function failureDetail(file: SkillFileReport): string | undefined {
   return `expected ${short(file.expectedDigest)}, got ${short(file.actualDigest)}`;
 }
 
+/**
+ * Fold one run's reports into the held set (#2590).
+ *
+ * ⚠️ **The first occurrence of a key in a run wins.** A malformed listing can
+ * repeat an entry verbatim, and both copies share a `skillEntryKey`. Under a
+ * catalog budget the walk reads the first and stops before the second, so a
+ * last-write-wins merge replaced a real verdict — a digest failure, say — with
+ * the second copy's unread `incomplete` (Copilot). Identical entries are served
+ * identical bytes, so the first, read occurrence speaks for both.
+ *
+ * Verdicts for entries no longer in the listing (`live`) are dropped — held
+ * ones and this run's alike — so a pane left open across refreshes does not
+ * accumulate one per entry snapshot.
+ */
+function mergeReports(
+  previous: ReadonlyMap<string, SkillVerifyReport>,
+  entries: readonly SkillEntry[],
+  results: readonly SkillVerifyReport[],
+  live: ReadonlySet<string>,
+): Map<string, SkillVerifyReport> {
+  const next = new Map([...previous].filter(([key]) => live.has(key)));
+  const seen = new Set<string>();
+  results.forEach((result, index) => {
+    const key = skillEntryKey(entries[index]!);
+    // `live` filters this run's results too: an entry a refresh removed while
+    // the run was in flight would otherwise be cached, and its verdict would
+    // reappear unverified if the entry came back (Copilot).
+    if (seen.has(key) || !live.has(key)) return;
+    seen.add(key);
+    next.set(key, result);
+  });
+  return next;
+}
+
+/**
+ * The catalog line under the list (#2590): the hint for `v` until something has
+ * been verified, then a tally of the verdicts held for the CURRENT listing.
+ *
+ * Derived from the report map on every render rather than stored by the
+ * verify-all run, so a refresh that changes an entry drops its verdict from the
+ * tally the same way it drops it from the detail pane — a stored summary would
+ * keep counting verdicts for entries that are no longer what the server lists.
+ */
+function catalogSummary(
+  skills: readonly SkillEntry[],
+  reports: ReadonlyMap<string, SkillVerifyReport>,
+): string {
+  const counts: Record<SkillVerifyReport["outcome"], number> = {
+    verified: 0,
+    failed: 0,
+    incomplete: 0,
+    unverifiable: 0,
+  };
+  let unchecked = 0;
+  for (const skill of skills) {
+    const report = reports.get(skillEntryKey(skill));
+    if (report) counts[report.outcome] += 1;
+    else unchecked += 1;
+  }
+  if (unchecked === skills.length) return "[v: verify all]";
+  // Compact, because at an 80-column terminal the list pane has 19 columns of
+  // text (Copilot). The glyphs are the pane's own: `✓`/`✗`/`?` as in the
+  // manifest rows, `·` for not looked at, and `…` for cut short by the budget.
+  // Verified and failed always show; the rest only when non-zero.
+  const parts = [
+    `✓${counts.verified}`,
+    `✗${counts.failed}`,
+    ...(counts.incomplete > 0 ? [`…${counts.incomplete}`] : []),
+    ...(counts.unverifiable > 0 ? [`?${counts.unverifiable}`] : []),
+    ...(unchecked > 0 ? [`·${unchecked}`] : []),
+  ];
+  return parts.join(" ");
+}
+
 /** The file name a manifest URI ends in, for a list that must fit 40 columns. */
 function fileNameOf(uri: string): string {
   const cut = uri.lastIndexOf("/");
@@ -134,6 +233,13 @@ function fileNameOf(uri: string): string {
  * so it is one `resources/read` per manifest entry and must be asked for. That
  * split is the same one the web screen makes and the same one SEP-2640 makes:
  * hosts MUST NOT retrieve a skill's files ahead of need.
+ *
+ * **`v` verifies the whole listing** (#2590), in one `verifySkills` run — the
+ * same call the CLI's `--verify` makes. That is what gives the per-server
+ * catalog budget (`skillCatalogMaxSkills` / `skillCatalogMaxBytes`) something
+ * to bound here: it is a RUN-level limit, and a run of one skill always reads
+ * that skill in full. Skills past the budget come back `incomplete`, unread,
+ * and Enter on one of them verifies it on its own.
  */
 export function SkillsTab({
   skills,
@@ -145,17 +251,24 @@ export function SkillsTab({
   focusedPane = null,
   onAuthRecoveryRequired,
   modalOpen = false,
+  onFilterEditingChange,
 }: SkillsTabProps) {
-  const visibleCount = Math.max(1, height - 7);
+  // One more row than the bare list: the catalog summary line (#2590).
+  const visibleCount = Math.max(1, height - 8 - LIST_FILTER_ROWS);
+  const filter = useListFilter(skills, skillFilterFields, {
+    enabled: !modalOpen && focusedPane === "list",
+    onEditingChange: onFilterEditingChange,
+  });
+  const shownSkills = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    skills.length,
+    shownSkills.length,
     visibleCount,
-    { resetWhen: skills },
+    { resetWhen: shownSkills },
   );
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   /**
-   * The last verification, keyed by the **entry it was computed against**.
+   * Every verification held, keyed by the **entry it was computed against**.
    *
    * Keyed rather than cleared on selection change, so moving off a skill and
    * back does not silently discard a verdict the user just paid a round trip
@@ -169,17 +282,31 @@ export function SkillsTab({
    * The same key the web screen uses, for the same reason: re-verifying after a
    * metadata-only refresh is the cheap direction to be wrong in; showing a
    * verdict computed against a different entry is not.
+   *
+   * A map rather than a single slot since verify-all (#2590): one run yields a
+   * verdict for every entry, and each must survive moving the selection.
    */
-  const [report, setReport] = useState<{
-    key: string;
-    result: SkillVerifyReport;
-  } | null>(null);
+  const [reports, setReports] = useState<
+    ReadonlyMap<string, SkillVerifyReport>
+  >(() => new Map());
   const scrollViewRef = useRef<ScrollViewRef>(null);
+  // The listing as of the latest commit, for a verification that resolves
+  // after it changed. A LAYOUT effect, so the ref is synchronized during the
+  // commit itself: a passive effect can run later, and a run resolving in that
+  // gap would still see a removed entry as live (Copilot).
+  const skillsRef = useRef(skills);
+  useLayoutEffect(() => {
+    skillsRef.current = skills;
+  }, [skills]);
 
-  const selectedSkill = skills[selectedIndex] ?? null;
+  const selectedSkill = shownSkills[selectedIndex] ?? null;
 
+  /**
+   * Verify `entries` in ONE `verifySkills` run, so the run-level catalog budget
+   * applies across them — Enter passes the selected skill, `v` the listing.
+   */
   const runVerify = useCallback(
-    (skill: SkillEntry) => {
+    (entries: readonly SkillEntry[]) => {
       if (!inspectorClient || verifying) return;
       setVerifying(true);
       setError(null);
@@ -187,8 +314,13 @@ export function SkillsTab({
       // this key handler — which cannot await — to own.
       void (async () => {
         try {
-          const [result] = await verifySkills(inspectorClient, [skill]);
-          setReport({ key: skillEntryKey(skill), result });
+          const results = await verifySkills(inspectorClient, entries);
+          // Read AFTER the run, so a listing that changed while it was in
+          // flight is the one pruned against.
+          const live = new Set(skillsRef.current.map(skillEntryKey));
+          setReports((previous) =>
+            mergeReports(previous, entries, results, live),
+          );
         } catch (err) {
           if (err instanceof AuthRecoveryRequiredError) {
             onAuthRecoveryRequired?.(err);
@@ -202,7 +334,7 @@ export function SkillsTab({
              visible message. Exercising it would mean faking a throw the walk
              cannot make, which tests the fake rather than the code. */
           setError(
-            err instanceof Error ? err.message : "Failed to verify skill",
+            err instanceof Error ? errorMessage(err) : "Failed to verify skill",
           );
           /* v8 ignore stop */
         } finally {
@@ -215,14 +347,23 @@ export function SkillsTab({
 
   useInput(
     (input: string, key: Key) => {
+      // The filter goes first: while it is editing, Enter and letters belong
+      // to the query, not to the list.
+      if (filter.handleInput(input, key)) return;
       if (key.return && selectedSkill && inspectorClient) {
-        runVerify(selectedSkill);
+        runVerify([selectedSkill]);
+        return;
+      }
+      // The WHOLE listing, not the filtered rows: the CLI's `--verify` covers
+      // the catalog, and the budget is sized against the catalog (#2590).
+      if (input === "v" && skills.length > 0 && inspectorClient) {
+        runVerify(skills);
         return;
       }
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < skills.length - 1) {
+        } else if (key.downArrow && selectedIndex < shownSkills.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -267,10 +408,9 @@ export function SkillsTab({
     return [...checkSkillConformance(skill), ...(collision ? [collision] : [])];
   };
   const issues = selectedSkill ? findingsFor(selectedSkill) : [];
-  const activeReport =
-    selectedSkill && report?.key === skillEntryKey(selectedSkill)
-      ? report.result
-      : null;
+  const activeReport = selectedSkill
+    ? (reports.get(skillEntryKey(selectedSkill)) ?? null)
+    : null;
   const manifest =
     selectedSkill && selectedSkill.resources !== DYNAMIC_RESOURCES
       ? selectedSkill.resources
@@ -302,17 +442,36 @@ export function SkillsTab({
             bold
             backgroundColor={focusedPane === "list" ? "yellow" : undefined}
           >
-            Skills ({skills.length}
+            Skills (
+            {filterCount(filter.active, shownSkills.length, skills.length)}
             {pageCount > 1 ? `, ${pageCount} pages` : ""})
+          </Text>
+        </Box>
+        <ListFilterBar
+          query={filter.query}
+          editing={filter.editing}
+          focused={focusedPane === "list" && !modalOpen}
+        />
+        <Box flexShrink={0} height={1}>
+          <Text dimColor wrap="truncate">
+            {skills.length === 0
+              ? ""
+              : verifying
+                ? "[Verifying…]"
+                : catalogSummary(skills, reports)}
           </Text>
         </Box>
         {loadError ? (
           <Box paddingY={1}>
-            <Text color="red">{loadError.message}</Text>
+            <Text color="red">{errorMessage(loadError)}</Text>
           </Box>
         ) : skills.length === 0 ? (
           <Box paddingY={1}>
             <Text dimColor>No skills available</Text>
+          </Box>
+        ) : shownSkills.length === 0 ? (
+          <Box paddingY={1}>
+            <Text dimColor>No skills match the filter</Text>
           </Box>
         ) : (
           <Box
@@ -321,10 +480,13 @@ export function SkillsTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {skills
+            {shownSkills
               .slice(firstVisible, firstVisible + visibleCount)
               .map((skill, i) => {
                 const index = firstVisible + i;
+                // Keyed by the UNFILTERED position, which stays unique even
+                // when a malformed listing repeats a URI (see below).
+                const ordinal = filter.indices[index];
                 const isSelected = index === selectedIndex;
                 // The per-row mark is the static conformance verdict, which
                 // costs nothing — it is what makes a bad skill visible in the
@@ -342,7 +504,7 @@ export function SkillsTab({
                   // collide them and let React drop or reuse the wrong row
                   // (Copilot).
                   <Box
-                    key={`${index}:${skill.uri}`}
+                    key={`${ordinal}:${skill.uri}`}
                     paddingY={0}
                     flexShrink={0}
                   >

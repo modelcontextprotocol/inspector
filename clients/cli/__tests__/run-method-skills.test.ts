@@ -1,10 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { runMethod } from "../src/handlers/run-method.js";
+import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
   skillVerificationExitCode,
   summarizeSkillVerification,
-} from "../src/handlers/skills-verify.js";
-import { EXIT_CODES } from "../src/error-handler.js";
+} from "@inspector/core/cli/handlers/skills-verify.js";
+import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
 import { sha256Digest } from "@inspector/core/mcp/skills.js";

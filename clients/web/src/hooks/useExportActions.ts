@@ -16,6 +16,7 @@ import {
   replayProtocolRequest,
   type ReplayParamsOverride,
 } from "../lib/protocolReplay";
+import { errorMessage } from "../utils/errorFormat";
 
 /** One Protocol panel section, split by pin membership. */
 export type ProtocolSection = "pinned" | "history";
@@ -213,7 +214,7 @@ export function useExportActions({
         .catch((err: unknown) => {
           notifications.show({
             title: "Replay failed",
-            message: err instanceof Error ? err.message : String(err),
+            message: errorMessage(err),
             color: "red",
           });
         });

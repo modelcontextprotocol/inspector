@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { writeFormattedResult } from "../src/handlers/format-output.js";
+import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
 
 describe("writeFormattedResult", () => {
   let originalWrite: typeof process.stdout.write;

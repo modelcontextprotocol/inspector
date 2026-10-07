@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // Match clients/cli/tsconfig.json's module/lib *resolution* options (mcpdo
+    // reaches into @inspector/core/* — including the core/cli/ surface it
+    // shares with the one-shot CLI — the same way cli does) so core/ is
+    // validated the same way its own gates validate it, rather than under
+    // base's stricter noUncheckedIndexedAccess, which core/ was never written
+    // against.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "module": "ESNext",
+    "noUncheckedIndexedAccess": false,
+    "paths": {
+      "@inspector/core/*": ["../../core/*"]
+    }
+  },
+  "include": ["src/**/*", "vitest.config.ts", "tsup.config.ts"],
+  "exclude": ["node_modules", "**/*.test.ts", "build"]
+}

@@ -20,12 +20,20 @@ describe("useManagedRequestorTasks", () => {
   let state: ManagedRequestorTasksState;
 
   beforeEach(() => {
-    // Capabilities include `tasks` so refresh() reaches the live
-    // listRequestorTasks path; the state manager gates on capability.
+    // The fake presents a server-list task session so refresh() reaches the
+    // live listRequestorTasks path; the state manager routes on the
+    // authoritative task-session inventory (round-12).
     client = new FakeInspectorClient({
       status: "connected",
       capabilities: { tasks: {} },
     });
+    client.taskSessionCapabilities = {
+      inventory: "server-list",
+      execution: true,
+      cancellation: true,
+      inputResponses: false,
+      requestedRetention: true,
+    };
     state = new ManagedRequestorTasksState(client);
   });
 

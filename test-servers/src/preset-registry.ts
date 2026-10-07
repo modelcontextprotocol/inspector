@@ -24,6 +24,7 @@ import {
   createCollectSampleTool,
   createListRootsTool,
   createCollectFormElicitationTool,
+  createSubmitTicketTool,
   createMrtrTool,
   createMrtrMultiRoundTool,
   createMrtrRootsTool,
@@ -149,6 +150,8 @@ function resolveToolPreset(
       return createListRootsTool();
     case "collect_elicitation":
       return createCollectFormElicitationTool();
+    case "submit_ticket":
+      return createSubmitTicketTool();
     case "mrtr_confirm":
       return createMrtrTool();
     case "mrtr_two_step":

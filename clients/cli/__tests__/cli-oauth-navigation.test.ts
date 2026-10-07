@@ -3,12 +3,12 @@ import {
   createCliOAuthNavigation,
   isCliAutoOpenForced,
   resolveCliAutoOpenEnabled,
-} from "../src/cli-oauth-navigation.js";
-import { openUrl } from "../src/open-url.js";
+} from "@inspector/core/cli/cli-oauth-navigation.js";
+import { openUrl } from "@inspector/core/node/openUrl.js";
 
 // Local mock (in addition to suite-wide setupFiles) so this file owns a
 // `vi.mocked(openUrl)` handle and does not depend on the global mock shape.
-vi.mock("../src/open-url.js", () => ({
+vi.mock("@inspector/core/node/openUrl.js", () => ({
   openUrl: vi.fn().mockResolvedValue(undefined),
 }));
 

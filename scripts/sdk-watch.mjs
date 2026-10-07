@@ -18,12 +18,12 @@
 // Four things shape the design, each verified against this repo before it was
 // written:
 //
-//  1. **Two upstreams, not one.** `client`/`core`/`server`/`server-legacy` all
+//  1. **One issue per upstream.** `client`/`core`/`server`/`server-legacy` all
 //     ship from `modelcontextprotocol/typescript-sdk` and release in lockstep;
-//     `ext-apps` ships from its own repo on its own cadence. Treating them as
-//     one group would file an issue naming a version that only some of the
-//     packages have, so `SDK_GROUPS` keeps them separate and each gets its own
-//     issue and its own marker.
+//     `ext-apps` and `ext-tasks` each ship from their own repo on their own
+//     cadence. Treating them as one group would file an issue naming a
+//     version that only some of the packages have, so `SDK_GROUPS` keeps them
+//     separate and each gets its own issue and its own marker.
 //  2. **Compare the INSTALLED version, not the declared range.** #1063 phrases
 //     the check as "is the current version > than the one we have in our
 //     package.json", which is exact today only because the four SDK packages
@@ -34,7 +34,7 @@
 //     whether the fix is a manifest edit or a lockfile refresh — but the
 //     comparison is against the lockfile.
 //  3. **A new SDK package must not be watched silently by nobody.** The group
-//     table is a hardcoded list, so a fifth `@modelcontextprotocol/*` package
+//     table is a hardcoded list, so another `@modelcontextprotocol/*` package
 //     added to the root manifest would never be checked and nothing would say
 //     so. `assertEveryPackageWatched` turns that into a loud failure instead —
 //     the sweep goes red rather than reporting a clean night over a package it
@@ -76,8 +76,8 @@ export const TARGET_BRANCH = "v2/main";
  *
  * Split by REPOSITORY rather than by npm scope: the four `typescript-sdk`
  * packages are cut from one release and always share a version, so one issue
- * covers the whole bump, while `ext-apps` moves independently and would
- * otherwise drag three unrelated packages into its title.
+ * covers the whole bump, while `ext-apps` and `ext-tasks` each move
+ * independently and would otherwise drag unrelated packages into their titles.
  */
 export const SDK_GROUPS = [
   {
@@ -96,6 +96,12 @@ export const SDK_GROUPS = [
     label: "MCP Apps extension SDK",
     repo: "modelcontextprotocol/ext-apps",
     packages: ["@modelcontextprotocol/ext-apps"],
+  },
+  {
+    key: "ext-tasks",
+    label: "MCP Tasks extension SDK",
+    repo: "modelcontextprotocol/ext-tasks",
+    packages: ["@modelcontextprotocol/ext-tasks"],
   },
 ];
 
@@ -334,7 +340,7 @@ export function parseSupersededMarker(body) {
 /**
  * Fail loudly when the root manifest declares an SDK package no group watches.
  *
- * The group table is hardcoded, so an added fifth package would be checked by
+ * The group table is hardcoded, so a newly added package would be checked by
  * nobody and the sweep would still print a clean result — a silent blind spot
  * in the one mechanism that exists to remove a silent blind spot. Throwing
  * turns "we forgot to add it here" into a red run on the next night.
@@ -529,7 +535,7 @@ export function buildIssueBody(state) {
     "### Upgrade checklist",
     "",
     ...manifestChecklist(rows, target),
-    "- [ ] Re-check the bundler `external` lists (`clients/{cli,tui}/tsup.config.ts`, `clients/web/tsup.runner.config.ts`) if the release adds or renames an entry point; `npm run verify:bundle-externals` enforces this against the built output.",
+    "- [ ] Re-check the bundler `external` lists (`clients/{cli,mcpdo,tui}/tsup.config.ts`, `clients/web/tsup.runner.config.ts`) if the release adds or renames an entry point; `npm run verify:bundle-externals` enforces this against the built output.",
     "- [ ] `npm run format`, then `npm run local:gate`.",
     "",
     "An automated review of what actually changed upstream — and which parts of this app it touches — is posted as a comment below.",

@@ -21,6 +21,17 @@
  *    store is durable, the same guard the mcp.json/client.json migrations
  *    use. A store write failure degrades those tokens to memory-only with a
  *    loud warning; it never falls back to writing them into the file.
+ * 3. **Secret-store namespace** (#2549): each state file carries a
+ *    `secretsNamespace` UUID, baked into every secret-store id its entries
+ *    use, so two state files (profiles) naming the same server hold
+ *    separate store entries instead of overwriting one shared slot. The
+ *    namespace is minted — and a legacy file's unscoped entries moved under
+ *    it — on the file's first write (`adoptSecretsNamespace`); reads and
+ *    removes honor whatever the file says and never adopt. A sidecar
+ *    ledger (`oauth-namespace-ledger.ts`, #2560) records every namespace
+ *    the file has used, so entries under one the file no longer carries —
+ *    its stamp stripped by an older Inspector's save — are purged on the
+ *    next locked adoption or removal instead of orphaned in the store.
  */
 
 import {
@@ -28,6 +39,7 @@ import {
   writeStoreFile,
   deleteStoreFile,
 } from "../../storage/store-io.js";
+import { serializeStore } from "../../storage/store-serialize.js";
 import { setOwnEntry, getOwnEntry } from "../../storage/own-entry.js";
 import {
   mergeOAuthSections,
@@ -53,13 +65,19 @@ import {
   type SecretStore,
 } from "./secret-store.js";
 import { defaultSecretStore } from "./secret-store-selection.js";
+import {
+  purgeSupersededNamespaces,
+  recordNamespaceKeys,
+} from "./oauth-namespace-ledger.js";
 import { MAX_WRITE_ATTEMPTS } from "./file-secret-store.js";
 import {
   IDP_SESSION_FIELD,
   getPersistTokensPolicy,
   isUsableStoredSecret,
+  isValidSecretsNamespace,
   joinIdpSession,
   joinServerOAuthState,
+  newSecretsNamespace,
   oauthIdpSecretServerId,
   oauthSecretServerId,
   serverSecretFields,
@@ -187,13 +205,13 @@ function rethrowLockError(
 async function withOAuthStateLock<T>(
   filePath: string,
   action: "save" | "read" | "remove",
-  body: () => Promise<T>,
+  body: (locked: boolean) => Promise<T>,
 ): Promise<T> {
   let entered = false;
   try {
-    return await withSecretFileLock(filePath, async () => {
+    return await withSecretFileLock(filePath, async (locked) => {
       entered = true;
-      return body();
+      return body(locked);
     });
   } catch (error) {
     if (!entered) rethrowLockError(filePath, error, action);
@@ -225,20 +243,210 @@ export class OAuthStateFileUnrecognizedError extends Error {
 }
 
 /**
- * Locked-read helper for the mutation paths: parse the OAuth state file,
- * distinguishing "absent" (null) from "present but unrecognized" (refuse —
- * see {@link OAuthStateFileUnrecognizedError}).
+ * Top-level state-file key holding the file's secrets namespace (#2549): a
+ * UUID minted per state file and baked into every secret-store id the file's
+ * entries use (see `oauthSecretServerId`). It is what keeps two state files
+ * (profiles) that connect to the same server from sharing — and silently
+ * overwriting — one store entry. Node-file-backend-only: the browser and
+ * sessionStorage backends never see it ({@link parseOAuthPersistBlob}
+ * ignores unknown keys), and every writer re-reads it from disk under the
+ * file lock, so a snapshot round-tripped through the API cannot strip it.
  */
-async function readDiskForMutation(
-  filePath: string,
-  action: "save" | "remove",
-): Promise<OAuthPersistSnapshot | null> {
-  const raw = await readStoreFile(filePath);
-  const parsed = parseOAuthPersistBlob(raw);
-  if (raw !== null && parsed === null) {
-    throw new OAuthStateFileUnrecognizedError(filePath, action);
+export const SECRETS_NAMESPACE_KEY = "secretsNamespace";
+
+/**
+ * Extract the secrets namespace from a raw state-file blob. Tolerant like
+ * the read path: an unparseable file or an invalid value reads as "no
+ * namespace" (legacy unscoped ids) rather than failing — an invalid value
+ * must not reach store ids, where it could forge the `+` delimiter or break
+ * the keyring's colon parse (see `isValidSecretsNamespace`).
+ */
+function parseSecretsNamespace(raw: string | null): string | undefined {
+  if (raw === null) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const value = (parsed as Record<string, unknown>)[SECRETS_NAMESPACE_KEY];
+    return isValidSecretsNamespace(value) ? value : undefined;
+  } catch {
+    return undefined;
   }
-  return parsed;
+}
+
+/**
+ * Serialize a snapshot for the state file, stamping the secrets namespace
+ * first so it survives every rewrite (sectioned saves, the plaintext-secret
+ * migration, adoption itself). Key order is fixed — namespace, then the
+ * snapshot — because the write path compares raw file strings to detect
+ * concurrent writers.
+ */
+function serializeOAuthFileBlob(
+  snapshot: OAuthPersistSnapshot,
+  namespace: string | undefined,
+): string {
+  if (namespace === undefined) return serializeOAuthPersistBlob(snapshot);
+  return serializeStore({ [SECRETS_NAMESPACE_KEY]: namespace, ...snapshot });
+}
+
+/**
+ * Cleanup-failure variant of {@link warnStoreWriteFailure}: namespace
+ * adoption copied the legacy unscoped entries to their namespaced ids and
+ * stamped the file, but deleting the legacy originals failed. Nothing is
+ * lost — the namespaced ids are authoritative from here on — but the
+ * leftovers sit in the store un-indexed (no state file will purge them) and
+ * could serve stale credentials to a profile that has not adopted yet.
+ */
+function warnNamespaceCleanupFailure(error: unknown): void {
+  const reason = error instanceof Error ? error.message : String(error);
+  const key = `namespace-cleanup:${reason}`;
+  if (warnedStoreFailures.has(key)) return;
+  warnedStoreFailures.add(key);
+  console.warn(
+    `[mcp-inspector] Could not remove legacy un-namespaced secret-store entries after scoping them to this state file (${reason}). This file uses the scoped copies, but another pre-namespace state file could still read the stale leftovers until it adopts or re-authorizes — and they will not be cleaned up automatically.`,
+  );
+}
+
+/**
+ * Ensure the state file has a secrets namespace, minting and stamping one —
+ * and moving its legacy unscoped store entries under it — when it does not
+ * (#2549). Runs under the caller's file lock, on the mutation path only:
+ * reads keep working against whatever the file currently says, so a
+ * pre-adoption profile loses nothing until it first writes.
+ *
+ * For a legacy file (recognized, entries, no namespace) the move is
+ * copy → stamp → delete, in that order, because each step's failure mode
+ * differs:
+ *
+ * - **Copy** (legacy id → namespaced id) lands on vacant scoped ids — the
+ *   namespace is freshly minted, so nothing can already live under it. A
+ *   failure deletes the copies it made and rethrows — the file is
+ *   unstamped, so everything still resolves through the legacy ids and
+ *   the next write retries under a new UUID.
+ * - **Stamp** (rewrite the file with the namespace) is the commit point: a
+ *   failure triggers the same restore, because a successful copy with no
+ *   stamp would be re-run under a *different* UUID next time, stranding
+ *   this one's copies forever.
+ * - **Delete** (the legacy originals) is best-effort after the commit: the
+ *   namespaced ids are already authoritative for this file, so a failure
+ *   here never loses a token — but the leftovers are not harmless to
+ *   everyone: they are unindexed here, and a pre-namespace profile could
+ *   still read them as stale credentials until it adopts or re-authorizes
+ *   ({@link warnNamespaceCleanupFailure}). Deleting is deliberate, not
+ *   cautious copying: the legacy entry is exactly the shared slot this
+ *   change exists to retire, and `removeOAuthStore` purges by the file's
+ *   own ids, so a leftover would otherwise be orphaned forever. Another
+ *   profile still reading the legacy ids re-authorizes once — its copy of
+ *   those tokens was already being overwritten by every other profile,
+ *   which is the bug.
+ *
+ * A fresh file (absent, or no entries on disk) just mints: the namespace
+ * reaches disk with the write that follows, and there is nothing to move.
+ *
+ * Migration requires the real file lock (`locked`). The move deletes its
+ * sources, so two unlocked adopters racing on one legacy file can each
+ * observe the other's half-finished move — one copies and deletes, the
+ * other strict-reads nothing, stamps an empty namespace of its own, and
+ * can win the file, stranding the first's copies under an abandoned
+ * namespace. Under the lock adopters serialize (the second sees the
+ * first's stamp and returns it); degraded, this refuses the one-time
+ * migration loudly rather than risking that loss. Mint-only adoption —
+ * a file that is absent, or recognized but indexing no entries — stays
+ * allowed unlocked: there is nothing to move, and a concurrent
+ * mint converges via the namespace re-key in `writeOAuthSections`.
+ *
+ * Under the lock, adoption first purges every namespace the ledger records
+ * (#2560): reaching this point means the file carries none, so each
+ * recorded one is superseded — most often a stamp an older Inspector's save
+ * stripped, whose entries nothing else would ever find. A stamped file's
+ * locked saves purge every recorded namespace but its own, which is how a
+ * purge that failed here is retried once the store recovers. Unlocked, the purge
+ * is skipped: a concurrent adopter's namespace can be recorded before it is
+ * stamped, and purging it would delete live credentials.
+ */
+async function adoptSecretsNamespace(
+  filePath: string,
+  secretStore: SecretStore,
+  locked: boolean,
+): Promise<string> {
+  const raw = await readStoreFile(filePath);
+  const existing = parseSecretsNamespace(raw);
+  if (existing !== undefined) {
+    // An ordinary save also retries any superseded namespace whose purge
+    // failed at adoption — the new stamp means adoption will not run again.
+    if (locked) {
+      await purgeSupersededNamespaces(filePath, secretStore, existing);
+    }
+    return existing;
+  }
+  const snapshot = parseOAuthPersistBlob(raw);
+  if (raw !== null && snapshot === null) {
+    throw new OAuthStateFileUnrecognizedError(filePath, "save");
+  }
+  if (locked) {
+    await purgeSupersededNamespaces(filePath, secretStore, undefined);
+  }
+  const namespace = newSecretsNamespace();
+  if (snapshot === null) return namespace;
+
+  const moves = [
+    ...Object.entries(snapshot.servers).map(([url, state]) => ({
+      legacyId: oauthSecretServerId(url),
+      scopedId: oauthSecretServerId(url, namespace),
+      fields: serverSecretFields(state),
+    })),
+    ...Object.keys(snapshot.idpSessions).map((issuer) => ({
+      legacyId: oauthIdpSecretServerId(issuer),
+      scopedId: oauthIdpSecretServerId(issuer, namespace),
+      fields: [IDP_SESSION_FIELD],
+    })),
+  ];
+  // A recognized but entry-less legacy file indexes no store ids, so no
+  // destructive race exists — it mints like a fresh file, locked or not
+  // (the save that follows writes the namespace to disk).
+  if (moves.length === 0) return namespace;
+  if (!locked) {
+    throw new SecretStoreUnavailableError(
+      `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry — or, if you cannot, clear this file's stored OAuth state and re-authorize (clearing does not migrate, and the fresh state file mints its namespace without the lock).`,
+    );
+  }
+
+  // Recorded before the copies, so an interrupted move's copies are still
+  // findable if this namespace is later superseded.
+  await recordNamespaceKeys(
+    filePath,
+    secretStore,
+    namespace,
+    Object.keys(snapshot.servers),
+    Object.keys(snapshot.idpSessions),
+  );
+  // Rollback baseline: the scoped ids are vacant before this call — the
+  // namespace is a UUID minted moments ago, so nothing can already live
+  // under it — which makes "restore" simply "delete what we copied".
+  const touched: SecretFieldSnapshot[] = [];
+  try {
+    for (const { legacyId, scopedId, fields } of moves) {
+      for (const field of fields) {
+        const value = await secretStoreGetStrict(secretStore, legacyId, field);
+        if (value === null) continue;
+        touched.push({ serverId: scopedId, field, value: null });
+        await secretStore.set(scopedId, field, value);
+      }
+    }
+    await writeStoreFile(filePath, serializeOAuthFileBlob(snapshot, namespace));
+  } catch (error) {
+    await restoreSecretFields(secretStore, touched, warnRestoreFailure);
+    throw error;
+  }
+  // Per-id catch: one failed purge must not abandon the remaining legacy
+  // ids — each gets its own best-effort attempt.
+  for (const { legacyId } of moves) {
+    try {
+      await secretStore.deleteAllForServer(legacyId);
+    } catch (error) {
+      warnNamespaceCleanupFailure(error);
+    }
+  }
+  return namespace;
 }
 
 /**
@@ -389,7 +597,16 @@ export async function writeOAuthSections(
 ): Promise<void> {
   const policy = getPersistTokensPolicy();
   const durable = await secretStoreIsDurable(secretStore);
-  await withOAuthStateLock(filePath, "save", async () => {
+  await withOAuthStateLock(filePath, "save", async (locked) => {
+    // The namespace scoping every store id below; minted (and legacy
+    // entries moved — under the real lock only, see adoptSecretsNamespace)
+    // on this file's first namespaced write. Resolved once per save: an
+    // attempt retry never re-ADOPTS — but it may re-KEY. Under degraded
+    // (unlocked) locking a concurrent first writer can mint a different
+    // namespace and win the file between this read and an attempt's write,
+    // so each attempt below re-checks the namespace observed on disk and
+    // converges onto it (`let`, not `const`).
+    let namespace = await adoptSecretsNamespace(filePath, secretStore, locked);
     // Restore baseline for every failure exit below. For each touched
     // (server, field) it holds the latest store value NOT written by this
     // call: the pre-operation value, superseded by a concurrent writer's
@@ -536,10 +753,49 @@ export async function writeOAuthSections(
 
       // The disk read sits inside the try too: on a retry the store already
       // holds an earlier attempt's writes, and a concurrent writer replacing
-      // the file with something unrecognized would otherwise make
-      // `readDiskForMutation` throw past the loop without any rollback.
+      // the file with something unrecognized would otherwise throw past the
+      // loop without any rollback. Read raw, not just parsed: the namespace
+      // check below needs the unparsed blob.
       try {
-        const disk = await readDiskForMutation(filePath, "save");
+        const rawDisk = await readStoreFile(filePath);
+        const disk = parseOAuthPersistBlob(rawDisk);
+        if (rawDisk !== null && disk === null) {
+          throw new OAuthStateFileUnrecognizedError(filePath, "save");
+        }
+        // Namespace convergence: under degraded (unlocked) locking a
+        // concurrent first writer can adopt a different namespace and win
+        // the file after our adoption read. The merge below already
+        // converges the *data* onto what they left; the namespace must
+        // converge the same way, or every retry re-stamps our own mint and
+        // the two writers ping-pong, stranding the loser's secrets under a
+        // namespace the final file no longer references. Re-key to the
+        // namespace observed on disk, first rolling earlier attempts' store
+        // writes (all keyed under the abandoned namespace) back to baseline.
+        const diskNamespace = parseSecretsNamespace(rawDisk);
+        if (diskNamespace !== undefined && diskNamespace !== namespace) {
+          // Strict, unlike the failure exits' best-effort restores: this is
+          // normal control flow with no original error to preserve, and
+          // carrying on past a failed restore would clear the baseline and
+          // let the save report success with earlier attempts' writes
+          // stranded under the abandoned namespace, unindexed by any file.
+          // Aborting keeps the baseline for the rethrow's reconciliation,
+          // and a retried save converges cleanly.
+          let restoreFailure: unknown;
+          await restoreSecretFields(
+            secretStore,
+            [...restoreBaseline.values()],
+            (error) => {
+              restoreFailure ??= error;
+            },
+          );
+          if (restoreFailure !== undefined) throw restoreFailure;
+          restoreBaseline.clear();
+          ourWrites.clear();
+          // Our unconfirmed write carried the abandoned namespace, and the
+          // read above proves the file no longer holds it.
+          unconfirmed = null;
+          namespace = diskNamespace;
+        }
         // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
         // second pass over the same entry would snapshot the value the first
         // pass just wrote — a rollback would then "restore" that intermediate
@@ -567,9 +823,18 @@ export async function writeOAuthSections(
               ],
             };
         const merged = mergeOAuthSections(disk, snapshot, effective);
+        // Ledger before store writes (#2560): an entry written under this
+        // namespace must be findable once the namespace is superseded.
+        await recordNamespaceKeys(
+          filePath,
+          secretStore,
+          namespace,
+          Object.keys(merged.servers),
+          Object.keys(merged.idpSessions),
+        );
 
         for (const url of effective.servers ?? []) {
-          const serverId = oauthSecretServerId(url);
+          const serverId = oauthSecretServerId(url, namespace);
           // Own-property reads: with a `__proto__` key a plain lookup on a
           // map that lacks it returns the inherited prototype, so a clear
           // would read as an update and skip the purge below.
@@ -661,7 +926,7 @@ export async function writeOAuthSections(
         }
 
         for (const issuer of effective.idpSessions ?? []) {
-          const serverId = oauthIdpSecretServerId(issuer);
+          const serverId = oauthIdpSecretServerId(issuer, namespace);
           const next = getOwnEntry(snapshot.idpSessions, issuer);
           const entryPrior = await snapshotSecretFields(secretStore, serverId, [
             IDP_SESSION_FIELD,
@@ -724,7 +989,7 @@ export async function writeOAuthSections(
           });
         }
 
-        written = serializeOAuthPersistBlob(merged);
+        written = serializeOAuthFileBlob(merged, namespace);
         await writeStoreFile(filePath, written);
         unconfirmed = { written, writes: attemptWrites };
       } catch (error) {
@@ -765,17 +1030,18 @@ export async function writeOAuthSections(
 /** Build the bulk-read request list for everything a snapshot could hold. */
 function secretRequestsFor(
   snapshot: OAuthPersistSnapshot,
+  namespace: string | undefined,
 ): SecretBulkRequest[] {
   const requests: SecretBulkRequest[] = [];
   for (const [url, state] of Object.entries(snapshot.servers)) {
     requests.push({
-      serverId: oauthSecretServerId(url),
+      serverId: oauthSecretServerId(url, namespace),
       fields: serverSecretFields(state),
     });
   }
   for (const issuer of Object.keys(snapshot.idpSessions)) {
     requests.push({
-      serverId: oauthIdpSecretServerId(issuer),
+      serverId: oauthIdpSecretServerId(issuer, namespace),
       fields: [IDP_SESSION_FIELD],
     });
   }
@@ -786,8 +1052,9 @@ function secretRequestsFor(
 async function joinSnapshot(
   snapshot: OAuthPersistSnapshot,
   secretStore: SecretStore,
+  namespace: string | undefined,
 ): Promise<OAuthPersistSnapshot> {
-  const requests = secretRequestsFor(snapshot);
+  const requests = secretRequestsFor(snapshot, namespace);
   // Strict: this read hydrates the memory state that later sectioned writes
   // diff against, so a tolerant read during a store outage would present
   // every credential as absent — and the next save would *delete* them from
@@ -801,13 +1068,19 @@ async function joinSnapshot(
     servers: Object.fromEntries(
       Object.entries(snapshot.servers).map(([url, state]) => [
         url,
-        joinServerOAuthState(state, values[oauthSecretServerId(url)] ?? {}),
+        joinServerOAuthState(
+          state,
+          values[oauthSecretServerId(url, namespace)] ?? {},
+        ),
       ]),
     ),
     idpSessions: Object.fromEntries(
       Object.entries(snapshot.idpSessions).map(([issuer, session]) => [
         issuer,
-        joinIdpSession(session, values[oauthIdpSecretServerId(issuer)] ?? {}),
+        joinIdpSession(
+          session,
+          values[oauthIdpSecretServerId(issuer, namespace)] ?? {},
+        ),
       ]),
     ),
   };
@@ -846,6 +1119,20 @@ async function migratePlaintextSecrets(
   const raw = await readStoreFile(filePath);
   const fresh = parseOAuthPersistBlob(raw);
   if (!fresh || !snapshotHasPlaintextSecrets(fresh)) return;
+  // Migration honors — and preserves — the file's own namespace; it never
+  // mints one. Scoping is a write-path decision (`adoptSecretsNamespace`),
+  // and a read-triggered strip that also re-keyed the entries would be the
+  // adoption without its legacy-entry move.
+  const namespace = parseSecretsNamespace(raw);
+  if (namespace !== undefined) {
+    await recordNamespaceKeys(
+      filePath,
+      secretStore,
+      namespace,
+      Object.keys(fresh.servers),
+      Object.keys(fresh.idpSessions),
+    );
+  }
   const migrateEntrySecrets = async (
     serverId: string,
     secrets: OAuthSecretValues,
@@ -873,12 +1160,18 @@ async function migratePlaintextSecrets(
   for (const [url, state] of Object.entries(fresh.servers)) {
     const split = splitServerOAuthState(state, "all");
     setOwnEntry(residue.servers, url, split.residue);
-    await migrateEntrySecrets(oauthSecretServerId(url), split.secrets);
+    await migrateEntrySecrets(
+      oauthSecretServerId(url, namespace),
+      split.secrets,
+    );
   }
   for (const [issuer, session] of Object.entries(fresh.idpSessions)) {
     const split = splitIdpSession(session, "all");
     setOwnEntry(residue.idpSessions, issuer, split.residue);
-    await migrateEntrySecrets(oauthIdpSecretServerId(issuer), split.secrets);
+    await migrateEntrySecrets(
+      oauthIdpSecretServerId(issuer, namespace),
+      split.secrets,
+    );
   }
   // The split leaves only type-corrupt token payloads in the residue (see
   // `splitTokens`), so a hand-edited junk entry stays plaintext and
@@ -886,7 +1179,7 @@ async function migratePlaintextSecrets(
   // reject. Such a file re-enters migration on every read; skip the rewrite
   // when nothing would change so a steady-state file is not re-written (and
   // a concurrent writer not clobbered) per read.
-  const stripped = serializeOAuthPersistBlob(residue);
+  const stripped = serializeOAuthFileBlob(residue, namespace);
   if (stripped !== raw) {
     await writeStoreFile(filePath, stripped);
   }
@@ -922,7 +1215,8 @@ export async function readOAuthStore(
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<OAuthPersistSnapshot | null> {
   return withOAuthStateLock(filePath, "read", async () => {
-    let snapshot = parseOAuthPersistBlob(await readStoreFile(filePath));
+    let raw = await readStoreFile(filePath);
+    let snapshot = parseOAuthPersistBlob(raw);
     if (snapshot === null) return null;
 
     if (
@@ -931,14 +1225,16 @@ export async function readOAuthStore(
     ) {
       try {
         await migratePlaintextSecrets(filePath, secretStore);
-        snapshot =
-          parseOAuthPersistBlob(await readStoreFile(filePath)) ?? snapshot;
+        raw = await readStoreFile(filePath);
+        snapshot = parseOAuthPersistBlob(raw) ?? snapshot;
       } catch (error) {
         warnMigrationFailure(error);
       }
     }
 
-    return joinSnapshot(snapshot, secretStore);
+    // Reads never adopt: a legacy file's entries stay at their legacy ids
+    // until a write mints the namespace and moves them (#2549).
+    return joinSnapshot(snapshot, secretStore, parseSecretsNamespace(raw));
   });
 }
 
@@ -962,16 +1258,25 @@ export async function removeOAuthStore(
   filePath: string,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
-  await withOAuthStateLock(filePath, "remove", async () => {
-    const snapshot = await readDiskForMutation(filePath, "remove");
+  await withOAuthStateLock(filePath, "remove", async (locked) => {
+    const rawBlob = await readStoreFile(filePath);
+    const snapshot = parseOAuthPersistBlob(rawBlob);
+    if (rawBlob !== null && snapshot === null) {
+      throw new OAuthStateFileUnrecognizedError(filePath, "remove");
+    }
     if (snapshot) {
+      // Purge by the ids this file's entries actually use. A legacy
+      // (un-namespaced) file purges the legacy ids; a namespaced one must
+      // purge ONLY its own namespaced ids — the legacy ids may still be the
+      // live index of another, not-yet-adopted state file (#2549).
+      const namespace = parseSecretsNamespace(rawBlob);
       const targets = [
         ...Object.entries(snapshot.servers).map(([url, state]) => ({
-          id: oauthSecretServerId(url),
+          id: oauthSecretServerId(url, namespace),
           fields: serverSecretFields(state),
         })),
         ...Object.keys(snapshot.idpSessions).map((issuer) => ({
-          id: oauthIdpSecretServerId(issuer),
+          id: oauthIdpSecretServerId(issuer, namespace),
           fields: [IDP_SESSION_FIELD],
         })),
       ];
@@ -994,6 +1299,13 @@ export async function removeOAuthStore(
       }
     } else {
       await deleteStoreFile(filePath);
+    }
+    // The file is gone, so every namespace the ledger records is now
+    // superseded — including ones an older Inspector's save stripped from
+    // it, which the purge above could not see (#2560). Locked only, for the
+    // reason adoption gives.
+    if (locked) {
+      await purgeSupersededNamespaces(filePath, secretStore, undefined);
     }
   });
 }

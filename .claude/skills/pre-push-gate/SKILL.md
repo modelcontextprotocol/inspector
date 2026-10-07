@@ -98,18 +98,36 @@ stale install otherwise passes every check and fails later as a behavioral test
 reporting the *old* dependency's behavior as a product bug (#2494). Don't
 "fix" that test.
 
+### `local:dco`
+
+A commit in `origin/v2/main..HEAD` (minus anything already on `origin/main`)
+has no `Signed-off-by:` trailer matching its
+author or committer (#2616). The output names each commit and prints the
+repair. Repair and prevention (`git commit -s`, the `--signoff` rebase) are
+step 3 of `/pr-flow`.
+
+If it lists commits you never made, check which case you are in:
+
+- **A stacked branch** (cut from another feature branch): `origin/v2/main..HEAD`
+  covers the whole stack, parent commits included. Fetching changes nothing.
+  An unsigned parent commit is repaired on the parent's own branch first, and
+  the child is then rebased onto the repaired parent (`/pr-flow` step 3).
+- **Not stacked**: your `origin/v2/main` is probably behind what the branch was
+  cut from. `git fetch origin v2/main` and re-run.
+
 ### `verify:action-pins`
 
 A job that holds a credential (`id-token`/`packages: write`, a non-default
 secret, or it builds an artifact such a job downloads) runs an action that is
 not SHA-pinned (#2484). Pin it the way its neighbours are —
-`owner/repo@<40-hex sha> # vX.Y.Z` — resolving both from one lookup:
+`owner/repo@<40-hex sha> # vX.Y.Z` — with the script
+(`scripts/action-pin-resolve.mjs`, #2558), which resolves the SHA and the
+exact-version comment from the **same** tag lookup (the guard is offline and
+cannot check the two agree):
 
 ```sh
-REPO=actions/checkout; TAG=v7
-SHA=$(gh api "repos/$REPO/commits/$TAG" --jq .sha)
-gh api --paginate "repos/$REPO/tags?per_page=100" \
-  --jq ".[] | select(.commit.sha==\"$SHA\") | .name" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1
+npm run action:resolve-pin -- --repo actions/checkout --tag v7
+# → uses: actions/checkout@<sha> # v7.x.y
 ```
 
 If a job started failing because it gained a secret or a scope, that is the

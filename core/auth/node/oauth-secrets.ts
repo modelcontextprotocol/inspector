@@ -20,6 +20,7 @@
  * route); the browser round-trips full snapshots over the authed local API.
  */
 
+import { randomUUID } from "node:crypto";
 import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { setOwnEntry } from "../../storage/own-entry.js";
@@ -74,11 +75,55 @@ export function resetPersistTokensPolicyWarnings(): void {
  * prefix of another's (`https://a` vs `https://a:8080`), letting
  * prefix-matching stores delete the wrong server's secrets. Encoding turns
  * `:` and `/` into `%3A`/`%2F`, which no other id can collide with.
+ *
+ * Ids are additionally scoped by the state file's secrets namespace
+ * (#2549): without it, two state files (profiles) that connect to the same
+ * server share one store entry, so profile B's login overwrites profile
+ * A's tokens and A silently acts as B. The namespace is a UUID stored in
+ * the state file itself (see `adoptSecretsNamespace` in
+ * `oauth-persist-file.ts`), inserted between the prefix and the encoded
+ * URL: `oauth+<namespace>+<encoded url>`. The delimiter stays unambiguous
+ * because `encodeURIComponent` escapes `+` (to `%2B`) and
+ * {@link isValidSecretsNamespace} rejects `+` (and `:`, keeping the id
+ * colon-free for the keyring account parse) — so a namespaced id can never
+ * equal a legacy unscoped one, and no (namespace, url) pair can produce
+ * another pair's id. `namespace === undefined` yields the legacy unscoped
+ * shape, still used to read (and migrate away from) pre-#2549 entries.
  */
-export const oauthSecretServerId = (serverUrl: string): string =>
-  `oauth+${encodeURIComponent(serverUrl)}`;
-export const oauthIdpSecretServerId = (issuer: string): string =>
-  `oauth-idp+${encodeURIComponent(issuer)}`;
+export const oauthSecretServerId = (
+  serverUrl: string,
+  namespace?: string,
+): string =>
+  namespace === undefined
+    ? `oauth+${encodeURIComponent(serverUrl)}`
+    : `oauth+${namespace}+${encodeURIComponent(serverUrl)}`;
+export const oauthIdpSecretServerId = (
+  issuer: string,
+  namespace?: string,
+): string =>
+  namespace === undefined
+    ? `oauth-idp+${encodeURIComponent(issuer)}`
+    : `oauth-idp+${namespace}+${encodeURIComponent(issuer)}`;
+
+/**
+ * A usable secrets namespace: what `randomUUID()` produces, plus room for a
+ * hand-chosen value. The charset is what carries the id guarantees above —
+ * no `:` (keyring accounts parse at the first colon), no `+` (the id
+ * delimiter), and nothing `encodeURIComponent` leaves unescaped in a way
+ * that could forge a delimiter. Anything else in the file is ignored as if
+ * absent rather than propagated into store ids.
+ */
+export function isValidSecretsNamespace(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value)
+  );
+}
+
+/** Mint a fresh secrets namespace for a state file that has none. */
+export function newSecretsNamespace(): string {
+  return randomUUID();
+}
 
 /** Field for one issuer's acquired tokens (JSON-serialized `OAuthTokens`). */
 export const issuerTokensField = (issuer: string): string => `tokens:${issuer}`;

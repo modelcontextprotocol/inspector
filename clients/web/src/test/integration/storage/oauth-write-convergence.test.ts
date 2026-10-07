@@ -44,13 +44,16 @@ vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
     >();
   return {
     ...actual,
+    // The hooks simulate a writer racing on the *state file*; the
+    // namespace ledger beside it (#2560) is not part of that race.
     writeStoreFile: vi.fn(async (filePath: string, data: string) => {
-      hook.beforeWrite?.(filePath, data);
+      const raced = !filePath.endsWith(".namespaces.json");
+      if (raced) hook.beforeWrite?.(filePath, data);
       await actual.writeStoreFile(filePath, data);
-      await hook.afterWrite?.(filePath, data);
+      if (raced) await hook.afterWrite?.(filePath, data);
     }),
     readStoreFile: vi.fn(async (filePath: string) => {
-      hook.beforeRead?.(filePath);
+      if (!filePath.endsWith(".namespaces.json")) hook.beforeRead?.(filePath);
       return actual.readStoreFile(filePath);
     }),
   };
@@ -82,6 +85,15 @@ let filePath: string;
 let store: InMemorySecretStore;
 /** File bytes holding only server A, as the racing writer would leave them. */
 let onlyA: string;
+/** Store id for a url under the seed write's adopted secrets namespace. */
+let idOf: (url: string) => string;
+
+/** Writes to the state file itself, excluding its namespace ledger. */
+function stateFileWrites(): number {
+  return vi
+    .mocked(writeStoreFile)
+    .mock.calls.filter(([path]) => path === filePath).length;
+}
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "inspector-oauth-converge-"));
@@ -98,6 +110,10 @@ beforeEach(async () => {
     store,
   );
   onlyA = readFileSync(filePath, "utf-8");
+  const { secretsNamespace } = JSON.parse(onlyA) as {
+    secretsNamespace: string;
+  };
+  idOf = (url) => oauthSecretServerId(url, secretsNamespace);
 });
 
 afterEach(() => {
@@ -124,10 +140,104 @@ describe("writeOAuthSections convergence verification", () => {
     );
 
     // Seed + first (clobbered) attempt + converging retry.
-    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(3);
+    expect(stateFileWrites()).toBe(3);
     const read = await readOAuthStore(filePath, store);
     expect(read?.servers[SERVER_A]?.tokens?.access_token).toBe("at-a");
     expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
+  });
+
+  it("converges onto a concurrent adopter's namespace instead of re-stamping its own", async () => {
+    // The degraded-lock first-write race: another writer adopted a different
+    // namespace and won the file between our write and read-back. The retry
+    // must re-key to the namespace observed on disk — re-stamping our own
+    // mint would ping-pong and strand the other writer's secrets.
+    const racingNs = "99999999-9999-4999-8999-999999999999";
+    const racing = JSON.parse(onlyA) as Record<string, unknown>;
+    racing.secretsNamespace = racingNs;
+    // The racing writer's own store entries live under its namespace.
+    await store.set(
+      oauthSecretServerId(SERVER_A, racingNs),
+      LEGACY_TOKENS_FIELD,
+      JSON.stringify({ access_token: "at-racing", token_type: "Bearer" }),
+    );
+    let clobbers = 0;
+    hook.afterWrite = (path) => {
+      if (clobbers++ === 0) writeFileSync(path, JSON.stringify(racing));
+    };
+
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+
+    // Seed + clobbered attempt + converging retry.
+    expect(stateFileWrites()).toBe(3);
+    const final = JSON.parse(readFileSync(filePath, "utf-8")) as {
+      secretsNamespace: string;
+    };
+    expect(final.secretsNamespace).toBe(racingNs);
+    // B's secrets were written under the adopted namespace…
+    expect(
+      await store.get(
+        oauthSecretServerId(SERVER_B, racingNs),
+        LEGACY_TOKENS_FIELD,
+      ),
+    ).not.toBeNull();
+    // …and the abandoned attempt's writes under our own mint were unwound.
+    expect(await store.get(idOf(SERVER_B), LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(
+      await store.get(idOf(SERVER_B), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBeNull();
+    // Joined read-back sees both writers' entries under the one namespace.
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_B]?.tokens?.access_token).toBe("at-b");
+    expect(read?.servers[SERVER_A]?.tokens?.access_token).toBe("at-racing");
+  });
+
+  it("aborts the namespace re-key when the baseline restore fails, instead of reporting success", async () => {
+    // Same race as above, but unwinding the abandoned attempt's store
+    // writes fails. Carrying on would clear the rollback baseline and let
+    // the save report success with those writes stranded under a namespace
+    // no file references — the re-key must abort instead, leaving a loud
+    // failure a retried save can converge from.
+    const racingNs = "99999999-9999-4999-8999-999999999999";
+    const racing = JSON.parse(onlyA) as Record<string, unknown>;
+    racing.secretsNamespace = racingNs;
+    let clobbers = 0;
+    hook.afterWrite = (path) => {
+      if (clobbers++ === 0) writeFileSync(path, JSON.stringify(racing));
+    };
+    // The re-key restore deletes the abandoned attempt's new-entry writes
+    // (their baseline is "absent"). Refuse the first such delete once; the
+    // failure-path rollback that follows retries it and succeeds.
+    const realDelete = store.delete.bind(store);
+    let refused = false;
+    vi.spyOn(store, "delete").mockImplementation(async (serverId, field) => {
+      if (!refused && serverId === idOf(SERVER_B)) {
+        refused = true;
+        throw new Error("keychain delete refused");
+      }
+      await realDelete(serverId, field);
+    });
+
+    await expect(
+      writeOAuthSections(
+        filePath,
+        snapshotOf({ [SERVER_B]: serverState("b") }),
+        { servers: [SERVER_B] },
+        store,
+      ),
+    ).rejects.toThrow("keychain delete refused");
+
+    // The failure-path rollback unwound the abandoned writes after all —
+    // nothing is stranded under our mint, and the racing file stands.
+    expect(await store.get(idOf(SERVER_B), LEGACY_TOKENS_FIELD)).toBeNull();
+    const final = JSON.parse(readFileSync(filePath, "utf-8")) as {
+      secretsNamespace: string;
+    };
+    expect(final.secretsNamespace).toBe(racingNs);
   });
 
   it("gives up with a typed, retryable error when the file keeps changing", async () => {
@@ -143,7 +253,7 @@ describe("writeOAuthSections convergence verification", () => {
     ).rejects.toThrow(SecretStoreUnavailableError);
 
     // Seed + five attempts, then the bounded loop reports instead of spinning.
-    expect(vi.mocked(writeStoreFile)).toHaveBeenCalledTimes(6);
+    expect(stateFileWrites()).toBe(6);
   });
 
   it("unwinds a new entry's store secrets when it gives up, so nothing is stranded without a file index", async () => {
@@ -160,11 +270,11 @@ describe("writeOAuthSections convergence verification", () => {
 
     // Server B never made it into the file, so its secrets must not linger
     // in the store (they would have no index for removeOAuthStore to find).
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
     // Server A's stored secrets are untouched.
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_TOKENS_FIELD)).not.toBeNull();
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
   });
@@ -192,10 +302,10 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/disk full/);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
     expect(readFileSync(filePath, "utf-8")).toBe(onlyA);
   });
@@ -216,10 +326,10 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/refusing/i);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
-    const idA = oauthSecretServerId(SERVER_A);
+    const idA = idOf(SERVER_A);
     expect(await store.get(idA, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-a");
   });
 
@@ -230,7 +340,7 @@ describe("writeOAuthSections convergence verification", () => {
     // writer. The rollback baseline folds each attempt's priors, telling our
     // own earlier attempt's writes (equal to what this call writes — they
     // are constant across attempts) apart from foreign values.
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -278,7 +388,7 @@ describe("writeOAuthSections convergence verification", () => {
     // pairs with — so the failure escalates into the reconciling exit, which
     // finds the file changed and restores the pre-operation secrets.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -337,7 +447,7 @@ describe("writeOAuthSections convergence verification", () => {
     // so attempt 2's store writes must be rolled back to the baseline, not
     // left in place under the old residue.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -358,11 +468,12 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
-      // Read 3: attempt 2's disk read — the store has recovered by now.
-      // Read 4: the reconciling exit's confirmation read.
-      if (reads === 2) throw new Error("EIO: read failed");
-      if (reads === 3) failNewSets = false;
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Read 3: its failing read-back. Read 4: attempt 2's disk
+      // read — the store has recovered by now. Read 5: the reconciling
+      // exit's confirmation read.
+      if (reads === 3) throw new Error("EIO: read failed");
+      if (reads === 4) failNewSets = false;
     };
     let writes = 0;
     hook.beforeWrite = () => {
@@ -393,7 +504,7 @@ describe("writeOAuthSections convergence verification", () => {
     // reconciling exit. The file is confirmed to still hold attempt 1's
     // write, so the save is committed: the store is re-pointed at attempt
     // 1's values and the call reports success.
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     await writeOAuthSections(
       filePath,
       snapshotOf({ [SERVER_B]: serverState("b") }),
@@ -410,12 +521,13 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Read 2: its failing read-back.
-      // Read 3: attempt 2's disk read — the store starts flaking here.
-      // Read 4: the confirmation read — the flake has passed.
-      if (reads === 2) throw new Error("EIO: read failed");
-      if (reads === 3) failSets = true;
-      if (reads === 4) failSets = false;
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Read 3: its failing read-back. Read 4: attempt 2's disk
+      // read — the store starts flaking here. Read 5: the confirmation
+      // read — the flake has passed.
+      if (reads === 3) throw new Error("EIO: read failed");
+      if (reads === 4) failSets = true;
+      if (reads === 5) failSets = false;
     };
 
     await writeOAuthSections(
@@ -441,10 +553,11 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      // Read 1: attempt 1's disk read. Reads 2-3: attempt 1's verifying
-      // read-back and attempt 2's disk read, both failing. Read 4: the
-      // reconciling exit's confirmation read, which succeeds.
-      if (reads === 2 || reads === 3) throw new Error("EIO: read failed");
+      // Read 1: the save's namespace-adoption read. Read 2: attempt 1's
+      // disk read. Reads 3-4: attempt 1's verifying read-back and attempt
+      // 2's disk read, both failing. Read 5: the reconciling exit's
+      // confirmation read, which succeeds.
+      if (reads === 3 || reads === 4) throw new Error("EIO: read failed");
     };
 
     await writeOAuthSections(
@@ -454,7 +567,7 @@ describe("writeOAuthSections convergence verification", () => {
       store,
     );
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toContain("at-b");
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs-b");
     const read = await readOAuthStore(filePath, store);
@@ -470,7 +583,9 @@ describe("writeOAuthSections convergence verification", () => {
     let reads = 0;
     hook.beforeRead = () => {
       reads += 1;
-      if (reads >= 2) throw new Error("EIO: read failed");
+      // Read 1 is the save's namespace-adoption read, read 2 attempt 1's
+      // disk read; everything after fails.
+      if (reads >= 3) throw new Error("EIO: read failed");
     };
 
     await expect(
@@ -482,7 +597,7 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).rejects.toThrow(/EIO/);
 
-    const idB = oauthSecretServerId(SERVER_B);
+    const idB = idOf(SERVER_B);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).toBeNull();
     expect(await store.get(idB, LEGACY_CLIENT_SECRET_FIELD)).toBeNull();
     expect(

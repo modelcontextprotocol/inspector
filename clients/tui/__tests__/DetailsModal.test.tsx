@@ -1,13 +1,14 @@
 import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "./helpers/renderTui";
-import { Text } from "ink";
+import { Box, Text } from "ink";
 
 // ScrollView: passthrough so `content` mounts and the imperative ref API
 // (scrollBy / getViewportHeight) exists for the scroll-key handlers.
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
 import { DetailsModal } from "../src/components/DetailsModal.js";
+import { buildOsc52Sequence } from "../src/utils/clipboard.js";
 
 // Ink processes stdin keypresses asynchronously — await this after stdin.write.
 const tick = async () => {
@@ -98,5 +99,53 @@ describe("DetailsModal", () => {
     await tick();
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("Y copies copyText via OSC 52 and shows the status line (#2421)", async () => {
+    const onClose = vi.fn();
+    // Wrapped in a sized box: the modal is position="absolute", so on its own
+    // it contributes nothing to the frame and the status line can't be read.
+    const { stdin, stdout, lastFrame } = render(
+      <Box width={120} height={30}>
+        <DetailsModal
+          title="Details"
+          content={<Text>x</Text>}
+          width={120}
+          height={30}
+          onClose={onClose}
+          copyText='{"raw":true}'
+        />
+      </Box>,
+    );
+
+    await tick();
+    expect(lastFrame()).toContain("Y to copy, W to save to a file");
+    stdin.write("y");
+    await tick();
+
+    expect(stdout.frames).toContain(buildOsc52Sequence('{"raw":true}'));
+    expect(lastFrame()).toContain("Copied details (12 chars)");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("offers no copy affordance without copyText", async () => {
+    const { stdin, stdout, lastFrame } = render(
+      <Box width={120} height={30}>
+        <DetailsModal
+          title="Details"
+          content={<Text>x</Text>}
+          width={120}
+          height={30}
+          onClose={() => {}}
+        />
+      </Box>,
+    );
+
+    await tick();
+    stdin.write("y");
+    await tick();
+
+    expect(lastFrame()).not.toContain("Y to copy");
+    expect(stdout.frames.some((f) => f.includes("\u001b]52;"))).toBe(false);
   });
 });
