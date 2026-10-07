@@ -316,7 +316,7 @@ export function ProtocolListPanel({
   // a single unit; everything else stays a plain ProtocolEntry. `sectionPinned`
   // is the section's pin state (used for a lone entry's pin label).
   const renderRows = (sectionEntries: MessageEntry[], sectionPinned: boolean) =>
-    groupProtocolEntries(sectionEntries).map((row) =>
+    groupProtocolEntries(sectionEntries, sortDirection).map((row) =>
       row.kind === "mrtr" ? (
         <MrtrConversation
           key={`mrtr-${row.requestState}-${row.rounds[0].id}`}

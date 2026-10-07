@@ -38,11 +38,17 @@ test("parseDcoArgs requires --base and defaults --head to HEAD", () => {
   assert.deepEqual(parseDcoArgs(["--base", "origin/v2/main"]), {
     base: "origin/v2/main",
     head: "HEAD",
+    exclude: [],
   });
   assert.deepEqual(parseDcoArgs(["--base", "a", "--head", "b"]), {
     base: "a",
     head: "b",
+    exclude: [],
   });
+  assert.deepEqual(
+    parseDcoArgs(["--base", "a", "--exclude", "x", "--exclude", "y"]).exclude,
+    ["x", "y"],
+  );
   assert.throws(() => parseDcoArgs([]), /--base/);
 });
 
@@ -104,6 +110,60 @@ test("name from one identity and email from the other is not a match", () => {
     }),
   );
   assert.notEqual(reason, null);
+});
+
+// A GitHub squash merge: author name from the GitHub profile, committer
+// GitHub's web-flow identity, trailers carrying the git `user.name` (#2616).
+const GITHUB = { name: "GitHub", email: "noreply@github.com" };
+const ADA_PROFILE = { name: "Ada L.", email: ADA.email };
+const ADA_GIT = { name: "ada", email: ADA.email };
+
+test("a GitHub-committed squash passes on an author email match", () => {
+  assert.equal(
+    failureReason(
+      commit({
+        author: ADA_PROFILE,
+        committer: GITHUB,
+        message: signed(ADA_GIT),
+      }),
+    ),
+    null,
+  );
+});
+
+test("the email-only match applies to GitHub-committed commits alone", () => {
+  assert.notEqual(
+    failureReason(
+      commit({ author: ADA_PROFILE, committer: BOB, message: signed(ADA_GIT) }),
+    ),
+    null,
+  );
+});
+
+test("the web-flow identity is matched whole, not by its email alone", () => {
+  assert.notEqual(
+    failureReason(
+      commit({
+        author: ADA_PROFILE,
+        committer: { name: "Mallory", email: GITHUB.email },
+        message: signed(ADA_GIT),
+      }),
+    ),
+    null,
+  );
+});
+
+test("a GitHub-committed commit still needs the AUTHOR's email", () => {
+  assert.notEqual(
+    failureReason(
+      commit({ author: ADA_PROFILE, committer: GITHUB, message: signed(BOB) }),
+    ),
+    null,
+  );
+  assert.equal(
+    failureReason(commit({ author: ADA_PROFILE, committer: GITHUB })),
+    "no Signed-off-by trailer",
+  );
 });
 
 test("exemption: merge commits and noreply bot authors only", () => {
@@ -177,7 +237,7 @@ function makeRepo() {
 const spawnIn = (cwd) => (cmd, args, opts) =>
   spawnSync(cmd, args, { ...opts, cwd });
 
-function runMain(dir) {
+function runMain(dir, extra = []) {
   const out = [];
   const err = [];
   const log = console.log;
@@ -185,7 +245,7 @@ function runMain(dir) {
   console.log = (line) => out.push(line);
   console.error = (line) => err.push(line);
   try {
-    const code = main(["--base", "base"], spawnIn(dir));
+    const code = main(["--base", "base", ...extra], spawnIn(dir));
     return { code, out: out.join("\n"), err: err.join("\n") };
   } finally {
     console.log = log;
@@ -200,6 +260,22 @@ test("main passes a range of signed commits and ignores the base's history", () 
   const { code, out } = runMain(dir);
   assert.equal(code, 0);
   assert.match(out, /dco: OK — 2 commit\(s\) signed off in base\.\.HEAD/);
+});
+
+test("main --exclude drops a released branch's history from the range", () => {
+  // The milestone-merge shape (#2616): a branch cut from `main`, whose own
+  // unsigned history must not fail a gate run against `v2/main`.
+  const dir = makeRepo();
+  git(dir, ["commit", "-q", "--allow-empty", "-m", "released, unsigned"]);
+  git(dir, ["branch", "released"]);
+  git(dir, ["commit", "-q", "-s", "--allow-empty", "-m", "new, signed"]);
+  assert.equal(runMain(dir).code, 1, "without --exclude the old commit fails");
+  const { code, out } = runMain(dir, ["--exclude", "released"]);
+  assert.equal(code, 0);
+  assert.match(
+    out,
+    /1 commit\(s\) signed off in base\.\.HEAD \(excluding released\)/,
+  );
 });
 
 test("main fails on one unsigned commit and prints the repair", () => {
