@@ -929,13 +929,14 @@ describe("SkillsTab list filter (#2430)", () => {
 describe("SkillsTab verify all (#2590)", () => {
   /** A client whose server settings carry a catalog budget, as `verifySkills` reads it. */
   function budgetedClient(
-    readResource: unknown,
+    readResource: ReturnType<typeof vi.fn>,
     settings: { skillCatalogMaxSkills?: number; skillCatalogMaxBytes?: number },
   ): InspectorClient {
-    return {
-      readResource,
+    // Built on `mockClient` so no further assertion is needed: the accessor is
+    // the one thing `verifySkills` reads the budget through.
+    return Object.assign(mockClient(readResource), {
       getServerSettings: () => settings,
-    } as unknown as InspectorClient;
+    });
   }
 
   // Structurally clean, so its outcome is decided by reading it — `broken`
