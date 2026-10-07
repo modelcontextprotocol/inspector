@@ -105,8 +105,14 @@ bot-authored commits; there is no partial credit — one unsigned commit out of 
 fails the whole check, and the job's output names each offending commit and the
 repair below.
 
-⚠️ **It is a merge gate only because it is a _required_ status check** — a
-ruleset setting, not something the workflow file can declare. The job runs on
+⚠️ **It is a merge gate because it is a _required_ status check** — a
+ruleset setting, not something the workflow file can declare. The
+`v2/main - DCO` repository ruleset (#2621) requires `DCO` on every PR into
+`v2/main`, pinned to the GitHub Actions app (integration `15368`) so a commit
+status someone posts by hand under the same name cannot satisfy it; it also
+blocks deleting or force-pushing `v2/main`, which the push backstop below
+relies on. Repository admins can bypass it. A **stacked** PR's check runs but
+gates nothing until the PR is retargeted to `v2/main`. The job runs on
 `pull_request`, from the PR's own ref, so it reports on every v2 PR — stacked
 ones included, any `v2/**` base — with no wait for a
 milestone merge (#2616). A second job, `DCO (v2/main push)`,
