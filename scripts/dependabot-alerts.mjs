@@ -56,6 +56,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import semver from "semver";
+import { escapeTableCell as cell } from "./lib/markdown-cell.mjs";
 
 /** Board #28 (v2). The project and field node ids are stable; option ids are not. */
 export const PROJECT_ID = "PVT_kwDOCt2Azc4BJVxt";
@@ -431,9 +432,6 @@ export function buildIssueTitle(group) {
   return `chore(deps): bump \`${group.package}\` to \`${group.fixedIn}\` in \`${group.manifestPath}\` (${n} ${n === 1 ? "advisory" : "advisories"})`;
 }
 
-/** Escape a value going into a Markdown table cell. */
-const cell = (value) => String(value).replace(/\|/g, "\\|");
-
 const PLACEMENT_DOC =
   "https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement";
 
@@ -676,7 +674,7 @@ export function buildNewAdvisoryComment(group, added) {
     .filter((a) => added.includes(a.ghsa))
     .map(
       (a) =>
-        `| [${a.ghsa}](${a.url}) | ${a.severity} | ${a.summary.replace(/\|/g, "\\|")} |`,
+        `| [${a.ghsa}](${a.url}) | ${a.severity} | ${cell(a.summary)} |`,
     )
     .join("\n");
   return [

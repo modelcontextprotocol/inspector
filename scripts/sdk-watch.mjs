@@ -67,6 +67,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import semver from "semver";
+import { escapeTableCell as cell } from "./lib/markdown-cell.mjs";
 
 /** The branch this repo ships from, and whose manifests are read. */
 export const TARGET_BRANCH = "v2/main";
@@ -444,8 +445,6 @@ export function groupState(group, versions) {
 export function buildIssueTitle(state) {
   return `chore(deps): upgrade the ${state.group.label} to ${state.target}`;
 }
-
-const cell = (value) => String(value).replace(/\|/g, "\\|");
 
 /**
  * Does adopting `target` require editing the root manifest, or only the lockfile?
