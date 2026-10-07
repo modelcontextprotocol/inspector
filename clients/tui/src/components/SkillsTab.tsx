@@ -139,6 +139,36 @@ function failureDetail(file: SkillFileReport): string | undefined {
 }
 
 /**
+ * Fold one run's reports into the held set (#2590).
+ *
+ * ⚠️ **The first occurrence of a key in a run wins.** A malformed listing can
+ * repeat an entry verbatim, and both copies share a `skillEntryKey`. Under a
+ * catalog budget the walk reads the first and stops before the second, so a
+ * last-write-wins merge replaced a real verdict — a digest failure, say — with
+ * the second copy's unread `incomplete` (Copilot). Identical entries are served
+ * identical bytes, so the first, read occurrence speaks for both.
+ *
+ * Verdicts for entries no longer in the listing (`live`) are dropped, so a pane
+ * left open across refreshes does not accumulate one per entry snapshot.
+ */
+function mergeReports(
+  previous: ReadonlyMap<string, SkillVerifyReport>,
+  entries: readonly SkillEntry[],
+  results: readonly SkillVerifyReport[],
+  live: ReadonlySet<string>,
+): Map<string, SkillVerifyReport> {
+  const next = new Map([...previous].filter(([key]) => live.has(key)));
+  const seen = new Set<string>();
+  results.forEach((result, index) => {
+    const key = skillEntryKey(entries[index]!);
+    if (seen.has(key)) return;
+    seen.add(key);
+    next.set(key, result);
+  });
+  return next;
+}
+
+/**
  * The catalog line under the list (#2590): the hint for `v` until something has
  * been verified, then a tally of the verdicts held for the CURRENT listing.
  *
@@ -163,15 +193,19 @@ function catalogSummary(
     if (report) counts[report.outcome] += 1;
     else unchecked += 1;
   }
-  if (unchecked === skills.length) return "[v to verify all]";
+  if (unchecked === skills.length) return "[v: verify all]";
+  // Compact, because at an 80-column terminal the list pane has 19 columns of
+  // text (Copilot). The glyphs are the pane's own: `✓`/`✗`/`?` as in the
+  // manifest rows, `·` for not looked at, and `…` for cut short by the budget.
+  // Verified and failed always show; the rest only when non-zero.
   const parts = [
-    `✓ ${counts.verified}`,
-    `✗ ${counts.failed}`,
-    ...(counts.incomplete > 0 ? [`incomplete ${counts.incomplete}`] : []),
-    ...(counts.unverifiable > 0 ? [`? ${counts.unverifiable}`] : []),
-    ...(unchecked > 0 ? [`unchecked ${unchecked}`] : []),
+    `✓${counts.verified}`,
+    `✗${counts.failed}`,
+    ...(counts.incomplete > 0 ? [`…${counts.incomplete}`] : []),
+    ...(counts.unverifiable > 0 ? [`?${counts.unverifiable}`] : []),
+    ...(unchecked > 0 ? [`·${unchecked}`] : []),
   ];
-  return parts.join(" · ");
+  return parts.join(" ");
 }
 
 /** The file name a manifest URI ends in, for a list that must fit 40 columns. */
@@ -246,6 +280,12 @@ export function SkillsTab({
     ReadonlyMap<string, SkillVerifyReport>
   >(() => new Map());
   const scrollViewRef = useRef<ScrollViewRef>(null);
+  // The listing as of the latest commit, for a verification that resolves
+  // after it changed. Synchronizing a ref, not deriving state — an effect.
+  const skillsRef = useRef(skills);
+  useEffect(() => {
+    skillsRef.current = skills;
+  }, [skills]);
 
   const selectedSkill = shownSkills[selectedIndex] ?? null;
 
@@ -263,13 +303,12 @@ export function SkillsTab({
       void (async () => {
         try {
           const results = await verifySkills(inspectorClient, entries);
-          setReports((previous) => {
-            const next = new Map(previous);
-            results.forEach((result, index) => {
-              next.set(skillEntryKey(entries[index]!), result);
-            });
-            return next;
-          });
+          // Read AFTER the run, so a listing that changed while it was in
+          // flight is the one pruned against.
+          const live = new Set(skillsRef.current.map(skillEntryKey));
+          setReports((previous) =>
+            mergeReports(previous, entries, results, live),
+          );
         } catch (err) {
           if (err instanceof AuthRecoveryRequiredError) {
             onAuthRecoveryRequired?.(err);

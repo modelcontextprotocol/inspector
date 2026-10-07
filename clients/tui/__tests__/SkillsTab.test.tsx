@@ -961,7 +961,7 @@ describe("SkillsTab verify all (#2590)", () => {
         height={30}
       />,
     );
-    expect(lastFrame() ?? "").toContain("[v to verify all]");
+    expect(lastFrame() ?? "").toContain("[v: verify all]");
   });
 
   it("verifies the whole listing in one run, so the catalog budget bounds it", async () => {
@@ -988,7 +988,7 @@ describe("SkillsTab verify all (#2590)", () => {
     expect(uris.some((uri) => uri.includes("clean"))).toBe(true);
     expect(uris.some((uri) => uri.includes("other"))).toBe(false);
     let frame = lastFrame() ?? "";
-    expect(frame).toContain("✓ 0 · ✗ 1 · incomplete 1");
+    expect(frame).toContain("✓0 ✗1 …1");
     // The skill past the budget says why it was not read.
     stdin.write(DOWN);
     await tick();
@@ -1023,7 +1023,7 @@ describe("SkillsTab verify all (#2590)", () => {
     expect(
       readUris(readResource).some((uri) => uri.includes("wrong-folder")),
     ).toBe(true);
-    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 2");
+    expect(lastFrame() ?? "").toContain("✓0 ✗2");
   });
 
   it("tallies single verifications against what is still unchecked", async () => {
@@ -1039,7 +1039,7 @@ describe("SkillsTab verify all (#2590)", () => {
     );
     stdin.write(ENTER);
     await tick();
-    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 1 · unchecked 1");
+    expect(lastFrame() ?? "").toContain("✓0 ✗1 ·1");
   });
 
   it("counts an unverifiable skill separately", async () => {
@@ -1059,7 +1059,7 @@ describe("SkillsTab verify all (#2590)", () => {
     );
     stdin.write("v");
     await tick();
-    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 0 · ? 1");
+    expect(lastFrame() ?? "").toContain("✓0 ✗0 ?1");
   });
 
   it("does nothing without a client", async () => {
@@ -1075,6 +1075,102 @@ describe("SkillsTab verify all (#2590)", () => {
     );
     stdin.write("v");
     await tick();
-    expect(lastFrame() ?? "").toContain("[v to verify all]");
+    expect(lastFrame() ?? "").toContain("[v: verify all]");
+  });
+
+  it("keeps a read verdict when a repeated entry is cut off by the budget", async () => {
+    // A malformed listing repeating `clean` verbatim: the walk reads the first
+    // copy and the budget stops it before the second. The second copy's unread
+    // `incomplete` must not overwrite the first copy's real failure.
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean, clean]}
+        pageCount={1}
+        inspectorClient={budgetedClient(
+          vi.fn().mockResolvedValue({
+            result: {
+              contents: [{ uri: "skill://clean/SKILL.md", text: SKILL_MD }],
+            },
+          }),
+          { skillCatalogMaxSkills: 1 },
+        )}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("✓0 ✗2");
+    expect(frame).toContain("Verification FAILED");
+  });
+
+  it("drops verdicts for entries a refresh removed", async () => {
+    const { lastFrame, stdin, rerender } = render(
+      <SkillsTab
+        skills={[clean, other]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    expect(lastFrame() ?? "").toContain("✓0 ✗2");
+    // `other` is gone; `clean` is re-verified, which is when pruning happens.
+    const tree = (
+      <SkillsTab
+        skills={[clean]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />
+    );
+    rerender(tree);
+    await tick();
+    stdin.write("v");
+    await tick();
+    rerender(
+      <SkillsTab
+        skills={[clean, other]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    // Had `other`'s old verdict survived, it would be counted again here.
+    expect(lastFrame() ?? "").toContain("✓0 ✗1 ·1");
+  });
+
+  it("fits the tally in an 80-column terminal's list pane", async () => {
+    // App hands the pane 56 columns at an 80-column terminal.
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean, other, dynamic]}
+        pageCount={1}
+        inspectorClient={budgetedClient(
+          vi.fn().mockResolvedValue({
+            result: {
+              contents: [{ uri: "skill://clean/SKILL.md", text: SKILL_MD }],
+            },
+          }),
+          { skillCatalogMaxSkills: 1 },
+        )}
+        width={56}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    expect(lastFrame() ?? "").toMatch(/✓0 ✗1 …\d/);
   });
 });
