@@ -18,7 +18,13 @@
  * that gate, and the reset that leaves the tab when it goes false, live in
  * `App.tsx` because they are navigation concerns rather than this pane's.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -285,9 +291,11 @@ export function SkillsTab({
   >(() => new Map());
   const scrollViewRef = useRef<ScrollViewRef>(null);
   // The listing as of the latest commit, for a verification that resolves
-  // after it changed. Synchronizing a ref, not deriving state — an effect.
+  // after it changed. A LAYOUT effect, so the ref is synchronized during the
+  // commit itself: a passive effect can run later, and a run resolving in that
+  // gap would still see a removed entry as live (Copilot).
   const skillsRef = useRef(skills);
-  useEffect(() => {
+  useLayoutEffect(() => {
     skillsRef.current = skills;
   }, [skills]);
 
