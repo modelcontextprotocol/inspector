@@ -14,8 +14,10 @@
 #     not something this file can do — without it, the job going missing
 #     passes as silently as the app did).
 #   - `DCO (v2/main push)` — a backstop over every push that lands on
-#     `v2/main`, for whatever reached the branch without a passing PR check:
-#     an admin merge, a direct push, or a PR that edited its own check (below).
+#     `v2/main`, for whatever reached the branch without a passing PR check
+#     while this file and the script stayed intact: an admin merge, a direct
+#     push, a merge made while the PR check was red or missing. NOT a PR that
+#     edited the check itself (below).
 #     It reports when the commit lands, not one milestone later — it cannot
 #     un-merge anything, but an unsigned commit found the same day is still
 #     cheap to deal with.
@@ -33,8 +35,13 @@
 # itself. That is tolerable here because PRs are opened by maintainers only
 # (AGENTS.md, Contributing) and the check exists to catch a FORGOTTEN signoff,
 # not a forged one — the trailer is self-asserted text either way (see the
-# header of `scripts/dco-check.mjs`). The push job is what still sees such a
-# PR's commits once they land. The PR job keeps the shape that made the old
+# header of `scripts/dco-check.mjs`). ⚠️ The push job does NOT cover that
+# case: a `push` run also reads this file, and runs the script, from the
+# pushed revision — so a PR that edits the check edits the backstop with it.
+# Nothing in a workflow the repo's own branches carry can close that; only a
+# check read from elsewhere could, which is what `pull_request_target` was and
+# what this change gives up. The control for it is review: an edit to this
+# file or to `scripts/dco-check.mjs` is in the PR's diff. The PR job keeps the
 # trigger safe anyway: it checks out the PR's BASE for the script and only
 # FETCHES the PR's commits, reading their metadata with `git log` — nothing
 # from the PR is checked out, installed, built or run.
