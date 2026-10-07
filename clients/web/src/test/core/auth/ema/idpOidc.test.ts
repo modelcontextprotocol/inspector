@@ -227,9 +227,47 @@ describe("discoverIdpMetadata", () => {
     vi.restoreAllMocks();
   });
 
-  it("returns parsed OAuth metadata from OIDC discovery", async () => {
+  it("prefers the OIDC discovery document and preserves end_session_endpoint", async () => {
     const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === `${IDP_ISSUER}/.well-known/openid-configuration`) {
+        return new Response(
+          JSON.stringify({
+            ...minimalOAuthAsMetadata(IDP_ISSUER),
+            end_session_endpoint: `${IDP_ISSUER}/session/end`,
+          }),
+        );
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const metadata = await discoverIdpMetadata(IDP_ISSUER, fetchFn);
+    expect(metadata.issuer).toBe(IDP_ISSUER);
+    expect(
+      (metadata as { end_session_endpoint?: unknown }).end_session_endpoint,
+    ).toBe(`${IDP_ISSUER}/session/end`);
+    // The RFC 8414 path is never consulted when the OIDC document answers.
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+  });
+
+  it("appends the well-known path after a path-suffixed issuer (OIDC Discovery §4.1)", async () => {
+    const issuer = "https://idp.refresh.test/tenant";
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${issuer}/.well-known/openid-configuration`) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(issuer)));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const metadata = await discoverIdpMetadata(issuer, fetchFn);
+    expect(metadata.issuer).toBe(issuer);
+  });
+
+  it("falls back to SDK discovery when the OIDC document is unavailable", async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/openid-configuration")) {
+        return new Response("not found", { status: 404 });
+      }
       if (url.includes("/.well-known/oauth-authorization-server")) {
         return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
       }
@@ -237,6 +275,59 @@ describe("discoverIdpMetadata", () => {
     });
     const metadata = await discoverIdpMetadata(IDP_ISSUER, fetchFn);
     expect(metadata.token_endpoint).toBe(`${IDP_ISSUER}/token`);
+    expect(metadata.issuer).toBe(IDP_ISSUER);
+  });
+
+  it("rejects an OIDC document whose issuer does not match (OIDC Discovery §4.3), falling back to SDK discovery", async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/openid-configuration")) {
+        // Valid metadata, wrong issuer — must be treated as invalid.
+        return new Response(
+          JSON.stringify(minimalOAuthAsMetadata("https://evil.example")),
+        );
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const metadata = await discoverIdpMetadata(IDP_ISSUER, fetchFn);
+    expect(metadata.issuer).toBe(IDP_ISSUER);
+  });
+
+  it("rejects an OIDC document whose issuer differs even by a trailing slash (exact match), falling back to SDK discovery", async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${IDP_ISSUER}/.well-known/openid-configuration`) {
+        return new Response(
+          JSON.stringify(minimalOAuthAsMetadata(`${IDP_ISSUER}/`)),
+        );
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const metadata = await discoverIdpMetadata(IDP_ISSUER, fetchFn);
+    expect(metadata.issuer).toBe(IDP_ISSUER);
+    // The OIDC document was rejected; the SDK path answered.
+    expect(fetchFn.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("falls back to SDK discovery when the OIDC document is not valid metadata", async () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/openid-configuration")) {
+        // Parses as JSON but fails OAuthMetadataSchema (missing endpoints).
+        return new Response(JSON.stringify({ hello: "world" }));
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(JSON.stringify(minimalOAuthAsMetadata(IDP_ISSUER)));
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    const metadata = await discoverIdpMetadata(IDP_ISSUER, fetchFn);
     expect(metadata.issuer).toBe(IDP_ISSUER);
   });
 

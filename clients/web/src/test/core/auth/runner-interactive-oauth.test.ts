@@ -522,4 +522,222 @@ describe("runRunnerInteractiveOAuth", () => {
     ).rejects.toThrow("bind failed");
     expect(mockServer.stop).toHaveBeenCalled();
   });
+
+  it("rejects cleanly on SIGINT while waiting on the callback, instead of hanging or killing the process", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+      handleSignals: true,
+    });
+
+    // Give beginInteractiveAuthorization/authenticate a tick to register the
+    // listener before the signal fires.
+    await Promise.resolve();
+    await Promise.resolve();
+    process.emit("SIGINT", "SIGINT");
+
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGINT).",
+    );
+    expect(mockServer.stop).toHaveBeenCalled();
+    // The handler must be removed once the wait settles, so a later SIGINT
+    // elsewhere in the process isn't accidentally swallowed by a stale
+    // listener from this call.
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("rejects cleanly on SIGTERM the same way", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+      handleSignals: true,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    process.emit("SIGTERM", "SIGTERM");
+
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGTERM).",
+    );
+    expect(process.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("handles a signal during server startup without an unhandled rejection", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    let releaseStart!: () => void;
+    const startGate = new Promise<void>((resolve) => (releaseStart = resolve));
+    const mockServer = {
+      start: vi.fn(async (opts: OAuthCallbackServerStartOptions) => {
+        handlers.current = {
+          onCallback: opts.onCallback,
+          onError: opts.onError,
+        };
+        await startGate;
+        return {
+          port: 6276,
+          redirectUrl: "http://127.0.0.1:6276/oauth/callback",
+        };
+      }),
+      stop: vi.fn(async () => {}),
+    } as unknown as OAuthCallbackServer;
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const promise = runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider,
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => mockServer,
+        handleSignals: true,
+      });
+
+      // The signal listeners are installed before `server.start()` is
+      // awaited, so a signal in that window rejects flowDone before the
+      // Promise.race ever subscribes to it. Cancellation now also aborts the
+      // stalled start() itself, so the runner promise rejects immediately —
+      // subscribe before emitting the signal.
+      const expectation = expect(promise).rejects.toThrow(
+        "OAuth authorization cancelled (SIGINT).",
+      );
+      await Promise.resolve();
+      process.emit("SIGINT", "SIGINT");
+      // A full macrotask turn: Node reports any unhandled rejection here.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+
+      releaseStart();
+      await expectation;
+      expect(mockServer.stop).toHaveBeenCalled();
+      expect(process.listenerCount("SIGINT")).toBe(0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  it("cancels a stalled server.start() on SIGINT instead of blocking", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = {
+      // Never resolves: a callback server stalled on listen().
+      start: vi.fn(() => new Promise<never>(() => {})),
+      stop: vi.fn(async () => {}),
+    } as unknown as OAuthCallbackServer;
+    const client = mockClient();
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+      handleSignals: true,
+    });
+    await Promise.resolve();
+    process.emit("SIGINT", "SIGINT");
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGINT).",
+    );
+    expect(mockServer.stop).toHaveBeenCalled();
+    expect(process.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("cancels a stalled authenticate() on SIGTERM, never reporting already_authorized", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    let releaseAuthenticate!: () => void;
+    const authGate = new Promise<void>(
+      (resolve) => (releaseAuthenticate = resolve),
+    );
+    const client = mockClient({
+      // Resolves undefined — but only after the signal has already fired;
+      // the cancellation must win, not be discarded as already_authorized.
+      authenticate: vi.fn(async () => {
+        await authGate;
+        return undefined;
+      }),
+    });
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+      handleSignals: true,
+    });
+    await vi.waitFor(() => expect(client.authenticate).toHaveBeenCalled());
+    process.emit("SIGTERM", "SIGTERM");
+    releaseAuthenticate();
+    await expect(promise).rejects.toThrow(
+      "OAuth authorization cancelled (SIGTERM).",
+    );
+    expect(mockServer.stop).toHaveBeenCalled();
+    expect(process.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("installs no signal listeners unless handleSignals is set (TUI owns Ctrl-C via Ink)", async () => {
+    const redirectUrlProvider = { redirectUrl: "" };
+    const mockServer = createMockCallbackServer(handlers);
+    const client = mockClient({
+      authenticate: vi.fn(async () => new URL("https://as.example/authorize")),
+    });
+    const before = process.listenerCount("SIGINT");
+
+    const promise = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => mockServer,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(process.listenerCount("SIGINT")).toBe(before);
+
+    await simulateCallback(handlers.current);
+    await expect(promise).resolves.toEqual({ kind: "success" });
+  });
 });

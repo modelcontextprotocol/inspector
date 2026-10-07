@@ -27,6 +27,7 @@ import {
   isOnMountPoint,
   parseSecretStoreEnv,
   SECRET_STORAGE_DOCS_URL,
+  setSecretStorageWarningsQuiet,
   warnAboutSecretStorage,
 } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
@@ -139,6 +140,26 @@ describe("chooseFallbackKind", () => {
     expect(chooseFallbackKind({ container: false, mounted: true })).toBe(
       "file",
     );
+  });
+
+  it("never uses memory when allowMemory is false (multi-process consumers)", () => {
+    // mcpdo's front-end, OAuth helper, and daemon are separate processes; a
+    // per-process memory store can never serve them, so the container
+    // special case collapses to file.
+    expect(
+      chooseFallbackKind({
+        container: true,
+        mounted: false,
+        allowMemory: false,
+      }),
+    ).toBe("file");
+    expect(
+      chooseFallbackKind({
+        container: false,
+        mounted: false,
+        allowMemory: false,
+      }),
+    ).toBe("file");
   });
 });
 
@@ -527,6 +548,46 @@ describe("warnAboutSecretStorage", () => {
   });
 });
 
+describe("setSecretStorageWarningsQuiet", () => {
+  const fallback: SecretStorageInfo = {
+    kind: "file",
+    reason: "fallback",
+    durable: true,
+    path: "/home/u/.mcp-inspector/secrets.json",
+    plaintext: true,
+    detail: "no Secret Service",
+  };
+
+  afterEach(() => {
+    // The flag is process-wide; never leak quiet into a later test.
+    setSecretStorageWarningsQuiet(false);
+  });
+
+  it("suppresses the automatic warning when quiet", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    warnAboutSecretStorage(fallback);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still prints when quiet is cleared again", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    setSecretStorageWarningsQuiet(false);
+    warnAboutSecretStorage(fallback);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it("force bypasses quiet so connect can re-surface it once", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setSecretStorageWarningsQuiet(true);
+    warnAboutSecretStorage(fallback, { force: true });
+    const output = warn.mock.calls.flat().join("\n");
+    expect(output).toContain("Secrets are stored unencrypted");
+    expect(output).toContain(SECRET_STORAGE_DOCS_URL);
+  });
+});
+
 describe("resolveSecretStore", () => {
   it("uses the keychain when the probe succeeds", async () => {
     const mod = await loadWithProbe(true);
@@ -564,6 +625,29 @@ describe("resolveSecretStore", () => {
       reason: "configured",
       durable: false,
     });
+  });
+
+  it("explicit memory still wins after disallowMemorySecretStoreFallback", async () => {
+    // The disallow shapes only the automatic fallback; a user override is a
+    // statement of intent and keeps winning outright.
+    process.env.MCP_INSPECTOR_SECRET_STORE = "memory";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const mod = await loadWithProbe(true);
+    mod.disallowMemorySecretStoreFallback();
+    const { info } = await mod.resolveSecretStore();
+    expect(info).toMatchObject({ kind: "memory", reason: "configured" });
+  });
+
+  it("falls back to file, never memory, once memory fallback is disallowed", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.MCP_INSPECTOR_SECRET_FILE = path.join(tmpDir, "secrets.json");
+    // Look like the one environment whose automatic answer is memory.
+    process.env.KUBERNETES_SERVICE_HOST = "10.0.0.1";
+    const mod = await loadWithProbe(false);
+    mod.disallowMemorySecretStoreFallback();
+    const { info } = await mod.resolveSecretStore();
+    expect(info.reason).toBe("fallback");
+    expect(info.kind).toBe("file");
   });
 
   it("honors an explicit file store, reporting its path and encryption state", async () => {

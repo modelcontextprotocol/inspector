@@ -1,0 +1,286 @@
+[
+  {
+    "kind": "trigger",
+    "prompt": "What MCP servers am I connected to?",
+    "expect": "mcpdo"
+  },
+  {
+    "kind": "trigger",
+    "prompt": "Call the echo tool on the everything MCP server and show me the result.",
+    "expect": "mcpdo"
+  },
+  {
+    "kind": "trigger",
+    "prompt": "Do I have access to any MCP tools besides your built-in ones?",
+    "expect": "mcpdo"
+  },
+  {
+    "kind": "trigger",
+    "prompt": "List the resources available on the MCP server I connected to earlier.",
+    "expect": "mcpdo"
+  },
+  {
+    "kind": "trigger",
+    "prompt": "Use mcpdo to list the tools on the everything server.",
+    "expect": "mcpdo"
+  },
+  {
+    "kind": "trigger",
+    "prompt": "What does this regex do? /^\\d{3}-\\d{4}$/",
+    "expect": null
+  },
+  {
+    "kind": "trigger",
+    "prompt": "How do I write a simple HTTP server in Node.js?",
+    "expect": null
+  },
+  {
+    "kind": "trigger",
+    "prompt": "Rename the variable `foo` to `bar` in this snippet: const foo = 1; console.log(foo);",
+    "expect": null
+  },
+  {
+    "kind": "behavior",
+    "prompt": "Connect to the test-stdio MCP server and list its tools.",
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "test-stdio"
+      },
+      {
+        "cmd": "tools/list",
+        "connection": "test-stdio"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "Use the test-stdio MCP server to add the numbers 2 and 3, and tell me the result.",
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "test-stdio",
+        "tool": "get_sum",
+        "args": {
+          "a": 2,
+          "b": 3
+        },
+        "stdoutMatch": "5"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "Connect to the secure-add MCP server.",
+    "servers": {
+      "secure-add": {
+        "serverInfo": {
+          "name": "secure-add",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "add"
+          }
+        ],
+        "oauth": {
+          "enabled": true,
+          "mode": "combined",
+          "requireAuth": true,
+          "scopesSupported": ["mcp"],
+          "supportDCR": true
+        },
+        "transport": {
+          "type": "streamable-http"
+        }
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "secure-add",
+        "exit": 0,
+        "stdoutMatch": "oauth/authorize"
+      }
+    ],
+    "expectReply": "https?://[^\\s\"'<>\\\\]+/oauth/authorize\\?",
+    "expectLastCallTurn1": "connect"
+  },
+  {
+    "kind": "behavior",
+    "autoConsent": true,
+    "consentAfterReply": true,
+    "prompt": "List the tools available on the secure-add MCP server.",
+    "followUp": "I have signed in now — please continue.",
+    "servers": {
+      "secure-add": {
+        "serverInfo": {
+          "name": "secure-add",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "add"
+          }
+        ],
+        "oauth": {
+          "enabled": true,
+          "mode": "combined",
+          "requireAuth": true,
+          "scopesSupported": ["mcp"],
+          "supportDCR": true
+        },
+        "transport": {
+          "type": "streamable-http"
+        }
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "connect",
+        "connection": "secure-add",
+        "exit": 0,
+        "stdoutMatch": "oauth/authorize"
+      },
+      {
+        "cmd": "tools/list",
+        "connection": "secure-add",
+        "exit": 0,
+        "stdoutMatch": "add"
+      }
+    ],
+    "expectReply": "https?://[^\\s\"'<>\\\\]+/oauth/authorize\\?",
+    "rejectCompletedTurn1": "tools/list",
+    "expectReplyFollowUp": "add"
+  },
+  {
+    "kind": "behavior",
+    "prompt": "File a ticket on the helpdesk server with the summary 'Printer on floor 3 is jammed'. If it needs contact details, I'm Ada Lovelace, ada@example.com. Tell me the ticket number.",
+    "servers": {
+      "helpdesk": {
+        "serverInfo": {
+          "name": "helpdesk",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "submit_ticket"
+          }
+        ]
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "helpdesk",
+        "tool": "submit_ticket",
+        "args": {
+          "summary": "Printer on floor 3 is jammed"
+        },
+        "exit": 0,
+        "stdoutMatch": "elicitationPending|Input required"
+      },
+      {
+        "cmd": "elicitation/respond",
+        "args": {
+          "contact_name": "Ada Lovelace",
+          "contact_email": "ada@example.com"
+        },
+        "exit": 0,
+        "stdoutMatch": "TCK-"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "What MCP servers am I connected to right now?",
+    "expectCalls": [
+      {
+        "cmd": "connections/list",
+        "exit": 0
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "What MCP servers are available for me to connect to? Don't connect to anything, just tell me what's there.",
+    "expectCalls": [
+      {
+        "cmd": "servers/list",
+        "exit": 0,
+        "stdoutMatch": "test-stdio"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "My catalog has two MCP servers, alpha and beta. Use beta to compute the sum of 4 and 9.",
+    "servers": {
+      "alpha": {
+        "serverInfo": {
+          "name": "alpha",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "echo"
+          }
+        ]
+      },
+      "beta": {
+        "serverInfo": {
+          "name": "beta",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "get_sum"
+          }
+        ]
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "beta",
+        "tool": "get_sum",
+        "args": {
+          "a": 4,
+          "b": 9
+        },
+        "stdoutMatch": "13"
+      }
+    ]
+  },
+  {
+    "kind": "behavior",
+    "prompt": "File a ticket on the helpdesk server with the summary 'Broken keyboard'. If it asks for contact details, do NOT share any personal information — decline that request — and tell me what happened.",
+    "servers": {
+      "helpdesk": {
+        "serverInfo": {
+          "name": "helpdesk",
+          "version": "1.0.0"
+        },
+        "tools": [
+          {
+            "preset": "submit_ticket"
+          }
+        ]
+      }
+    },
+    "expectCalls": [
+      {
+        "cmd": "tools/call",
+        "connection": "helpdesk",
+        "tool": "submit_ticket",
+        "exit": 0,
+        "stdoutMatch": "elicitationPending|Input required"
+      },
+      {
+        "cmd": "elicitation/respond",
+        "exit": 0,
+        "stdoutMatch": "not filed|declined"
+      }
+    ]
+  }
+]

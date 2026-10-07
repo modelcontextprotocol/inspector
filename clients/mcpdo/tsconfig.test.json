@@ -1,0 +1,29 @@
+{
+  // Typecheck the __tests__ dir (the src-only tsconfig.json excludes tests).
+  // Mirrors clients/cli/tsconfig.test.json (and clients/web's): the test-server
+  // barrel is aliased to its source and the module paths below resolve what
+  // vitest resolves via vitest.shared.mts's projectResolve, so tsc validates
+  // the tests against the same graph the runner executes. See #1791.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "express"],
+    "paths": {
+      "@inspector/core/*": ["../../core/*"],
+      "@inspector/cli/*": ["../cli/src/*"],
+      "@modelcontextprotocol/inspector-test-server": [
+        "../../test-servers/src/index.ts"
+      ],
+      "express": ["./node_modules/@types/express"],
+      "vitest": ["./node_modules/vitest"]
+    }
+  },
+  // Some tests import cli's own test helpers by relative path
+  // (../../cli/__tests__/helpers/*) — tsc follows those transitively, no
+  // separate include entry needed.
+  //
+  // Only the tests root the project; tsc pulls in the `src` they import. The
+  // src-only tsconfig.json already validates all of `src` (without the
+  // test-only aliases), so listing it here too would just check it twice.
+  "include": ["__tests__/**/*"],
+  "exclude": ["node_modules", "build"]
+}

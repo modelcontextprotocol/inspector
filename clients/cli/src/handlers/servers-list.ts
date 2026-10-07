@@ -5,7 +5,9 @@ import type {
 import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store.js";
 import {
   loadServerEntries,
+  resolveServerSource,
   selectServerEntry,
+  withDefaultCatalogPath,
   type ServerLoadOptions,
 } from "@inspector/core/mcp/node/index.js";
 
@@ -16,40 +18,61 @@ export type ServerListEntry = {
   /** Command line, URL, or other short identity for display. */
   detail: string;
   /**
-   * Optional live-session name when a caller annotates catalog entries
-   * with connected sessions (omitted for plain catalog listing).
+   * Optional live-connection name when a caller annotates catalog entries
+   * with live connections (omitted for plain catalog listing).
    */
-  session?: string;
-  /** True when that session is the most-recently-used connected session. */
+  connection?: string;
+  /** True when that connection is the most-recently-used connection. */
   isMru?: boolean;
 };
 
-/** Minimal session shape needed to annotate catalog entries. */
-export type SessionListRef = {
+/** Minimal connection shape needed to annotate catalog entries. */
+export type ConnectionListRef = {
   name: string;
   isMru?: boolean;
 };
 
 /**
- * Mark catalog entries that have a live session with the same name.
+ * Where a server list came from: the writable catalog (default
+ * `~/.mcp-inspector/mcp.json`, or `--catalog` / `MCP_CATALOG_PATH`) or a
+ * read-only `--config` file. Surfaced by `servers/list` so users working
+ * across shells with different catalog env vars can see which file produced
+ * the entries. `null` for ad-hoc targets (no list source).
+ */
+export type ServerListSource = { kind: "catalog" | "config"; path: string };
+
+/**
+ * Resolve the source `listServerEntries` would read for these options,
+ * applying the same default-catalog fallback.
+ */
+export function resolveServerListSource(
+  serverOptions: ServerLoadOptions = {},
+): ServerListSource | null {
+  const source = resolveServerSource(withDefaultCatalogPath(serverOptions));
+  if (!source) return null;
+  return { kind: source.writable ? "catalog" : "config", path: source.path };
+}
+
+/**
+ * Mark catalog entries that have a live connection with the same name.
  * Does not mutate `entries`.
  *
- * TODO(#1432): consumed by the experimental session CLI (`mcpi`); kept here so
+ * TODO(#1432): consumed by the experimental connection CLI (`mcpdo`); kept here so
  * that client can reuse catalog listing without duplicating this helper.
  */
-export function annotateServerEntriesWithSessions(
+export function annotateServerEntriesWithConnections(
   entries: ServerListEntry[],
-  sessions: SessionListRef[],
+  connections: ConnectionListRef[],
 ): ServerListEntry[] {
-  if (sessions.length === 0) return entries;
-  const byName = new Map(sessions.map((s) => [s.name, s] as const));
+  if (connections.length === 0) return entries;
+  const byName = new Map(connections.map((s) => [s.name, s] as const));
   return entries.map((entry) => {
-    const session = byName.get(entry.name);
-    if (!session) return entry;
+    const connection = byName.get(entry.name);
+    if (!connection) return entry;
     return {
       ...entry,
-      session: session.name,
-      ...(session.isMru === true ? { isMru: true } : {}),
+      connection: connection.name,
+      ...(connection.isMru === true ? { isMru: true } : {}),
     };
   });
 }
