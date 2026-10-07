@@ -169,7 +169,16 @@ describe("InspectorClient request-timeout diagnostics (#2318)", () => {
   let client: InspectorClient | null = null;
   let server: HangingServer | null = null;
 
-  async function connectTo(url: string): Promise<InspectorClient> {
+  /**
+   * `beforeConnect` runs on the constructed client before `connect()`, so a
+   * listener it attaches sees every fetch — including the notification-stream
+   * GET, which the SDK can open and the transport can log before `connect()`
+   * resolves (#2580).
+   */
+  async function connectTo(
+    url: string,
+    beforeConnect?: (c: InspectorClient) => void,
+  ): Promise<InspectorClient> {
     client = new InspectorClient(
       { type: "streamable-http", url },
       {
@@ -180,6 +189,7 @@ describe("InspectorClient request-timeout diagnostics (#2318)", () => {
         timeout: REQUEST_TIMEOUT_MS,
       },
     );
+    beforeConnect?.(client);
     await client.connect();
     return client;
   }
@@ -260,8 +270,12 @@ describe("InspectorClient request-timeout diagnostics (#2318)", () => {
 
   it("emits connectionDiagnosticsChange as the state moves, and counts stream events", async () => {
     server = await startHangingServer();
-    const c = await connectTo(server.url);
-    const log = new FetchRequestLogState(c);
+    // Subscribe the log before connecting: the GET can be logged before
+    // `connect()` resolves, and a log attached afterwards misses it (#2580).
+    let log!: FetchRequestLogState;
+    const c = await connectTo(server.url, (created) => {
+      log = new FetchRequestLogState(created);
+    });
     const snapshots: ConnectionDiagnostics[] = [];
     c.addEventListener("connectionDiagnosticsChange", (event) =>
       snapshots.push(event.detail),
@@ -274,7 +288,10 @@ describe("InspectorClient request-timeout diagnostics (#2318)", () => {
       // Open from when the headers arrived, not from when the GET went out.
       const getEntryAtOpen = log
         .getFetchRequests()
-        .find((entry) => entry.method === "GET")!;
+        .find((entry) => entry.method === "GET");
+      if (!getEntryAtOpen) {
+        throw new Error("the notification-stream GET was never logged");
+      }
       expect(stream.openedAt).toBe(
         getEntryAtOpen.timestamp.getTime() + (getEntryAtOpen.duration ?? 0),
       );
