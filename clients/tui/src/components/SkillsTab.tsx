@@ -148,8 +148,9 @@ function failureDetail(file: SkillFileReport): string | undefined {
  * the second copy's unread `incomplete` (Copilot). Identical entries are served
  * identical bytes, so the first, read occurrence speaks for both.
  *
- * Verdicts for entries no longer in the listing (`live`) are dropped, so a pane
- * left open across refreshes does not accumulate one per entry snapshot.
+ * Verdicts for entries no longer in the listing (`live`) are dropped — held
+ * ones and this run's alike — so a pane left open across refreshes does not
+ * accumulate one per entry snapshot.
  */
 function mergeReports(
   previous: ReadonlyMap<string, SkillVerifyReport>,
@@ -161,7 +162,10 @@ function mergeReports(
   const seen = new Set<string>();
   results.forEach((result, index) => {
     const key = skillEntryKey(entries[index]!);
-    if (seen.has(key)) return;
+    // `live` filters this run's results too: an entry a refresh removed while
+    // the run was in flight would otherwise be cached, and its verdict would
+    // reappear unverified if the entry came back (Copilot).
+    if (seen.has(key) || !live.has(key)) return;
     seen.add(key);
     next.set(key, result);
   });

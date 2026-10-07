@@ -1173,4 +1173,38 @@ describe("SkillsTab verify all (#2590)", () => {
     await tick();
     expect(lastFrame() ?? "").toMatch(/✓0 ✗1 …\d/);
   });
+
+  it("does not cache a result for an entry removed while the run was in flight", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const readResource = vi.fn(async (uri: string) => {
+      await gate;
+      return { result: { contents: [{ uri, text: SKILL_MD }] } };
+    });
+    const client = mockClient(readResource);
+    const pane = (list: SkillEntry[]) => (
+      <SkillsTab
+        skills={list}
+        pageCount={1}
+        inspectorClient={client}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />
+    );
+    const { lastFrame, stdin, rerender } = render(pane([clean, other]));
+    stdin.write("v");
+    await tick();
+    // A refresh drops `other` before the pending run resolves.
+    rerender(pane([clean]));
+    await tick();
+    release();
+    await tick();
+    // `other` returns: had its in-flight verdict been cached, it would count.
+    rerender(pane([clean, other]));
+    await tick();
+    expect(lastFrame() ?? "").toContain("✓0 ✗1 ·1");
+  });
 });
