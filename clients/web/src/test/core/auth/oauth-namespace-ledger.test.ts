@@ -132,9 +132,10 @@ describe("recordNamespaceKeys", () => {
   it("does not rewrite the ledger when every key is already recorded", async () => {
     await recordNamespaceKeys(stateFile, store, NS1, [SERVER], [ISSUER]);
     const before = readFileSync(ledgerFile, "utf8");
-    // A sentinel the rewrite would replace.
-    writeFileSync(ledgerFile, before.replace("{", "{ "));
+    // A sentinel the rewrite would replace: one space after the opening brace.
+    writeFileSync(ledgerFile, before.replace(/^\{/, "{ "));
     const sentinel = readFileSync(ledgerFile, "utf8");
+    expect(sentinel).not.toBe(before);
     await recordNamespaceKeys(stateFile, store, NS1, [SERVER], [ISSUER]);
     expect(readFileSync(ledgerFile, "utf8")).toBe(sentinel);
   });

@@ -21,6 +21,7 @@ import {
   parseCompletionShell,
   registerCompletionOption,
   renderCompletion,
+  renderZsh,
   type CompletionShell,
 } from "../src/completion.js";
 import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
@@ -185,6 +186,14 @@ describe("collectCompletionFlags", () => {
 });
 
 describe("shell helpers", () => {
+  it("escapes backslashes before colons in a zsh _describe name (CodeQL #78)", () => {
+    const out = renderZsh([
+      { long: "--a\\b:c", takesValue: false, description: "Desc" },
+    ]);
+    // Name --a\b:c → --a\\b\:c, then ":" and the description.
+    expect(out).toContain("'--a\\\\b\\:c:Desc'");
+  });
+
   it("parseCompletionShell / isCompletionShell", () => {
     expect(isCompletionShell("zsh")).toBe(true);
     expect(isCompletionShell("csh")).toBe(false);

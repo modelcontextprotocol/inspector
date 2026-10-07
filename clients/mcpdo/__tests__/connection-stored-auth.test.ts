@@ -144,7 +144,7 @@ describe("connection stored-auth helpers", () => {
       hasRefreshToken: true,
     });
     expect(
-      list.servers.find((s) => s.url.includes("example.com")),
+      list.servers.find((s) => s.url === "https://example.com/mcp"),
     ).toMatchObject({ hasTokens: true, hasRefreshToken: true });
     expect(list.servers.find((s) => s.url.includes("other"))).toMatchObject({
       hasTokens: true,
@@ -190,7 +190,7 @@ describe("connection stored-auth helpers", () => {
 
     const list = await listStoredAuth();
     expect(
-      list.servers.find((s) => s.url.includes("example.com")),
+      list.servers.find((s) => s.url === "https://example.com/mcp"),
     ).toMatchObject({ hasTokens: true, hasRefreshToken: true });
   });
 

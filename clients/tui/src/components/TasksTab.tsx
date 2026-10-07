@@ -20,6 +20,7 @@ import type { CallToolResult, Task } from "@modelcontextprotocol/client";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
+import { errorMessage } from "../utils/errorText.js";
 
 /** Glyph and color per task status; unknown statuses fall back to gray. */
 const STATUS_STYLE: Record<string, { glyph: string; color: string }> = {
@@ -45,10 +46,6 @@ export function isTaskActive(status: string): boolean {
 /** A task with a terminal outcome the server can hand back via `tasks/result`. */
 export function hasTaskResult(status: string): boolean {
   return status === "completed" || status === "failed";
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 interface TasksTabProps {
