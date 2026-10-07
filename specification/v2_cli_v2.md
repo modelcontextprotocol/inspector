@@ -19,7 +19,7 @@ Documentation of the **experimental** connection-oriented Inspector CLI (`mcpdo`
 | Process    | In-process only                                              | Short-lived front-end + implicit connection daemon (IPC)                                          |
 | Package    | `clients/cli` (ships with `@modelcontextprotocol/inspector`) | `clients/mcpdo` (experimental; ships the `mcpdo` bin with `@modelcontextprotocol/inspector`) |
 
-Both use `@inspector/core` `InspectorClient` and shared `clients/cli/src/handlers/run-method.ts` (mcpdo reaches in via a temporary `@inspector/cli` build alias). One-shot never starts the daemon. `mcpdo` does not accept `--method`.
+Both use `@inspector/core` `InspectorClient` and shared `core/cli/handlers/run-method.ts` (#2461). One-shot never starts the daemon. `mcpdo` does not accept `--method`.
 
 ```bash
 mcpdo servers/list --config mcp.json
@@ -47,10 +47,10 @@ mcpdo tools/list
 
 | Piece                | Location                                                                                                                       |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| One-shot             | `clients/cli/src/cli.ts`, `cliOAuth.ts`, `index.ts`                                                                            |
+| One-shot             | `clients/cli/src/cli.ts`, `index.ts`; interactive OAuth in `core/cli/cliOAuth.ts` (shared with mcpdo)                          |
 | Connection front-end | `clients/mcpdo/src/connection/` (`mcp.ts`, `dispatch.ts`, `authorize.ts`, `format-*.ts`, `private-env.ts`) + `mcp-bin.ts` |
 | Daemon               | `clients/mcpdo/src/daemon/` → `clients/mcpdo/build/mcpdod.js`                                                        |
-| Shared handlers      | `clients/cli/src/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, `emit-result.ts`, …)                       |
+| Shared handlers      | `core/cli/handlers/` (`run-method.ts`, `method-types.ts`, `servers-list.ts`, …); one-shot-only output in `clients/cli/src/handlers/` (`emit-result.ts`, …) |
 
 ```
 mcp-inspector --cli …          mcpdo …
@@ -154,7 +154,7 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 | Client                                | Runner                                                           | Coverage                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| One-shot (`clients/cli`)              | In-process `runCli()`; thin binary e2e                           | Per-file ≥90 on `clients/cli/src`. Exclusion: `src/index.ts`.                                          |
+| One-shot (`clients/cli`)              | In-process `runCli()`; thin binary e2e                           | Per-file ≥90 on `clients/cli/src` + `core/cli`. Exclusion: `src/index.ts`.                                          |
 | Connection CLI (`clients/mcpdo`) | In-process `runMcp()`; daemon IPC + stream + private-token tests | Per-file ≥90 on `clients/mcpdo/src`. Exclusions: `mcp-bin.ts`, `daemon/run.ts` (bootstraps only). |
 
 Both are wired into root `validate` / `coverage`.

@@ -2,7 +2,7 @@ import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
   type InspectorServerSettings,
-} from "@inspector/core/mcp/types.js";
+} from "../../mcp/types.js";
 
 /**
  * Default connect timeout (ms) for ad-hoc server invocations. Without this an

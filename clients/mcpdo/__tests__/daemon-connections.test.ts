@@ -14,7 +14,7 @@ import {
   isConnectionAuthRequiredError,
   ConnectionRegistry,
 } from "../src/daemon/connections.js";
-import { CliExitCodeError } from "@inspector/cli/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 
 describe("daemon framing", () => {

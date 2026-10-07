@@ -1,9 +1,19 @@
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { lintListResult, writeSchemaLintReport } from "./schema-lint-report.js";
 import { countFindings } from "@inspector/core/json/schemaLint.js";
-import type { CliAppInfo, McpResponse, MethodArgs } from "./method-types.js";
-import { writeResultFile } from "./output-file.js";
-import { awaitableError, awaitableLog } from "../utils/awaitable-log.js";
+import type {
+  CliAppInfo,
+  McpResponse,
+  MethodArgs,
+} from "@inspector/core/cli/handlers/method-types.js";
+import { writeResultFile } from "@inspector/core/cli/handlers/output-file.js";
+import {
+  awaitableError,
+  awaitableLog,
+} from "@inspector/core/cli/utils/awaitable-log.js";
 
 /**
  * Write the method result (and any app-info) to stdout, honouring `--format`

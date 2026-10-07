@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { emitResult, runCli } from "../src/cli.js";
-import { CliExitCodeError, EXIT_CODES } from "../src/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import {
   lintListResult,
   toolsFromResult,

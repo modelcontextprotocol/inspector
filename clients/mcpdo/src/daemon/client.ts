@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import * as net from "node:net";
 import * as path from "node:path";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
 import { getDaemonDir, getDaemonSocketPath } from "./paths.js";

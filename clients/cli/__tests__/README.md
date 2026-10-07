@@ -3,7 +3,8 @@
 Tests live under `__tests__/` and run via Vitest.
 
 - Most tests import `runCli()` **in-process** (see `helpers/cli-runner.ts`) so
-  `clients/cli/src` is measured under the coverage gate. Suite-wide
+  `clients/cli/src` and the shared `core/cli` surface are measured under the
+  coverage gate. Suite-wide
   `helpers/mock-open-url.ts` (vitest `setupFiles`) mocks core's `openUrl` so an armed
   interactive OAuth path cannot launch a real browser.
 - `e2e.test.ts` (and root `scripts/smoke-cli.mjs`) spawn the built binary for

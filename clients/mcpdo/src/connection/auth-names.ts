@@ -15,7 +15,7 @@
  * resolves keys with, so a catalog `https://api.example.com/mcp` and the store's
  * `new URL(...).href` key line up.
  */
-import type { ServerListEntry } from "@inspector/cli/handlers/servers-list.js";
+import type { ServerListEntry } from "@inspector/core/cli/handlers/servers-list.js";
 import type { ConnectionInfo } from "../daemon/protocol.js";
 import { normalizeServerUrl } from "./stored-auth.js";
 

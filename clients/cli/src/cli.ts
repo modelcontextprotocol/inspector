@@ -4,7 +4,7 @@ import {
   registerCompletionOption,
 } from "./completion.js";
 type McpResponse = Record<string, unknown>;
-import { awaitableLog } from "./utils/awaitable-log.js";
+import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -15,19 +15,22 @@ import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
-} from "./handlers/connect-timeout.js";
-import { listServerEntries, showServerEntry } from "./handlers/servers-list.js";
+} from "@inspector/core/cli/handlers/connect-timeout.js";
+import {
+  listServerEntries,
+  showServerEntry,
+} from "@inspector/core/cli/handlers/servers-list.js";
 import {
   CATALOG_WRITE_METHODS,
   isCatalogWriteMethod,
   runCatalogWrite,
 } from "./handlers/servers-write.js";
-import { writeFormattedResult } from "./handlers/format-output.js";
+import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
 import {
   parseOutputFileFormat,
   validateOutputOptions,
   type OutputFileFormat,
-} from "./handlers/output-file.js";
+} from "@inspector/core/cli/handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
@@ -52,15 +55,15 @@ import {
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
-import { runMethod } from "./handlers/run-method.js";
+import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
   isOneShotMethod,
   ONE_SHOT_METHODS,
   type MethodArgs,
-} from "./handlers/method-types.js";
-export type { CliAppInfo } from "./handlers/method-types.js";
+} from "@inspector/core/cli/handlers/method-types.js";
+export type { CliAppInfo } from "@inspector/core/cli/handlers/method-types.js";
 export { emitResult } from "./handlers/emit-result.js";
-export { collectAppInfo } from "./handlers/collect-app-info.js";
+export { collectAppInfo } from "@inspector/core/cli/handlers/collect-app-info.js";
 import { type OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
 import type { ServerOAuthState } from "@inspector/core/auth/store.js";
 import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
@@ -83,14 +86,17 @@ import type {
   OAuthClientInformation,
   OAuthTokens,
 } from "@modelcontextprotocol/client";
-import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { MutableRedirectUrlProvider } from "@inspector/core/auth/index.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/index.js";
-import { createCliOAuthNavigation } from "./cli-oauth-navigation.js";
+import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
 import {
   connectInspectorWithOAuth,
   withCliAuthRecoveryRetry,
-} from "./cliOAuth.js";
+} from "@inspector/core/cli/cliOAuth.js";
 import {
   DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
   formatRunnerOAuthRedirectUrl,

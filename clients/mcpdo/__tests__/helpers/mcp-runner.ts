@@ -1,5 +1,5 @@
 import { runMcp as invokeMcp } from "../../src/connection/mcp.js";
-import { formatErrorOutput } from "@inspector/cli/error-handler.js";
+import { formatErrorOutput } from "@inspector/core/cli/error-handler.js";
 
 export interface McpResult {
   exitCode: number | null;

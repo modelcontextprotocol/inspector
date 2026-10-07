@@ -141,7 +141,7 @@ RemoteClientTransport                  StreamableHTTPClientTransport
 | Web remote client         | `core/mcp/remote/remoteClientTransport.ts`, `core/mcp/inspectorClient.ts`                                                                          |
 | Web app                   | `clients/web/src/App.tsx`, `lib/oauthResume.ts`, `utils/pendingReauth.ts`, `lib/browserTabVisibility.ts`, `components/groups/StepUpAuthModal/`     |
 | TUI                       | `clients/tui/src/App.tsx`, `utils/tuiOAuth.ts`                                                                                                     |
-| CLI                       | `clients/cli/src/cliOAuth.ts`                                                                                                                      |
+| CLI                       | `core/cli/cliOAuth.ts`                                                                                                                      |
 | Runner OAuth (TUI/CLI)    | `core/auth/node/runner-interactive-oauth.ts`, `oauth-callback-server.ts`                                                                           |
 | Step-up test fixture      | `test-servers/configs/oauth-step-up-demo.json`, `test-servers/src/test-server-oauth.ts`                                                            |
 
@@ -393,7 +393,7 @@ CLI never spawns TUI/web for auth — completes locally or fails.
 | Reauth for affected server     | `handleAuthRecoveryRequired()` switches server when needed             |
 | Clear OAuth                    | Auth tab **S**                                                         |
 
-### CLI UX (`clients/cli/src/cliOAuth.ts`)
+### CLI UX (`core/cli/cliOAuth.ts`)
 
 | Situation                      | Behavior                                                                         |
 | ------------------------------ | -------------------------------------------------------------------------------- |

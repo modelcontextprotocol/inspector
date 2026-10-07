@@ -4,7 +4,7 @@ import {
   DEFAULT_TASK_TTL_MS,
 } from "@inspector/core/mcp/types.js";
 import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
-import type { CliOAuthClient } from "../../src/cliOAuth.js";
+import type { CliOAuthClient } from "@inspector/core/cli/cliOAuth.js";
 
 /**
  * Typed mock factories for the CLI OAuth tests. They exist so a test can supply

@@ -11,8 +11,8 @@ import {
   renderResultForFile,
   validateOutputOptions,
   writeResultFile,
-} from "../src/handlers/output-file.js";
-import { CliExitCodeError } from "../src/error-handler.js";
+} from "@inspector/core/cli/handlers/output-file.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import { emitResult } from "../src/handlers/emit-result.js";
 
 /**

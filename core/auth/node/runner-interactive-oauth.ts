@@ -98,7 +98,7 @@ export async function runRunnerInteractiveOAuth(
   // SIGINT specifically, absent any handler) hit Node's default abrupt exit
   // with no cleanup. Reject cleanly instead so the server is stopped and the
   // caller gets a normal, classifiable error ("OAuth" in the message maps to
-  // AUTH_REQUIRED — see clients/cli/src/error-handler.ts) rather than a raw
+  // AUTH_REQUIRED — see core/cli/error-handler.ts) rather than a raw
   // process death. Opt-in (see handleSignals) — never installed under the
   // TUI, which owns Ctrl-C through Ink.
   //

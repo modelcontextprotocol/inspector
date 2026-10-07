@@ -1,4 +1,4 @@
-import type { AuthChallenge } from "@inspector/core/auth/challenge.js";
+import type { AuthChallenge } from "../auth/challenge.js";
 import {
   AuthRecoveryRequiredError,
   isStandardOAuthStepUp as isCoreStandardOAuthStepUp,
@@ -6,16 +6,16 @@ import {
   stepUpConfirmMessage,
   stepUpInsufficientScopeMessage,
   MutableRedirectUrlProvider,
-} from "@inspector/core/auth/index.js";
+} from "../auth/index.js";
 import {
   createOAuthCallbackServer,
   runRunnerInteractiveOAuth,
-} from "@inspector/core/auth/node/index.js";
-import type { RunnerInteractiveOAuthClient } from "@inspector/core/auth/node/runner-interactive-oauth.js";
-import type { RunnerOAuthCallbackConfig } from "@inspector/core/auth/node/runner-oauth-callback.js";
-import type { InspectorServerSettings } from "@inspector/core/mcp/types.js";
-import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
-import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+} from "../auth/node/index.js";
+import type { RunnerInteractiveOAuthClient } from "../auth/node/runner-interactive-oauth.js";
+import type { RunnerOAuthCallbackConfig } from "../auth/node/runner-oauth-callback.js";
+import type { InspectorServerSettings } from "../mcp/types.js";
+import { isOAuthCapableServerConfig } from "../client/runner.js";
+import type { MCPServerConfig } from "../mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import { CliExitCodeError, EXIT_CODES } from "./error-handler.js";
 import {
