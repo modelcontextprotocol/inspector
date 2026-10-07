@@ -128,7 +128,9 @@ web-owned test living under `src/test/` instead is a bug.
 1. **Tests of the repo-root `core/` package** → `src/test/core/…`, mirroring the
    `core/` folder layout. `core/` physically lives outside `clients/web/`, is
    consumed via the `@inspector/core` alias, and has no test harness of its own.
-   This includes `core/json/*` and `core/client/*`.
+   This includes `core/json/*` and `core/client/*`. **Except `core/cli/`** —
+   the Node-only surface the one-shot CLI and mcpdo share (#2461): its tests
+   live in `clients/cli/__tests__/` and `clients/cli`'s coverage run gates it.
 2. **The `integration` project** → `src/test/integration/…`, mirroring the
    `core/` source layout (`mcp/`, `mcp/node/`, `mcp/remote/`, `auth/`,
    `auth/node/`, `storage/`). **Placement is the manifest** — any file under that
@@ -218,8 +220,9 @@ Scope notes:
   (a composition root at ~42% branch coverage — gating it is a dedicated
   decomposition effort) and the `src/main.tsx` / `src/index.ts` bootstraps.
 - **CLI** tests run **in-process** by importing `runCli()`
-  (`__tests__/helpers/cli-runner.ts`) so `src` is measured; `src/index.ts` is the
-  only exclusion. `commander` uses `.exitOverride()` so a parse error throws
+  (`__tests__/helpers/cli-runner.ts`) so `src` **and the shared `core/cli/`** are
+  measured (the latter via `allowExternal`, since it sits outside the project
+  root); `src/index.ts` is the only exclusion. `commander` uses `.exitOverride()` so a parse error throws
   instead of tearing down the test worker.
 - **TUI** covers **all of `src/**`, React surface included**. Components mount
 through `**tests**/helpers/renderTui.tsx`—`ink-testing-library`'s `render`with every frame ANSI-stripped — alongside the passthrough doubles in the same
