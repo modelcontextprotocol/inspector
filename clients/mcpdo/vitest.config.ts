@@ -9,17 +9,9 @@ import {
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const { projectResolve } = vitestSharedPaths(dirname);
-const cliSrc = path.resolve(dirname, "../cli/src");
-
-const baseAliases = Array.isArray(projectResolve.alias)
-  ? projectResolve.alias
-  : [];
 
 export default defineConfig({
-  resolve: {
-    ...projectResolve,
-    alias: [...baseAliases, { find: "@inspector/cli", replacement: cliSrc }],
-  },
+  resolve: projectResolve,
   test: {
     globals: false,
     environment: "node",

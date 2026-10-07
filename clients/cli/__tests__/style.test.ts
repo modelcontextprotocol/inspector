@@ -4,7 +4,7 @@ import {
   resolveAnsiEnabled,
   styleFromOpts,
   PLAIN,
-} from "../src/style.js";
+} from "@inspector/core/cli/style.js";
 
 describe("resolveAnsiEnabled", () => {
   it("is off for --plain, json, NO_COLOR, and non-TTY", () => {

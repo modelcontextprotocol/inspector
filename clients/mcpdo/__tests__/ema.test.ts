@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { CliExitCodeError } from "@inspector/cli/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import {
   NodeOAuthStorage,
   resetNodeOAuthStorageCache,

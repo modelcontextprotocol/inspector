@@ -22,7 +22,10 @@ import { type LoggingLevel } from "@modelcontextprotocol/client";
 import { getDefaultEnvironment } from "@modelcontextprotocol/client/stdio";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
 import {
   getSecretStorageInfo,
@@ -42,23 +45,23 @@ import {
   type ServerListSource,
   showServerEntry,
   summarizeServerConfig,
-} from "@inspector/cli/handlers/servers-list.js";
-import { type OutputFormat } from "@inspector/cli/handlers/format-output.js";
+} from "@inspector/core/cli/handlers/servers-list.js";
+import { type OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import {
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
-} from "@inspector/cli/handlers/connect-timeout.js";
+} from "@inspector/core/cli/handlers/connect-timeout.js";
 import {
   CONNECTION_RPC_METHODS,
   type MethodArgs,
-} from "@inspector/cli/handlers/method-types.js";
+} from "@inspector/core/cli/handlers/method-types.js";
 import { authorizeInFrontend } from "./authorize.js";
 import {
   AUTH_HELPER_COMMAND,
   obtainPendingAuthUrl,
   runAuthHelper,
 } from "./auth-helper.js";
-import { isCliAutoOpenForced } from "@inspector/cli/cli-oauth-navigation.js";
+import { isCliAutoOpenForced } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { emaLogin, emaLogout, getEmaStatus } from "./ema.js";
 import {
   EMA_LOGIN_HELPER_COMMAND,
@@ -99,8 +102,8 @@ import {
   idpOAuthStorageKey,
   parseIdpOAuthStorageKey,
 } from "@inspector/core/auth/ema/storage.js";
-import { styleFromOpts } from "@inspector/cli/style.js";
-import { awaitableLog } from "@inspector/cli/utils/awaitable-log.js";
+import { styleFromOpts } from "@inspector/core/cli/style.js";
+import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
 import { createInterface } from "node:readline/promises";
 
 function isDaemonUnreachable(error: unknown): boolean {

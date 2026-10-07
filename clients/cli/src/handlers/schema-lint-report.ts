@@ -5,8 +5,8 @@ import {
   summarizeFindings,
   type ToolSchemaFindings,
 } from "@inspector/core/json/schemaLint.js";
-import { awaitableError } from "../utils/awaitable-log.js";
-import type { McpResponse } from "./method-types.js";
+import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
+import type { McpResponse } from "@inspector/core/cli/handlers/method-types.js";
 
 /**
  * Read the `tools` array out of a `tools/list` result. The result is typed as

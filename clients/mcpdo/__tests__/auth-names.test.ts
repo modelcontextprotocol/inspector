@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ServerListEntry } from "@inspector/cli/handlers/servers-list.js";
+import type { ServerListEntry } from "@inspector/core/cli/handlers/servers-list.js";
 import type { ConnectionInfo } from "../src/daemon/protocol.js";
 import {
   buildAuthNameIndex,

@@ -14,7 +14,7 @@ import {
   getDaemonTokenPath,
 } from "../src/daemon/paths.js";
 import { DaemonServer } from "../src/daemon/server.js";
-import { CliExitCodeError } from "@inspector/cli/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
   expectCliSuccess,

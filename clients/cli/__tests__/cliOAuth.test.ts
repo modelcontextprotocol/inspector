@@ -10,7 +10,7 @@ import {
   assertInteractiveOAuthAllowed,
   withCliAuthRecoveryRetry,
   STEP_UP_PIPE_TIMEOUT_MS,
-} from "../src/cliOAuth.js";
+} from "@inspector/core/cli/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import { createInterface } from "node:readline/promises";
 import {

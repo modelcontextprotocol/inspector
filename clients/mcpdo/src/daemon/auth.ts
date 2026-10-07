@@ -1,6 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { DAEMON_TOKEN_ENV, getDaemonTokenPath } from "./paths.js";
 
 /** Fresh random IPC token for a daemon whose environment didn't supply one. */

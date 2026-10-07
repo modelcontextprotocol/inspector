@@ -9,6 +9,7 @@ import {
 
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const { projectResolve } = vitestSharedPaths(dirname);
+const repoRoot = path.resolve(dirname, "../..");
 
 export default defineConfig({
   resolve: projectResolve,
@@ -35,7 +36,13 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary"],
-      include: ["src/**/*.ts"],
+      // `core/cli/` is the node-only surface this client shares with mcpdo
+      // (#2461). It moved out of `src/` but these suites are still what
+      // exercise it, so it stays gated here; web's `core/*` whitelist
+      // deliberately omits it, since no web test reaches it. It sits outside
+      // this project's root, hence `allowExternal`.
+      include: ["src/**/*.ts", path.join(repoRoot, "core/cli/**/*.ts")],
+      allowExternal: true,
       exclude: [
         // Binary bootstrap: shebang + `isMain` guard + `runCli()`/`process.exit`
         // wiring that only runs when launched as the real binary. Exercised by

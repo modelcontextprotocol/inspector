@@ -39,7 +39,10 @@ import {
 } from "@inspector/core/auth/index.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import { readLivePendingAuthMarker } from "../connection/auth-helper.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import type {
   ConnectionAuthInfo,
   ConnectionInfo,

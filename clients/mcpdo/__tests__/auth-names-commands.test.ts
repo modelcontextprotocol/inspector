@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 
 const callDaemon = vi.fn();
 const listServerEntries = vi.fn();
@@ -14,12 +17,15 @@ vi.mock("../src/daemon/index.js", async (importOriginal) => ({
   callDaemon: (...args: unknown[]) => callDaemon(...args),
 }));
 
-vi.mock("@inspector/cli/handlers/servers-list.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("@inspector/cli/handlers/servers-list.js")
-  >()),
-  listServerEntries: (...args: unknown[]) => listServerEntries(...args),
-}));
+vi.mock(
+  "@inspector/core/cli/handlers/servers-list.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@inspector/core/cli/handlers/servers-list.js")
+    >()),
+    listServerEntries: (...args: unknown[]) => listServerEntries(...args),
+  }),
+);
 
 vi.mock("../src/connection/stored-auth.js", async (importOriginal) => ({
   ...(await importOriginal<

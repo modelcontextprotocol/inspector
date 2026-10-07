@@ -46,6 +46,7 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 | `core/auth/` | OAuth end to end — providers, discovery, storage, endpoint overrides, scopes, revocation, mid-session recovery — split into isomorphic logic plus `browser/`, `node/` and `remote/` backends |
 | `core/auth/node/` | Node OAuth storage + loopback callback server, **and** the `SecretStore` backends (keychain / file / memory) and their selection policy |
 | `core/extension/<name>/` | Host-side adapters for MCP extensions whose protocol an upstream SDK owns. `tasks/` wraps `@modelcontextprotocol/ext-tasks` with what that package leaves to its host: the raw `rawDispatch` channel, progress routing, error identity, and task-view conversions. Imports nothing from `InspectorClient`; host state arrives through narrow interfaces |
+| `core/cli/` | Node-only surface the one-shot CLI and `mcpdo` both run on (#2461): `error-handler` (exit codes, `CliExitCodeError`, the error envelope), the method handlers and their option/format types (`handlers/`), the interactive OAuth connect flow (`cliOAuth`, `cli-oauth-navigation`) and output helpers (`style`, `utils/awaitable-log`). One-shot-only output (`emit-result`, `consume-outcome`, `servers-write`, …) stays in `clients/cli/src` |
 | `core/client/` | Install-level client config (`client.json`): browser-safe parse plus Node load/save, remote backend, secrets, runner |
 | `core/json/` | JSON + parameter/argument conversion; the schema normalizations all three form builders share (nullable unions, root composition) and the tool-schema portability lint |
 | `core/react/` | React hooks over the state stores — consumed by both the web and TUI React trees. Every subscription reads its snapshot **during render** via `useSyncExternalStore` (#1955); `useStoreSnapshot.ts` caches the fresh-value-per-read getters |
@@ -55,7 +56,9 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 
 `core/` is isomorphic (browser + Node) and has **no `package.json`** — it is not
 published on its own. Its tests live in `clients/web/src/test/core/`, and its
-browser-consumed runtime is inside the web coverage gate.
+browser-consumed runtime is inside the web coverage gate. **`core/cli/` is the
+exception**: it is Node-only, its tests are `clients/cli/__tests__/`, and it is
+gated by `clients/cli`'s coverage run instead.
 
 ## `clients/web/server/` — the Node backend
 

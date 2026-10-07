@@ -9,7 +9,6 @@
     "types": ["node", "express"],
     "paths": {
       "@inspector/core/*": ["../../core/*"],
-      "@inspector/cli/*": ["../cli/src/*"],
       "@modelcontextprotocol/inspector-test-server": [
         "../../test-servers/src/index.ts"
       ],

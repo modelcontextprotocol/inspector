@@ -3,7 +3,7 @@
 import { realpathSync } from "fs";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
-import { handleError } from "@inspector/cli/error-handler.js";
+import { handleError } from "@inspector/core/cli/error-handler.js";
 import {
   disallowMemorySecretStoreFallback,
   setSecretStorageWarningsQuiet,

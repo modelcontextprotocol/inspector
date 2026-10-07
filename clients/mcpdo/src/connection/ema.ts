@@ -24,8 +24,11 @@ import {
 import { getClientConfigFilePath } from "@inspector/core/client/index.js";
 import { loadRunnerClientConfig } from "@inspector/core/client/runner.js";
 import type { EnterpriseManagedAuthIdpConfig } from "@inspector/core/client/types.js";
-import { createCliOAuthNavigation } from "@inspector/cli/cli-oauth-navigation.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 
 /** Where install-level EMA IdP config lives (honours MCP_CLIENT_CONFIG_PATH). */
 function clientConfigPath(): string {

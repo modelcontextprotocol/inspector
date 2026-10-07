@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { PLAIN } from "@inspector/cli/style.js";
+import { PLAIN } from "@inspector/core/cli/style.js";
 import { formatEmaStatusHuman } from "../src/connection/format-human.js";
 
 const getEmaStatus = vi.fn();

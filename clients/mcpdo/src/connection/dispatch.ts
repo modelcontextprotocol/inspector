@@ -3,10 +3,10 @@ import type { RpcParams, RpcResult } from "../daemon/protocol.js";
 import type {
   CliAppInfo,
   MethodArgs,
-} from "@inspector/cli/handlers/method-types.js";
-import type { OutputFormat } from "@inspector/cli/handlers/format-output.js";
+} from "@inspector/core/cli/handlers/method-types.js";
+import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import { writeConnectionOutput } from "./format-connection.js";
-import { styleFromOpts, type Style } from "@inspector/cli/style.js";
+import { styleFromOpts, type Style } from "@inspector/core/cli/style.js";
 import { promptElicitation } from "./elicitation-prompt.js";
 
 const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { createTransportNode } from "@inspector/core/mcp/node/index.js";
-import { runMethod } from "../src/handlers/run-method.js";
+import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import { consumeMethodOutcome } from "../src/handlers/consume-outcome.js";
 
 describe("runMethod", () => {

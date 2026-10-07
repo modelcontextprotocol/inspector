@@ -6,7 +6,7 @@ import type {
 import type {
   CliAppInfo,
   MethodArgs,
-} from "@inspector/cli/handlers/method-types.js";
+} from "@inspector/core/cli/handlers/method-types.js";
 import type {
   Implementation,
   ProtocolEra,

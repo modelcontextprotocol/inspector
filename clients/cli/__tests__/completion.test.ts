@@ -23,7 +23,7 @@ import {
   renderCompletion,
   type CompletionShell,
 } from "../src/completion.js";
-import { ONE_SHOT_METHODS } from "../src/handlers/method-types.js";
+import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
 
 async function script(shell: CompletionShell): Promise<string> {
   const result = await runCli(["--completion", shell]);
