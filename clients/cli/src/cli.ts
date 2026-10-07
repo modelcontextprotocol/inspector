@@ -1,6 +1,8 @@
 import { Command } from "commander";
 import {
+  CATALOG_METHODS,
   emitCompletionIfRequested,
+  isCatalogMethod,
   registerCompletionOption,
 } from "./completion.js";
 type McpResponse = Record<string, unknown>;
@@ -21,7 +23,6 @@ import {
   showServerEntry,
 } from "@inspector/core/cli/handlers/servers-list.js";
 import {
-  CATALOG_WRITE_METHODS,
   isCatalogWriteMethod,
   runCatalogWrite,
 } from "./handlers/servers-write.js";
@@ -1268,13 +1269,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Method is required. Use --method to specify the method to invoke.",
     );
   }
-  const isCatalogMethod =
-    options.method === "servers/list" ||
-    options.method === "servers/show" ||
-    isCatalogWriteMethod(options.method);
-  if (!isCatalogMethod && !isOneShotMethod(options.method)) {
+  if (!isCatalogMethod(options.method) && !isOneShotMethod(options.method)) {
     throw new Error(
-      `Unsupported method: ${options.method}. Supported --cli methods: ${ONE_SHOT_METHODS.join(", ")}, servers/list, servers/show, ${CATALOG_WRITE_METHODS.join(", ")}.`,
+      `Unsupported method: ${options.method}. Supported --cli methods: ${[...ONE_SHOT_METHODS, ...CATALOG_METHODS].join(", ")}.`,
     );
   }
   if (options.rename !== undefined && options.method !== "servers/edit") {
