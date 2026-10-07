@@ -24,6 +24,7 @@ import {
   type CompletionShell,
 } from "../src/completion.js";
 import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
+import { CATALOG_WRITE_METHODS } from "../src/handlers/servers-write.js";
 
 async function script(shell: CompletionShell): Promise<string> {
   const result = await runCli(["--completion", shell]);
@@ -93,6 +94,28 @@ describe("--completion", () => {
     for (const method of [...ONE_SHOT_METHODS, ...CATALOG_METHODS]) {
       expect(out).toContain(method);
     }
+  });
+
+  it("offers the catalog write methods the CLI implements (#2629)", async () => {
+    // Read from servers-write itself, not from CATALOG_METHODS, so a write
+    // method the completion list forgets fails here.
+    expect(CATALOG_METHODS).toEqual(
+      expect.arrayContaining([...CATALOG_WRITE_METHODS]),
+    );
+    const out = await script("bash");
+    for (const method of CATALOG_WRITE_METHODS) {
+      expect(out).toContain(method);
+    }
+  });
+
+  it("offers no --method the CLI would reject as unsupported", async () => {
+    for (const method of VALUE_CHOICES["--method"]!) {
+      const result = await runCli(["--method", method]);
+      expect(result.stderr, method).not.toContain("Unsupported method");
+    }
+    // Control: an unknown method is rejected by the same check.
+    const bogus = await runCli(["--method", "servers/bogus"]);
+    expect(bogus.stderr).toContain("Unsupported method: servers/bogus");
   });
 });
 
@@ -227,6 +250,18 @@ describe.skipIf(!hasShell("bash"))("bash script", () => {
     expect(
       await complete(["mcp-inspector", "--cli", "--transport", ""]),
     ).toEqual(["stdio", "sse", "http"]);
+    expect(
+      await complete(["mcp-inspector", "--cli", "--method", "servers/"]),
+    ).toEqual([
+      "servers/list",
+      "servers/show",
+      "servers/add",
+      "servers/edit",
+      "servers/remove",
+    ]);
+    expect(
+      await complete(["mcp-inspector", "--cli", "--output-format", ""]),
+    ).toEqual(["raw", "json"]);
     // A free-form value offers nothing (the shell falls back to files).
     expect(
       await complete(["mcp-inspector", "--cli", "--tool-name", "--"]),
