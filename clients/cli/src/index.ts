@@ -3,7 +3,7 @@
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 import { runCli, validLogLevels } from "./cli.js";
-import { handleError } from "./error-handler.js";
+import { handleError } from "@inspector/core/cli/error-handler.js";
 
 // `handleError` is exported so the launcher (which imports `runCli` as a module
 // and owns the rejection) can route a `mcp-inspector --cli` failure through the

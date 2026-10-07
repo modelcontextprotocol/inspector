@@ -11,7 +11,7 @@ import {
   listStoredAuth,
   resolveStoredAuthKey,
 } from "../src/connection/stored-auth.js";
-import { CliExitCodeError } from "@inspector/cli/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
 import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
 import { runMcp } from "./helpers/mcp-runner.js";

@@ -17,7 +17,7 @@ import {
   anySkillFailed,
   anySkillUnverifiable,
   type SkillVerifyReport,
-} from "@inspector/core/mcp/skillsVerification.js";
+} from "../../mcp/skillsVerification.js";
 import { EXIT_CODES } from "../error-handler.js";
 
 /**

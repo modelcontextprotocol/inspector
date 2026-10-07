@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { runMethod } from "../src/handlers/run-method.js";
+import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 
 function mockClient(overrides: Partial<InspectorClient> = {}): InspectorClient {

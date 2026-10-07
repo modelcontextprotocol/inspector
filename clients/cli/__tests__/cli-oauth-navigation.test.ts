@@ -3,7 +3,7 @@ import {
   createCliOAuthNavigation,
   isCliAutoOpenForced,
   resolveCliAutoOpenEnabled,
-} from "../src/cli-oauth-navigation.js";
+} from "@inspector/core/cli/cli-oauth-navigation.js";
 import { openUrl } from "@inspector/core/node/openUrl.js";
 
 // Local mock (in addition to suite-wide setupFiles) so this file owns a

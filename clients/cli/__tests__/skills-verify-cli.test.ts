@@ -6,7 +6,7 @@ import {
 import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
 import { runCli } from "../src/cli.js";
 import { consumeMethodOutcome } from "../src/handlers/consume-outcome.js";
-import { EXIT_CODES } from "../src/error-handler.js";
+import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import {
   runCli as runCliCaptured,
   type CliResult,

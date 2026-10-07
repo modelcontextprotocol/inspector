@@ -5,7 +5,7 @@ import {
   classifyError,
   formatErrorOutput,
   handleError,
-} from "../src/error-handler.js";
+} from "@inspector/core/cli/error-handler.js";
 import { UnauthorizedError } from "@modelcontextprotocol/client";
 import {
   SecretFileLockHeldError,

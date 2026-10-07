@@ -14,7 +14,7 @@ import {
   sanitizeServerSettings,
   showServerEntry,
   summarizeServerConfig,
-} from "../src/handlers/servers-list.js";
+} from "@inspector/core/cli/handlers/servers-list.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,

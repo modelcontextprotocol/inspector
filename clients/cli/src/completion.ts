@@ -23,8 +23,8 @@
  */
 import type { Command, Option } from "commander";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
-import { ONE_SHOT_METHODS } from "./handlers/method-types.js";
-import { awaitableLog } from "./utils/awaitable-log.js";
+import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
+import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
 
 export const COMPLETION_SHELLS = ["bash", "zsh", "fish"] as const;
 export type CompletionShell = (typeof COMPLETION_SHELLS)[number];

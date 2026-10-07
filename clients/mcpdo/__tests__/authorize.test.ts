@@ -5,11 +5,11 @@ const connectSpy = vi.fn();
 const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 const navigationSpy = vi.fn();
 
-vi.mock("@inspector/cli/cliOAuth.js", () => ({
+vi.mock("@inspector/core/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
 }));
 
-vi.mock("@inspector/cli/cli-oauth-navigation.js", () => ({
+vi.mock("@inspector/core/cli/cli-oauth-navigation.js", () => ({
   createCliOAuthNavigation: (...args: unknown[]) => {
     navigationSpy(...args);
     return { navigate: vi.fn() };

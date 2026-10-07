@@ -3,7 +3,7 @@ import {
   isOneShotMethod,
   ONE_SHOT_METHODS,
   CONNECTION_RPC_METHODS,
-} from "../src/handlers/method-types.js";
+} from "@inspector/core/cli/handlers/method-types.js";
 
 describe("CONNECTION_RPC_METHODS", () => {
   it("lists the full RPC method set supported by runMethod", () => {

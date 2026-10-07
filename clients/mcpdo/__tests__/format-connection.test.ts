@@ -27,8 +27,11 @@ import {
   formatElicitationPendingHuman,
 } from "../src/connection/format-human.js";
 import { writeConnectionOutput } from "../src/connection/format-connection.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
-import { createStyle, PLAIN } from "@inspector/cli/style.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
+import { createStyle, PLAIN } from "@inspector/core/cli/style.js";
 
 describe("format-human", () => {
   it("formats tools with schema variants and empty list", () => {

@@ -19,12 +19,15 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
-import { createCliOAuthNavigation } from "@inspector/cli/cli-oauth-navigation.js";
-import { connectInspectorWithOAuth } from "@inspector/cli/cliOAuth.js";
-import { CliExitCodeError, EXIT_CODES } from "@inspector/cli/error-handler.js";
+import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
+import { connectInspectorWithOAuth } from "@inspector/core/cli/cliOAuth.js";
+import {
+  CliExitCodeError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import type { CallbackNavigation } from "@inspector/core/auth/index.js";
-import type { CliOAuthAutoOpenControl } from "@inspector/cli/cli-oauth-navigation.js";
+import type { CliOAuthAutoOpenControl } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { mcpdoEmaGuidance } from "./ema.js";
 
 /**
