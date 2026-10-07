@@ -5,6 +5,13 @@ import type { Root } from "@modelcontextprotocol/client";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 
 vi.mock("ink-form", () => import("./helpers/inkFormMock.js"));
+// Passthrough spy: the modal's frame is empty under ink-testing-library (see
+// below), so the redaction test asserts the error reached the display boundary.
+vi.mock("../src/utils/errorText.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/utils/errorText.js")>();
+  return { ...actual, errorMessage: vi.fn(actual.errorMessage) };
+});
+import * as errorText from "../src/utils/errorText.js";
 
 import { RootsModal, rootFromForm } from "../src/components/RootsModal.js";
 
@@ -154,6 +161,21 @@ describe("RootsModal", () => {
     stdin.write("x");
     await tick();
     expect(setRoots).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a failed save through the redacting display boundary (#2638)", async () => {
+    const failure = new Error("Request failed: https://auth.example/cb?code=s3cret&state=ok");
+    const setRoots = vi.fn(async () => {
+      throw failure;
+    });
+    const { stdin } = renderModal({ inspectorClient: fakeClient(setRoots) });
+    await tick();
+    stdin.write("x");
+    await tick();
+    expect(errorText.errorMessage).toHaveBeenCalledWith(failure);
+    expect(vi.mocked(errorText.errorMessage).mock.results.at(-1)?.value).toBe(
+      "Request failed: https://auth.example/cb?code=%5BREDACTED%5D&state=ok",
+    );
   });
 
   it("reports a non-Error failure", async () => {
