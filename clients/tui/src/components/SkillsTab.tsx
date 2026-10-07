@@ -138,6 +138,42 @@ function failureDetail(file: SkillFileReport): string | undefined {
   return `expected ${short(file.expectedDigest)}, got ${short(file.actualDigest)}`;
 }
 
+/**
+ * The catalog line under the list (#2590): the hint for `v` until something has
+ * been verified, then a tally of the verdicts held for the CURRENT listing.
+ *
+ * Derived from the report map on every render rather than stored by the
+ * verify-all run, so a refresh that changes an entry drops its verdict from the
+ * tally the same way it drops it from the detail pane — a stored summary would
+ * keep counting verdicts for entries that are no longer what the server lists.
+ */
+function catalogSummary(
+  skills: readonly SkillEntry[],
+  reports: ReadonlyMap<string, SkillVerifyReport>,
+): string {
+  const counts: Record<SkillVerifyReport["outcome"], number> = {
+    verified: 0,
+    failed: 0,
+    incomplete: 0,
+    unverifiable: 0,
+  };
+  let unchecked = 0;
+  for (const skill of skills) {
+    const report = reports.get(skillEntryKey(skill));
+    if (report) counts[report.outcome] += 1;
+    else unchecked += 1;
+  }
+  if (unchecked === skills.length) return "[v to verify all]";
+  const parts = [
+    `✓ ${counts.verified}`,
+    `✗ ${counts.failed}`,
+    ...(counts.incomplete > 0 ? [`incomplete ${counts.incomplete}`] : []),
+    ...(counts.unverifiable > 0 ? [`? ${counts.unverifiable}`] : []),
+    ...(unchecked > 0 ? [`unchecked ${unchecked}`] : []),
+  ];
+  return parts.join(" · ");
+}
+
 /** The file name a manifest URI ends in, for a list that must fit 40 columns. */
 function fileNameOf(uri: string): string {
   const cut = uri.lastIndexOf("/");
@@ -153,6 +189,13 @@ function fileNameOf(uri: string): string {
  * so it is one `resources/read` per manifest entry and must be asked for. That
  * split is the same one the web screen makes and the same one SEP-2640 makes:
  * hosts MUST NOT retrieve a skill's files ahead of need.
+ *
+ * **`v` verifies the whole listing** (#2590), in one `verifySkills` run — the
+ * same call the CLI's `--verify` makes. That is what gives the per-server
+ * catalog budget (`skillCatalogMaxSkills` / `skillCatalogMaxBytes`) something
+ * to bound here: it is a RUN-level limit, and a run of one skill always reads
+ * that skill in full. Skills past the budget come back `incomplete`, unread,
+ * and Enter on one of them verifies it on its own.
  */
 export function SkillsTab({
   skills,
@@ -166,7 +209,8 @@ export function SkillsTab({
   modalOpen = false,
   onFilterEditingChange,
 }: SkillsTabProps) {
-  const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
+  // One more row than the bare list: the catalog summary line (#2590).
+  const visibleCount = Math.max(1, height - 8 - LIST_FILTER_ROWS);
   const filter = useListFilter(skills, skillFilterFields, {
     enabled: !modalOpen && focusedPane === "list",
     onEditingChange: onFilterEditingChange,
@@ -180,7 +224,7 @@ export function SkillsTab({
   const [error, setError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   /**
-   * The last verification, keyed by the **entry it was computed against**.
+   * Every verification held, keyed by the **entry it was computed against**.
    *
    * Keyed rather than cleared on selection change, so moving off a skill and
    * back does not silently discard a verdict the user just paid a round trip
@@ -194,17 +238,23 @@ export function SkillsTab({
    * The same key the web screen uses, for the same reason: re-verifying after a
    * metadata-only refresh is the cheap direction to be wrong in; showing a
    * verdict computed against a different entry is not.
+   *
+   * A map rather than a single slot since verify-all (#2590): one run yields a
+   * verdict for every entry, and each must survive moving the selection.
    */
-  const [report, setReport] = useState<{
-    key: string;
-    result: SkillVerifyReport;
-  } | null>(null);
+  const [reports, setReports] = useState<
+    ReadonlyMap<string, SkillVerifyReport>
+  >(() => new Map());
   const scrollViewRef = useRef<ScrollViewRef>(null);
 
   const selectedSkill = shownSkills[selectedIndex] ?? null;
 
+  /**
+   * Verify `entries` in ONE `verifySkills` run, so the run-level catalog budget
+   * applies across them — Enter passes the selected skill, `v` the listing.
+   */
   const runVerify = useCallback(
-    (skill: SkillEntry) => {
+    (entries: readonly SkillEntry[]) => {
       if (!inspectorClient || verifying) return;
       setVerifying(true);
       setError(null);
@@ -212,8 +262,14 @@ export function SkillsTab({
       // this key handler — which cannot await — to own.
       void (async () => {
         try {
-          const [result] = await verifySkills(inspectorClient, [skill]);
-          setReport({ key: skillEntryKey(skill), result });
+          const results = await verifySkills(inspectorClient, entries);
+          setReports((previous) => {
+            const next = new Map(previous);
+            results.forEach((result, index) => {
+              next.set(skillEntryKey(entries[index]!), result);
+            });
+            return next;
+          });
         } catch (err) {
           if (err instanceof AuthRecoveryRequiredError) {
             onAuthRecoveryRequired?.(err);
@@ -244,7 +300,13 @@ export function SkillsTab({
       // to the query, not to the list.
       if (filter.handleInput(input, key)) return;
       if (key.return && selectedSkill && inspectorClient) {
-        runVerify(selectedSkill);
+        runVerify([selectedSkill]);
+        return;
+      }
+      // The WHOLE listing, not the filtered rows: the CLI's `--verify` covers
+      // the catalog, and the budget is sized against the catalog (#2590).
+      if (input === "v" && skills.length > 0 && inspectorClient) {
+        runVerify(skills);
         return;
       }
       if (focusedPane === "list") {
@@ -295,10 +357,9 @@ export function SkillsTab({
     return [...checkSkillConformance(skill), ...(collision ? [collision] : [])];
   };
   const issues = selectedSkill ? findingsFor(selectedSkill) : [];
-  const activeReport =
-    selectedSkill && report?.key === skillEntryKey(selectedSkill)
-      ? report.result
-      : null;
+  const activeReport = selectedSkill
+    ? (reports.get(skillEntryKey(selectedSkill)) ?? null)
+    : null;
   const manifest =
     selectedSkill && selectedSkill.resources !== DYNAMIC_RESOURCES
       ? selectedSkill.resources
@@ -340,6 +401,15 @@ export function SkillsTab({
           editing={filter.editing}
           focused={focusedPane === "list" && !modalOpen}
         />
+        <Box flexShrink={0} height={1}>
+          <Text dimColor wrap="truncate">
+            {skills.length === 0
+              ? ""
+              : verifying
+                ? "[Verifying…]"
+                : catalogSummary(skills, reports)}
+          </Text>
+        </Box>
         {loadError ? (
           <Box paddingY={1}>
             <Text color="red">{errorMessage(loadError)}</Text>

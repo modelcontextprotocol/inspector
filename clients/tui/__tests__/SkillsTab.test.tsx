@@ -925,3 +925,156 @@ describe("SkillsTab list filter (#2430)", () => {
     expect(frame).toContain("Select a skill to view details");
   });
 });
+
+describe("SkillsTab verify all (#2590)", () => {
+  /** A client whose server settings carry a catalog budget, as `verifySkills` reads it. */
+  function budgetedClient(
+    readResource: unknown,
+    settings: { skillCatalogMaxSkills?: number; skillCatalogMaxBytes?: number },
+  ): InspectorClient {
+    return {
+      readResource,
+      getServerSettings: () => settings,
+    } as unknown as InspectorClient;
+  }
+
+  // Structurally clean, so its outcome is decided by reading it — `broken`
+  // fails its static checks whether or not its files are read.
+  const other: SkillEntry = {
+    uri: "skill://other/SKILL.md",
+    frontmatter: { name: "other", description: "Another clean skill" },
+    resources: [
+      { uri: "skill://other/SKILL.md", digest: CLEAN_DIGEST, size: 51 },
+    ],
+  };
+
+  const readUris = (readResource: ReturnType<typeof vi.fn>) =>
+    readResource.mock.calls.map((call) => String(call[0]));
+
+  it("hints at the gesture until something has been verified", () => {
+    const { lastFrame } = render(
+      <SkillsTab
+        skills={skills}
+        pageCount={1}
+        inspectorClient={null}
+        width={140}
+        height={30}
+      />,
+    );
+    expect(lastFrame() ?? "").toContain("[v to verify all]");
+  });
+
+  it("verifies the whole listing in one run, so the catalog budget bounds it", async () => {
+    const readResource = vi.fn().mockResolvedValue({
+      result: { contents: [{ uri: "skill://clean/SKILL.md", text: SKILL_MD }] },
+    });
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean, other]}
+        pageCount={1}
+        inspectorClient={budgetedClient(readResource, {
+          skillCatalogMaxSkills: 1,
+        })}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    // The budget of one skill stopped the walk after `clean`: `other`'s file
+    // was never fetched.
+    const uris = readUris(readResource);
+    expect(uris.some((uri) => uri.includes("clean"))).toBe(true);
+    expect(uris.some((uri) => uri.includes("other"))).toBe(false);
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("✓ 0 · ✗ 1 · incomplete 1");
+    // The skill past the budget says why it was not read.
+    stdin.write(DOWN);
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain("Incomplete:");
+    expect(frame).toContain("catalog budget of 1 skills");
+    expect(frame).toContain("Verification INCOMPLETE");
+  });
+
+  it("covers the whole catalog even while a filter narrows the list", async () => {
+    const readResource = vi.fn().mockResolvedValue({
+      result: { contents: [{ uri: "skill://clean/SKILL.md", text: SKILL_MD }] },
+    });
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean, broken]}
+        pageCount={1}
+        inspectorClient={mockClient(readResource)}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    await tick();
+    for (const k of ["/", "c", "l", "e", "a", "n", ENTER]) {
+      stdin.write(k);
+      await tick();
+    }
+    expect(lastFrame() ?? "").toContain("Skills (1/2)");
+    stdin.write("v");
+    await tick();
+    expect(
+      readUris(readResource).some((uri) => uri.includes("wrong-folder")),
+    ).toBe(true);
+    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 2");
+  });
+
+  it("tallies single verifications against what is still unchecked", async () => {
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[clean, broken]}
+        pageCount={1}
+        inspectorClient={mockClient()}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write(ENTER);
+    await tick();
+    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 1 · unchecked 1");
+  });
+
+  it("counts an unverifiable skill separately", async () => {
+    const genMd = "---\nname: gen\ndescription: Generated\n---\n\n# G\n";
+    const readResource = vi.fn().mockResolvedValue({
+      result: { contents: [{ uri: "skill://gen/SKILL.md", text: genMd }] },
+    });
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={[dynamic]}
+        pageCount={1}
+        inspectorClient={mockClient(readResource)}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    expect(lastFrame() ?? "").toContain("✓ 0 · ✗ 0 · ? 1");
+  });
+
+  it("does nothing without a client", async () => {
+    const { lastFrame, stdin } = render(
+      <SkillsTab
+        skills={skills}
+        pageCount={1}
+        inspectorClient={null}
+        width={140}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    stdin.write("v");
+    await tick();
+    expect(lastFrame() ?? "").toContain("[v to verify all]");
+  });
+});
