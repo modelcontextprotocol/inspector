@@ -100,7 +100,8 @@ reporting the *old* dependency's behavior as a product bug (#2494). Don't
 
 ### `local:dco`
 
-A commit in `origin/v2/main..HEAD` has no `Signed-off-by:` trailer matching its
+A commit in `origin/v2/main..HEAD` (minus anything already on `origin/main`)
+has no `Signed-off-by:` trailer matching its
 author or committer (#2616). The output names each commit and prints the
 repair. Repair and prevention (`git commit -s`, the `--signoff` rebase) are
 step 3 of `/pr-flow`.

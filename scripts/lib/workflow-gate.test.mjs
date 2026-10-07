@@ -621,7 +621,7 @@ describe("the gate's name", () => {
     // must stay unreachable from `validate`, which CI runs.
     assert.equal(
       scripts["local:dco"],
-      "node scripts/dco-check.mjs --base origin/v2/main",
+      "node scripts/dco-check.mjs --base origin/v2/main --exclude origin/main",
     );
     assert.ok(
       scriptChainRuns(scripts, "local:gate", "local:dco"),

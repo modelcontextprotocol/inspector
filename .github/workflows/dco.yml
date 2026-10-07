@@ -58,7 +58,8 @@
 # since the checked range changes with the base even when the head does not.
 #
 # Before either job, `npm run local:gate` runs the same script over
-# `origin/v2/main..HEAD` (`local:dco`), so an unsigned commit is normally
+# `origin/v2/main..HEAD`, minus anything already on `origin/main` so it holds
+# on a milestone-merge branch too (`local:dco`), so an unsigned commit is normally
 # caught before it is pushed at all.
 #
 # Only `contents: read`, no credential persisted, no secret — so it stays on

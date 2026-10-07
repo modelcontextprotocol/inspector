@@ -38,11 +38,17 @@ test("parseDcoArgs requires --base and defaults --head to HEAD", () => {
   assert.deepEqual(parseDcoArgs(["--base", "origin/v2/main"]), {
     base: "origin/v2/main",
     head: "HEAD",
+    exclude: [],
   });
   assert.deepEqual(parseDcoArgs(["--base", "a", "--head", "b"]), {
     base: "a",
     head: "b",
+    exclude: [],
   });
+  assert.deepEqual(
+    parseDcoArgs(["--base", "a", "--exclude", "x", "--exclude", "y"]).exclude,
+    ["x", "y"],
+  );
   assert.throws(() => parseDcoArgs([]), /--base/);
 });
 
@@ -231,7 +237,7 @@ function makeRepo() {
 const spawnIn = (cwd) => (cmd, args, opts) =>
   spawnSync(cmd, args, { ...opts, cwd });
 
-function runMain(dir) {
+function runMain(dir, extra = []) {
   const out = [];
   const err = [];
   const log = console.log;
@@ -239,7 +245,7 @@ function runMain(dir) {
   console.log = (line) => out.push(line);
   console.error = (line) => err.push(line);
   try {
-    const code = main(["--base", "base"], spawnIn(dir));
+    const code = main(["--base", "base", ...extra], spawnIn(dir));
     return { code, out: out.join("\n"), err: err.join("\n") };
   } finally {
     console.log = log;
@@ -254,6 +260,22 @@ test("main passes a range of signed commits and ignores the base's history", () 
   const { code, out } = runMain(dir);
   assert.equal(code, 0);
   assert.match(out, /dco: OK — 2 commit\(s\) signed off in base\.\.HEAD/);
+});
+
+test("main --exclude drops a released branch's history from the range", () => {
+  // The milestone-merge shape (#2616): a branch cut from `main`, whose own
+  // unsigned history must not fail a gate run against `v2/main`.
+  const dir = makeRepo();
+  git(dir, ["commit", "-q", "--allow-empty", "-m", "released, unsigned"]);
+  git(dir, ["branch", "released"]);
+  git(dir, ["commit", "-q", "-s", "--allow-empty", "-m", "new, signed"]);
+  assert.equal(runMain(dir).code, 1, "without --exclude the old commit fails");
+  const { code, out } = runMain(dir, ["--exclude", "released"]);
+  assert.equal(code, 0);
+  assert.match(
+    out,
+    /1 commit\(s\) signed off in base\.\.HEAD \(excluding released\)/,
+  );
 });
 
 test("main fails on one unsigned commit and prints the repair", () => {

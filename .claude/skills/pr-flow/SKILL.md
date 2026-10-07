@@ -118,7 +118,8 @@ stopped appearing (after #1981) and nothing went red for two months. If the
 `DCO` check is ever missing from a PR, treat that as the outage it is.
 
 **Check before you push.** `npm run local:gate` already does it: its
-`local:dco` stage runs the same script over `origin/v2/main..HEAD`, right after
+`local:dco` stage runs the same script over `origin/v2/main..HEAD` (minus
+anything already on `origin/main`), right after
 `local:validate`. On a **stacked** branch that range covers the whole stack,
 parents included, which is stricter than the child PR's own check (that one
 runs against the parent's branch). To check on its own, against the range the

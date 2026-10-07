@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// DCO signoff check (#2566) — `npm run dco:check -- --base <rev> [--head <rev>]`.
+// DCO signoff check (#2566) — `npm run dco:check -- --base <rev> [--head <rev>]
+// [--exclude <rev>…]`.
 //
 // Replaces the probot DCO app, which was suspended and whose check simply
 // stopped appearing after #1981 (2026-08-12). Nothing failed when it vanished,
@@ -50,12 +51,20 @@ const BOT_EMAIL = /^\d+\+[^@\s]+\[bot\]@users\.noreply\.github\.com$/i;
 export function parseDcoArgs(argv) {
   const { values } = parseArgs({
     args: argv,
-    options: { base: { type: "string" }, head: { type: "string" } },
+    options: {
+      base: { type: "string" },
+      head: { type: "string" },
+      exclude: { type: "string", multiple: true },
+    },
   });
   if (!values.base) {
     throw new Error("--base <rev> is required (e.g. origin/v2/main)");
   }
-  return { base: values.base, head: values.head ?? "HEAD" };
+  return {
+    base: values.base,
+    head: values.head ?? "HEAD",
+    exclude: values.exclude ?? [],
+  };
 }
 
 /** Split `git log -z --format=<LOG_FORMAT>` output into commit records. */
@@ -151,16 +160,37 @@ export function classify(commits) {
   return { checked: commits.length - exempt, exempt, failures };
 }
 
-function readRange(spawn, base, head) {
+/**
+ * `--exclude <rev>` drops everything reachable from `rev` as well, on top of
+ * `base` (#2616). `local:dco` excludes `origin/main`: a milestone-merge branch
+ * is cut from `main`, so `origin/v2/main..HEAD` there is `main`'s own history
+ * — 117 already-released commits, the v1 era and the 2.0.0 candidates among
+ * them, almost none signed — and the gate the release runs on that branch
+ * would fail on all of it. A commit already on `main` has shipped, so it says
+ * nothing about the change being checked. On a feature branch the exclusion
+ * is a no-op, since it holds nothing `main` has that `v2/main` lacks.
+ */
+function describeRange(base, head, exclude) {
+  const range = `${base}..${head}`;
+  return exclude.length ? `${range} (excluding ${exclude.join(", ")})` : range;
+}
+
+function readRange(spawn, base, head, exclude) {
   const result = spawn(
     "git",
-    ["log", "-z", `--format=${LOG_FORMAT}`, `${base}..${head}`],
+    [
+      "log",
+      "-z",
+      `--format=${LOG_FORMAT}`,
+      `${base}..${head}`,
+      ...exclude.map((rev) => `^${rev}`),
+    ],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
   );
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(
-      `git log ${base}..${head} failed: ${(result.stderr ?? "").trim()}`,
+      `git log ${describeRange(base, head, exclude)} failed: ${(result.stderr ?? "").trim()}`,
     );
   }
   return parseLog(result.stdout);
@@ -168,20 +198,21 @@ function readRange(spawn, base, head) {
 
 /** Returns the process exit code: 0 when every commit passes, 1 otherwise. */
 export function main(argv = process.argv.slice(2), spawn = spawnSync) {
-  const { base, head } = parseDcoArgs(argv);
-  const commits = readRange(spawn, base, head);
+  const { base, head, exclude } = parseDcoArgs(argv);
+  const commits = readRange(spawn, base, head, exclude);
+  const range = describeRange(base, head, exclude);
   const { checked, exempt, failures } = classify(commits);
 
   if (failures.length === 0) {
     console.log(
-      `dco: OK — ${checked} commit(s) signed off in ${base}..${head}` +
+      `dco: OK — ${checked} commit(s) signed off in ${range}` +
         (exempt ? ` (${exempt} merge/bot commit(s) exempt)` : ""),
     );
     return 0;
   }
 
   console.error(
-    `dco: FAIL — ${failures.length} of ${checked} commit(s) in ${base}..${head} lack a matching signoff:\n`,
+    `dco: FAIL — ${failures.length} of ${checked} commit(s) in ${range} lack a matching signoff:\n`,
   );
   for (const { commit, reason } of failures) {
     const subject = commit.message.split("\n", 1)[0];

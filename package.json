@@ -46,7 +46,7 @@
     "local:gate": "node scripts/gate-lease.mjs npm run local:gate:stages",
     "local:gate:stages": "npm run local:validate && npm run local:dco && npm run verify:skills:cli && npm run coverage && npm run verify:build-gate && npm run verify:bundle-externals && npm run smoke && npm run smoke:web:firefox && npm run local:storybook",
     "local:validate": "npm run validate:guards && npm run validate:core && cd clients/web && npm run check && cd ../cli && npm run check && cd ../mcpdo && npm run check && cd ../tui && npm run check && cd ../launcher && npm run check",
-    "local:dco": "node scripts/dco-check.mjs --base origin/v2/main",
+    "local:dco": "node scripts/dco-check.mjs --base origin/v2/main --exclude origin/main",
     "local:storybook": "cd clients/web && npx playwright install chromium && npm run test:storybook",
     "verify:build-gate": "node scripts/verify-build-gate.mjs",
     "verify:bundle-externals": "node scripts/verify-bundle-externals.mjs",
