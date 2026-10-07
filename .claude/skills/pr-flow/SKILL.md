@@ -95,26 +95,38 @@ previous one, not all cut from `v2/main`.
 
 **The `DCO` check fails the PR on any unsigned commit.** It is this repo's own
 job (`.github/workflows/dco.yml` → `scripts/dco-check.mjs`, #2566), run on every
-PR targeting `v2/main`, and it requires each commit to carry a `Signed-off-by: Name <email>`
+v2 PR, stacked PRs included, and it requires each commit to carry a `Signed-off-by: Name <email>`
 trailer whose name **and** email match either the commit's author or its
-committer (case-insensitively). Its only exemptions are merge commits and
+committer (case-insensitively). One relaxation: a commit GitHub itself
+committed (`GitHub <noreply@github.com>`, as on a squash merge, whose author
+name GitHub takes from the profile) passes on an author **email** match alone.
+Its only exemptions are merge commits and
 bot-authored commits; there is no partial credit — one unsigned commit out of six
 fails the whole check, and the job's output names each offending commit and the
 repair below.
 
 ⚠️ **It is a merge gate only because it is a _required_ status check** — a
 ruleset setting, not something the workflow file can declare. The job runs on
-`pull_request_target`, so its workflow is read from `main`: it reports on PRs
-only once a milestone merge has carried it there (#2566). The probot DCO app
+`pull_request`, from the PR's own ref, so it reports on every v2 PR — stacked
+ones included, any `v2/**` base — with no wait for a
+milestone merge (#2616). A second job, `DCO (v2/main push)`,
+re-runs the check over every push that lands on `v2/main` — a backstop for
+anything that merged without a passing PR check — so a red there means an
+unsigned commit is already on the branch. The probot DCO app
 it replaced was never required, so when the app was suspended its check simply
 stopped appearing (after #1981) and nothing went red for two months. If the
 `DCO` check is ever missing from a PR, treat that as the outage it is.
 
-**Check before you push** — the same script runs locally against the range the
-PR will show:
+**Check before you push.** `npm run local:gate` already does it: its
+`local:dco` stage runs the same script over `origin/v2/main..HEAD` (minus
+anything already on `origin/main`), right after
+`local:validate`. On a **stacked** branch that range covers the whole stack,
+parents included, which is stricter than the child PR's own check (that one
+runs against the parent's branch). To check on its own, against the range the
+PR will show, pass the PR's actual base:
 
 ```sh
-npm run dco:check -- --base origin/v2/main
+npm run dco:check -- --base origin/v2/main      # or origin/<parent branch> when stacked
 ```
 
 **Prevent it with `git commit -s`.** Two things that look like automation and are
@@ -135,6 +147,12 @@ not:
 git rebase --rebase-merges --signoff origin/v2/main   # the base the PR targets
 git push --force-with-lease
 ```
+
+⚠️ **On a stacked branch, rebase against the parent branch, never
+`origin/v2/main`.** A `--signoff` rebase onto `origin/v2/main` rewrites every
+parent commit too, which forks the child from its parent and breaks the stack.
+If the unsigned commit is in the parent, repair the parent's own branch first,
+then rebase the child onto the repaired parent.
 
 `--rebase-merges` keeps any merge commit on the branch — without it the rebase
 flattens them, silently dropping a conflict resolution that lives only in the
