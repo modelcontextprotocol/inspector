@@ -9,10 +9,13 @@
 #
 # Two jobs, one script:
 #
-#   - `DCO` — on every v2 PR, over the PR's commits. This is the
-#     one to make a REQUIRED status check (a ruleset change in repo settings,
-#     not something this file can do — without it, the job going missing
-#     passes as silently as the app did).
+#   - `DCO` — on every v2 PR, over the PR's commits. This is a REQUIRED
+#     status check on `v2/main`, set by the `v2/main - DCO` repository ruleset
+#     (#2621), not by this file — no workflow can make itself required. The
+#     ruleset pins the check to GitHub Actions (integration 15368), so a commit
+#     status posted by hand under the name `DCO` cannot satisfy it. ⚠️ Renaming
+#     this job renames the check, and the ruleset would then wait forever on a
+#     name nothing reports: change both together.
 #   - `DCO (v2/main push)` — a backstop over every push that lands on
 #     `v2/main`, for whatever reached the branch without a passing PR check
 #     while this file and the script stayed intact: an admin merge, a direct
