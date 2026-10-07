@@ -88,8 +88,10 @@ const sameIdentity = (a, b) =>
   norm(a.name) === norm(b.name) && norm(a.email) === norm(b.email);
 
 // The identity GitHub commits as when it creates a commit itself — a squash
-// merge, a rebase merge, a web edit.
-const GITHUB_WEB_FLOW_EMAIL = "noreply@github.com";
+// merge, a rebase merge, a web edit. Matched as a whole identity, name and
+// email, like every other comparison here: git metadata is user-set either
+// way, but a commit that merely borrows the email is not a web-flow commit.
+const GITHUB_WEB_FLOW = { name: "GitHub", email: "noreply@github.com" };
 
 /**
  * GitHub writes a squash-merge commit's author NAME from the merger's GitHub
@@ -101,7 +103,7 @@ const GITHUB_WEB_FLOW_EMAIL = "noreply@github.com";
  * and every other commit still needs name and email from one identity.
  */
 const webFlowAuthorMatch = (sig, commit) =>
-  norm(commit.committer.email) === GITHUB_WEB_FLOW_EMAIL &&
+  sameIdentity(commit.committer, GITHUB_WEB_FLOW) &&
   norm(sig.email) === norm(commit.author.email);
 
 /**

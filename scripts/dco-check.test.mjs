@@ -134,6 +134,19 @@ test("the email-only match applies to GitHub-committed commits alone", () => {
   );
 });
 
+test("the web-flow identity is matched whole, not by its email alone", () => {
+  assert.notEqual(
+    failureReason(
+      commit({
+        author: ADA_PROFILE,
+        committer: { name: "Mallory", email: GITHUB.email },
+        message: signed(ADA_GIT),
+      }),
+    ),
+    null,
+  );
+});
+
 test("a GitHub-committed commit still needs the AUTHOR's email", () => {
   assert.notEqual(
     failureReason(

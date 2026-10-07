@@ -97,7 +97,10 @@ previous one, not all cut from `v2/main`.
 job (`.github/workflows/dco.yml` → `scripts/dco-check.mjs`, #2566), run on every
 v2 PR, stacked PRs included, and it requires each commit to carry a `Signed-off-by: Name <email>`
 trailer whose name **and** email match either the commit's author or its
-committer (case-insensitively). Its only exemptions are merge commits and
+committer (case-insensitively). One relaxation: a commit GitHub itself
+committed (`GitHub <noreply@github.com>`, as on a squash merge, whose author
+name GitHub takes from the profile) passes on an author **email** match alone.
+Its only exemptions are merge commits and
 bot-authored commits; there is no partial credit — one unsigned commit out of six
 fails the whole check, and the job's output names each offending commit and the
 repair below.
