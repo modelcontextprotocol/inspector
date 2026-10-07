@@ -104,14 +104,19 @@ repair below.
 
 ⚠️ **It is a merge gate only because it is a _required_ status check** — a
 ruleset setting, not something the workflow file can declare. The job runs on
-`pull_request_target`, so its workflow is read from `main`: it reports on PRs
-only once a milestone merge has carried it there (#2566). The probot DCO app
+`pull_request`, from the PR's own ref, so it reports on every v2 PR — stacked
+ones included, any base but `main` and `v1/main` — with no wait for a
+milestone merge (#2616). A second job, `DCO (v2/main push)`,
+re-runs the check over every push that lands on `v2/main` — a backstop for
+anything that merged without a passing PR check — so a red there means an
+unsigned commit is already on the branch. The probot DCO app
 it replaced was never required, so when the app was suspended its check simply
 stopped appearing (after #1981) and nothing went red for two months. If the
 `DCO` check is ever missing from a PR, treat that as the outage it is.
 
-**Check before you push** — the same script runs locally against the range the
-PR will show:
+**Check before you push.** `npm run local:gate` already does it: its
+`local:dco` stage runs the same script over `origin/v2/main..HEAD`, right after
+`local:validate`. To check on its own, against the range the PR will show:
 
 ```sh
 npm run dco:check -- --base origin/v2/main

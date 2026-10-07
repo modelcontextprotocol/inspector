@@ -106,6 +106,47 @@ test("name from one identity and email from the other is not a match", () => {
   assert.notEqual(reason, null);
 });
 
+// A GitHub squash merge: author name from the GitHub profile, committer
+// GitHub's web-flow identity, trailers carrying the git `user.name` (#2616).
+const GITHUB = { name: "GitHub", email: "noreply@github.com" };
+const ADA_PROFILE = { name: "Ada L.", email: ADA.email };
+const ADA_GIT = { name: "ada", email: ADA.email };
+
+test("a GitHub-committed squash passes on an author email match", () => {
+  assert.equal(
+    failureReason(
+      commit({
+        author: ADA_PROFILE,
+        committer: GITHUB,
+        message: signed(ADA_GIT),
+      }),
+    ),
+    null,
+  );
+});
+
+test("the email-only match applies to GitHub-committed commits alone", () => {
+  assert.notEqual(
+    failureReason(
+      commit({ author: ADA_PROFILE, committer: BOB, message: signed(ADA_GIT) }),
+    ),
+    null,
+  );
+});
+
+test("a GitHub-committed commit still needs the AUTHOR's email", () => {
+  assert.notEqual(
+    failureReason(
+      commit({ author: ADA_PROFILE, committer: GITHUB, message: signed(BOB) }),
+    ),
+    null,
+  );
+  assert.equal(
+    failureReason(commit({ author: ADA_PROFILE, committer: GITHUB })),
+    "no Signed-off-by trailer",
+  );
+});
+
 test("exemption: merge commits and noreply bot authors only", () => {
   assert.equal(exemption(commit({ parents: ["p1", "p2"] })), "merge");
   assert.equal(

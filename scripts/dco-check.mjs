@@ -4,15 +4,18 @@
 // Replaces the probot DCO app, which was suspended and whose check simply
 // stopped appearing after #1981 (2026-08-12). Nothing failed when it vanished,
 // because it was never a required check — so this is a check the repo owns,
-// run by `.github/workflows/dco.yml` on every PR targeting `v2/main` (v1 and
-// milestone PRs into `main` are out of its scope), and meant to be
-// made REQUIRED so a future outage blocks merges instead of passing silently.
+// run by `.github/workflows/dco.yml` on every PR targeting `v2/main` and,
+// as a backstop, on every push that lands there (#2616; v1 and milestone PRs
+// into `main` are out of its scope). The PR job is meant to be made REQUIRED
+// so a future outage blocks merges instead of passing silently.
 //
 // The rule is the app's: every commit in `base..head` must carry a
 // `Signed-off-by: Name <email>` line whose name AND email match the commit's
 // author or its committer (one identity — a name from one and an email from
 // the other is not a match). Names and emails compare case-insensitively,
-// after trimming. The app's two exemptions are kept:
+// after trimming. One relaxation: for a commit GitHub itself committed (a
+// squash merge), an author EMAIL match is enough — see `webFlowAuthorMatch`.
+// The app's two exemptions are kept:
 //
 //   - merge commits (more than one parent), which certify nothing new; and
 //   - bot-authored commits — an author email of the GitHub noreply shape
@@ -83,6 +86,23 @@ const norm = (value) => value.trim().toLowerCase();
 const sameIdentity = (a, b) =>
   norm(a.name) === norm(b.name) && norm(a.email) === norm(b.email);
 
+// The identity GitHub commits as when it creates a commit itself — a squash
+// merge, a rebase merge, a web edit.
+const GITHUB_WEB_FLOW_EMAIL = "noreply@github.com";
+
+/**
+ * GitHub writes a squash-merge commit's author NAME from the merger's GitHub
+ * profile ("Cliff Hall"), while the squashed trailers carry their git
+ * `user.name` ("cliffhall") — same person, same email, different name. Four
+ * such squash merges sit on `v2/main` (#2213, #2322, #2379, #2383), and the
+ * push job (#2616) sees every one of them. So for a commit GitHub itself
+ * committed, an author EMAIL match is accepted. A signoff is still required,
+ * and every other commit still needs name and email from one identity.
+ */
+const webFlowAuthorMatch = (sig, commit) =>
+  norm(commit.committer.email) === GITHUB_WEB_FLOW_EMAIL &&
+  norm(sig.email) === norm(commit.author.email);
+
 /**
  * Why this commit fails the check, or `null` when it passes or is exempt.
  * Exempt commits return `null` as well — they are reported separately by
@@ -93,7 +113,9 @@ export function failureReason(commit) {
   if (found.length === 0) return "no Signed-off-by trailer";
   const matches = found.some(
     (sig) =>
-      sameIdentity(sig, commit.author) || sameIdentity(sig, commit.committer),
+      sameIdentity(sig, commit.author) ||
+      sameIdentity(sig, commit.committer) ||
+      webFlowAuthorMatch(sig, commit),
   );
   if (matches) return null;
   const listed = found.map((sig) => `${sig.name} <${sig.email}>`).join(", ");
