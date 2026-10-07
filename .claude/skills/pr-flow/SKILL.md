@@ -116,10 +116,13 @@ stopped appearing (after #1981) and nothing went red for two months. If the
 
 **Check before you push.** `npm run local:gate` already does it: its
 `local:dco` stage runs the same script over `origin/v2/main..HEAD`, right after
-`local:validate`. To check on its own, against the range the PR will show:
+`local:validate`. On a **stacked** branch that range covers the whole stack,
+parents included, which is stricter than the child PR's own check (that one
+runs against the parent's branch). To check on its own, against the range the
+PR will show, pass the PR's actual base:
 
 ```sh
-npm run dco:check -- --base origin/v2/main
+npm run dco:check -- --base origin/v2/main      # or origin/<parent branch> when stacked
 ```
 
 **Prevent it with `git commit -s`.** Two things that look like automation and are
@@ -140,6 +143,12 @@ not:
 git rebase --rebase-merges --signoff origin/v2/main   # the base the PR targets
 git push --force-with-lease
 ```
+
+⚠️ **On a stacked branch, rebase against the parent branch, never
+`origin/v2/main`.** A `--signoff` rebase onto `origin/v2/main` rewrites every
+parent commit too, which forks the child from its parent and breaks the stack.
+If the unsigned commit is in the parent, repair the parent's own branch first,
+then rebase the child onto the repaired parent.
 
 `--rebase-merges` keeps any merge commit on the branch — without it the rebase
 flattens them, silently dropping a conflict resolution that lives only in the
