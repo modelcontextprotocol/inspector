@@ -39,13 +39,15 @@
 # FETCHES the PR's commits, reading their metadata with `git log` — nothing
 # from the PR is checked out, installed, built or run.
 #
-# The PR job runs on every base EXCEPT `main` and `v1/main`, so a stacked PR —
-# one based on another feature branch — is checked on its own range rather
-# than only once its parent merges (the servers repo's #5055 scopes it the
-# same way). `v1/main` has no copy of the script, and milestone PRs into
-# `main` carry GitHub's squash-merge commits and reach back before the check
-# existed. A stacked PR's base must be a branch cut after #2603, since the
-# script is read from it. `edited` re-runs the PR job when a PR is retargeted,
+# The PR job runs on every `v2/**` base — `v2/main` and, since branch names
+# carry their version segment, every v2 feature branch — so a stacked PR is
+# checked on its own range rather than only once its parent merges (the
+# servers repo's #5055 checks stacks too). A positive filter rather than a
+# list of exclusions, so the scope is the v2 line by construction: `main`
+# (milestone PRs carry GitHub's squash-merge commits and reach back before the
+# check existed) and the whole v1 line, `v1/main` and its stacks alike (no copy
+# of the script), are out of it without being named. A stacked PR's base must
+# be a branch cut after #2603, since the script is read from it. `edited` re-runs the PR job when a PR is retargeted,
 # since the checked range changes with the base even when the head does not.
 #
 # Before either job, `npm run local:gate` runs the same script over
@@ -59,7 +61,7 @@ name: DCO
 on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
-    branches-ignore: [main, v1/main]
+    branches: ['v2/**']
   push:
     branches: [v2/main]
 

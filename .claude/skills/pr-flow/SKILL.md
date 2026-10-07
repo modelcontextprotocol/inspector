@@ -105,7 +105,7 @@ repair below.
 ⚠️ **It is a merge gate only because it is a _required_ status check** — a
 ruleset setting, not something the workflow file can declare. The job runs on
 `pull_request`, from the PR's own ref, so it reports on every v2 PR — stacked
-ones included, any base but `main` and `v1/main` — with no wait for a
+ones included, any `v2/**` base — with no wait for a
 milestone merge (#2616). A second job, `DCO (v2/main push)`,
 re-runs the check over every push that lands on `v2/main` — a backstop for
 anything that merged without a passing PR check — so a red there means an

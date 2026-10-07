@@ -4,10 +4,11 @@
 // Replaces the probot DCO app, which was suspended and whose check simply
 // stopped appearing after #1981 (2026-08-12). Nothing failed when it vanished,
 // because it was never a required check — so this is a check the repo owns,
-// run by `.github/workflows/dco.yml` on every v2 PR — any base but `main` and
-// `v1/main`, so stacked PRs too — and, as a backstop, on every push that lands
-// on `v2/main` (#2616; v1 and milestone PRs into `main` are out of its scope). The PR job is meant to be made REQUIRED
-// so a future outage blocks merges instead of passing silently.
+// run by `.github/workflows/dco.yml` on every v2 PR — any `v2/**` base, so
+// stacked PRs too — and, as a backstop, on every push that lands on `v2/main`
+// (#2616; v1 and milestone PRs into `main` are out of its scope). The PR job
+// is meant to be made REQUIRED so a future outage blocks merges instead of
+// passing silently.
 //
 // The rule is the app's: every commit in `base..head` must carry a
 // `Signed-off-by: Name <email>` line whose name AND email match the commit's
