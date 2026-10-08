@@ -29,7 +29,9 @@
  *   4. runs the installed `mcp-inspector` bin: `--help`, `--cli`/`--tui` help
  *      dispatch, a real `--cli` `tools/list` over stdio, and a prod `--web` boot
  *      that must serve `/` (HTTP 200) with the injected auth-token global from
- *      the shipped `dist` — all from the INSTALLED location, not the repo;
+ *      the shipped `dist` — all from the INSTALLED location, not the repo —
+ *      plus `npm exec @modelcontextprotocol/inspector --help`, so npm's own
+ *      default-bin choice is exercised and not just the bin by name (#2651);
  *   5. drives the **MCP Apps** path in headless Chromium against that same
  *      installed `--web` server — connect → open app → `data-app-status="ready"`
  *      (#2003). Asserting the sandbox proxy page merely *exists* (step 2/3) is
@@ -352,6 +354,37 @@ try {
         `\`${args.join(" ")}\` (${label}) did not print "${marker}"\n${r.output.slice(0, 800)}`,
       );
     }
+  }
+
+  // 4a'. The same help, reached the way a user reaches it: through npm's own
+  //      default-bin choice rather than the bin's name (#2651). Every check
+  //      above names `mcp-inspector` directly, which is how 2.10.0 shipped a
+  //      second bin, broke `npx @modelcontextprotocol/inspector` for everyone,
+  //      and stayed green here. `--no` keeps npm on the installed tarball.
+  step(
+    "verifying `npm exec @modelcontextprotocol/inspector` picks the launcher...",
+  );
+  const npmExec = spawnSync(
+    "npm",
+    shellArgs([
+      "exec",
+      "--no",
+      "--",
+      "@modelcontextprotocol/inspector",
+      "--help",
+    ]),
+    { cwd: work, encoding: "utf8", shell: WIN_SHELL },
+  );
+  const npmExecOutput = `${npmExec.stdout ?? ""}${npmExec.stderr ?? ""}`;
+  if (
+    npmExec.status !== 0 ||
+    !npmExecOutput.includes("Mode flags (--web, --cli, --tui)")
+  ) {
+    fail(
+      `\`npm exec @modelcontextprotocol/inspector --help\` exited ${npmExec.status} ` +
+        `without the launcher's help — check the root package.json "bin" ` +
+        `(scripts/lib/npx-default-bin.mjs)\n${npmExecOutput.slice(0, 800)}`,
+    );
   }
 
   // 4b. Real CLI connect over stdio from the installed package: tools/list must
