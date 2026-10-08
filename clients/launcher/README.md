@@ -2,6 +2,8 @@
 
 The launcher is the package that provides the global `mcp-inspector` binary (e.g. when users run `npx @modelcontextprotocol/inspector`). It is not a separate user-facing app—it is the single entrypoint that selects and runs one of the clients (web, CLI, or TUI).
 
+The root `package.json` also publishes it as an `inspector` bin. That alias is what makes a bare `npx @modelcontextprotocol/inspector` work: the package ships a second bin (`mcpdo`), and with more than one distinct bin npm only runs the one named after the unscoped package name. Without that alias npx fails with "could not determine executable to run", which is how 2.10.0 shipped (#2651). `scripts/lib/npx-default-bin.test.mjs` and `pack:verify` both check this.
+
 ## Responsibility
 
 - Parse mode from a leading prefix of `--web` (default), `--cli`, or `--tui` immediately after the script name.
