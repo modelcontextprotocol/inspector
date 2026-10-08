@@ -1,17 +1,19 @@
 # MCP Inspector
 
-A developer tool for inspecting [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers. It ships as a single package, `@modelcontextprotocol/inspector`, that provides three ways to inspect a server:
+A developer tool for inspecting [Model Context Protocol](https://modelcontextprotocol.io) (MCP) servers. It ships as a single package, `@modelcontextprotocol/inspector`, that provides four ways to inspect a server:
 
 - **Web** — a Vite + React + [Mantine](https://mantine.dev) single-page app with a Node backend.
 - **CLI** — a scriptable command-line client for automation, CI, and fast agent feedback loops.
 - **TUI** — an interactive terminal UI built with [Ink](https://github.com/vadimdemedes/ink).
+- **mcpdo** _(experimental)_ — a connection CLI: connect once, then run many commands against the named connection through an implicit local daemon. See [`clients/mcpdo`](./clients/mcpdo/README.md).
 
-All three run through one global `mcp-inspector` binary:
+The first three run through one global `mcp-inspector` binary; `mcpdo` is a second binary in the same package:
 
 ```bash
-npx @modelcontextprotocol/inspector          # web UI (default)
-npx @modelcontextprotocol/inspector --cli    # CLI
-npx @modelcontextprotocol/inspector --tui    # TUI
+npx @modelcontextprotocol/inspector                   # web UI (default)
+npx @modelcontextprotocol/inspector --cli             # CLI
+npx @modelcontextprotocol/inspector --tui             # TUI
+npx -p @modelcontextprotocol/inspector mcpdo --help   # mcpdo
 ```
 
 > [!WARNING]
