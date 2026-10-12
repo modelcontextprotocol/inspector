@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   OSC52_LARGE_PAYLOAD_BYTES,
   buildOsc52Sequence,
   copyViaOsc52,
+  removeCopyFiles,
   toCopyText,
   writeCopyFile,
 } from "../src/utils/clipboard.js";
@@ -61,6 +62,7 @@ describe("copyViaOsc52", () => {
 describe("writeCopyFile", () => {
   const created: string[] = [];
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of created.splice(0)) {
       fs.rmSync(dir, { recursive: true, force: true });
     }
@@ -82,5 +84,59 @@ describe("writeCopyFile", () => {
     const file = writeCopyFile("v");
     created.push(path.dirname(file));
     expect(file.startsWith(os.tmpdir())).toBe(true);
+  });
+
+  it("removes every directory it created on removeCopyFiles (#2648)", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "clip-test-"));
+    created.push(base);
+    const first = writeCopyFile("token-a", base);
+    const second = writeCopyFile("token-b", base);
+    removeCopyFiles();
+    expect(fs.existsSync(path.dirname(first))).toBe(false);
+    expect(fs.existsSync(path.dirname(second))).toBe(false);
+    // The base directory is not ours, so it survives.
+    expect(fs.existsSync(base)).toBe(true);
+    // A second sweep has nothing left to remove and does not throw.
+    expect(() => removeCopyFiles()).not.toThrow();
+  });
+
+  it("registers the cleanup as a single process exit listener", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "clip-test-"));
+    created.push(base);
+    writeCopyFile("a", base);
+    writeCopyFile("b", base);
+    const listeners = process
+      .listeners("exit")
+      .filter((l) => l === removeCopyFiles);
+    expect(listeners).toHaveLength(1);
+    removeCopyFiles();
+  });
+
+  it("still cleans up a directory whose file write failed", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "clip-test-"));
+    created.push(base);
+    vi.spyOn(fs, "writeFileSync").mockImplementationOnce(() => {
+      throw new Error("disk full");
+    });
+    expect(() => writeCopyFile("v", base)).toThrow("disk full");
+    expect(fs.readdirSync(base)).toHaveLength(1);
+    removeCopyFiles();
+    expect(fs.readdirSync(base)).toHaveLength(0);
+  });
+
+  it("keeps going when a directory cannot be removed", () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), "clip-test-"));
+    created.push(base);
+    const first = writeCopyFile("a", base);
+    const second = writeCopyFile("b", base);
+    const realRm = fs.rmSync;
+    vi.spyOn(fs, "rmSync").mockImplementationOnce(() => {
+      throw new Error("EBUSY");
+    });
+    expect(() => removeCopyFiles()).not.toThrow();
+    // The first removal threw; the second still ran.
+    expect(fs.existsSync(path.dirname(first))).toBe(true);
+    expect(fs.existsSync(path.dirname(second))).toBe(false);
+    realRm(path.dirname(first), { recursive: true, force: true });
   });
 });
