@@ -71,7 +71,7 @@ const DETAILS_SCROLL: readonly KeyBinding[] = [
 
 const LIST_FILTER: KeyBinding = {
   keys: "/",
-  action: "Filter the list (Enter keeps it; Esc clears it, kept or not)",
+  action: "Filter the list (Enter keeps it, Esc clears it)",
 };
 
 const PANE_SCROLL: readonly KeyBinding[] = [
