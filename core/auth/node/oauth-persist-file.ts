@@ -672,6 +672,10 @@ export async function updateOAuthServerEntry(
                   },
                   secretStore,
                   namespace,
+                  // Always a resolved namespace here (adopted or minted for
+                  // this save), so there is no unstamped file to fall back
+                  // from — fallbacks are a read-path concern (#2676).
+                  [],
                 )
               ).servers,
               serverKey,
