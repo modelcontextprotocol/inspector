@@ -123,11 +123,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@modelcontextprotocol/client": "2.2.0",
-    "@modelcontextprotocol/core": "2.2.0",
+    "@modelcontextprotocol/client": "2.3.1",
+    "@modelcontextprotocol/core": "2.3.1",
     "@modelcontextprotocol/ext-apps": "^2.0.0",
     "@modelcontextprotocol/ext-tasks": "^0.2.2",
-    "@modelcontextprotocol/server": "2.2.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "@napi-rs/keyring": "^1.3.0",
     "@vitejs/plugin-react": "^6.0.0",
     "ajv": "^8.17.1",
@@ -150,7 +150,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@modelcontextprotocol/server-legacy": "2.2.0",
+    "@modelcontextprotocol/server-legacy": "2.3.1",
     "@types/node": "^24.12.4",
     "@types/proper-lockfile": "^4.1.4",
     "@vitest/coverage-v8": "4.1.11",
