@@ -182,10 +182,37 @@ function exportWorkingTree(repoRoot, dest) {
   return paths.length;
 }
 
-/** Whether a Docker daemon answers. `docker info` fails when only the CLI is installed. */
-function dockerAvailable() {
-  const probe = spawnSync("docker", ["info"], { stdio: "ignore" });
-  return probe.status === 0;
+/**
+ * How long `docker info` may take before the daemon counts as unreachable.
+ *
+ * Measured on macOS 27 / Docker Desktop: a healthy daemon answers in
+ * 0.07–0.12s, while an unreachable remote context (`DOCKER_HOST` pointing at a
+ * dead address) took 32s to fail on the CLI's own dial timeout — and a wedged
+ * daemon need not fail at all. 10s is ~80x the healthy case and well under
+ * the dead-host one, so the gate reaches the loud skip instead of hanging.
+ */
+export const DOCKER_PROBE_TIMEOUT_MS = 10_000;
+
+/**
+ * Whether a Docker daemon answers, and if not, why. `docker info` fails when
+ * only the CLI is installed; the timeout bounds a wedged or remote daemon.
+ */
+export function probeDocker(spawn = spawnSync) {
+  const probe = spawn("docker", ["info"], {
+    stdio: "ignore",
+    timeout: DOCKER_PROBE_TIMEOUT_MS,
+  });
+  if (probe.error?.code === "ETIMEDOUT") {
+    return {
+      ok: false,
+      reason: `\`docker info\` did not answer within ${DOCKER_PROBE_TIMEOUT_MS / 1000}s`,
+    };
+  }
+  if (probe.error) return { ok: false, reason: probe.error.message };
+  if (probe.status !== 0) {
+    return { ok: false, reason: "no Docker daemon is reachable" };
+  }
+  return { ok: true };
 }
 
 /** The caller's `uid:gid`, or undefined where POSIX ids do not exist (Windows). */
@@ -202,7 +229,7 @@ function hostOwner() {
  * without Docker.
  */
 export const defaultContainerDeps = {
-  dockerAvailable,
+  probeDocker: () => probeDocker(),
   readLockfile: (repoRoot) =>
     readFileSync(join(repoRoot, "clients/web/package-lock.json"), "utf8"),
   makeTempDir: (engine) =>
@@ -226,7 +253,7 @@ export function runInContainer(
   deps = {},
 ) {
   const {
-    dockerAvailable,
+    probeDocker,
     readLockfile,
     makeTempDir,
     exportWorkingTree,
@@ -244,11 +271,12 @@ export function runInContainer(
       ? `run-engine-smokes: ${engine} routed to the container by ${MODE_ENV}=container`
       : `run-engine-smokes: ${engine} cannot launch natively on this host (${ISSUE})`;
 
-  if (!dockerAvailable()) {
+  const docker = probeDocker();
+  if (!docker.ok) {
     warn(
       [
         "",
-        `⚠️  ${banner}, and no Docker daemon is reachable.`,
+        `⚠️  ${banner}, and Docker is unavailable: ${docker.reason}.`,
         `⚠️  SKIPPING the ${engine} engine pass — this is NOT a pass. Start Docker`,
         `⚠️  (or set ${MODE_ENV}=native to try a native launch) and re-run`,
         `⚠️  \`npm run smoke:web:${engine}\` before pushing.`,

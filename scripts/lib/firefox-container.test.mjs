@@ -13,11 +13,13 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import {
+  DOCKER_PROBE_TIMEOUT_MS,
   ISSUE,
   MODE_ENV,
   dockerRunArgs,
   exportablePaths,
   pinnedPlaywrightVersion,
+  probeDocker,
   playwrightImage,
   runInContainer,
   shouldUseContainer,
@@ -179,6 +181,43 @@ describe("exportablePaths", () => {
   });
 });
 
+describe("probeDocker", () => {
+  it("bounds the probe and reports a timeout as unavailable", () => {
+    let opts;
+    const result = probeDocker((_cmd, _args, o) => {
+      opts = o;
+      return {
+        status: null,
+        error: Object.assign(new Error("t"), { code: "ETIMEDOUT" }),
+      };
+    });
+    assert.equal(opts.timeout, DOCKER_PROBE_TIMEOUT_MS);
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /did not answer within 10s/);
+  });
+
+  it("distinguishes a spawn error, a failing daemon and a healthy one", () => {
+    assert.deepEqual(
+      probeDocker(() => ({
+        status: null,
+        error: new Error("spawn docker ENOENT"),
+      })),
+      { ok: false, reason: "spawn docker ENOENT" },
+    );
+    assert.deepEqual(
+      probeDocker(() => ({ status: 1 })),
+      {
+        ok: false,
+        reason: "no Docker daemon is reachable",
+      },
+    );
+    assert.deepEqual(
+      probeDocker(() => ({ status: 0 })),
+      { ok: true },
+    );
+  });
+});
+
 describe("runInContainer", () => {
   const LOCK = JSON.stringify({
     packages: { "node_modules/playwright": { version: "1.62.1" } },
@@ -188,7 +227,7 @@ describe("runInContainer", () => {
   function fakes(overrides = {}) {
     const calls = { docker: [], removed: [], warned: [], errored: [] };
     const deps = {
-      dockerAvailable: () => true,
+      probeDocker: () => ({ ok: true }),
       readLockfile: () => LOCK,
       makeTempDir: () => "/tmp/export",
       exportWorkingTree: () => 3,
@@ -209,7 +248,12 @@ describe("runInContainer", () => {
     runInContainer({ repoRoot: "/repo", engine: "firefox", env: {} }, deps);
 
   it("skips loudly and exits 0 when no Docker daemon answers", () => {
-    const { calls, deps } = fakes({ dockerAvailable: () => false });
+    const { calls, deps } = fakes({
+      probeDocker: () => ({
+        ok: false,
+        reason: "no Docker daemon is reachable",
+      }),
+    });
     assert.equal(run(deps), 0);
     assert.equal(calls.docker.length, 0, "must not try to run docker");
     assert.equal(calls.removed.length, 0, "nothing was created to remove");
@@ -217,6 +261,7 @@ describe("runInContainer", () => {
     assert.match(banner, /SKIPPING the firefox engine pass/);
     assert.match(banner, /NOT a pass/);
     assert.match(banner, new RegExp(ISSUE));
+    assert.match(banner, /no Docker daemon is reachable/);
   });
 
   it("runs the pinned image over the export as the caller, then cleans up", () => {
