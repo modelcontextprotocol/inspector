@@ -60,14 +60,21 @@ function main() {
     process.exit(1);
   }
 
-  if (
-    shouldUseContainer({
+  let useContainer;
+  try {
+    useContainer = shouldUseContainer({
       engine: browserName,
       platform: platform(),
       release: release(),
       env: process.env,
-    })
-  ) {
+    });
+  } catch (err) {
+    console.error(
+      `run-engine-smokes: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    process.exit(1);
+  }
+  if (useContainer) {
     process.exit(
       runInContainer({ repoRoot: join(scriptDir, ".."), engine: browserName }),
     );

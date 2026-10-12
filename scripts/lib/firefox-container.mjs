@@ -54,9 +54,14 @@ export const ISSUE = "#2625";
 
 /**
  * Override for the routing decision: `container` forces the container on any
- * host, `native` forces a native launch on any host. Anything else (or unset)
+ * host, `native` forces a native launch on any host, and unset or empty
  * leaves the decision to the host check. `native` is how to try a new
  * Playwright build on macOS 27 before retiring this module.
+ *
+ * Any other value is an error, not a fallthrough — the same fail-closed rule
+ * as `SMOKE_BROWSER` (`headless-browser.mjs`). A typo'd `contaner` on Linux
+ * would otherwise run natively and report green for a container path that
+ * never ran, and a typo'd `native` on macOS 27 would defeat the trial.
  */
 export const MODE_ENV = "INSPECTOR_FIREFOX_SMOKE";
 
@@ -71,8 +76,13 @@ const FIRST_UNSUPPORTED_DARWIN = 27;
  * be pure cost.
  */
 export function shouldUseContainer({ engine, platform, release, env }) {
-  if (engine !== "firefox") return false;
   const mode = env[MODE_ENV];
+  if (mode && mode !== "container" && mode !== "native") {
+    throw new Error(
+      `unsupported ${MODE_ENV}="${mode}" — expected "native", "container", or unset`,
+    );
+  }
+  if (engine !== "firefox") return false;
   if (mode === "container") return true;
   if (mode === "native") return false;
   if (platform !== "darwin") return false;
@@ -211,7 +221,10 @@ export const defaultContainerDeps = {
  * Run the engine pass in the container. Returns the exit status to use:
  * the container's status, or 0 on a loud skip when Docker is unavailable.
  */
-export function runInContainer({ repoRoot, engine }, deps = {}) {
+export function runInContainer(
+  { repoRoot, engine, env = process.env },
+  deps = {},
+) {
   const {
     dockerAvailable,
     readLockfile,
@@ -224,7 +237,12 @@ export function runInContainer({ repoRoot, engine }, deps = {}) {
     warn,
     error,
   } = { ...defaultContainerDeps, ...deps };
-  const banner = `run-engine-smokes: ${engine} cannot launch natively on this host (${ISSUE})`;
+  // A forced run says so; claiming the host cannot launch the engine would be
+  // false on, say, a Linux host using the override.
+  const banner =
+    env[MODE_ENV] === "container"
+      ? `run-engine-smokes: ${engine} routed to the container by ${MODE_ENV}=container`
+      : `run-engine-smokes: ${engine} cannot launch natively on this host (${ISSUE})`;
 
   if (!dockerAvailable()) {
     warn(

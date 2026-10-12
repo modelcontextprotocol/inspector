@@ -67,11 +67,24 @@ describe("shouldUseContainer", () => {
       ),
       true,
     );
-    // An unrecognized value falls through to the host check.
-    assert.equal(
-      shouldUseContainer(host({ env: { [MODE_ENV]: "maybe" } })),
-      true,
-    );
+    // Empty is treated as unset.
+    assert.equal(shouldUseContainer(host({ env: { [MODE_ENV]: "" } })), true);
+  });
+
+  it("rejects an unrecognized override rather than falling through", () => {
+    for (const engine of ["firefox", "chromium"]) {
+      assert.throws(
+        () =>
+          shouldUseContainer(
+            host({
+              engine,
+              platform: "linux",
+              env: { [MODE_ENV]: "contaner" },
+            }),
+          ),
+        new RegExp(`unsupported ${MODE_ENV}="contaner"`),
+      );
+    }
   });
 });
 
@@ -193,7 +206,7 @@ describe("runInContainer", () => {
     return { calls, deps };
   }
   const run = (deps) =>
-    runInContainer({ repoRoot: "/repo", engine: "firefox" }, deps);
+    runInContainer({ repoRoot: "/repo", engine: "firefox", env: {} }, deps);
 
   it("skips loudly and exits 0 when no Docker daemon answers", () => {
     const { calls, deps } = fakes({ dockerAvailable: () => false });
@@ -214,6 +227,21 @@ describe("runInContainer", () => {
     assert.ok(args.includes("/tmp/export:/src"));
     assert.match(args.at(-1), /chown -R 501:20/);
     assert.deepEqual(calls.removed, ["/tmp/export"]);
+  });
+
+  it("says a forced run was forced, not that the host cannot launch", () => {
+    const lines = [];
+    const { deps } = fakes({ log: (msg) => lines.push(msg) });
+    runInContainer(
+      {
+        repoRoot: "/repo",
+        engine: "firefox",
+        env: { [MODE_ENV]: "container" },
+      },
+      deps,
+    );
+    assert.match(lines.join(), new RegExp(`${MODE_ENV}=container`));
+    assert.doesNotMatch(lines.join(), /cannot launch natively/);
   });
 
   it("propagates a failing container's status and still cleans up", () => {
