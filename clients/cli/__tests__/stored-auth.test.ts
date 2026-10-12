@@ -22,7 +22,11 @@ import {
   type StoredServers,
 } from "../src/cli.js";
 import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
-import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
+import {
+  readOAuthStore,
+  writeOAuthSections,
+} from "@inspector/core/auth/node/oauth-persist-file.js";
+import type { ServerOAuthState } from "@inspector/core/auth/store.js";
 import { oauthSecretServerId } from "@inspector/core/auth/node/oauth-secrets.js";
 import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
@@ -1323,6 +1327,187 @@ describe("issuer-keyed stored auth (#2517)", () => {
       } finally {
         rmSync(path, { force: true });
       }
+    });
+
+    // #2574: the write-back lands after a network round trip, so a same-server
+    // write made meanwhile — here a web OAuth flow against a second AS — must
+    // survive it. Only the refreshed slot's tokens may change.
+    describe("concurrent same-server writes during the grant (#2574)", () => {
+      const SLOT = {
+        tokens: { refresh_token: "active-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "active-client" },
+      };
+      const ROTATED = {
+        access_token: "rotated-access",
+        token_type: "Bearer",
+        refresh_token: "rotated-refresh",
+      };
+      const fixture = () =>
+        writeOAuthFixture({
+          [SERVER]: {
+            activeIssuer: ISSUER,
+            byIssuer: { [ISSUER]: SLOT },
+            serverMetadata: {
+              issuer: ISSUER,
+              token_endpoint: `${ISSUER}/token`,
+            },
+          },
+        });
+
+      /** A refresh grant that lets `during` rewrite the server mid-flight. */
+      const refreshWhile = (
+        path: string,
+        during: (entry: ServerOAuthState) => ServerOAuthState | undefined,
+      ) =>
+        vi.fn(async () => {
+          const current = (await readOAuthStore(path))!.servers[SERVER]!;
+          const next = during(current);
+          await writeOAuthSections(
+            path,
+            {
+              servers: next === undefined ? {} : { [SERVER]: next },
+              idpSessions: {},
+            },
+            { servers: [SERVER] },
+          );
+          return ROTATED;
+        });
+
+      it("keeps an issuer slot and activeIssuer change made during the refresh", async () => {
+        const path = fixture();
+        try {
+          const refresh = refreshWhile(path, (entry) => ({
+            ...entry,
+            activeIssuer: OTHER,
+            byIssuer: {
+              ...entry.byIssuer,
+              [OTHER]: {
+                tokens: { access_token: "web-access", token_type: "Bearer" },
+                clientInformation: { client_id: "web-client" },
+              },
+            },
+          }));
+          await expect(
+            refreshStoredAuthToken(SERVER, path, { refresh }),
+          ).resolves.toBe("rotated-access");
+
+          const persisted = (await readOAuthStore(path))?.servers[SERVER];
+          // The web flow's write survives…
+          expect(persisted?.activeIssuer).toBe(OTHER);
+          expect(persisted?.byIssuer?.[OTHER]?.tokens?.access_token).toBe(
+            "web-access",
+          );
+          // …and the rotation still lands in the slot it was read from.
+          expect(persisted?.byIssuer?.[ISSUER]).toEqual({
+            ...SLOT,
+            tokens: ROTATED,
+          });
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
+
+      it("does not resurrect a server cleared during the refresh", async () => {
+        const path = fixture();
+        try {
+          const refresh = refreshWhile(path, () => undefined);
+          await expect(
+            refreshStoredAuthToken(SERVER, path, { refresh }),
+          ).resolves.toBe("rotated-access");
+          expect((await readOAuthStore(path))?.servers[SERVER]).toBeUndefined();
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
+
+      it("keeps a slot whose tokens were cleared during the refresh cleared", async () => {
+        const path = fixture();
+        try {
+          const refresh = refreshWhile(path, (entry) => ({
+            ...entry,
+            byIssuer: {
+              [ISSUER]: { clientInformation: SLOT.clientInformation },
+            },
+          }));
+          await refreshStoredAuthToken(SERVER, path, { refresh });
+          const persisted = (await readOAuthStore(path))?.servers[SERVER];
+          expect(persisted?.byIssuer?.[ISSUER]?.tokens).toBeUndefined();
+          expect(persisted?.byIssuer?.[ISSUER]?.clientInformation).toEqual(
+            SLOT.clientInformation,
+          );
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
+
+      it("keeps a same-issuer re-authorization made during the refresh", async () => {
+        const path = fixture();
+        const reauthed = {
+          access_token: "web-access",
+          token_type: "Bearer",
+          refresh_token: "web-refresh",
+        };
+        try {
+          const refresh = refreshWhile(path, (entry) => ({
+            ...entry,
+            byIssuer: { [ISSUER]: { ...SLOT, tokens: reauthed } },
+          }));
+          await expect(
+            refreshStoredAuthToken(SERVER, path, { refresh }),
+          ).resolves.toBe("rotated-access");
+          const persisted = (await readOAuthStore(path))?.servers[SERVER];
+          expect(persisted?.byIssuer?.[ISSUER]?.tokens).toEqual(reauthed);
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
+
+      it("keeps a legacy entry's tokens replaced during the refresh", async () => {
+        const path = writeOAuthFixture({
+          [SERVER]: {
+            tokens: { refresh_token: "legacy-refresh", token_type: "Bearer" },
+            clientInformation: { client_id: "legacy-client" },
+            serverMetadata: {
+              issuer: ISSUER,
+              token_endpoint: `${ISSUER}/token`,
+            },
+          },
+        });
+        const replaced = {
+          access_token: "web-access",
+          token_type: "Bearer",
+          refresh_token: "web-refresh",
+        };
+        try {
+          const refresh = refreshWhile(path, (entry) => ({
+            ...entry,
+            tokens: replaced,
+          }));
+          await refreshStoredAuthToken(SERVER, path, { refresh });
+          expect((await readOAuthStore(path))?.servers[SERVER]?.tokens).toEqual(
+            replaced,
+          );
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
+
+      it("does not resurrect an issuer slot removed during the refresh", async () => {
+        const path = fixture();
+        try {
+          const refresh = refreshWhile(path, (entry) => ({
+            ...entry,
+            activeIssuer: undefined,
+            byIssuer: {},
+          }));
+          await refreshStoredAuthToken(SERVER, path, { refresh });
+          const persisted = (await readOAuthStore(path))?.servers[SERVER];
+          expect(persisted?.byIssuer?.[ISSUER]).toBeUndefined();
+          expect(persisted?.tokens).toBeUndefined();
+        } finally {
+          rmSync(path, { force: true });
+        }
+      });
     });
 
     it("reports no_client_information when the active slot has a refresh token but no client", async () => {
