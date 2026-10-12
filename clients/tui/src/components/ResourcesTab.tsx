@@ -40,6 +40,8 @@ interface ResourcesTabProps {
   modalOpen?: boolean;
   /** Told when the list filter starts or stops capturing keys (#2430). */
   onFilterEditingChange?: (editing: boolean) => void;
+  /** Told when a kept list filter starts or stops claiming Esc (#2647). */
+  onFilterEscapeClaimChange?: (claimed: boolean) => void;
 }
 
 type ResourceListItem =
@@ -72,6 +74,7 @@ export function ResourcesTab({
   onAuthRecoveryRequired,
   modalOpen = false,
   onFilterEditingChange,
+  onFilterEscapeClaimChange,
 }: ResourcesTabProps) {
   const [error, setError] = useState<string | null>(null);
   const [resourceContent, setResourceContent] =
@@ -99,6 +102,7 @@ export function ResourcesTab({
   const filter = useListFilter(allItems, resourceFilterFields, {
     enabled: !modalOpen && focusedPane === "list",
     onEditingChange: onFilterEditingChange,
+    onEscapeClaimChange: onFilterEscapeClaimChange,
   });
   const shownItems = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(

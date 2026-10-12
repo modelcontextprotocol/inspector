@@ -30,6 +30,8 @@ interface PromptsTabProps {
   modalOpen?: boolean;
   /** Told when the list filter starts or stops capturing keys (#2430). */
   onFilterEditingChange?: (editing: boolean) => void;
+  /** Told when a kept list filter starts or stops claiming Esc (#2647). */
+  onFilterEscapeClaimChange?: (claimed: boolean) => void;
 }
 
 /** What the `/` filter matches a prompt against (#2430). */
@@ -48,11 +50,13 @@ export function PromptsTab({
   onAuthRecoveryRequired,
   modalOpen = false,
   onFilterEditingChange,
+  onFilterEscapeClaimChange,
 }: PromptsTabProps) {
   const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
   const filter = useListFilter(prompts, promptFilterFields, {
     enabled: !modalOpen && focusedPane === "list",
     onEditingChange: onFilterEditingChange,
+    onEscapeClaimChange: onFilterEscapeClaimChange,
   });
   const shownPrompts = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(

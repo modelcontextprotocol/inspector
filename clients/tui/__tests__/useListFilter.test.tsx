@@ -35,13 +35,19 @@ const fields = (item: Item) => [item.name, item.title];
 function Harness({
   enabled = true,
   onEditingChange,
+  onEscapeClaimChange,
   onUnconsumed,
 }: {
   enabled?: boolean;
   onEditingChange?: (editing: boolean) => void;
+  onEscapeClaimChange?: (claimed: boolean) => void;
   onUnconsumed?: (input: string) => void;
 }) {
-  const filter = useListFilter(items, fields, { enabled, onEditingChange });
+  const filter = useListFilter(items, fields, {
+    enabled,
+    onEditingChange,
+    onEscapeClaimChange,
+  });
   useInput((input, key) => {
     if (!filter.handleInput(input, key)) onUnconsumed?.(input);
   });
@@ -104,6 +110,65 @@ describe("useListFilter", () => {
     expect(lastFrame()).toContain("q=[]");
     expect(lastFrame()).toContain("editing=false");
     expect(lastFrame()).toContain("items=alpha,beta,gamma");
+  });
+
+  it("clears a kept filter on Esc, claiming Esc only while one is kept (#2647)", async () => {
+    const onEscapeClaimChange = vi.fn();
+    const onUnconsumed = vi.fn();
+    const { lastFrame, stdin } = render(
+      <Harness
+        onEscapeClaimChange={onEscapeClaimChange}
+        onUnconsumed={onUnconsumed}
+      />,
+    );
+    await tick();
+    // Editing is App's whole-keyboard mute, not the Esc claim.
+    await type(stdin, ["/", "b"]);
+    expect(onEscapeClaimChange).not.toHaveBeenCalled();
+
+    await type(stdin, [ENTER]);
+    expect(lastFrame()).toContain("editing=false");
+    expect(lastFrame()).toContain("items=beta");
+    expect(onEscapeClaimChange).toHaveBeenLastCalledWith(true);
+
+    // The first Esc is the filter's: it clears the query and withdraws.
+    await type(stdin, [ESC]);
+    expect(lastFrame()).toContain("q=[]");
+    expect(lastFrame()).toContain("items=alpha,beta,gamma");
+    expect(onEscapeClaimChange).toHaveBeenLastCalledWith(false);
+    expect(onUnconsumed).not.toHaveBeenCalled();
+
+    // The second has nothing to clear, so it is left to the app.
+    await type(stdin, [ESC]);
+    expect(onUnconsumed).toHaveBeenCalledTimes(1);
+  });
+
+  it("withdraws the Esc claim while the list lacks the keyboard", async () => {
+    const onEscapeClaimChange = vi.fn();
+    const onUnconsumed = vi.fn();
+    const { lastFrame, stdin, rerender } = render(
+      <Harness
+        onEscapeClaimChange={onEscapeClaimChange}
+        onUnconsumed={onUnconsumed}
+      />,
+    );
+    await tick();
+    await type(stdin, ["/", "b", ENTER]);
+    expect(onEscapeClaimChange).toHaveBeenLastCalledWith(true);
+
+    rerender(
+      <Harness
+        enabled={false}
+        onEscapeClaimChange={onEscapeClaimChange}
+        onUnconsumed={onUnconsumed}
+      />,
+    );
+    await tick();
+    expect(onEscapeClaimChange).toHaveBeenLastCalledWith(false);
+    // The filter is kept, not cleared, and Esc is no longer its to take.
+    await type(stdin, [ESC]);
+    expect(lastFrame()).toContain("q=[b]");
+    expect(onUnconsumed).toHaveBeenCalledTimes(1);
   });
 
   it("leaves navigation and unrelated keys to the list", async () => {

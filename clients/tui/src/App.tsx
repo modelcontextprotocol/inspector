@@ -191,6 +191,10 @@ function App({
   // global accelerators below stand down then, or typing a query would switch
   // tabs, connect, or quit on Esc. Reported by `useListFilter`.
   const [listFilterEditing, setListFilterEditing] = useState(false);
+  // True while a kept (non-empty, no longer edited) list filter has the
+  // keyboard (#2647). Esc then clears the filter instead of quitting; only the
+  // exit key stands down, since a kept filter exists so the rest still work.
+  const [listFilterClaimsEscape, setListFilterClaimsEscape] = useState(false);
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
@@ -1639,8 +1643,10 @@ function App({
       return;
     }
 
-    // Exit accelerators
+    // Exit accelerators. A kept list filter takes Esc first — the tab clears
+    // it — so quitting is the second press (#2647).
     if (key.escape) {
+      if (listFilterClaimsEscape) return;
       exit();
     }
 
@@ -2209,6 +2215,7 @@ function App({
               <ResourcesTab
                 key={`resources-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 resources={currentServerState.resources}
                 resourceTemplates={currentServerState.resourceTemplates}
                 inspectorClient={selectedInspectorClient}
@@ -2309,6 +2316,7 @@ function App({
               <SkillsTab
                 key={`skills-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 skills={managedSkills}
                 pageCount={managedSkillsPageCount}
                 loadError={managedSkillsError}
@@ -2338,6 +2346,7 @@ function App({
               <PromptsTab
                 key={`prompts-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 prompts={currentServerState.prompts}
                 inspectorClient={selectedInspectorClient}
                 width={contentWidth}
@@ -2381,6 +2390,7 @@ function App({
               <ToolsTab
                 key={`tools-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 tools={currentServerState.tools}
                 isConnected={inspectorStatus === "connected"}
                 width={contentWidth}
