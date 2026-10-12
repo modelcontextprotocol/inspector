@@ -15,6 +15,8 @@ import {
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import pino from "pino";
@@ -565,6 +567,94 @@ describe("Remote transport e2e", () => {
         expect(lowered["mcp-param-city"]).toBe("London");
       } finally {
         await client.disconnect();
+      }
+    });
+
+    it("auto era falls back to legacy when a 2025-only server rejects the probe with HTTP 400 (#2660)", async () => {
+      // A stateless 2025-only server, shaped like the v1 SDK's
+      // `enableJsonResponse` mode: it answers `server/discover` (sent with the
+      // 2026-07-28 version header) with a 400 and a JSON-RPC error body. The
+      // SDK's probe treats that 4xx as a legacy signal — but only if the
+      // relay delivers it as an `SdkHttpError` rather than a flattened string.
+      const methods: string[] = [];
+      const upstream = createHttpServer((req, res) => {
+        // Stateless: no standalone SSE stream (GET) and no session (DELETE).
+        if (req.method !== "POST") {
+          res.writeHead(405).end();
+          return;
+        }
+        const chunks: Buffer[] = [];
+        req.on("data", (chunk: Buffer) => chunks.push(chunk));
+        req.on("end", () => {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            id?: number | string;
+            method: string;
+          };
+          methods.push(body.method);
+          const reply = (status: number, payload?: unknown) => {
+            res.writeHead(status, { "content-type": "application/json" });
+            res.end(
+              payload === undefined ? undefined : JSON.stringify(payload),
+            );
+          };
+          if (body.method === "server/discover") {
+            reply(400, {
+              jsonrpc: "2.0",
+              error: {
+                code: -32000,
+                message:
+                  "Bad Request: Unsupported protocol version: 2026-07-28",
+              },
+              id: null,
+            });
+          } else if (body.method === "initialize") {
+            reply(200, {
+              jsonrpc: "2.0",
+              id: body.id,
+              result: {
+                protocolVersion: "2025-11-25",
+                capabilities: { tools: {} },
+                serverInfo: { name: "v1-server", version: "1.0.0" },
+              },
+            });
+          } else if (body.id === undefined) {
+            reply(202);
+          } else {
+            reply(200, { jsonrpc: "2.0", id: body.id, result: {} });
+          }
+        });
+      });
+      await new Promise<void>((resolve) =>
+        upstream.listen(0, "127.0.0.1", resolve),
+      );
+      const { port } = upstream.address() as AddressInfo;
+
+      try {
+        const { baseUrl, server, authToken } = await startRemoteServer(0);
+        remoteServer = server;
+
+        const client = new InspectorClient(
+          { type: "streamable-http", url: `http://127.0.0.1:${port}/mcp` },
+          {
+            environment: {
+              transport: createRemoteTransport({ baseUrl, authToken }),
+            },
+            versionNegotiation: eraToVersionNegotiation("auto"),
+          },
+        );
+        try {
+          await client.connect();
+          expect(client.getProtocolEra()).toBe("legacy");
+          expect(methods.slice(0, 2)).toEqual([
+            "server/discover",
+            "initialize",
+          ]);
+        } finally {
+          await client.disconnect();
+        }
+      } finally {
+        upstream.closeAllConnections();
+        await new Promise<void>((resolve) => upstream.close(() => resolve()));
       }
     });
   });

@@ -67,11 +67,12 @@ export interface ToolsScreenProps {
   callState?: ToolCallState;
   ui: ToolsUiState;
   listChanged: boolean;
-  /** Whether the connected server advertises task-augmented tool calls. */
+  /**
+   * Whether to offer the per-call "Run as task" choice: a legacy server that
+   * advertises `tasks.requests.tools.call`. Always false on a modern
+   * connection, where task creation is server-directed (#2674).
+   */
   serverSupportsTaskToolCalls: boolean;
-  /** Modern (SEP-2663) tasks extension negotiated — "Run as task" is offered
-   * for any tool (server-directed task creation). */
-  modernTasks?: boolean;
   onUiChange: (next: ToolsUiState) => void;
   onRefreshList: () => void;
   /** A failed list load, rendered above the sidebar list (#1953). */
@@ -166,7 +167,6 @@ export function ToolsScreen({
   ui,
   listChanged,
   serverSupportsTaskToolCalls,
-  modernTasks = false,
   onUiChange,
   onRefreshList,
   loadError,
@@ -273,7 +273,6 @@ export function ToolsScreen({
               isExecuting={isExecuting}
               progress={callState?.progress}
               serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
-              modernTasks={modernTasks}
               runAsTask={ui.runAsTask}
               onRunAsTaskChange={(value) =>
                 onUiChange({ ...ui, runAsTask: value })

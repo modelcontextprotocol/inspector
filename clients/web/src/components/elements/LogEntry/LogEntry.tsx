@@ -15,8 +15,9 @@ export interface LogEntryProps {
   entry: LogEntryData;
   /**
    * Compact two-line layout for the narrow monitoring sidebar (#1661): the
-   * timestamp, level, and logger sit on the first line and the message wraps
-   * onto the line below, so a long message isn't clipped by the column width.
+   * timestamp, level, and logger sit on the first line (a long logger wraps
+   * below the level) and the message wraps onto the line below, so neither is
+   * clipped by the column width.
    * The default (false) is the single-line row used on the full Logs screen.
    */
   compact?: boolean;
@@ -59,6 +60,15 @@ const LoggerText = Text.withProps({
   c: "dimmed",
 });
 
+// The logger name in the compact (sidebar) row: breaks inside a long name via
+// the `consoleLine` variant instead of squeezing the level badge (#2675).
+const CompactLoggerText = Text.withProps({
+  size: "xs",
+  ff: "monospace",
+  c: "dimmed",
+  variant: "consoleLine",
+});
+
 // Single-line message (full Logs screen): sits inline with the meta on one row.
 const MessageText = Text.withProps({
   size: "sm",
@@ -73,11 +83,12 @@ const CompactMessageText = Text.withProps({
   variant: "consoleLine",
 });
 
-// The compact meta row: timestamp + level + logger on one line above the
-// message. `wrap: nowrap` keeps them on a single line; the message wraps below.
+// The compact meta row: timestamp + level + logger above the message. It
+// wraps, so a logger name too long for the line moves below the level badge
+// rather than squeezing it until its label clips (#2675).
 const MetaRow = Group.withProps({
   gap: "xs",
-  wrap: "nowrap",
+  wrap: "wrap",
   align: "center",
 });
 
@@ -90,9 +101,6 @@ const LogRow = Group.withProps({
 export function LogEntry({ entry, compact = false }: LogEntryProps) {
   const { receivedAt, params } = entry;
   const message = formatData(params.data);
-  const logger = params.logger ? (
-    <LoggerText>{formatLogger(params.logger)}</LoggerText>
-  ) : null;
 
   if (compact) {
     return (
@@ -100,7 +108,9 @@ export function LogEntry({ entry, compact = false }: LogEntryProps) {
         <MetaRow>
           <TimestampText>{formatTimestamp(receivedAt)}</TimestampText>
           <LogLevelBadge level={params.level} />
-          {logger}
+          {params.logger && (
+            <CompactLoggerText>{formatLogger(params.logger)}</CompactLoggerText>
+          )}
         </MetaRow>
         <CompactMessageText
           c={accessibleTextColor(levelMessageColor[params.level])}
@@ -115,7 +125,7 @@ export function LogEntry({ entry, compact = false }: LogEntryProps) {
     <LogRow>
       <TimestampText>{formatTimestamp(receivedAt)}</TimestampText>
       <LogLevelBadge level={params.level} />
-      {logger}
+      {params.logger && <LoggerText>{formatLogger(params.logger)}</LoggerText>}
       <MessageText c={accessibleTextColor(levelMessageColor[params.level])}>
         {message}
       </MessageText>

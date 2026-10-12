@@ -16,7 +16,7 @@ import type { RemoteTransportOptions } from "@inspector/core/mcp/remote/remoteCl
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 import type { RemoteEvent } from "@inspector/core/mcp/remote/types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
-import { SdkErrorCode } from "@modelcontextprotocol/client";
+import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import {
   AuthChallengeError,
   AuthRecoveryRequiredError,
@@ -1364,6 +1364,59 @@ describe("RemoteClientTransport (focused branch coverage)", () => {
       await expect(
         t.send({ jsonrpc: "2.0", id: 1, method: "ping" }),
       ).rejects.toThrow(/upstream 503/);
+      await t.close();
+    });
+
+    it("rebuilds an SdkHttpError from a relayed HTTP classification (#2660)", async () => {
+      const body = '{"jsonrpc":"2.0","error":{"code":-32000},"id":null}';
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () =>
+          jsonResponse({
+            ok: false,
+            kind: "transport_error",
+            error: "Error POSTing to endpoint: bad",
+            http: {
+              code: SdkErrorCode.ClientHttpNotImplemented,
+              status: 400,
+              statusText: "Bad Request",
+              text: body,
+            },
+          }),
+      });
+      await t.start();
+      const error = await t
+        .send({ jsonrpc: "2.0", id: 1, method: "server/discover" })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(SdkHttpError);
+      const httpError = error as SdkHttpError;
+      expect(httpError.message).toBe("Error POSTing to endpoint: bad");
+      expect(httpError.code).toBe(SdkErrorCode.ClientHttpNotImplemented);
+      expect(httpError.status).toBe(400);
+      expect(httpError.statusText).toBe("Bad Request");
+      expect(httpError.data.text).toBe(body);
+      await t.close();
+    });
+
+    it("falls back to a known code and omits absent fields on a relayed HTTP error", async () => {
+      const t = makeTransport({
+        events: () => openEventsResponse(),
+        send: () =>
+          jsonResponse({
+            ok: false,
+            kind: "transport_error",
+            error: "teapot",
+            http: { code: "NOT_A_REAL_CODE", status: 418 },
+          }),
+      });
+      await t.start();
+      const error = await t
+        .send({ jsonrpc: "2.0", id: 1, method: "ping" })
+        .catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(SdkHttpError);
+      const httpError = error as SdkHttpError;
+      expect(httpError.code).toBe(SdkErrorCode.ClientHttpNotImplemented);
+      expect(httpError.data).toEqual({ status: 418 });
       await t.close();
     });
 

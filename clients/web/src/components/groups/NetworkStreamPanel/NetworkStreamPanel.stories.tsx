@@ -2,7 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { fn } from "storybook/test";
 import type { FetchRequestEntry } from "../../../../../../core/mcp/types.js";
 import { NetworkStreamPanel } from "./NetworkStreamPanel";
-import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
+import {
+  expectNoHorizontalOverflow,
+  expectScrollbarGutterIdleHidden,
+} from "../../../test/scrollAreaStoryAssertions";
+import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
 
 const meta: Meta<typeof NetworkStreamPanel> = {
   title: "Groups/NetworkStreamPanel",
@@ -82,14 +86,12 @@ const longUrlSample: FetchRequestEntry[] = [
 ];
 
 // Reproduces the pinned-column overflow: a long URL must scroll horizontally
-// inside its own area rather than widening the card past the column (#1623).
+// inside its own area rather than widening the card past the column (#1623),
+// held to the sidebar's narrowest width (#2675).
 export const EmbeddedLongUrls: Story = {
   args: { entries: longUrlSample, embedded: true },
-  decorators: [
-    (Story) => (
-      <div style={{ width: 380, height: 500, display: "flex" }}>
-        <Story />
-      </div>
-    ),
-  ],
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
+  },
 };

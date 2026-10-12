@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { Task } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { TaskListPanel } from "./TaskListPanel";
+import { expectNoHorizontalOverflow } from "../../../test/scrollAreaStoryAssertions";
+import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
 
 const sampleTasks: Task[] = [
   {
@@ -68,5 +70,30 @@ export const WithSearch: Story = {
 export const Empty: Story = {
   args: {
     tasks: [],
+  },
+};
+
+// A long task id and an unbroken status message in the sidebar must truncate
+// or wrap inside the card, never widen the list (#2675).
+export const EmbeddedLongContent: Story = {
+  args: {
+    embedded: true,
+    tasks: [
+      {
+        taskId:
+          "d0b22eba71fa36229ce5c4dfadeaa7ded0b22eba71fa36229ce5c4dfadeaa7de",
+        status: "working",
+        ttl: 300000,
+        createdAt: "2026-03-29T20:18:20Z",
+        lastUpdatedAt: "2026-03-29T20:18:22Z",
+        statusMessage:
+          "Reading demo://resource/minted/c05df264-ed9c-44a4-a81d-c2d7f3b9e1a0/gzip-file-as-resource/compressed-payload.gz",
+      },
+      sampleTasks[2],
+    ],
+  },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
   },
 };

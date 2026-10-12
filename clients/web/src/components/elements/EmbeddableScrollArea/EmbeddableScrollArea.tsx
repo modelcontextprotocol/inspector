@@ -19,18 +19,24 @@ export interface EmbeddableScrollAreaProps {
   children: ReactNode;
   /**
    * Constrain the scrolled content to the viewport width instead of letting it
-   * grow to its own `max-content`. Mantine's ScrollArea `content` slot defaults
-   * to `min-width: max-content`, so a row with non-wrapping content (e.g. a long
-   * network URL) stretches every card past the column and it bleeds out (#1623).
-   * When true, the content can shrink to the viewport and each row must manage
-   * its own overflow (the Network URL scrolls inside its own inner ScrollArea).
-   * Left off for panels whose rows already wrap/truncate (Logs, Protocol), where
-   * the default lets a long line scroll the list horizontally instead.
+   * grow to its own intrinsic width. Mantine's autosize ScrollArea gives its
+   * `content` slot `min-width: min-content`, so a row with non-wrapping content
+   * (a long network URL, a long resource URI in a Protocol target) stretches
+   * every card past the column and it bleeds out (#1623, #2675). When
+   * constrained, the content can shrink to the viewport and each row must
+   * manage its own overflow (the Network URL and the Protocol target each
+   * scroll inside their own inner ScrollArea).
+   *
+   * Always on when `embedded`: nothing in a monitoring-sidebar entry may clip,
+   * whatever the tab, so the sidebar does not leave it to each panel to opt in
+   * (#2675 — Protocol never had, and clipped). This prop only matters
+   * full-size, where leaving it off lets a long line scroll the whole list
+   * horizontally instead.
    */
   constrainContentWidth?: boolean;
 }
 
-// Relax the `content` slot's default `min-width: max-content` so the list can't
+// Relax the `content` slot's default intrinsic `min-width` so the list can't
 // grow wider than its viewport; see `constrainContentWidth`.
 const CONSTRAIN_CONTENT_STYLES = { content: { minWidth: 0 } } as const;
 
@@ -57,7 +63,8 @@ export function EmbeddableScrollArea({
   children,
   constrainContentWidth = false,
 }: EmbeddableScrollAreaProps) {
-  const styles = constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
+  const styles =
+    embedded || constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
   if (embedded) {
     return (
       <EmbeddedColumn>
