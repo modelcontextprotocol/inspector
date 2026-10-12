@@ -13,6 +13,7 @@ import {
   allSkillsVerified,
   anySkillFailed,
   anySkillUnverifiable,
+  DEFAULT_SKILL_BUDGET_HINT,
   utf8Length,
   verifySkills,
 } from "@inspector/core/mcp/skillsVerification.js";
@@ -793,12 +794,16 @@ describe("verifySkills (#2248)", () => {
     for (const report of past) {
       expect(report.outcome).toBe("incomplete");
       expect(report.incomplete).toMatch(/catalog budget/);
-      // The escape hatch carries the `--verify` that produces a verdict —
-      // `--uri` alone fetches the skill and checks nothing (#2428) — and a
-      // placeholder rather than the server-controlled URI itself.
+      // With no hint passed, the remedies are client-neutral rather than
+      // some other client's commands (#2633) — and never the
+      // server-controlled URI itself.
       expect(report.incomplete).toContain(
-        "`--method skills/get --uri <uri> --verify`",
+        `raise it ${DEFAULT_SKILL_BUDGET_HINT.raise}`,
       );
+      expect(report.incomplete).toContain(
+        `verify it on its own ${DEFAULT_SKILL_BUDGET_HINT.verifyOne} to get a verdict`,
+      );
+      expect(report.incomplete).not.toMatch(/--method|Skills settings/);
       expect(report.incomplete).not.toContain(report.uri);
       expect(report.files).toHaveLength(0);
     }
@@ -837,7 +842,10 @@ describe("verifySkills (#2248)", () => {
       readResource,
       getServerSettings: () => ({ skillCatalogMaxSkills: 2 }),
     } as unknown as InspectorClientProtocol;
-    const reports = await verifySkills(client, skills);
+    const reports = await verifySkills(client, skills, undefined, {
+      raise: "<raise remedy>",
+      verifyOne: "<verify-one remedy>",
+    });
     expect(readResource.mock.calls.length).toBe(2);
     expect(reports.map((r) => r.outcome)).toEqual([
       "verified",
@@ -847,6 +855,11 @@ describe("verifySkills (#2248)", () => {
     ]);
     // The reason names the limit that actually applied, not the default.
     expect(reports[2].incomplete).toMatch(/budget of 2 skills \/ 67108864/);
+    // …and the caller's own remedies, in place of any default (#2633).
+    expect(reports[2].incomplete).toContain("(raise it <raise remedy>)");
+    expect(reports[2].incomplete).toContain(
+      "verify it on its own <verify-one remedy> to get a verdict.",
+    );
   });
 
   it("honors a configured catalog BYTE budget (#2294)", async () => {
