@@ -3878,6 +3878,96 @@ describe("SchemaForm array-of-object fields (#2561)", () => {
     );
   });
 
+  it("seeds nested defaults in every row holding a partial nested object", async () => {
+    const onValues = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        lines: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              shipping: {
+                type: "object",
+                properties: {
+                  method: { type: "string", default: "ground" },
+                  note: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <Harness
+        schema={schema}
+        initial={{
+          lines: [{ shipping: { note: "a" } }, { shipping: { note: "b" } }],
+        }}
+        onValues={onValues}
+      />,
+    );
+    await waitFor(() =>
+      expect(onValues).toHaveBeenLastCalledWith({
+        lines: [
+          { shipping: { method: "ground", note: "a" } },
+          { shipping: { method: "ground", note: "b" } },
+        ],
+      }),
+    );
+  });
+
+  it("seeds defaults from the union branch each row's values select", async () => {
+    const onValues = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        contacts: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { label: { type: "string" } },
+            oneOf: [
+              {
+                type: "object",
+                properties: {
+                  kind: { type: "string", const: "email" },
+                  format: { type: "string", default: "html" },
+                },
+                required: ["kind"],
+              },
+              {
+                type: "object",
+                properties: {
+                  kind: { type: "string", const: "sms" },
+                  carrier: { type: "string", default: "any" },
+                },
+                required: ["kind"],
+              },
+            ],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <Harness
+        schema={schema}
+        initial={{ contacts: [{ kind: "sms", label: "x" }] }}
+        onValues={onValues}
+      />,
+    );
+    await waitFor(() =>
+      expect(onValues).toHaveBeenLastCalledWith({
+        contacts: [{ kind: "sms", label: "x", carrier: "any" }],
+      }),
+    );
+    expect(onValues.mock.lastCall?.[0].contacts[0]).not.toHaveProperty(
+      "format",
+    );
+  });
+
   it("names each row's card after its visible title", () => {
     renderWithMantine(
       <SchemaForm

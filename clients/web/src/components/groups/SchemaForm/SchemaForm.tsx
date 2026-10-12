@@ -56,6 +56,7 @@ import {
 import {
   applySchemaConstants,
   collectSchemaDefaults,
+  seedSchemaValues,
 } from "../../../utils/jsonUtils";
 
 const FieldLabel = Text.withProps({
@@ -683,21 +684,17 @@ function fitRowKeys(state: RowKeys, length: number): RowKeys {
 }
 
 /**
- * One row's values with the item schema's defaults filled in where absent and
- * its constants applied — the same seeding a `SchemaForm` does for itself on
- * mount, done here for every row at once (see {@link ObjectArrayField}).
+ * One row's values with the item schema's defaults filled in where absent —
+ * recursively into nested objects, and from the branch the row's values
+ * select when the item is a union — then its constants applied. The same
+ * seeding each row's own `SchemaForm` would otherwise do for itself on mount,
+ * done here for every row at once (see {@link ObjectArrayField}).
  */
 function seedItem(
   itemSchema: InspectorFormSchema,
   item: Record<string, unknown>,
 ): Record<string, unknown> {
-  const missing = Object.entries(collectSchemaDefaults(itemSchema)).filter(
-    ([name]) => !Object.hasOwn(item, name),
-  );
-  return applySchemaConstants(
-    itemSchema,
-    missing.length > 0 ? { ...item, ...Object.fromEntries(missing) } : item,
-  );
+  return applySchemaConstants(itemSchema, seedSchemaValues(itemSchema, item));
 }
 
 interface ObjectArrayFieldProps {
