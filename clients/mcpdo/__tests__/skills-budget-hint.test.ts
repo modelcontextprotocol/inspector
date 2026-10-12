@@ -63,6 +63,13 @@ describe("mcpdo skills catalog-budget hint (#2633)", () => {
         } catch {
           // already stopped
         }
+        // `daemon/stop` answers before shutdown finishes, so wait for the
+        // socket to go before deleting the directory a live daemon still
+        // holds — the same wait `mcp-coverage.test.ts` makes.
+        const deadline = Date.now() + 2000;
+        while (fs.existsSync(socketPath) && Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
       }
       fs.rmSync(storageDir, { recursive: true, force: true });
       storageDir = undefined;
