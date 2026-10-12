@@ -88,7 +88,9 @@ describe("useCopyKeys", () => {
     // Compare with all whitespace removed, so a wrap anywhere in the line —
     // including mid-path — cannot fail the check.
     expect(squashWhitespace(lastFrame() ?? "")).toContain(
-      squashWhitespace(`[success] Saved thing to ${file}`),
+      squashWhitespace(
+        `[success] Saved thing to ${file} (deleted when the TUI exits)`,
+      ),
     );
   });
 

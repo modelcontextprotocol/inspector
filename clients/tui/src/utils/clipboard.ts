@@ -14,6 +14,14 @@
 // for that case is `writeCopyFile`, which saves the raw value to a private temp
 // file whose path the TUI then shows — readable with `cat` or `scp` from
 // anywhere, and not bounded by the terminal's line width or scrollback.
+//
+// That file may hold a bearer token, so it does not outlive the TUI (#2648):
+// every directory `writeCopyFile` creates is removed by a process `exit`
+// listener. Every way out of the TUI ends in `process.exit` (`tui.tsx` calls it
+// once Ink unmounts), so the listener runs on Esc, Ctrl+C and a render error
+// alike. A process killed by a signal it does not handle runs no `exit`
+// listeners and leaves the file behind — still owner-only, in its 0700
+// directory, which is why the status line names the path either way.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -82,17 +90,46 @@ export function copyViaOsc52(text: string, sink: EscapeSink): Osc52CopyResult {
   };
 }
 
+/** Directories `writeCopyFile` created that have not been removed yet. */
+const copyDirs = new Set<string>();
+let exitCleanupRegistered = false;
+
+/**
+ * Remove every directory `writeCopyFile` created in this process. Synchronous,
+ * because it runs from a process `exit` listener, where nothing asynchronous
+ * gets to finish. Best-effort: a directory the user already deleted, or one
+ * that cannot be removed, must not turn the TUI's exit into a crash.
+ */
+export function removeCopyFiles(): void {
+  for (const dir of copyDirs) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch {
+      // Nothing useful to do at exit; the directory stays owner-only.
+    }
+    copyDirs.delete(dir);
+  }
+}
+
 /**
  * Save `text` to a fresh, owner-only temp file and return its path — the
  * fallback for a terminal that ignores OSC 52. The directory is created with
  * `mkdtemp` (mode 0700) and the file with mode 0600, because the value may be
- * a bearer token.
+ * a bearer token; for the same reason the directory is removed when the
+ * process exits (see {@link removeCopyFiles}).
  */
 export function writeCopyFile(
   text: string,
   baseDir: string = os.tmpdir(),
 ): string {
   const dir = fs.mkdtempSync(path.join(baseDir, "mcp-inspector-copy-"));
+  // Tracked before the write, so a directory whose file write fails is still
+  // cleaned up rather than left empty in the temp directory.
+  copyDirs.add(dir);
+  if (!exitCleanupRegistered) {
+    process.on("exit", removeCopyFiles);
+    exitCleanupRegistered = true;
+  }
   const file = path.join(dir, "value.txt");
   fs.writeFileSync(file, text, { encoding: "utf8", mode: 0o600 });
   return file;
