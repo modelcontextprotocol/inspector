@@ -1325,7 +1325,28 @@ export function SkillsScreen({
           message: errorMessage(err),
         });
       });
-  }, [manifestKey, onGetSkill, openConformance, selected]);
+    // A fresh snapshot of the entry is also a fresh read of the file in the
+    // viewer (#2516). The automatic read fires once per manifest, so without
+    // this the viewer kept the selection's FIRST `resources/read` for as long
+    // as the listing stayed the same — a server that changed the file was
+    // never re-asked short of a reconnect, and the fetched entry was shown
+    // beside bytes from before it. Issued after `skills/get`, so the Protocol
+    // tab lists the two in the order the gesture implies.
+    const viewing =
+      (previewState.key === key ? previewState.uri : undefined) ?? selected.uri;
+    showResource(
+      viewing,
+      key,
+      skillUriIdentity(viewing) === skillUriIdentity(selected.uri),
+    );
+  }, [
+    manifestKey,
+    onGetSkill,
+    openConformance,
+    previewState,
+    selected,
+    showResource,
+  ]);
 
   const fetched = fetchedEntry.key === manifestKey ? fetchedEntry : undefined;
   // `invalid` outranks the snapshot comparison: an entry that breaks a
