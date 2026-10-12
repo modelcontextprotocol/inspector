@@ -35,7 +35,7 @@
     "@types/node": "^24.12.4",
     "esbuild": "^0.28.2",
     "sucrase": {
-      "commander": "^13.1.0"
+      "commander": "^15.0.0"
     }
   }
 }
