@@ -5,7 +5,12 @@ import {
   expectCliFailure,
   expectValidJson,
 } from "./helpers/assertions.js";
-import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
+import {
+  getTestMcpServerCommand,
+  createTestServerHttp,
+  createTestServerInfo,
+  createSimpleTaskTool,
+} from "@modelcontextprotocol/inspector-test-server";
 
 describe("Tool Tests", () => {
   describe("Tool Discovery", () => {
@@ -528,6 +533,42 @@ describe("Tool Tests", () => {
       // test-mcp-server returns JSON with {result: a+b}
       const resultData = JSON.parse(json.content[0].text);
       expect(resultData.result).toBe(30);
+    });
+  });
+
+  describe("Task-required tools", () => {
+    // A legacy tool declaring `taskSupport: "required"` refuses a plain
+    // callTool(); the CLI must take the task path for it without being told,
+    // and print the task's result (#2649).
+    it("calls a taskSupport: required tool and prints its result", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo("tasks-legacy", "1.0.0"),
+        tools: [createSimpleTaskTool("simple_task", 50)],
+        tasks: { list: true, cancel: true },
+        logging: true,
+      });
+
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--transport",
+          "http",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "simple_task",
+        ]);
+
+        expectCliSuccess(result);
+        const json = expectValidJson(result);
+        expect(json.isError).not.toBe(true);
+        expect(Array.isArray(json.content)).toBe(true);
+        expect(json.content.length).toBeGreaterThan(0);
+      } finally {
+        await server.stop();
+      }
     });
   });
 });
