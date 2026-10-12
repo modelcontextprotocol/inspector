@@ -124,10 +124,12 @@ const TUI_CLIENT_NAME = "inspector-tui";
 /**
  * The TUI has no settings form and no per-run timeout flag, so a connect-time
  * timeout points at the one knob it does read: the server entry's
- * `connectionTimeout` in the config file (#2615).
+ * `connectionTimeout`. That entry may live in a `--catalog` or a `--config`
+ * file at any path, or not exist yet for an ad-hoc target, so the wording
+ * names neither a filename nor a single flag (#2615).
  */
 export const TUI_CONNECTION_TIMEOUT_REMEDY =
-  "To accommodate a slower server, set connectionTimeout on the server's entry in mcp.json.";
+  "To accommodate a slower server, set connectionTimeout on the server's entry in a catalog (--catalog) or config (--config) file.";
 
 /**
  * Roots snapshot for `useStoreSnapshot`: module scope so both the reader and

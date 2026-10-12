@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 
 const connectSpy = vi.fn();
 const disconnectSpy = vi.fn().mockResolvedValue(undefined);
@@ -70,6 +71,20 @@ describe("authorizeInFrontend", () => {
       environment: { fetch?: typeof fetch };
     };
     expect(options.environment.fetch).toBe(proxyFetch);
+  });
+
+  it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const options = clientCtorSpy.mock.calls[0]?.[1] as {
+      connectionTimeoutRemedy?: string;
+    };
+    expect(options.connectionTimeoutRemedy).toBe(CLI_CONNECTION_TIMEOUT_REMEDY);
   });
 
   it("no-ops for non-OAuth-capable (stdio) configs", async () => {

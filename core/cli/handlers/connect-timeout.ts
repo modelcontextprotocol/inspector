@@ -13,10 +13,11 @@ export const DEFAULT_CONNECT_TIMEOUT_MS = 15000;
 /**
  * The remedy the one-shot CLI and mcpdo append to a connect-time timeout error
  * (#2615): both accept `--connect-timeout`, and both read `connectionTimeout`
- * from the server's `mcp.json` entry — neither has the web's Server Settings.
+ * from the server's catalog or config entry — neither has the web's Server
+ * Settings. The entry's file can be at any path, so no filename is named.
  */
 export const CLI_CONNECTION_TIMEOUT_REMEDY =
-  "To accommodate a slower server, pass a larger --connect-timeout <ms>, or set connectionTimeout on the server's entry in mcp.json.";
+  "To accommodate a slower server, pass a larger --connect-timeout <ms>, or set connectionTimeout on the server's catalog or config entry.";
 
 /**
  * Apply a connection timeout to a resolved server's settings, building a
