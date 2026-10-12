@@ -257,7 +257,7 @@ They redirect the **endpoints**, not the authorization server's identity: `issue
 
 They are **not applied under enterprise-managed authorization** (`oauth.enterpriseManaged`), for the same reason `oauth.authorizationParams` isn't: that flow authorizes against the enterprise IdP — a different authorization server, whose OIDC discovery would otherwise be rewritten too, pointing the IdP login (or the IdP code exchange) at the resource server's authorization server.
 
-> Because the override is applied to the _discovered metadata document_, a server whose authorization server publishes no metadata at all is unaffected — there the SDK falls back to `/authorize` and `/token` on the AS origin, and there is nothing to override.
+> The overrides also apply when the authorization server publishes **no metadata at all** — for example a gateway that fronts an external authorization server such as Entra ID. Without them the SDK would fall back to `/authorize` and `/token` on the AS origin; with either set, the Inspector supplies a minimal metadata document in their place carrying the configured endpoint(s), keeping those same fallbacks (plus `/register`) for anything left blank. Its `issuer` is the AS URL discovery was probing, exactly as when no document exists. The Network tab marks that document with an `x-inspector-oauth-metadata-synthesized` response header so it is not mistaken for the server's own answer.
 
 A catalog carrying these fields:
 
