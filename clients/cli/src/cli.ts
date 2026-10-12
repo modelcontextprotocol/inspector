@@ -851,6 +851,13 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
 
   program
     .name("inspector-cli")
+    // `-V, --version` prints the root package version and exits 0 through the
+    // exitOverride's non-throwing arm above, like `--help` (#2632).
+    .version(
+      readInspectorVersion(import.meta.url),
+      "-V, --version",
+      "Print the Inspector version",
+    )
     .allowUnknownOption()
     .argument(
       "[target...]",

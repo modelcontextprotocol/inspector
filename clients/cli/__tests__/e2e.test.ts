@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
@@ -223,6 +223,23 @@ describe("CLI binary (out-of-process E2E)", () => {
 
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("Method is required");
+    },
+    E2E_SPAWN_MS,
+  );
+
+  // #2632: `--version` used to fall through to the missing-method error. Out of
+  // process because commander exits 0 itself, which would end the test worker.
+  const { version } = JSON.parse(
+    readFileSync(resolve(here, "../../../package.json"), "utf8"),
+  ) as { version: string };
+
+  it.each(["--version", "-V"])(
+    "prints the root version and exits 0 for %s",
+    async (flag) => {
+      const result = await spawnCli([flag]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(version);
     },
     E2E_SPAWN_MS,
   );
