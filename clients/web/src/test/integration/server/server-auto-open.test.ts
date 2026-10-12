@@ -16,7 +16,6 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -43,23 +42,6 @@ function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
     outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
   );
   return child;
-}
-
-async function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      if (addr && typeof addr === "object") {
-        const { port } = addr;
-        srv.close(() => resolve(port));
-      } else {
-        srv.close(() => reject(new Error("Could not resolve a free port")));
-      }
-    });
-  });
 }
 
 /** An unhandledRejection fires on a later macrotask than the rejection. */
@@ -136,10 +118,13 @@ describe("startHonoServer autoOpen", () => {
 
       staticRoot = await mkdtemp(join(tmpdir(), "inspector-autoopen-"));
       await writeFile(join(staticRoot, "index.html"), INDEX_HTML, "utf-8");
-      const port = await findFreePort();
-      const baseUrl = `http://127.0.0.1:${port}`;
+      // Bind `:0` and let the kernel pick, so the port is owned from the
+      // moment it is chosen. Probing for a free port and binding it later
+      // leaves a window where another process on a loaded machine takes it,
+      // and the server's EADDRINUSE handler then calls process.exit(1)
+      // (#2602).
       const config: WebServerConfig = {
-        port,
+        port: 0,
         hostname: "127.0.0.1",
         authToken: "auto-open-token",
         dangerouslyOmitAuth: false,
@@ -148,7 +133,9 @@ describe("startHonoServer autoOpen", () => {
         writable: true,
         initialServers: null,
         storageDir: undefined,
-        allowedOrigins: [baseUrl],
+        // The origin is unknown until the bind; this test never calls /api,
+        // which is the only surface the allow-list guards.
+        allowedOrigins: [],
         sandboxPort: 0,
         appOriginPort: 0,
         sandboxHost: "127.0.0.1",
@@ -164,7 +151,13 @@ describe("startHonoServer autoOpen", () => {
       }
       await settle();
 
-      expect(openMock).toHaveBeenCalledWith(expect.stringContaining(baseUrl));
+      // The URL handed to the opener is the banner URL, built from the port
+      // the server actually bound — so it is also where the server is.
+      expect(openMock).toHaveBeenCalledTimes(1);
+      const opened = new URL(String(openMock.mock.calls[0][0]));
+      expect(opened.hostname).toBe("127.0.0.1");
+      expect(Number(opened.port)).toBeGreaterThan(0);
+      const baseUrl = opened.origin;
       expect(unhandled).toEqual([]);
       expect(warn).toHaveBeenCalledWith(WARNING, expect.any(Error));
       // The point of warning rather than throwing: the server is still up.
