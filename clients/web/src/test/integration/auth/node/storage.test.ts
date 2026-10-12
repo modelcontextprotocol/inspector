@@ -577,6 +577,16 @@ describe("NodeOAuthStorage with custom storagePath", () => {
     }
   });
 
+  it("resolves the default store outside the developer's home directory", () => {
+    // The default-store cases below write to and clear whatever
+    // getStateFilePath() resolves. integrationStorageSetup.ts points it at a
+    // temp directory (#2670); if that ever stops holding, fail here rather
+    // than clear a real ~/.mcp-inspector/storage/oauth.json.
+    const resolved = getStateFilePath();
+    expect(resolved.startsWith(os.tmpdir())).toBe(true);
+    expect(resolved).not.toContain(path.join(".mcp-inspector", "storage"));
+  });
+
   it("clearAllOAuthClientState clears every server in the default store", async () => {
     resetNodeOAuthStorageCache();
     const storage = new NodeOAuthStorage();
