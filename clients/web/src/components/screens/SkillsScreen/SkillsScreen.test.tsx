@@ -826,6 +826,58 @@ describe("SkillsScreen", () => {
     );
   });
 
+  it("re-reads the viewer's SKILL.md on a skills/get fetch (#2516)", async () => {
+    // The automatic read fires once per manifest, so a server that changed the
+    // file after the selection was never re-asked: the viewer kept the first
+    // `resources/read` until a reconnect.
+    const user = userEvent.setup();
+    let served = "# first\n";
+    const onReadSkillFile = vi.fn(async () => ({
+      text: served,
+      mimeType: "text/markdown",
+    }));
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    const viewer = screen.getByTestId("skill-resource-viewer");
+    await waitFor(() => expect(viewer).toHaveTextContent("first"));
+
+    served = "# second\n";
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    await waitFor(() => expect(viewer).toHaveTextContent("second"));
+    expect(onReadSkillFile).toHaveBeenCalledTimes(2);
+    expect(onReadSkillFile).toHaveBeenLastCalledWith(CLEAN_SKILL.uri);
+    await settle();
+  });
+
+  it("re-reads the supporting file the viewer shows on a skills/get fetch (#2516)", async () => {
+    // The fetch refreshes whatever the reader is looking at, not the SKILL.md
+    // they navigated away from.
+    const user = userEvent.setup();
+    const onReadSkillFile = vi.fn((uri: string) => readFixtureFile(uri));
+    renderWithMantine(
+      <ControlledSkillsScreen onReadSkillFile={onReadSkillFile} />,
+    );
+    await user.click(screen.getByText("data-analysis"));
+    await user.click(
+      screen.getByRole("button", {
+        name: "skill://data-analysis/reference.md",
+      }),
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(2));
+    await user.click(
+      screen.getByRole("button", { name: /Fetch with skills\/get/ }),
+    );
+    await waitFor(() => expect(onReadSkillFile).toHaveBeenCalledTimes(3));
+    expect(onReadSkillFile).toHaveBeenLastCalledWith(
+      "skill://data-analysis/reference.md",
+    );
+    await settle();
+  });
+
   it("treats key and manifest order as immaterial when matching", async () => {
     // The manifest is a set and JSON key order carries no meaning, so a server
     // that enumerates either differently is not inconsistent — a
