@@ -4,7 +4,7 @@
  * shell. The shell-level tests spawn bash / zsh / fish when installed and are
  * skipped otherwise; the structural tests below always run.
  */
-import { describe, it, expect, afterAll } from "vitest";
+import { describe, it, expect, afterAll, afterEach, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -407,5 +407,68 @@ describe.skipIf(!hasShell("fish"))("fish script", () => {
     expect(
       (await complete("mcp-inspector --cli --method=tools/")).sort(),
     ).toEqual(["--method=tools/call", "--method=tools/list"]);
+  });
+});
+
+/**
+ * #2646: the script write treats EPIPE (a reader that closed early) as a
+ * normal end. Node calls the write callback with the error and then emits
+ * `'error'`, so the fake does both, in that order.
+ */
+describe("emitCompletionIfRequested stdout errors", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function failWritesWith(err: Error): void {
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: (err?: Error | null) => void,
+    ) => {
+      cb?.(err);
+      process.nextTick(() => process.stdout.emit("error", err));
+      return false;
+    }) as typeof process.stdout.write);
+  }
+
+  function completionProgram(): Command {
+    const program = new Command();
+    registerCompletionOption(program);
+    program.parse(["--completion", "bash"], { from: "user" });
+    return program;
+  }
+
+  async function flushErrorEmit(): Promise<void> {
+    await new Promise<void>((resolve) => process.nextTick(resolve));
+  }
+
+  it("resolves on EPIPE and leaves no listener behind", async () => {
+    const before = process.stdout.listenerCount("error");
+    failWritesWith(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+    expect(await emitCompletionIfRequested(completionProgram())).toBe(true);
+    await flushErrorEmit();
+    expect(process.stdout.listenerCount("error")).toBe(before);
+  });
+
+  it("rejects any other stdout error", async () => {
+    const err = Object.assign(new Error("write EIO"), { code: "EIO" });
+    failWritesWith(err);
+    await expect(emitCompletionIfRequested(completionProgram())).rejects.toBe(
+      err,
+    );
+    await flushErrorEmit();
+  });
+
+  it("detaches its listener after a successful write", async () => {
+    const before = process.stdout.listenerCount("error");
+    vi.spyOn(process.stdout, "write").mockImplementation(((
+      _chunk: unknown,
+      cb?: (err?: Error | null) => void,
+    ) => {
+      cb?.();
+      return true;
+    }) as typeof process.stdout.write);
+    expect(await emitCompletionIfRequested(completionProgram())).toBe(true);
+    expect(process.stdout.listenerCount("error")).toBe(before);
   });
 });
