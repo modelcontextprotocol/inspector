@@ -241,9 +241,9 @@ export async function runAuthHelper(): Promise<void> {
  * A leftover lock from a crashed reserver is stolen once it is older than
  * the URL wait window. The steal claims the specific stale file by an
  * atomic rename to a per-pid path — concurrent stealers cannot both win,
- * and a winner that renamed a lock which turned out to be fresh backs off
- * (POSIX has no compare-and-delete; the rename makes the claim itself
- * exclusive, which is what prevents a double spawn).
+ * and a winner that renamed a lock which turned out to be fresh restores it
+ * and backs off (POSIX has no compare-and-delete; the rename makes the claim
+ * itself exclusive, which is what prevents a double spawn).
  *
  * @returns true if this process holds the reservation.
  */
@@ -261,13 +261,22 @@ function tryReserveAuthFlow(lockPath: string): boolean {
       // Claim the stale lock atomically: only one renamer succeeds.
       const claimPath = `${lockPath}.claim-${process.pid}`;
       fs.renameSync(lockPath, claimPath);
-      const claimedFresh = !isStale(fs.statSync(claimPath).mtimeMs);
+      if (!isStale(fs.statSync(claimPath).mtimeMs)) {
+        // The claimed file was recreated fresh between stat and rename: an
+        // active reserver (a stealer that won first) holds the flow. Put its
+        // lock back before backing off — deleting it would let a third
+        // connect win create() and spawn a competing helper (#2643). The
+        // link refuses (EEXIST) if a newer lock already took the path, and
+        // the outer catch then backs off all the same; either way only a
+        // lock confirmed stale is ever discarded.
+        try {
+          fs.linkSync(claimPath, lockPath);
+        } finally {
+          fs.rmSync(claimPath, { force: true });
+        }
+        return false;
+      }
       fs.rmSync(claimPath, { force: true });
-      // The claimed file was recreated fresh between stat and rename: an
-      // active reserver holds the flow — back off and wait for its marker.
-      // (Un-injectable microsecond race; the guard is what matters.)
-      /* v8 ignore next */
-      if (claimedFresh) return false;
       create();
       return true;
     } catch {
