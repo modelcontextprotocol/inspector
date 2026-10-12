@@ -293,6 +293,46 @@ describe("ConnectionInfoContent", () => {
     expect(capabilityMark("Tasks")).toBe(UNSUPPORTED_MARK);
   });
 
+  // #2607: the list-backed capabilities show how many entries the server
+  // returned, so a server author can check a per-server tool cap at a glance.
+  it("shows list counts beside the list-backed server capabilities", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={fullResult}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+        listCounts={{
+          tools: { count: 15, partial: false },
+          prompts: { count: 10, partial: true },
+          resources: { count: 0, partial: false },
+        }}
+      />,
+    );
+    expect(capabilityMark("Tools (15)")).toBe(SUPPORTED_MARK);
+    expect(capabilityMark("Prompts (10+)")).toBe(SUPPORTED_MARK);
+    expect(capabilityMark("Resources (0)")).toBe(SUPPORTED_MARK);
+    // A capability with no list carries no count.
+    expect(capabilityMark("Logging")).toBe(SUPPORTED_MARK);
+  });
+
+  it("shows the bare name when a list has no count, or is unsupported", () => {
+    renderWithMantine(
+      <ConnectionInfoContent
+        initializeResult={{
+          ...fullResult,
+          capabilities: { tools: {} },
+        }}
+        clientCapabilities={fullClientCaps}
+        transport="stdio"
+        listCounts={{ prompts: { count: 3, partial: false } }}
+      />,
+    );
+    expect(capabilityMark("Tools")).toBe(SUPPORTED_MARK);
+    // Prompts is unsupported, so its stale count is not shown.
+    expect(capabilityMark("Prompts")).toBe(UNSUPPORTED_MARK);
+    expect(screen.queryByText("Prompts (3)")).not.toBeInTheDocument();
+  });
+
   it("renders instructions when present", () => {
     renderWithMantine(
       <ConnectionInfoContent

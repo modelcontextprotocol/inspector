@@ -47,7 +47,7 @@ function ControlledToolControls(props: Partial<ToolControlsProps>) {
 describe("ToolControls", () => {
   it("renders the title and search input", () => {
     renderWithMantine(<ToolControls {...baseProps} />);
-    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.getByText("Tools (4)")).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search tools...")).toBeInTheDocument();
   });
 
@@ -166,7 +166,7 @@ describe("ToolControls", () => {
 
   it("renders empty list when no tools provided", () => {
     renderWithMantine(<ToolControls {...baseProps} tools={[]} />);
-    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.getByText("Tools (0)")).toBeInTheDocument();
     expect(screen.queryByText("git_status")).not.toBeInTheDocument();
   });
 
@@ -216,6 +216,44 @@ describe("ToolControls", () => {
       />,
     );
     expect(screen.getByText("invalid_header_tool")).toBeInTheDocument();
+  });
+
+  // The header counts the server's whole list, so a search narrowing the view
+  // must not change it (#2607).
+  it("counts every tool, not just the ones the search matches", () => {
+    renderWithMantine(<ToolControls {...baseProps} searchText="git" />);
+    expect(screen.getByText("Tools (4)")).toBeInTheDocument();
+  });
+
+  it("marks the count as a lower bound while more pages remain", () => {
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        pagination={{ ...noopPagination, paginated: true, canLoadMore: true }}
+      />,
+    );
+    expect(screen.getByText("Tools (4+)")).toBeInTheDocument();
+  });
+
+  // The connect-time load is still in flight: the empty list is not a total.
+  it("omits the count until the first load completes", () => {
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        tools={[]}
+        pagination={{ ...noopPagination, loaded: false }}
+      />,
+    );
+    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.queryByText("Tools (0)")).not.toBeInTheDocument();
+  });
+
+  it("omits the count after a failed load", () => {
+    renderWithMantine(
+      <ToolControls {...baseProps} tools={[]} loadError={new Error("x")} />,
+    );
+    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.queryByText("Tools (0)")).not.toBeInTheDocument();
   });
 
   // A failed load is rendered above the list instead of leaving the panel

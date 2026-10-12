@@ -26,6 +26,7 @@ import {
   NO_OUTSTANDING_REQUESTS_LABEL,
 } from "../../../utils/connectionActivity";
 import { useTickingClock } from "../../../hooks/useTickingClock";
+import type { ListCount } from "../../../utils/listCount";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
@@ -93,9 +94,20 @@ export interface ConnectionInfoContentProps {
    * moving rather than freezing at the moment it went out.
    */
   diagnostics?: ConnectionDiagnostics;
+  /**
+   * How many entries each list-backed server capability returned, shown beside
+   * its ✓ (#2607). A key is absent when its list has not loaded successfully,
+   * which renders the bare capability name rather than a misleading `(0)`.
+   */
+  listCounts?: ListCounts;
   oauth?: OAuthDetails;
   onClearOAuth?: () => void;
 }
+
+/** The server capabilities whose support is backed by a list result (`tools/list`, …). */
+export type ListCounts = Partial<
+  Record<"tools" | "prompts" | "resources", ListCount>
+>;
 
 // Label/value pairs in this modal read label-bold, value-normal: the label is
 // the fixed scaffolding a reader scans down, and the value is the thing that
@@ -302,6 +314,20 @@ function getServerCapabilityEntries(
   });
 }
 
+function getListCount(
+  listCounts: ListCounts | undefined,
+  capability: CapabilityKey,
+): ListCount | undefined {
+  if (
+    capability !== "tools" &&
+    capability !== "prompts" &&
+    capability !== "resources"
+  ) {
+    return undefined;
+  }
+  return listCounts?.[capability];
+}
+
 export function ConnectionInfoContent({
   initializeResult,
   serverInfoReported = true,
@@ -310,6 +336,7 @@ export function ConnectionInfoContent({
   protocolEra,
   discoverResult,
   diagnostics,
+  listCounts,
   oauth,
   onClearOAuth,
 }: ConnectionInfoContentProps) {
@@ -429,13 +456,22 @@ export function ConnectionInfoContent({
       <SimpleGrid cols={2}>
         <Stack gap="xs">
           <SectionHeading>Server Capabilities</SectionHeading>
-          {serverCaps.map((cap) => (
-            <CapabilityItem
-              key={cap.capability}
-              capability={cap.capability}
-              supported={cap.supported}
-            />
-          ))}
+          {serverCaps.map((cap) => {
+            // A count only means something beside a ✓ — an unsupported
+            // capability has no list to count.
+            const listCount = cap.supported
+              ? getListCount(listCounts, cap.capability)
+              : undefined;
+            return (
+              <CapabilityItem
+                key={cap.capability}
+                capability={cap.capability}
+                supported={cap.supported}
+                count={listCount?.count}
+                partial={listCount?.partial}
+              />
+            );
+          })}
         </Stack>
         <Stack gap="xs">
           <SectionHeading>Client Capabilities</SectionHeading>
