@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import * as net from "node:net";
 import {
   createEchoTool,
   createTestServerHttp,
@@ -7,6 +8,7 @@ import {
 } from "@modelcontextprotocol/inspector-test-server";
 import { runCli } from "./helpers/cli-runner.js";
 import { DEFAULT_CONNECT_TIMEOUT_MS, withConnectTimeout } from "../src/cli.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import {
   MODERN_PROTOCOL_VERSION,
   type InspectorServerSettings,
@@ -211,6 +213,40 @@ describe("CLI --relogin flag conflicts", () => {
       "initialize",
     ]);
     expectCliFailure(result);
+  });
+});
+
+describe("connect-timeout remedy (#2615)", () => {
+  it("names --connect-timeout and mcp.json, not the web's Server Settings", async () => {
+    // A listener that accepts the TCP connection and never answers, so the
+    // handshake hangs until the connect-time timeout fires.
+    const sockets = new Set<net.Socket>();
+    const server = net.createServer((socket) => {
+      sockets.add(socket);
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = server.address() as net.AddressInfo;
+    try {
+      const result = await runCli([
+        "--server-url",
+        `http://127.0.0.1:${port}/mcp`,
+        "--transport",
+        "http",
+        "--connect-timeout",
+        "200",
+        "--method",
+        "tools/list",
+      ]);
+      expectCliFailure(result);
+      expect(result.stderr).toContain("Connection timed out after 200 ms.");
+      expect(result.stderr).toContain(CLI_CONNECTION_TIMEOUT_REMEDY);
+      expect(result.stderr).not.toContain("Server Settings");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

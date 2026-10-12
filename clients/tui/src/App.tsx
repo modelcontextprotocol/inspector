@@ -122,6 +122,14 @@ const APP_VERSION = readInspectorVersion(import.meta.url);
 const TUI_CLIENT_NAME = "inspector-tui";
 
 /**
+ * The TUI has no settings form and no per-run timeout flag, so a connect-time
+ * timeout points at the one knob it does read: the server entry's
+ * `connectionTimeout` in the config file (#2615).
+ */
+export const TUI_CONNECTION_TIMEOUT_REMEDY =
+  "To accommodate a slower server, set connectionTimeout on the server's entry in mcp.json.";
+
+/**
  * Roots snapshot for `useStoreSnapshot`: module scope so both the reader and
  * the fallback are referentially stable across renders (#2432).
  */
@@ -404,6 +412,7 @@ function App({
           environment,
           clientIdentity: { name: TUI_CLIENT_NAME, version: APP_VERSION },
           pipeStderr: true,
+          connectionTimeoutRemedy: TUI_CONNECTION_TIMEOUT_REMEDY,
           ...(savedSettings &&
             savedSettings.requestTimeout > 0 && {
               timeout: savedSettings.requestTimeout,

@@ -1098,6 +1098,14 @@ export interface CreateTransportOptions {
   pipeStderr?: boolean;
 
   /**
+   * The sentence `connect()` appends to its connect-time timeout error, naming
+   * where this client's user raises the timeout (#2615). Defaults to the web
+   * client's Server Settings wording; the CLI, mcpdo and TUI pass their own,
+   * since none of them has that form.
+   */
+  connectionTimeoutRemedy?: string;
+
+  /**
    * Optional callback to track HTTP fetch requests (for SSE and streamable-http transports).
    * Receives entries without category; caller adds category when storing.
    */
@@ -1263,6 +1271,14 @@ export interface InspectorClientOptions {
    * Whether to pipe stderr for stdio transports (default: true for TUI, false for CLI)
    */
   pipeStderr?: boolean;
+
+  /**
+   * The sentence `connect()` appends to its connect-time timeout error, naming
+   * where this client's user raises the timeout (#2615). Defaults to the web
+   * client's Server Settings wording; the CLI, mcpdo and TUI pass their own,
+   * since none of them has that form.
+   */
+  connectionTimeoutRemedy?: string;
 
   /**
    * Initial logging level to set after connection, via `logging/setLevel`.

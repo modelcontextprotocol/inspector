@@ -22,6 +22,7 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { connectInspectorWithOAuth } from "@inspector/core/cli/cliOAuth.js";
 import {
@@ -109,6 +110,8 @@ export async function authorizeInFrontend(
       name: "inspector-cli",
       version: readInspectorVersion(import.meta.url),
     },
+    // Same knobs as the daemon's connect: --connect-timeout or mcp.json (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,

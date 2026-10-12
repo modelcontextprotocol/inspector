@@ -206,7 +206,8 @@ describe("classifyError", () => {
     // rest of the network-layer failures.
     const err = new Error(
       "Connection timed out after 30000 ms. To accommodate a slower server, " +
-        "you may increase the timeout value in Server Settings.",
+        "pass a larger --connect-timeout <ms>, or set connectionTimeout on " +
+        "the server's entry in mcp.json.",
     );
     const { exitCode, envelope } = classifyError(err);
     expect(exitCode).toBe(EXIT_CODES.UNREACHABLE);

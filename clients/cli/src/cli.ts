@@ -15,6 +15,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
+  CLI_CONNECTION_TIMEOUT_REMEDY,
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
 } from "@inspector/core/cli/handlers/connect-timeout.js";
@@ -209,6 +210,9 @@ async function callMethod(
     // which nothing here subscribes to, so the lines are discarded without the
     // child ever blocking on a full pipe (#2435).
     pipeStderr: args.quiet === true,
+    // Name the CLI's own knobs on a connect timeout, not the web's Server
+    // Settings (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     progress: false,
     sample: false,
     elicit: false,
