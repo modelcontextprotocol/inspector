@@ -478,6 +478,9 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
     tokenUrl: STAGING_TOKEN,
   };
 
+  /** What the SDK's discovery sends; synthesis requires a JSON `Accept`. */
+  const DISCOVERY_INIT = { headers: { Accept: "application/json" } };
+
   function silenceWarn() {
     return vi.spyOn(console, "warn").mockImplementation(() => {});
   }
@@ -488,7 +491,7 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
       passThrough(new Response("nope", { status: 404 })),
       () => OVERRIDES,
     );
-    const response = await wrapped(FINAL_CANDIDATE);
+    const response = await wrapped(FINAL_CANDIDATE, DISCOVERY_INIT);
     expect(response.status).toBe(200);
     expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBe(
       "endpoint-overrides",
@@ -507,10 +510,9 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
       passThrough(new Response("bad gateway", { status: 502 })),
       () => OVERRIDES,
     );
-    await expect(wrapped(FINAL_CANDIDATE)).resolves.toHaveProperty(
-      "status",
-      200,
-    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, DISCOVERY_INIT),
+    ).resolves.toHaveProperty("status", 200);
   });
 
   it("leaves a 500 alone — the SDK surfaces it as an outage", async () => {
@@ -552,10 +554,30 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
       passThrough(new Response("nope", { status: 404 })),
       () => OVERRIDES,
     );
-    await expect(wrapped(new Request(FINAL_CANDIDATE))).resolves.toHaveProperty(
-      "status",
-      200,
+    await expect(
+      wrapped(new Request(FINAL_CANDIDATE, DISCOVERY_INIT)),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
+  // A legacy SSE / streamable-HTTP GET to an MCP endpoint whose URL happens
+  // to end in the OIDC well-known path must keep its OAuth 401 (Copilot).
+  it("does not synthesize for an event-stream GET", async () => {
+    const original = new Response("unauthorized", { status: 401 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => OVERRIDES,
     );
+    await expect(
+      wrapped(FINAL_CANDIDATE, { headers: { Accept: "text/event-stream" } }),
+    ).resolves.toBe(original);
+    await expect(
+      wrapped(
+        new Request(FINAL_CANDIDATE, {
+          headers: { Accept: "text/event-stream" },
+        }),
+      ),
+    ).resolves.toBe(original);
+    await expect(wrapped(FINAL_CANDIDATE)).resolves.toBe(original);
   });
 
   it("does nothing when no override is configured", async () => {
@@ -577,7 +599,7 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
         () => OVERRIDES,
       ),
     );
-    const response = await fetchFn(AS_METADATA_URL);
+    const response = await fetchFn(AS_METADATA_URL, DISCOVERY_INIT);
     expect(response.status).toBe(200);
     expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBe(
       "endpoint-overrides",

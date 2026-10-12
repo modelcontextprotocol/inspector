@@ -400,6 +400,31 @@ function requestMethodOf(
 }
 
 /**
+ * Whether a request asked for a JSON document, as the SDK's metadata discovery
+ * always does (`Accept: application/json`).
+ *
+ * URL shape and method alone do not prove a request is discovery: a legacy SSE
+ * or streamable-HTTP `GET` to an MCP endpoint whose URL happens to end in the
+ * OIDC well-known path would match both, and replacing its OAuth 401 with a
+ * synthesized document would stop the transport from ever starting OAuth
+ * (Copilot). Those transports ask for `text/event-stream`, so requiring a JSON
+ * `Accept` separates the two. `withRfc8414OidcCompat` copies the SDK's request
+ * headers onto its probes, so its probes pass too.
+ */
+function acceptsJson(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): boolean {
+  let accept: string | null = null;
+  if (init?.headers) {
+    accept = new Headers(init.headers).get("accept");
+  } else if (typeof input !== "string" && !(input instanceof URL)) {
+    accept = input.headers.get("accept");
+  }
+  return accept?.toLowerCase().includes("application/json") ?? false;
+}
+
+/**
  * The synthesized-document response for a failed final discovery candidate,
  * or `undefined` when this failure is not one discovery would walk past.
  */
@@ -413,6 +438,7 @@ function synthesizedMetadataResponse(
   // Discovery is a `GET`; an endpoint that merely lives under a well-known
   // path answering some other method is not ours to replace.
   if (requestMethodOf(input, init) !== "GET") return undefined;
+  if (!acceptsJson(input, init)) return undefined;
   const issuer = authorizationServerForFinalCandidate(requestUrlOf(input));
   if (!issuer) return undefined;
 
