@@ -18,6 +18,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -681,6 +682,24 @@ function fitRowKeys(state: RowKeys, length: number): RowKeys {
   return { keys: [...state.keys, ...added], next: state.next + added.length };
 }
 
+/**
+ * One row's values with the item schema's defaults filled in where absent and
+ * its constants applied — the same seeding a `SchemaForm` does for itself on
+ * mount, done here for every row at once (see {@link ObjectArrayField}).
+ */
+function seedItem(
+  itemSchema: InspectorFormSchema,
+  item: Record<string, unknown>,
+): Record<string, unknown> {
+  const missing = Object.entries(collectSchemaDefaults(itemSchema)).filter(
+    ([name]) => !Object.hasOwn(item, name),
+  );
+  return applySchemaConstants(
+    itemSchema,
+    missing.length > 0 ? { ...item, ...Object.fromEntries(missing) } : item,
+  );
+}
+
 interface ObjectArrayFieldProps {
   fieldName: string;
   label: string;
@@ -709,10 +728,13 @@ interface ObjectArrayFieldProps {
  * indented sub-form a nested object field already renders, so every item gets
  * those labels for free.
  *
- * A new row is seeded with the item schema's defaults and constants here,
- * rather than left for the row's own form to seed on mount: that seeding
- * reports through a closure over the array as it was when the row rendered,
- * so it cannot be relied on to compose with an edit to a sibling row.
+ * Rows are seeded with the item schema's defaults and constants here, for the
+ * whole array at once, rather than left for each row's own form to seed on
+ * mount: that seeding reports through a closure over the array as it was when
+ * the row rendered, so two rows seeding in the same commit would each
+ * overwrite the other's correction — leaving a row displaying a default the
+ * submitted payload does not carry. Each row's form is handed its seeded
+ * values, so it finds nothing to seed itself.
  *
  * `minItems`/`maxItems` gate the remove and add buttons, so the list cannot be
  * taken outside the length the schema states.
@@ -734,6 +756,27 @@ function ObjectArrayField({
   const items = Array.isArray(value)
     ? (value as Record<string, unknown>[])
     : [];
+  const seededItems = items.map((item) => seedItem(itemSchema, item));
+  // Compared as JSON: `applySchemaConstants` returns a fresh object whenever
+  // the schema pins a field, even when the value already matches.
+  const seededJson = serializeJson(seededItems);
+  const needsSeed = seededJson !== serializeJson(items);
+
+  // Report the seeded array upward when what needs seeding changes. An effect,
+  // not a render-time call, because `onChange` belongs to the parent; read
+  // through a ref so the parent's fresh closure each render is not a
+  // dependency — the same shape `SchemaForm`'s own seeding uses.
+  const latestSeed = useRef({ seededItems, onChange });
+  useEffect(() => {
+    latestSeed.current = { seededItems, onChange };
+  });
+  useEffect(() => {
+    if (needsSeed) latestSeed.current.onChange(latestSeed.current.seededItems);
+  }, [needsSeed, seededJson]);
+
+  // Names each row's card after its visible "Item N" title, so a screen reader
+  // announces which row a repeated "sku" or "quantity" control belongs to.
+  const titleIdPrefix = useId();
 
   const [rowKeys, setRowKeys] = useState(() =>
     fitRowKeys({ keys: [], next: 0 }, items.length),
@@ -767,10 +810,7 @@ function ObjectArrayField({
 
   function addItem() {
     setRowKeys((previous) => fitRowKeys(previous, items.length + 1));
-    onChange([
-      ...items,
-      applySchemaConstants(itemSchema, collectSchemaDefaults(itemSchema)),
-    ]);
+    onChange([...seededItems, seedItem(itemSchema, {})]);
   }
 
   function removeItem(index: number) {
@@ -778,12 +818,14 @@ function ObjectArrayField({
       ...previous,
       keys: previous.keys.filter((_, position) => position !== index),
     }));
-    onChange(items.filter((_, position) => position !== index));
+    onChange(seededItems.filter((_, position) => position !== index));
   }
 
   function updateItem(index: number, item: Record<string, unknown>) {
     onChange(
-      items.map((existing, position) => (position === index ? item : existing)),
+      seededItems.map((existing, position) =>
+        position === index ? item : existing,
+      ),
     );
   }
 
@@ -799,16 +841,17 @@ function ObjectArrayField({
     >
       <ItemList>
         {items.length === 0 && <FieldDescription>No items</FieldDescription>}
-        {items.map((item, index) => {
+        {seededItems.map((item, index) => {
           // Undefined only in a render React is about to discard, between an
           // external length change and the re-fit above.
           /* v8 ignore next -- see above */
           const rowKey = rowKeys.keys[index] ?? -1 - index;
+          const titleId = `${titleIdPrefix}-item-${rowKey}`;
           return (
-            <ItemCard key={rowKey}>
+            <ItemCard key={rowKey} role="group" aria-labelledby={titleId}>
               <Stack gap="xs">
                 <ItemHeader>
-                  <ItemTitle>Item {index + 1}</ItemTitle>
+                  <ItemTitle id={titleId}>Item {index + 1}</ItemTitle>
                   <RemoveItemButton
                     aria-label={`Remove item ${index + 1} from ${label}`}
                     disabled={disabled || !canRemove}

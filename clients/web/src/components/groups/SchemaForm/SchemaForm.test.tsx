@@ -3840,6 +3840,58 @@ describe("SchemaForm array-of-object fields (#2561)", () => {
     expect(screen.getByRole("textbox", { name: /name/ })).toHaveValue("n");
   });
 
+  it("seeds every row that mounts missing a default, not just the last", async () => {
+    // Two rows seeding themselves in the same commit would each report through
+    // a closure over the original array, so only the last correction survived
+    // while both rows displayed the default.
+    const onValues = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        lines: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "line" },
+              quantity: { type: "integer", default: 1 },
+            },
+            required: ["kind"],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <Harness
+        schema={schema}
+        initial={{ lines: [{}, {}] }}
+        onValues={onValues}
+      />,
+    );
+    await waitFor(() =>
+      expect(onValues).toHaveBeenLastCalledWith({
+        lines: [
+          { quantity: 1, kind: "line" },
+          { quantity: 1, kind: "line" },
+        ],
+      }),
+    );
+  });
+
+  it("names each row's card after its visible title", () => {
+    renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{ sku: "a" }, { sku: "b" }] }}
+        onChange={vi.fn()}
+      />,
+    );
+    const second = screen.getByRole("group", { name: "Item 2" });
+    expect(second).toContainElement(
+      screen.getAllByRole("textbox", { name: /sku/ })[1],
+    );
+  });
+
   it("keeps the JSON editor for a value the rows cannot show", () => {
     renderWithMantine(
       <SchemaForm
