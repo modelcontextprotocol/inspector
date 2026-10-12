@@ -16,14 +16,24 @@
  * fewer of them and still pass, so `run-engine-smokes.test.mjs` asserts that no
  * tier names an individual smoke.
  *
+ * On a host where the engine cannot launch natively — Firefox on macOS 27,
+ * #2625 — the whole pass runs inside the Linux Playwright container instead;
+ * see `lib/firefox-container.mjs` for when, how, and the loud skip when no
+ * Docker daemon is reachable.
+ *
  * Usage: `node scripts/run-engine-smokes.mjs [engine]`. With no argument the
  * engine comes from `SMOKE_BROWSER` (default `chromium`).
  */
 
 import { spawnSync } from "node:child_process";
+import { platform, release } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveRequestedBrowser } from "./install-smoke-browser.mjs";
+import {
+  runInContainer,
+  shouldUseContainer,
+} from "./lib/firefox-container.mjs";
 
 /**
  * The smokes that are engine-sensitive, in run order.
@@ -48,6 +58,19 @@ function main() {
       `run-engine-smokes: ${err instanceof Error ? err.message : String(err)}`,
     );
     process.exit(1);
+  }
+
+  if (
+    shouldUseContainer({
+      engine: browserName,
+      platform: platform(),
+      release: release(),
+      env: process.env,
+    })
+  ) {
+    process.exit(
+      runInContainer({ repoRoot: join(scriptDir, ".."), engine: browserName }),
+    );
   }
 
   // Children inherit this rather than reading the ambient variable, so an
