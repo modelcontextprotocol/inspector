@@ -1823,7 +1823,10 @@ function App({
   });
 
   // Calculate layout dimensions
-  const headerHeight = 1;
+  // Two rows: the title line plus the header's bottom border, which Ink sizes
+  // inside the box. At 1 the border took the only row, leaving the title zero
+  // height, so Ink clipped the version off the right edge (#2656).
+  const headerHeight = 2;
   const serverListWidth = Math.floor(dimensions.width * 0.3);
   const contentWidth = dimensions.width - serverListWidth;
   // Derived, not assumed. The bar wraps once the visible tabs exceed the
@@ -1901,13 +1904,22 @@ function App({
         justifyContent="space-between"
         alignItems="center"
       >
-        <Box>
-          <Text bold color="cyan">
-            {APP_NAME}
+        {/* On a narrow terminal only the description gives way: wrapped, it
+            spilled into the border row and squeezed the version out. */}
+        <Box flexShrink={1} overflow="hidden">
+          <Box flexShrink={0}>
+            <Text bold color="cyan">
+              {APP_NAME}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            {" "}
+            - {APP_DESCRIPTION}
           </Text>
-          <Text dimColor> - {APP_DESCRIPTION}</Text>
         </Box>
-        <Text dimColor>v{APP_VERSION}</Text>
+        <Box flexShrink={0} marginLeft={1}>
+          <Text dimColor>v{APP_VERSION}</Text>
+        </Box>
       </Box>
 
       {/* Main content area */}

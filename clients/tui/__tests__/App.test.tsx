@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "./helpers/renderTui";
 import { BodyLines } from "../src/components/BodyLines.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 
 type RenderResult = ReturnType<typeof render>;
 
@@ -830,6 +831,42 @@ describe("App (foundation)", () => {
     const frame = r.lastFrame() ?? "";
     expect(frame).toContain("alpha");
     expect(frame).toContain("beta");
+  });
+
+  // The header box draws a bottom border, which takes a row of its own; sized
+  // to one row, the border left the title row zero height and Ink clipped the
+  // right-justified version off screen (#2656).
+  describe("header", () => {
+    const version = readInspectorVersion(import.meta.url);
+    const originalColumns = process.stdout.columns;
+    afterEach(() => {
+      process.stdout.columns = originalColumns;
+    });
+
+    async function headerRows(columns: number) {
+      process.stdout.columns = columns;
+      const r = renderApp(stdioServer());
+      await expectFrame(r, "MCP Servers");
+      const [titleRow, borderRow] = (r.lastFrame() ?? "").split("\n");
+      return { titleRow, borderRow };
+    }
+
+    it("shows the full title and the version where the width allows", async () => {
+      const { titleRow, borderRow } = await headerRows(100);
+      expect(titleRow).toContain(
+        "MCP Inspector TUI - Terminal User Interface for the Model Context Protocol Inspector",
+      );
+      expect(titleRow.trimEnd().endsWith(`v${version}`)).toBe(true);
+      expect(borderRow).toMatch(/^─+$/);
+    });
+
+    it("truncates the description, not the version, on a narrow terminal", async () => {
+      const { titleRow, borderRow } = await headerRows(80);
+      expect(titleRow).toContain("MCP Inspector TUI - ");
+      expect(titleRow).toContain("…");
+      expect(titleRow.trimEnd().endsWith(`v${version}`)).toBe(true);
+      expect(borderRow).toMatch(/^─+$/);
+    });
   });
 
   it("auto-selects the first server and shows its config", async () => {
