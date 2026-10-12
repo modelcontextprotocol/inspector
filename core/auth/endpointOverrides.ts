@@ -284,6 +284,20 @@ function isJsonDocumentResponse(contentType: string | null): boolean {
 export const SYNTHESIZED_METADATA_HEADER =
   "x-inspector-oauth-metadata-synthesized";
 
+/**
+ * Every `Response` this module synthesized, by identity. The header above is
+ * only a label for the Network tab: response headers are server-controlled,
+ * so an authorization server could send it on a real document, and
+ * `withRfc8414OidcCompat` must not take its word for it (Copilot). Identity is
+ * something no server can forge.
+ */
+const synthesizedResponses = new WeakSet<Response>();
+
+/** Whether this module synthesized `response` (#2562). */
+export function isSynthesizedMetadataResponse(response: Response): boolean {
+  return synthesizedResponses.has(response);
+}
+
 /** The OpenID Connect Discovery well-known path. */
 const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
 
@@ -394,7 +408,7 @@ function synthesizedMetadataResponse(
       `the configured endpoint override(s) in place of the SDK's ` +
       `/authorize and /token fallbacks.`,
   );
-  return new Response(
+  const synthesized = new Response(
     JSON.stringify(synthesizeAuthorizationServerMetadata(issuer, overrides)),
     {
       status: 200,
@@ -405,6 +419,8 @@ function synthesizedMetadataResponse(
       },
     },
   );
+  synthesizedResponses.add(synthesized);
+  return synthesized;
 }
 
 /** Rebuild a response around a replacement body, preserving status/headers. */

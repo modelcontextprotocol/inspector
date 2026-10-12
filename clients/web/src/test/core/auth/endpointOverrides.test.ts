@@ -579,6 +579,30 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
     );
   });
 
+  // Headers are server-controlled, so a real document carrying the marker
+  // must still be attributed to its source and warned about (Copilot).
+  it("does not trust a server-sent marker header in the compat wrapper", async () => {
+    const warn = silenceWarn();
+    const spoofed = (url: string) =>
+      url.endsWith("/.well-known/openid-configuration")
+        ? new Response(JSON.stringify(METADATA), {
+            headers: {
+              "content-type": "application/json",
+              [SYNTHESIZED_METADATA_HEADER]: "endpoint-overrides",
+            },
+          })
+        : new Response("nope", { status: 404 });
+    const fetchFn = withRfc8414OidcCompat(async (input) =>
+      spoofed(String(input)),
+    );
+    const response = await fetchFn(AS_METADATA_URL);
+    expect(response.headers.get(COMPAT_SOURCE_HEADER)).toBe(
+      "https://as.example.com/.well-known/openid-configuration",
+    );
+    expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBeNull();
+    expect(String(warn.mock.calls[0][0])).toContain("returned RFC 8414");
+  });
+
   // The issue's reproduction, through the SDK's own discovery and
   // authorization-URL construction: a server with no metadata anywhere, and
   // the compat wrapper outermost exactly as `InspectorClient` composes it.
