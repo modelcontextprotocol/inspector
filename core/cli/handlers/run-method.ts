@@ -184,7 +184,12 @@ export async function runMethod(
       if (args.appInfo) {
         result = { ...appInfo };
       } else {
-        const invocation = args.task
+        // A tool declaring `taskSupport: "required"` (legacy era) can only be
+        // called task-augmented — callTool() refuses it outright — so take the
+        // task path for it whether or not `--task` was passed (#2649).
+        const useTask =
+          args.task === true || tool.execution?.taskSupport === "required";
+        const invocation = useTask
           ? await inspectorClient.callToolStream(
               tool,
               args.toolArg || {},
