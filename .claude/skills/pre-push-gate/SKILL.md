@@ -241,6 +241,14 @@ One stage has no GitHub CI counterpart, deliberately:
   Firefox. Trialled as a CI job and removed (#2086): across a dozen runs it never
   disagreed with Chromium, and `playwright install --with-deps` carries a real
   flake surface. Kept in front of a human about to push instead.
+  ⚠️ **On macOS 27 it runs inside the Linux Playwright container** (#2625):
+  Playwright's Firefox cannot launch there. It needs a running Docker daemon;
+  without one the stage prints a `SKIPPING … this is NOT a pass` warning and
+  exits 0 so `local:storybook` still runs — start Docker and re-run
+  `npm run smoke:web:firefox` before pushing. A container failure is a real
+  Firefox failure, not an infrastructure one, unless the log shows the image
+  pull or `npm install` failing. `INSPECTOR_FIREFOX_SMOKE=native|container`
+  overrides the routing (`scripts/lib/firefox-container.mjs`).
 
 A guard (`scripts/lib/workflow-gate.mjs`, run by `npm run test:scripts`) fails
 the suite if a workflow invokes a `local:*` script, a non-Chromium engine pass,
