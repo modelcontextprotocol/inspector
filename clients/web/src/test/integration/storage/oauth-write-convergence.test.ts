@@ -30,6 +30,7 @@ import {
   oauthSecretServerId,
   LEGACY_TOKENS_FIELD,
   LEGACY_CLIENT_SECRET_FIELD,
+  issuerTokensField,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import type { OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
@@ -724,5 +725,53 @@ describe("updateOAuthServerEntry", () => {
     // The token write this call did make is unwound to the pre-call value.
     const read = await readOAuthStore(filePath, store);
     expect(read?.servers[SERVER_A]?.tokens).toEqual(serverState("a").tokens);
+  });
+
+  it("does not resurrect secrets a racer deleted with the entry when a retry fails", async () => {
+    // Attempt 1 rotates an issuer slot's tokens and is clobbered by a writer
+    // that removed the server outright, secrets included. The retry's
+    // updater sees no entry and keeps it gone, then its file write fails:
+    // the rollback must not restore the slot's pre-call secrets with no file
+    // entry left to index them. Issuer-keyed on purpose — an absent entry
+    // still names every legacy field, but not a per-issuer one.
+    const ISSUER = "https://as.example";
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({
+        [SERVER_B]: {
+          activeIssuer: ISSUER,
+          byIssuer: { [ISSUER]: { tokens: serverState("b").tokens } },
+        },
+      }),
+      { servers: [SERVER_B] },
+      store,
+    );
+    const tokensField = issuerTokensField(ISSUER);
+    expect(await store.get(idOf(SERVER_B), tokensField)).not.toBeNull();
+    let writes = 0;
+    hook.beforeWrite = () => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
+    };
+    hook.afterWrite = async (path) => {
+      if (writes !== 1) return;
+      writeFileSync(path, onlyA);
+      await store.deleteAllForServer(idOf(SERVER_B));
+    };
+
+    await expect(
+      updateOAuthServerEntry(
+        filePath,
+        SERVER_B,
+        (entry) =>
+          entry && {
+            ...entry,
+            byIssuer: { [ISSUER]: { tokens: NEW_TOKENS } },
+          },
+        store,
+      ),
+    ).rejects.toThrow(/disk full/);
+
+    expect(await store.get(idOf(SERVER_B), tokensField)).toBeNull();
   });
 });

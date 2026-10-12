@@ -531,15 +531,21 @@ export async function refreshStoredAuthToken(
   //
   // The rotated tokens go back to the slot they were read from: the active
   // issuer's `byIssuer` entry (#2517), or the legacy top-level fields for a
-  // pre-issuer entry — never a slot the old tokens did not come from. A slot
-  // or entry removed meanwhile stays removed; the fresh token is still
-  // returned for this run.
+  // pre-issuer entry — never a slot the old tokens did not come from. And only
+  // while that slot still holds the refresh token this grant spent: a slot
+  // whose tokens were cleared or replaced meanwhile (a sign-out, a same-issuer
+  // re-authorization) keeps its fresh state, as does a removed slot or entry.
+  // The fresh token is still returned for this run either way.
   const { issuer } = credentials;
+  const unchanged = (current: OAuthTokens | undefined): boolean =>
+    current?.refresh_token === refreshToken;
   await updateOAuthServerEntry(statePath, found.key, (fresh) => {
     if (fresh === undefined) return undefined;
-    if (issuer === undefined) return { ...fresh, tokens };
+    if (issuer === undefined) {
+      return unchanged(fresh.tokens) ? { ...fresh, tokens } : fresh;
+    }
     const slot = getOwnEntry(fresh.byIssuer, issuer);
-    if (slot === undefined) return fresh;
+    if (slot === undefined || !unchanged(slot.tokens)) return fresh;
     return {
       ...fresh,
       // A computed key defines an own property, so `__proto__` is safe.

@@ -924,11 +924,19 @@ async function writeOAuthSectionsFrom(
           // would read as an update and skip the purge below.
           const next = getOwnEntry(snapshot.servers, url);
           // Candidates span the old and new shapes so a removed issuer's
-          // fields are deleted, not orphaned in the store.
+          // fields are deleted, not orphaned in the store — plus every field
+          // an earlier attempt touched. A racer can drop an entry (or slot)
+          // between attempts, taking its secrets with it; without these the
+          // retry would snapshot nothing for them, and a failing retry's
+          // rollback would restore the pre-call values with no file entry
+          // left to index them.
           const candidates = [
             ...new Set([
               ...serverSecretFields(getOwnEntry(disk?.servers, url)),
               ...serverSecretFields(next),
+              ...[...restoreBaseline.values()]
+                .filter((prior) => prior.serverId === serverId)
+                .map(({ field }) => field),
             ]),
           ];
           const entryPrior = await snapshotSecretFields(
@@ -937,12 +945,18 @@ async function writeOAuthSectionsFrom(
             candidates,
           );
           priorSecrets.push(...entryPrior);
+          const entryPriorValue = new Map(
+            entryPrior.map(({ field, value }) => [field, value]),
+          );
           if (next === undefined) {
             // A failed purge propagates and aborts the write: committing a
             // file without the entry while its secrets may linger in the
             // store would orphan them, and re-adding the server later could
             // resurrect the stale credentials.
             for (const field of candidates) {
+              // Changed fields only — see `ourWrites`: an already-absent
+              // field is a deletion this attempt did not make.
+              if (entryPriorValue.get(field) === null) continue;
               ourWrites.set(priorKey({ serverId, field }), null);
             }
             await secretStore.deleteAllForServer(serverId);
@@ -956,9 +970,6 @@ async function writeOAuthSectionsFrom(
             continue;
           }
           const { residue, secrets } = splitServerOAuthState(next, policy);
-          const entryPriorValue = new Map(
-            entryPrior.map(({ field, value }) => [field, value]),
-          );
           for (const field of candidates) {
             const value = secrets[field] ?? null;
             // Changed fields only — see `ourWrites`.
