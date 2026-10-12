@@ -336,10 +336,13 @@ export function useServerCommands({
       // Legacy servers advertise task tool calls via
       // `tasks.requests.tools.call`. Modern servers (SEP-2663) instead negotiate
       // the `io.modelcontextprotocol/tasks` extension and are server-directed:
-      // task creation is decided per-request by the server, so declaring the
-      // extension on the call (which the task path does) is what makes a returned
-      // task handle legal ("unsolicited handles"). Either era routes the flagged
-      // call through the streaming task pipeline.
+      // task creation is decided per-request by the server, and the UI offers no
+      // "Run as task" choice there (#2674). That needs no routing here, because
+      // on a modern connection `callTool` itself dispatches through the task
+      // pipeline (preference "allow"), which declares the extension and settles
+      // a returned handle exactly as `callToolStream` would — Tasks screen,
+      // progress and all. Only a legacy `required` tool still takes this branch
+      // on modern, since `callTool` rejects one up front.
       const serverSupportsTaskToolCalls =
         !!capabilities?.tasks?.requests?.tools?.call ||
         inspectorClient.isTasksExtensionNegotiated();

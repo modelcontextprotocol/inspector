@@ -226,7 +226,11 @@ export interface ToolsPanelProps {
   toolCallState?: ToolCallState;
   /** Pagination controls for the Tools list (#1721). */
   toolsPagination: ListPaginationControlsProps;
-  /** Whether the connected server advertises task-augmented tool calls. */
+  /**
+   * Whether to offer the per-call "Run as task" choice: a legacy server that
+   * advertises `tasks.requests.tools.call`. Always false on a modern
+   * connection, where task creation is server-directed (#2674).
+   */
   serverSupportsTaskToolCalls: boolean;
   onToolsUiChange: (next: ToolsUiState) => void;
   onCallTool: (

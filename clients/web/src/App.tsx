@@ -109,6 +109,7 @@ import {
 } from "./components/groups/PendingClientRequestModal/PendingClientRequestModal";
 import { downloadJsonFile } from "./lib/downloadFile";
 import { serverWithDraftSettings } from "./utils/serverWithDraftSettings";
+import { offersRunAsTask } from "./utils/toolUtils";
 import { enrichProtocolEntries } from "./utils/correlateTransportErrors";
 import { visibleMalformedListItems } from "./utils/malformedListReport";
 import { parseDeepLink, deepLinkParseStatus } from "./utils/deepLink";
@@ -1866,9 +1867,7 @@ function App() {
     toolsUi: ui.toolsUi,
     toolCallState,
     toolsPagination: toolsPaginationControls,
-    serverSupportsTaskToolCalls:
-      !!capabilities?.tasks?.requests?.tools?.call ||
-      (inspectorClient?.isTasksExtensionNegotiated() ?? false),
+    serverSupportsTaskToolCalls: offersRunAsTask(protocolEra, capabilities),
     onToolsUiChange,
     onCallTool: dispatchCallTool,
     onCancelToolCall,
