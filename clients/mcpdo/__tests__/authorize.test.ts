@@ -4,6 +4,8 @@ import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 const connectSpy = vi.fn();
 const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 const navigationSpy = vi.fn();
+const clientCtorSpy = vi.fn();
+const createProxyFetchSpy = vi.fn<() => typeof fetch | undefined>();
 
 vi.mock("@inspector/core/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
@@ -18,10 +20,19 @@ vi.mock("@inspector/core/cli/cli-oauth-navigation.js", () => ({
 
 vi.mock("@inspector/core/mcp/index.js", () => ({
   InspectorClient: class {
+    constructor(...args: unknown[]) {
+      clientCtorSpy(...args);
+    }
     connect = vi.fn();
     disconnect = disconnectSpy;
   },
 }));
+
+vi.mock("@inspector/core/mcp/node/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/mcp/node/index.js")>();
+  return { ...actual, createProxyFetch: () => createProxyFetchSpy() };
+});
 
 vi.mock("@inspector/core/client/runner.js", async (importOriginal) => {
   const actual =
@@ -38,6 +49,27 @@ describe("authorizeInFrontend", () => {
     connectSpy.mockReset();
     disconnectSpy.mockClear();
     navigationSpy.mockClear();
+    clientCtorSpy.mockClear();
+    createProxyFetchSpy.mockReset();
+  });
+
+  it("installs the proxy-aware fetch on the client environment (#2642)", async () => {
+    // `InspectorClient` always hands its transport a defined fetch, so the
+    // environment is the only place a proxy can go for OAuth discovery and
+    // token requests to reach it.
+    connectSpy.mockResolvedValue(undefined);
+    const proxyFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
+    createProxyFetchSpy.mockReturnValue(proxyFetch);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const options = clientCtorSpy.mock.calls[0]?.[1] as {
+      environment: { fetch?: typeof fetch };
+    };
+    expect(options.environment.fetch).toBe(proxyFetch);
   });
 
   it("no-ops for non-OAuth-capable (stdio) configs", async () => {

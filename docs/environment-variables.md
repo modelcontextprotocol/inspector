@@ -109,8 +109,8 @@ When no store is configured, the choice also depends on whether the Inspector is
 
 | Variable                     | Read by       | Default | Effect                                                                                                                                                                                                               |
 | ---------------------------- | ------------- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `HTTPS_PROXY` / `HTTP_PROXY` | web, CLI, TUI | unset   | Route connections to remote HTTP/SSE servers, including OAuth discovery and token requests, through a proxy. Lowercase forms are honored too. See [HTTP proxy support](../clients/cli/README.md#http-proxy-support). |
-| `NO_PROXY`                   | web, CLI, TUI | unset   | Hosts exempted from the proxy.                                                                                                                                                                                       |
+| `HTTPS_PROXY` / `HTTP_PROXY` | web, CLI, TUI, mcpdo | unset   | Route connections to remote HTTP/SSE servers, including OAuth discovery and token requests, through a proxy. Lowercase forms are honored too. See [HTTP proxy support](../clients/cli/README.md#http-proxy-support). |
+| `NO_PROXY`                   | web, CLI, TUI, mcpdo | unset   | Hosts exempted from the proxy.                                                                                                                                                                                       |
 
 ## Node.js variables
 

@@ -9,7 +9,10 @@ import {
   type InspectorServerSettings,
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
-import { createTransportNode } from "@inspector/core/mcp/node/index.js";
+import {
+  createProxyFetch,
+  createTransportNode,
+} from "@inspector/core/mcp/node/index.js";
 import {
   buildOAuthConnectionState,
   ConsoleNavigation,
@@ -816,6 +819,12 @@ async function createConnectionClient(
 ): Promise<InspectorClient> {
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,
+    // HTTPS_PROXY / HTTP_PROXY / NO_PROXY, as in the one-shot CLI (#2642).
+    // `InspectorClient` builds its fetch chain on `environment.fetch ?? fetch`
+    // and always hands the transport the result, so the transport's own
+    // `createProxyFetch()` fallback is never reached — leave this out and the
+    // daemon connects direct. Undefined when no proxy variable is set.
+    fetch: createProxyFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   if (isOAuthCapableServerConfig(serverConfig)) {

@@ -11,6 +11,11 @@ import {
 const runRunnerInteractiveOAuth = vi.fn();
 const startIdpOidcAuthorization = vi.fn();
 const completeIdpOidcAuthorization = vi.fn();
+const createProxyFetch = vi.fn<() => typeof fetch | undefined>();
+
+vi.mock("@inspector/core/mcp/node/proxyFetch.js", () => ({
+  createProxyFetch: () => createProxyFetch(),
+}));
 
 vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
   const actual =
@@ -57,6 +62,7 @@ describe("mcpdo ema helpers", () => {
     runRunnerInteractiveOAuth.mockReset();
     startIdpOidcAuthorization.mockReset();
     completeIdpOidcAuthorization.mockReset();
+    createProxyFetch.mockReset();
   });
 
   afterEach(() => {
@@ -255,6 +261,45 @@ describe("mcpdo ema helpers", () => {
     // line must direct an agent to relay the IdP link to the human user.
     expect(stderr).toContain(
       "The user needs to sign in to the enterprise identity provider",
+    );
+  });
+
+  it("emaLogin routes IdP discovery and the code exchange through the proxy-aware fetch (#2642)", async () => {
+    writeClientConfig(emaClientConfig());
+    const proxyFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
+    createProxyFetch.mockReturnValue(proxyFetch);
+    startIdpOidcAuthorization.mockResolvedValue({
+      authorizationUrl: new URL("https://idp.example.com/authorize"),
+    });
+    completeIdpOidcAuthorization.mockImplementation(async () => {
+      await seedIdpSession();
+      return { idToken: fakeIdToken() };
+    });
+    runRunnerInteractiveOAuth.mockImplementation(
+      async (options: {
+        client: {
+          authenticate: () => Promise<URL | undefined>;
+          completeOAuthFlow: (code: string, iss?: string) => Promise<void>;
+        };
+      }) => {
+        await options.client.authenticate();
+        await options.client.completeOAuthFlow("code-1", ISSUER);
+        return { kind: "success" };
+      },
+    );
+    const originalWrite = process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
+    try {
+      const { emaLogin } = await import("../src/connection/ema.js");
+      await emaLogin();
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    expect(startIdpOidcAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchFn: proxyFetch }),
+    );
+    expect(completeIdpOidcAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({ fetchFn: proxyFetch }),
     );
   });
 
