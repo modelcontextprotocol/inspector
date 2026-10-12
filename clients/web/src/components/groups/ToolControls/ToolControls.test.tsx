@@ -235,6 +235,19 @@ describe("ToolControls", () => {
     expect(screen.getByText("Tools (4+)")).toBeInTheDocument();
   });
 
+  // The connect-time load is still in flight: the empty list is not a total.
+  it("omits the count until the first load completes", () => {
+    renderWithMantine(
+      <ToolControls
+        {...baseProps}
+        tools={[]}
+        pagination={{ ...noopPagination, loaded: false }}
+      />,
+    );
+    expect(screen.getByText("Tools")).toBeInTheDocument();
+    expect(screen.queryByText("Tools (0)")).not.toBeInTheDocument();
+  });
+
   it("omits the count after a failed load", () => {
     renderWithMantine(
       <ToolControls {...baseProps} tools={[]} loadError={new Error("x")} />,

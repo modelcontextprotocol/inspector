@@ -178,6 +178,19 @@ describe("PromptControls", () => {
     expect(screen.getByText("Prompts (5+)")).toBeInTheDocument();
   });
 
+  // The connect-time load is still in flight: the empty list is not a total.
+  it("omits the count until the first load completes", () => {
+    renderWithMantine(
+      <PromptControls
+        {...baseProps}
+        prompts={[]}
+        pagination={{ ...noopPagination, loaded: false }}
+      />,
+    );
+    expect(screen.getByText("Prompts")).toBeInTheDocument();
+    expect(screen.queryByText("Prompts (0)")).not.toBeInTheDocument();
+  });
+
   it("omits the count after a failed load", () => {
     renderWithMantine(
       <PromptControls {...baseProps} prompts={[]} loadError={new Error("x")} />,

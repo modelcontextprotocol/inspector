@@ -105,6 +105,11 @@ export abstract class ManagedListState<
   // rendered by the list panel instead of vanishing into an unhandled
   // rejection — which read as "this server has no tools" (#1953).
   private error: Error | null = null;
+  // Whether a fetch has committed a list this session. Until it has, the empty
+  // `items` mean "not loaded yet", not "the server has none" — a distinction a
+  // count of the list cannot make from `items` alone (#2607). Set and cleared
+  // just before the `*Change` dispatch, so a reader keyed on that event sees it.
+  private loaded = false;
   private readonly config: ManagedListConfig<T, M>;
   // Debounce a burst of `list_changed` notifications into a single
   // refresh (or one indicator light) once it settles.
@@ -159,6 +164,7 @@ export abstract class ManagedListState<
           this.listChangedTimer = null;
         }
         this.items = [];
+        this.loaded = false;
         this.dispatchChange();
         this.setListChanged(false);
         // A disconnect ends the session the error belonged to — a stale
@@ -234,6 +240,15 @@ export abstract class ManagedListState<
   /** Defensive copy of the current list. */
   protected getItems(): T[] {
     return [...this.items];
+  }
+
+  /**
+   * Whether a fetch has committed a list since the last connect. False while
+   * the connect-time load is in flight, when it was deferred (paginated mode),
+   * and after a disconnect. Changes only alongside the `*Change` event (#2607).
+   */
+  isLoaded(): boolean {
+    return this.loaded;
   }
 
   /** Whether a `list_changed` arrived since the last refresh (indicator on). */
@@ -350,6 +365,7 @@ export abstract class ManagedListState<
   /** Commit a fetched list as the current one and notify subscribers. */
   private applyItems(items: T[]): void {
     this.items = items;
+    this.loaded = true;
     this.dispatchChange();
   }
 
@@ -362,5 +378,6 @@ export abstract class ManagedListState<
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.items = [];
+    this.loaded = false;
   }
 }

@@ -29,13 +29,35 @@ describe("formatCountedLabel", () => {
 describe("listCountOf", () => {
   it("counts the loaded items and carries the more-pages flag", () => {
     expect(
-      listCountOf({ items: [1, 2, 3], canLoadMore: true, error: null }),
+      listCountOf({
+        items: [1, 2, 3],
+        canLoadMore: true,
+        error: null,
+        loaded: true,
+      }),
     ).toEqual({ count: 3, partial: true });
   });
 
   it("has no count after a failed load", () => {
     expect(
-      listCountOf({ items: [], canLoadMore: false, error: new Error("x") }),
+      listCountOf({
+        items: [],
+        canLoadMore: false,
+        error: new Error("x"),
+        loaded: true,
+      }),
+    ).toBeUndefined();
+  });
+
+  // #2607: before the first load lands, the empty list is not a total.
+  it("has no count before the first load completes", () => {
+    expect(
+      listCountOf({
+        items: [],
+        canLoadMore: false,
+        error: null,
+        loaded: false,
+      }),
     ).toBeUndefined();
   });
 });

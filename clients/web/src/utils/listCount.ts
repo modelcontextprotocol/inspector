@@ -13,15 +13,17 @@ export interface ListCount {
 }
 
 /**
- * The count of a loaded list, or `undefined` after a failed load — where the
- * empty `items` would otherwise render as a confident `(0)`.
+ * The count of a loaded list, or `undefined` before its first load completes
+ * or after a failed one — in both, the empty `items` would otherwise render as
+ * a confident `(0)`.
  */
 export function listCountOf(list: {
   items: readonly unknown[];
   canLoadMore: boolean;
   error: Error | null;
+  loaded: boolean;
 }): ListCount | undefined {
-  if (list.error) return undefined;
+  if (list.error || !list.loaded) return undefined;
   return { count: list.items.length, partial: list.canLoadMore };
 }
 

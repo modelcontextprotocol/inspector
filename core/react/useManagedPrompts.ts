@@ -16,6 +16,9 @@ const readPrompts = (state: ManagedPromptsState): Prompt[] =>
   state.getPrompts();
 const readListChanged = (state: ManagedPromptsState): boolean =>
   state.getListChanged();
+// Keyed on the `promptsChange` signal: the state flips `loaded` just before it
+// dispatches that event, so the snapshot re-reads it on the same change.
+const readLoaded = (state: ManagedPromptsState): boolean => state.isLoaded();
 
 export interface UseManagedPromptsResult {
   /**
@@ -27,6 +30,12 @@ export interface UseManagedPromptsResult {
   prompts: Prompt[];
   /** True when a `prompts/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
+  /**
+   * True once a fetch has committed the list this connection — false while the
+   * connect-time load is in flight, so an empty `prompts` can be told apart from
+   * a server that has none (#2607).
+   */
+  loaded: boolean;
   refresh: () => Promise<Prompt[]>;
   /** Acknowledge the list-changed indicator without fetching (#1721). */
   clearListChanged: () => void;
@@ -51,6 +60,12 @@ export function useManagedPrompts(
     readListChanged,
     false,
   );
+  const loaded = useStoreSnapshot(
+    managedPromptsState,
+    "promptsChange",
+    readLoaded,
+    false,
+  );
 
   const error = useListError(managedPromptsState);
 
@@ -73,5 +88,5 @@ export function useManagedPrompts(
     managedPromptsState?.clearListChanged();
   }, [managedPromptsState]);
 
-  return { prompts, error, listChanged, refresh, clearListChanged };
+  return { prompts, error, listChanged, loaded, refresh, clearListChanged };
 }

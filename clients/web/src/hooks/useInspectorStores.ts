@@ -240,6 +240,7 @@ export function useInspectorStores({
     tools: managedTools,
     error: toolsLoadError,
     listChanged: toolsListChanged,
+    loaded: managedToolsLoaded,
     refresh: refreshTools,
     clearListChanged: clearToolsListChanged,
   } = useManagedTools(inspectorClient, stores?.managedToolsState ?? null);
@@ -247,6 +248,7 @@ export function useInspectorStores({
     prompts: managedPrompts,
     error: promptsLoadError,
     listChanged: promptsListChanged,
+    loaded: managedPromptsLoaded,
     refresh: refreshPrompts,
     clearListChanged: clearPromptsListChanged,
   } = useManagedPrompts(inspectorClient, stores?.managedPromptsState ?? null);
@@ -254,6 +256,7 @@ export function useInspectorStores({
     resources: managedResources,
     error: resourcesLoadError,
     listChanged: resourcesListChanged,
+    loaded: managedResourcesLoaded,
     refresh: refreshResources,
     clearListChanged: clearResourcesListChanged,
   } = useManagedResources(
@@ -298,6 +301,7 @@ export function useInspectorStores({
     managedItems: managedTools,
     managedRefresh: refreshTools,
     managedError: toolsLoadError,
+    managedLoaded: managedToolsLoaded,
     pagedItems: pagedTools,
     pagedNextCursor: pagedToolsCursor,
     pagedPageCount: pagedToolsPageCount,
@@ -310,6 +314,7 @@ export function useInspectorStores({
     managedItems: managedPrompts,
     managedRefresh: refreshPrompts,
     managedError: promptsLoadError,
+    managedLoaded: managedPromptsLoaded,
     pagedItems: pagedPrompts,
     pagedNextCursor: pagedPromptsCursor,
     pagedPageCount: pagedPromptsPageCount,
@@ -322,6 +327,7 @@ export function useInspectorStores({
     managedItems: managedResources,
     managedRefresh: refreshResources,
     managedError: resourcesLoadError,
+    managedLoaded: managedResourcesLoaded,
     pagedItems: pagedResources,
     pagedNextCursor: pagedResourcesCursor,
     pagedPageCount: pagedResourcesPageCount,

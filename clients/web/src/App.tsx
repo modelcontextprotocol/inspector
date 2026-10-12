@@ -1071,6 +1071,7 @@ function App() {
     onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: toolsPagination.canLoadMore,
     loadedPages: toolsPagination.loadedPages,
+    loaded: toolsPagination.loaded,
     onLoadMore: onLoadMoreTools,
   };
   const promptsPaginationControls: ListPaginationControlsProps = {
@@ -1078,6 +1079,7 @@ function App() {
     onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: promptsPagination.canLoadMore,
     loadedPages: promptsPagination.loadedPages,
+    loaded: promptsPagination.loaded,
     onLoadMore: onLoadMorePrompts,
   };
   const resourcesPaginationControls: ListPaginationControlsProps = {

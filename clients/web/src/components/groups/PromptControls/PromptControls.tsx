@@ -11,7 +11,7 @@ import {
 } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { PromptListItem } from "../PromptListItem/PromptListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
-import { formatCountedLabel } from "../../../utils/listCount";
+import { formatCountedLabel, listCountOf } from "../../../utils/listCount";
 
 // Fill the full-height `sidebar` Card (a flex column) so the list runs to the
 // bottom of the card before it scrolls, instead of being capped short by a
@@ -78,13 +78,17 @@ export function PromptControls({
       (p.description?.toLowerCase().includes(query) ?? false),
   );
 
-  // The server's total, not the search-filtered view (#2607); omitted after a
-  // failed load, where "(0)" would read as an empty server.
+  // The server's total, not the search-filtered view (#2607); omitted until the
+  // first load completes and after a failed one, where "(0)" would read as an
+  // empty server.
   const title = formatCountedLabel(
     "Prompts",
-    loadError
-      ? undefined
-      : { count: prompts.length, partial: pagination.canLoadMore },
+    listCountOf({
+      items: prompts,
+      canLoadMore: pagination.canLoadMore,
+      error: loadError ?? null,
+      loaded: pagination.loaded ?? true,
+    }),
   );
 
   return (
