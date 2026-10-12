@@ -70,7 +70,7 @@ import type { ServerOAuthState } from "@inspector/core/auth/store.js";
 import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
 import {
   readOAuthStore,
-  writeOAuthSections,
+  updateOAuthServerEntry,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   discoverAuthorizationServerMetadataFromCandidates,
@@ -460,8 +460,7 @@ export async function refreshStoredAuthToken(
         fetchFn: options?.fetchFn ?? storedAuthFetch,
       }));
 
-  const snapshot = await readOAuthSnapshot(statePath);
-  const servers = snapshot.servers as StoredServers;
+  const servers = await readOAuthServers(statePath);
   const found = findStoredServerState(servers, serverUrl);
   const credentials: StoredCredentials = found
     ? resolveStoredCredentials(found.state)
@@ -523,30 +522,30 @@ export async function refreshStoredAuthToken(
     );
   }
 
-  // Persist the rotated tokens back under the same key via the shared
-  // sectioned write: lock → fresh read → overlay just this server's entry →
-  // atomic write. This generalizes the read-modify-write this function used
-  // to hand-roll — the merge now happens against the file as it is at write
-  // time (not the snapshot read before the network round-trip), under the
-  // same cross-process lock every other writer uses, and keeps the file's
-  // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
+  // Persist the rotated tokens back under the same key, against the entry as
+  // it is on disk NOW — not the snapshot read before the network round trip.
+  // The update runs under the shared state-file lock on a fresh, store-joined
+  // read, so a same-server write that landed during the refresh (a web OAuth
+  // flow adding an issuer slot, switching `activeIssuer`, saving new tokens)
+  // survives: only the refreshed slot's `tokens` change (#2574).
   //
   // The rotated tokens go back to the slot they were read from: the active
   // issuer's `byIssuer` entry (#2517), or the legacy top-level fields for a
-  // pre-issuer entry — never a slot the old tokens did not come from.
+  // pre-issuer entry — never a slot the old tokens did not come from. A slot
+  // or entry removed meanwhile stays removed; the fresh token is still
+  // returned for this run.
   const { issuer } = credentials;
-  servers[found.key] =
-    issuer !== undefined
-      ? {
-          ...found.state,
-          byIssuer: {
-            ...found.state.byIssuer,
-            // A computed key defines an own property, so `__proto__` is safe.
-            [issuer]: { ...getOwnEntry(found.state.byIssuer, issuer), tokens },
-          },
-        }
-      : { ...found.state, tokens };
-  await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
+  await updateOAuthServerEntry(statePath, found.key, (fresh) => {
+    if (fresh === undefined) return undefined;
+    if (issuer === undefined) return { ...fresh, tokens };
+    const slot = getOwnEntry(fresh.byIssuer, issuer);
+    if (slot === undefined) return fresh;
+    return {
+      ...fresh,
+      // A computed key defines an own property, so `__proto__` is safe.
+      byIssuer: { ...fresh.byIssuer, [issuer]: { ...slot, tokens } },
+    };
+  });
 
   return tokens.access_token;
 }

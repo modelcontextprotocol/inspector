@@ -49,6 +49,7 @@ import {
   type OAuthPersistSections,
   type OAuthPersistSnapshot,
 } from "../oauth-persist.js";
+import type { ServerOAuthState } from "../store.js";
 import { withSecretFileLock } from "./file-lock.js";
 import {
   restoreSecretFields,
@@ -595,6 +596,81 @@ export async function writeOAuthSections(
   sections?: OAuthPersistSections,
   secretStore: SecretStore = defaultSecretStore(),
 ): Promise<void> {
+  await writeOAuthSectionsFrom(
+    filePath,
+    async () => snapshot,
+    sections,
+    secretStore,
+  );
+}
+
+/**
+ * Atomically update one server entry against its **fresh** on-disk value:
+ * lock → fresh read (rejoined with the store) → `update(entry)` → the same
+ * split and write as {@link writeOAuthSections}. `update` re-runs on every
+ * write attempt, each time over the entry as it is then, so a concurrent
+ * same-server write that lands while the caller was off the lock — a
+ * network round trip, say — is built on rather than overwritten (#2574).
+ * {@link writeOAuthSections} cannot give that guarantee: it merges at
+ * whole-entry granularity, so the entry it writes is whatever the caller
+ * read before it let go of the lock.
+ *
+ * `update` receives `undefined` when the file has no such entry, and a
+ * returned `undefined` removes the entry. It must be pure: it can run more
+ * than once per call.
+ */
+export async function updateOAuthServerEntry(
+  filePath: string,
+  serverKey: string,
+  update: (entry: ServerOAuthState | undefined) => ServerOAuthState | undefined,
+  secretStore: SecretStore = defaultSecretStore(),
+): Promise<void> {
+  await writeOAuthSectionsFrom(
+    filePath,
+    async (disk, namespace) => {
+      const diskEntry = getOwnEntry(disk?.servers, serverKey);
+      const fresh =
+        diskEntry === undefined
+          ? undefined
+          : getOwnEntry(
+              (
+                await joinSnapshot(
+                  {
+                    servers: Object.fromEntries([[serverKey, diskEntry]]),
+                    idpSessions: {},
+                  },
+                  secretStore,
+                  namespace,
+                )
+              ).servers,
+              serverKey,
+            );
+      const next = update(fresh);
+      return {
+        servers:
+          next === undefined ? {} : Object.fromEntries([[serverKey, next]]),
+        idpSessions: {},
+      };
+    },
+    { servers: [serverKey] },
+    secretStore,
+  );
+}
+
+/**
+ * The locked write both entry points share. `resolveSnapshot` is called once
+ * per write attempt, after the fresh disk read and namespace convergence, so
+ * an updater sees the state it is about to overwrite.
+ */
+async function writeOAuthSectionsFrom(
+  filePath: string,
+  resolveSnapshot: (
+    disk: OAuthPersistSnapshot | null,
+    namespace: string,
+  ) => Promise<OAuthPersistSnapshot>,
+  sections: OAuthPersistSections | undefined,
+  secretStore: SecretStore,
+): Promise<void> {
   const policy = getPersistTokensPolicy();
   const durable = await secretStoreIsDurable(secretStore);
   await withOAuthStateLock(filePath, "save", async (locked) => {
@@ -616,11 +692,15 @@ export async function writeOAuthSections(
     // attempt as committed: a brand-new entry's secrets would stay in the
     // store with no file index for `removeOAuthStore` to find.
     const restoreBaseline = new Map<string, SecretFieldSnapshot>();
-    // What this call writes per (server, field) — constant across attempts,
-    // because `secrets` derives from the caller's snapshot and the policy,
-    // never from disk; a candidate outside `secrets` is deleted (null).
-    // This is what lets the fold below tell "our own earlier attempt's
-    // write" apart from "a concurrent writer's newer value".
+    // What this call writes per (server, field); a candidate outside
+    // `secrets` is deleted (null). This is what lets the fold below tell
+    // "our own earlier attempt's write" apart from "a concurrent writer's
+    // newer value". For server entries it is recorded only for fields an
+    // attempt actually CHANGES: an updater (`updateOAuthServerEntry`)
+    // rebuilds its snapshot from the fresh store each attempt, so a field it
+    // merely carries forward may hold a concurrent writer's value — counting
+    // that as ours would keep the older baseline and let a rollback clobber
+    // it.
     const ourWrites = new Map<string, string | null>();
     const priorKey = (p: { serverId: string; field: string }): string =>
       `${p.serverId}\u0000${p.field}`;
@@ -796,6 +876,10 @@ export async function writeOAuthSections(
           unconfirmed = null;
           namespace = diskNamespace;
         }
+        // Resolved per attempt, after convergence: an updater must see the
+        // entry this attempt is about to overwrite, under the namespace its
+        // secrets are actually stored at.
+        const snapshot = await resolveSnapshot(disk, namespace);
         // Deduplicated: caller-passed sections may repeat a URL/issuer, and a
         // second pass over the same entry would snapshot the value the first
         // pass just wrote — a rollback would then "restore" that intermediate
@@ -872,11 +956,14 @@ export async function writeOAuthSections(
             continue;
           }
           const { residue, secrets } = splitServerOAuthState(next, policy);
+          const entryPriorValue = new Map(
+            entryPrior.map(({ field, value }) => [field, value]),
+          );
           for (const field of candidates) {
-            ourWrites.set(
-              priorKey({ serverId, field }),
-              secrets[field] ?? null,
-            );
+            const value = secrets[field] ?? null;
+            // Changed fields only — see `ourWrites`.
+            if (value === entryPriorValue.get(field)) continue;
+            ourWrites.set(priorKey({ serverId, field }), value);
           }
           // Own-property writes throughout: URL/issuer keys are untrusted
           // and "__proto__" would otherwise silently drop the residue.
