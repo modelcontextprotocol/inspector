@@ -76,14 +76,16 @@ mcp-inspector --server-url https://api.example.com/mcp --transport http
 Those run as written in the default (web) mode. Under `--cli` two extra rules apply:
 
 - A `--method` is required — a CLI invocation with no method exits with `Method is required.`
-- **The target must come first.** The CLI reads the leading run of non-dash tokens as the target, so anything after the first flag is no longer part of it:
+- **Inspector options may go before or after the target.** The target is every token the CLI does not consume as one of its own options, in order, so these are the same invocation:
 
   ```bash
-  mcp-inspector --cli node build/index.js --method tools/list   # ✅ target, then flags
-  mcp-inspector --cli --method tools/list node build/index.js   # ❌ target is dropped
+  mcp-inspector --cli node build/index.js --method tools/list
+  mcp-inspector --cli -q --method tools/list node build/index.js
   ```
 
-  The second form does not error — `node build/index.js` is silently discarded and the Inspector falls back to your catalog, so it "works" against the wrong server. `--tui` has no such rule; Commander parses its arguments in any order.
+  A flag the Inspector does **not** define (`--verbose`) is part of the target and reaches the server, wherever it sits after the target's first token; one placed _before_ that token is ignored, since a command cannot begin with a dash. A flag the Inspector _does_ define is always the Inspector's — the `--` separator below is how to send one to the server.
+
+  ⚠️ A variadic option (`--tool-arg`, `--prompt-args`, `--header`, `--metadata`, `--tool-metadata`) takes every following non-dash token as a value, so placed directly before the target it swallows the command. Put it after the target, or put another option between the two. Releases before v2.11 required the target to come first and silently dropped it otherwise (#2631).
 
 ### The `--` separator
 
@@ -99,19 +101,24 @@ Without the separator, `--config` would be read as the Inspector's own read-only
 
 They differ on **when you need it**, though. Web sets `allowUnknownOption()` + `allowExcessArguments()`, so a dash flag the Inspector does not define (`--verbose`) already falls through to the target without a separator — on web `--` is only needed for a flag the Inspector _does_ define. The TUI sets neither, so any unrecognized dash flag is a parse error: on the TUI you need `--` for **every** dash argument meant for the server.
 
-**CLI — reversed: everything _before_ `--` is the server target, everything _after_ is the Inspector's own options.**
+**CLI — the direction depends on what the line starts with.**
 
-```bash
-mcp-inspector --cli node build/index.js -- --method tools/list
-```
-
-So under `--cli` the separator does **not** protect an argument from the Inspector — it does the opposite, and the web example above, run verbatim, would have `--config /etc/myserver.conf` consumed as a read-only-session flag (then rejected as a catalog/ad-hoc conflict). Leading-dash arguments for the server still get through; they just go on the other side of the separator, where the whole pre-`--` run is taken as the target verbatim:
+When the line **starts with the target**, everything _before_ `--` is the server target, taken verbatim, and everything _after_ is the Inspector's own options:
 
 ```bash
 mcp-inspector --cli node build/index.js --config /etc/myserver.conf --verbose -- --method tools/list
 ```
 
-Without a `--` on the line the target is only the leading run of **non-dash** tokens, so the separator is required whenever the server itself takes flags.
+That is the way to pass a server flag the Inspector also defines (`--config` here). It is also why the web example above, run verbatim under `--cli`, would have `--config /etc/myserver.conf` consumed as a read-only-session flag (then rejected as a catalog/ad-hoc conflict): that line starts with the target, so the tokens after `--` are read as Inspector options.
+
+When the line **starts with an Inspector option**, or with `--` itself, the separator means what it does on web and TUI — everything after it is appended to the target verbatim:
+
+```bash
+mcp-inspector --cli -q node build/index.js --method tools/list -- --config /etc/myserver.conf
+mcp-inspector --cli --method tools/list -- node build/index.js --config /etc/myserver.conf
+```
+
+A server flag the Inspector does not define needs no separator at all: `mcp-inspector --cli node build/index.js --verbose --method tools/list` passes `--verbose` to the server.
 
 ## The shared flags
 

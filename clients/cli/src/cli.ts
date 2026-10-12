@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
   CATALOG_METHODS,
   emitCompletionIfRequested,
@@ -790,6 +790,11 @@ type ParseResult =
   // output and need no server connection; runCli returns immediately.
   | { shortCircuit: true };
 
+/** Commander's own test for "looks like an option": a dash plus at least one character. */
+function isOptionToken(arg: string): boolean {
+  return arg.length > 1 && arg.startsWith("-");
+}
+
 async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
@@ -827,21 +832,39 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       throw err;
     }
   });
+  // The ad-hoc target is whatever Commander does not consume as one of the
+  // Inspector's own options (#2631): its positionals plus any unknown flag, in
+  // their original order. So Inspector options may sit before, between or
+  // after the target's tokens, and a flag the Inspector does not define
+  // (`--crashable`) reaches the server. Splitting the target off as the leading
+  // run of non-dash tokens before parsing — the previous approach — lost the
+  // whole target as soon as any flag preceded it.
+  //
+  // A bare `--` has two readings, chosen by what comes first:
+  // - `<target…> -- <options…>` (the line starts with a target token): the
+  //   documented CLI form. Everything before `--` is the target verbatim, so a
+  //   server flag that collides with an Inspector option (`--config`) can be
+  //   passed there; what follows is parsed as Inspector options.
+  // - `<options…> -- <args…>` (the line starts with an option, or with `--`):
+  //   conventional end-of-options. Everything after `--` is appended to the
+  //   target verbatim. The old split read this shape as a target starting with
+  //   a dash, which could never run, so no working invocation changes meaning.
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
   const dashDashIndex = scriptArgs.indexOf("--");
-  let targetArgs: string[] = [];
-  let optionArgs: string[];
+  let leadingTarget: string[] = [];
+  let trailingTarget: string[] = [];
+  let optionArgs = scriptArgs;
   if (dashDashIndex >= 0) {
-    targetArgs = scriptArgs.slice(0, dashDashIndex);
-    optionArgs = scriptArgs.slice(dashDashIndex + 1);
-  } else {
-    let i = 0;
-    while (i < scriptArgs.length && !scriptArgs[i]!.startsWith("-")) {
-      targetArgs.push(scriptArgs[i]!);
-      i++;
+    const before = scriptArgs.slice(0, dashDashIndex);
+    const after = scriptArgs.slice(dashDashIndex + 1);
+    if (before.length > 0 && !isOptionToken(before[0]!)) {
+      leadingTarget = before;
+      optionArgs = after;
+    } else {
+      optionArgs = before;
+      trailingTarget = after;
     }
-    optionArgs = scriptArgs.slice(i);
   }
   const preArgs: string[] = [
     rawArgs[0] ?? "node",
@@ -1079,12 +1102,29 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .option(
       "--print-handoff",
       "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
-    );
+    )
+    // The launcher's mode flag, accepted and ignored wherever it appears. It
+    // must be a known option now that unknown flags are forwarded to the
+    // target (#2631): forwarded, a stray `--cli` would reach a stdio server as
+    // an argument and make a URL target fail ("Arguments cannot be passed").
+    .addOption(new Option("--cli").hideHelp());
 
   registerCompletionOption(program);
   program.parse(preArgs);
   // `--completion <shell>` (#2434): print the script and exit, no connect.
   if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
+
+  // A target cannot begin with a dash, so unknown flags ahead of its first
+  // token are not server arguments. They are dropped, as every unknown flag
+  // was before #2631 — callers pass e.g. a stray `--cli` — rather than turned
+  // into the command, which would make a catalog run a failed ad-hoc launch.
+  const parsedTarget = [...program.args];
+  if (leadingTarget.length === 0) {
+    while (parsedTarget.length > 0 && isOptionToken(parsedTarget[0]!)) {
+      parsedTarget.shift();
+    }
+  }
+  const targetArgs = [...leadingTarget, ...parsedTarget, ...trailingTarget];
 
   // `--quiet` mutes `console.warn` for the rest of the run; `runCli` restores
   // it (#2435). Core reports advisories that way from many places the CLI
