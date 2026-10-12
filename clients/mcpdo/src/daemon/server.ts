@@ -5,7 +5,11 @@ import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
-import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
+import {
+  runMethod,
+  type RunMethodOptions,
+} from "@inspector/core/cli/handlers/run-method.js";
+import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
 import {
   acceptDaemonConnection,
@@ -50,6 +54,15 @@ import {
   getLiveConnectionAuthInfo,
   ConnectionRegistry,
 } from "./connections.js";
+
+/**
+ * What every `runMethod` call from the daemon contributes on mcpdo's behalf:
+ * its own remedies for a skill `--verify` left unread under the catalog
+ * budget, rather than the one-shot CLI's flags and syntax (#2633).
+ */
+const MCPDO_RUN_OPTIONS: RunMethodOptions = {
+  skillBudgetHint: MCPDO_SKILL_BUDGET_HINT,
+};
 
 /**
  * Default channel used when a caller doesn't wire a real one (in-process
@@ -661,7 +674,7 @@ export class DaemonServer {
     const clearAmbientSignal = client.setAmbientRequestSignal(signal);
     let outcome;
     try {
-      outcome = await runMethod(client, methodArgs);
+      outcome = await runMethod(client, methodArgs, MCPDO_RUN_OPTIONS);
     } finally {
       clearAmbientSignal();
       signal?.removeEventListener("abort", onAbort);
@@ -712,7 +725,10 @@ export class DaemonServer {
     const unwire = wireElicitationBridge(client, channel, requestId);
     const outcome: Promise<RpcResult> = (async () => {
       try {
-        return toRpcResult(await runMethod(client, methodArgs), params.method);
+        return toRpcResult(
+          await runMethod(client, methodArgs, MCPDO_RUN_OPTIONS),
+          params.method,
+        );
       } finally {
         unwire();
       }
@@ -847,7 +863,7 @@ export class DaemonServer {
       params.interactive,
     );
     const methodArgs = stripConnectionFields(params);
-    const outcome = await runMethod(client, methodArgs);
+    const outcome = await runMethod(client, methodArgs, MCPDO_RUN_OPTIONS);
     if (outcome.kind !== "stream") {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,

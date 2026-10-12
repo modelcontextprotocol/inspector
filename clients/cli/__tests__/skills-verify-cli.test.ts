@@ -347,6 +347,10 @@ describe("the catalog-budget escape hatch (#2428)", () => {
       );
       if (!skipped) throw new Error(`no skipped skill in: ${listed.stdout}`);
       expect(skipped.files).toHaveLength(0);
+      // The CLI's own way to raise the budget, not another client's (#2633).
+      expect(skipped.incomplete).toContain(
+        "--skill-catalog-max-skills / --skill-catalog-max-bytes",
+      );
 
       const suggested = suggestedArgs(skipped);
       const got = await runCliCaptured([...target, ...suggested]);

@@ -13,10 +13,14 @@ import { SKILLS_EXTENSION_KEY } from "../../mcp/skillsSchemas.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { collectAppInfo } from "./collect-app-info.js";
 import {
+  CLI_SKILL_BUDGET_HINT,
   skillVerificationExitCode,
   summarizeSkillVerification,
 } from "./skills-verify.js";
-import { verifySkills } from "../../mcp/skillsVerification.js";
+import {
+  verifySkills,
+  type SkillBudgetHint,
+} from "../../mcp/skillsVerification.js";
 import type {
   CliAppInfo,
   McpResponse,
@@ -92,6 +96,20 @@ type SharedResourceSubscription = {
 };
 
 /**
+ * What the calling client contributes to {@link runMethod} beyond the request
+ * itself. Kept out of {@link MethodArgs} deliberately: mcpdo builds those from
+ * the RPC params its caller sent, and how a client names its own remedies is
+ * not something a caller should be able to supply.
+ */
+export type RunMethodOptions = {
+  /**
+   * The remedies `--verify` names for a skill past the catalog budget
+   * (#2633). Defaults to the one-shot CLI's.
+   */
+  skillBudgetHint?: SkillBudgetHint;
+};
+
+/**
  * Run one MCP method against a connected {@link InspectorClient}.
  * Core method dispatch used by the CLI (and other Inspector Node runners).
  *
@@ -102,7 +120,9 @@ type SharedResourceSubscription = {
 export async function runMethod(
   inspectorClient: InspectorClient,
   args: MethodArgs & { method: string },
+  options: RunMethodOptions = {},
 ): Promise<MethodOutcome> {
+  const skillBudgetHint = options.skillBudgetHint ?? CLI_SKILL_BUDGET_HINT;
   let managedToolsState: ManagedToolsState | null = null;
   let managedResourcesState: ManagedResourcesState | null = null;
   let managedResourceTemplatesState: ManagedResourceTemplatesState | null =
@@ -471,6 +491,7 @@ export async function runMethod(
           inspectorClient,
           skills,
           args.metadata,
+          skillBudgetHint,
         );
         return {
           kind: "ndjson",
@@ -509,6 +530,7 @@ export async function runMethod(
           inspectorClient,
           [skill],
           args.metadata,
+          skillBudgetHint,
         );
         return {
           kind: "ndjson",
