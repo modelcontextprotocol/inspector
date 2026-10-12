@@ -82,6 +82,7 @@ import {
 } from "@inspector/core/auth/node/secret-store-selection.js";
 import {
   namespaceLedgerPath,
+  recordNamespaceKeys,
   resetNamespaceLedgerWarnings,
 } from "@inspector/core/auth/node/oauth-namespace-ledger.js";
 import {
@@ -91,6 +92,7 @@ import {
   isValidSecretsNamespace,
   LEGACY_TOKENS_FIELD,
   IDP_SESSION_FIELD,
+  issuerClientSecretField,
   resetPersistTokensPolicyWarnings,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import {
@@ -843,5 +845,185 @@ describe("namespace ledger: superseded namespaces are purged (#2560)", () => {
 
     await alternate(store);
     expect(await store.get(idB, LEGACY_TOKENS_FIELD)).not.toBeNull();
+  });
+});
+
+describe("a stripped stamp keeps what only its namespace holds (#2630)", () => {
+  const OTHER = "https://other.example/mcp";
+  const SECRET_FIELD = issuerClientSecretField(ISSUER);
+
+  /** A server whose dynamically registered client is confidential. */
+  function confidentialClient(secret: string): OAuthPersistSnapshot {
+    return {
+      servers: {
+        [SERVER]: {
+          activeIssuer: ISSUER,
+          byIssuer: {
+            [ISSUER]: {
+              clientInformation: {
+                client_id: "dcr-client",
+                client_secret: secret,
+              },
+              clientRegistrationKind: "dcr",
+              tokens: tokensFor("one"),
+            },
+          },
+        },
+      },
+      idpSessions: { [ISSUER]: { idToken: "id-1", refreshToken: "rt-1" } },
+    };
+  }
+
+  /** What a ≤ 2.9.x save leaves: the same residue, no stamp. */
+  async function stripStamp(filePath: string): Promise<void> {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete parsed[SECRETS_NAMESPACE_KEY];
+    await writeStoreFile(filePath, JSON.stringify(parsed));
+    await flushStoreFileWrites(filePath);
+  }
+
+  async function loginThenStrip(store: SecretStore): Promise<string> {
+    await writeOAuthSections(
+      fileA,
+      confidentialClient("s3cret"),
+      undefined,
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    await stripStamp(fileA);
+    return ns1;
+  }
+
+  function clientOf(snapshot: OAuthPersistSnapshot | null) {
+    return snapshot?.servers[SERVER]?.byIssuer?.[ISSUER]?.clientInformation;
+  }
+
+  it("carries the client secret into the new namespace before purging the old one (the issue's repro)", async () => {
+    const store = new InMemorySecretStore();
+    const ns1 = await loginThenStrip(store);
+
+    // Any save re-adopts; this one touches an unrelated server only.
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "x" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns2 = namespaceOf(fileA);
+    expect(ns2).not.toBe(ns1);
+
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns2), SECRET_FIELD),
+    ).toBe("s3cret");
+    expect(
+      await store.get(oauthSecretServerId(SERVER, ns1), SECRET_FIELD),
+    ).toBeNull();
+    const read = await readOAuthStore(fileA, store);
+    expect(clientOf(read)?.client_secret).toBe("s3cret");
+    expect(read?.servers[SERVER]?.byIssuer?.[ISSUER]?.tokens).toEqual(
+      tokensFor("one"),
+    );
+    expect(read?.idpSessions[ISSUER]).toMatchObject({
+      idToken: "id-1",
+      refreshToken: "rt-1",
+    });
+  });
+
+  it("an unstamped file's read already sees the secret, so a save of that state keeps it", async () => {
+    const store = new InMemorySecretStore();
+    await loginThenStrip(store);
+
+    // A 2.10 process loads the stripped file, then saves the same server.
+    const loaded = await readOAuthStore(fileA, store);
+    expect(clientOf(loaded)?.client_secret).toBe("s3cret");
+    await writeOAuthSections(fileA, loaded!, { servers: [SERVER] }, store);
+    await flushStoreFileWrites(fileA);
+
+    const read = await readOAuthStore(fileA, store);
+    expect(clientOf(read)?.client_secret).toBe("s3cret");
+  });
+
+  it("a value the older Inspector wrote to the legacy id since the strip wins", async () => {
+    const store = new InMemorySecretStore();
+    await loginThenStrip(store);
+    // The older Inspector re-registered and stored its own secret.
+    await store.set(oauthSecretServerId(SERVER), SECRET_FIELD, "from-2.9");
+
+    expect(clientOf(await readOAuthStore(fileA, store))?.client_secret).toBe(
+      "from-2.9",
+    );
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "x" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      store,
+    );
+    await flushStoreFileWrites(fileA);
+    expect(
+      await store.get(
+        oauthSecretServerId(SERVER, namespaceOf(fileA)),
+        SECRET_FIELD,
+      ),
+    ).toBe("from-2.9");
+  });
+
+  it("prefers the newest recorded namespace, and fills from older ones only what it lacks", async () => {
+    const store = new InMemorySecretStore();
+    const OLD = "11111111-1111-4111-8111-111111111111";
+    const NEW = "22222222-2222-4222-8222-222222222222";
+    await recordNamespaceKeys(fileA, store, OLD, [SERVER], []);
+    await recordNamespaceKeys(fileA, store, NEW, [SERVER], []);
+    await store.set(oauthSecretServerId(SERVER, OLD), SECRET_FIELD, "old");
+    await store.set(
+      oauthSecretServerId(SERVER, OLD),
+      LEGACY_TOKENS_FIELD,
+      JSON.stringify(tokensFor("old")),
+    );
+    await store.set(oauthSecretServerId(SERVER, NEW), SECRET_FIELD, "new");
+    await writeStoreFile(
+      fileA,
+      JSON.stringify({
+        servers: {
+          [SERVER]: {
+            byIssuer: { [ISSUER]: { clientInformation: { client_id: "c" } } },
+          },
+        },
+        idpSessions: {},
+      }),
+    );
+    await flushStoreFileWrites(fileA);
+
+    const read = await readOAuthStore(fileA, store);
+    expect(clientOf(read)?.client_secret).toBe("new");
+    expect(read?.servers[SERVER]?.tokens).toEqual(tokensFor("old"));
+  });
+
+  it("a stamped file never falls back to a namespace it no longer carries", async () => {
+    const store = new InMemorySecretStore();
+    const STALE = "33333333-3333-4333-8333-333333333333";
+    await recordNamespaceKeys(fileA, store, STALE, [SERVER], []);
+    await store.set(oauthSecretServerId(SERVER, STALE), SECRET_FIELD, "stale");
+    await writeStoreFile(
+      fileA,
+      JSON.stringify({
+        [SECRETS_NAMESPACE_KEY]: "44444444-4444-4444-8444-444444444444",
+        servers: {
+          [SERVER]: {
+            byIssuer: { [ISSUER]: { clientInformation: { client_id: "c" } } },
+          },
+        },
+        idpSessions: {},
+      }),
+    );
+    await flushStoreFileWrites(fileA);
+
+    expect(
+      clientOf(await readOAuthStore(fileA, store))?.client_secret,
+    ).toBeUndefined();
   });
 });
