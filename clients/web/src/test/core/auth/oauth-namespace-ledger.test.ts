@@ -32,6 +32,7 @@ import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
   namespaceLedgerPath,
   purgeSupersededNamespaces,
+  recordedNamespaces,
   recordNamespaceKeys,
   resetNamespaceLedgerWarnings,
   secretStoreLocation,
@@ -251,6 +252,29 @@ describe("secretStoreLocation", () => {
         else process.env[name] = value;
       }
     }
+  });
+});
+
+describe("recordedNamespaces (#2630)", () => {
+  it("lists every recorded namespace, newest first", async () => {
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
+    await recordNamespaceKeys(stateFile, store, NS2, [SERVER], []);
+    // Re-recording an older namespace's keys does not move it.
+    await recordNamespaceKeys(stateFile, store, NS1, [ISSUER], []);
+    expect(await recordedNamespaces(stateFile)).toEqual([NS2, NS1]);
+  });
+
+  it("is empty without a ledger", async () => {
+    expect(await recordedNamespaces(stateFile)).toEqual([]);
+  });
+
+  it("warns and reads as empty when the ledger cannot be read", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mkdirSync(ledgerFile);
+    expect(await recordedNamespaces(stateFile)).toEqual([]);
+    expect(warn.mock.calls[0][0]).toContain(
+      "Could not read the OAuth secrets-namespace ledger",
+    );
   });
 });
 

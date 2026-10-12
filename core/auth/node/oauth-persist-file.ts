@@ -32,6 +32,9 @@
  *    the file has used, so entries under one the file no longer carries —
  *    its stamp stripped by an older Inspector's save — are purged on the
  *    next locked adoption or removal instead of orphaned in the store.
+ *    Until then, an unstamped file's reads and adoption fall back to those
+ *    namespaces for any secret the legacy ids lack (#2630), so what the
+ *    older Inspector could not see is carried over rather than purged.
  */
 
 import {
@@ -68,6 +71,7 @@ import {
 import { defaultSecretStore } from "./secret-store-selection.js";
 import {
   purgeSupersededNamespaces,
+  recordedNamespaces,
   recordNamespaceKeys,
 } from "./oauth-namespace-ledger.js";
 import { MAX_WRITE_ATTEMPTS } from "./file-secret-store.js";
@@ -355,14 +359,21 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * allowed unlocked: there is nothing to move, and a concurrent
  * mint converges via the namespace re-key in `writeOAuthSections`.
  *
- * Under the lock, adoption first purges every namespace the ledger records
- * (#2560): reaching this point means the file carries none, so each
+ * Under the lock, adoption also purges every other namespace the ledger
+ * records (#2560): reaching this point means the file carries none, so each
  * recorded one is superseded — most often a stamp an older Inspector's save
- * stripped, whose entries nothing else would ever find. A stamped file's
- * locked saves purge every recorded namespace but its own, which is how a
- * purge that failed here is retried once the store recovers. Unlocked, the purge
- * is skipped: a concurrent adopter's namespace can be recorded before it is
- * stamped, and purging it would delete live credentials.
+ * stripped, whose entries nothing else would ever find. But the stripped
+ * namespace can hold the only copy of a secret the file still indexes (a
+ * ≤ 2.9.x Inspector reads only the legacy ids, so it saves a confidential
+ * DCR client's `client_id` with no secret anywhere it can see), so the copy
+ * step reads those namespaces too, newest first, for every field the legacy
+ * ids lack, and the purge runs only after the stamp commits (#2630). A file
+ * with no entries has nothing to carry and purges straight away. A stamped
+ * file's locked saves purge every recorded namespace but its own, which is
+ * how a purge that failed here is retried once the store recovers.
+ * Unlocked, the purge is skipped: a concurrent adopter's namespace can be
+ * recorded before it is stamped, and purging it would delete live
+ * credentials.
  */
 async function adoptSecretsNamespace(
   filePath: string,
@@ -383,28 +394,21 @@ async function adoptSecretsNamespace(
   if (raw !== null && snapshot === null) {
     throw new OAuthStateFileUnrecognizedError(filePath, "save");
   }
-  if (locked) {
-    await purgeSupersededNamespaces(filePath, secretStore, undefined);
-  }
   const namespace = newSecretsNamespace();
-  if (snapshot === null) return namespace;
-
-  const moves = [
-    ...Object.entries(snapshot.servers).map(([url, state]) => ({
-      legacyId: oauthSecretServerId(url),
-      scopedId: oauthSecretServerId(url, namespace),
-      fields: serverSecretFields(state),
-    })),
-    ...Object.keys(snapshot.idpSessions).map((issuer) => ({
-      legacyId: oauthIdpSecretServerId(issuer),
-      scopedId: oauthIdpSecretServerId(issuer, namespace),
-      fields: [IDP_SESSION_FIELD],
-    })),
-  ];
   // A recognized but entry-less legacy file indexes no store ids, so no
   // destructive race exists — it mints like a fresh file, locked or not
-  // (the save that follows writes the namespace to disk).
-  if (moves.length === 0) return namespace;
+  // (the save that follows writes the namespace to disk). With no entries
+  // left to carry anything over to, every recorded namespace can go now.
+  if (
+    snapshot === null ||
+    (Object.keys(snapshot.servers).length === 0 &&
+      Object.keys(snapshot.idpSessions).length === 0)
+  ) {
+    if (locked) {
+      await purgeSupersededNamespaces(filePath, secretStore, undefined);
+    }
+    return namespace;
+  }
   if (!locked) {
     throw new SecretStoreUnavailableError(
       `Could not save OAuth state: ${filePath} predates per-state-file secret namespaces, and migrating its secret-store entries needs the file lock, which is unavailable here (see the lock warning above). Migrating without it could lose credentials if two processes migrate at once. Nothing was changed; make the lock directory writable and retry — or, if you cannot, clear this file's stored OAuth state and re-authorize (clearing does not migrate, and the fresh state file mints its namespace without the lock).`,
@@ -425,10 +429,27 @@ async function adoptSecretsNamespace(
   // under it — which makes "restore" simply "delete what we copied".
   const touched: SecretFieldSnapshot[] = [];
   try {
-    for (const { legacyId, scopedId, fields } of moves) {
-      for (const field of fields) {
-        const value = await secretStoreGetStrict(secretStore, legacyId, field);
-        if (value === null) continue;
+    // The legacy ids first, then the namespaces this file used to carry
+    // for whatever the legacy ids lack (#2630) — a stripped stamp leaves a
+    // confidential client's secret only there.
+    const values = await readEntrySecrets(
+      snapshot,
+      secretStore,
+      undefined,
+      await recordedNamespaces(filePath),
+    );
+    const copies = [
+      ...[...values.servers].map(([url, secrets]) => ({
+        scopedId: oauthSecretServerId(url, namespace),
+        secrets,
+      })),
+      ...[...values.idpSessions].map(([issuer, secrets]) => ({
+        scopedId: oauthIdpSecretServerId(issuer, namespace),
+        secrets,
+      })),
+    ];
+    for (const { scopedId, secrets } of copies) {
+      for (const [field, value] of Object.entries(secrets)) {
         touched.push({ serverId: scopedId, field, value: null });
         await secretStore.set(scopedId, field, value);
       }
@@ -438,9 +459,19 @@ async function adoptSecretsNamespace(
     await restoreSecretFields(secretStore, touched, warnRestoreFailure);
     throw error;
   }
+  // Only now, with everything the file still indexes copied under the new
+  // stamp, is every other recorded namespace safe to purge: purging first
+  // would delete the only copy of what the copies above carried over.
+  await purgeSupersededNamespaces(filePath, secretStore, namespace);
+  const legacyIds = [
+    ...Object.keys(snapshot.servers).map((url) => oauthSecretServerId(url)),
+    ...Object.keys(snapshot.idpSessions).map((issuer) =>
+      oauthIdpSecretServerId(issuer),
+    ),
+  ];
   // Per-id catch: one failed purge must not abandon the remaining legacy
   // ids — each gets its own best-effort attempt.
-  for (const { legacyId } of moves) {
+  for (const legacyId of legacyIds) {
     try {
       await secretStore.deleteAllForServer(legacyId);
     } catch (error) {
@@ -1146,39 +1177,90 @@ function secretRequestsFor(
   return requests;
 }
 
+/** The secret values each of a snapshot's entries resolves to. */
+interface EntrySecrets {
+  servers: Map<string, OAuthSecretValues>;
+  idpSessions: Map<string, OAuthSecretValues>;
+}
+
+/** Copy into `target` every field it does not already hold. */
+function fillMissingSecrets(
+  target: OAuthSecretValues,
+  source: OAuthSecretValues | undefined,
+): void {
+  for (const [field, value] of Object.entries(source ?? {})) {
+    if (!Object.hasOwn(target, field)) setOwnEntry(target, field, value);
+  }
+}
+
+/**
+ * Read every secret the snapshot's entries could hold, from the ids
+ * `namespace` gives them, then from each of `fallbacks` in order for the
+ * fields still missing (#2630). `fallbacks` is non-empty only for an
+ * unstamped file whose ledger records namespaces it used to carry (see
+ * `recordedNamespaces`): the ids the file names come first, so anything an
+ * older Inspector wrote there since the strip wins, and the stripped
+ * namespace supplies only what it alone still holds.
+ *
+ * Strict: this read hydrates the memory state that later sectioned writes
+ * diff against, so a tolerant read during a store outage would present
+ * every credential as absent — and the next save would *delete* them from
+ * the store. An unreadable store must fail the read (5xx / failed load),
+ * not masquerade as empty.
+ */
+async function readEntrySecrets(
+  snapshot: OAuthPersistSnapshot,
+  secretStore: SecretStore,
+  namespace: string | undefined,
+  fallbacks: string[],
+): Promise<EntrySecrets> {
+  const servers = new Map<string, OAuthSecretValues>();
+  const idpSessions = new Map<string, OAuthSecretValues>();
+  for (const url of Object.keys(snapshot.servers)) servers.set(url, {});
+  for (const issuer of Object.keys(snapshot.idpSessions)) {
+    idpSessions.set(issuer, {});
+  }
+  for (const source of [namespace, ...fallbacks]) {
+    const requests = secretRequestsFor(snapshot, source);
+    if (requests.length === 0) break;
+    const values = await secretStoreGetManyStrict(secretStore, requests);
+    for (const [url, target] of servers) {
+      fillMissingSecrets(target, values[oauthSecretServerId(url, source)]);
+    }
+    for (const [issuer, target] of idpSessions) {
+      fillMissingSecrets(
+        target,
+        values[oauthIdpSecretServerId(issuer, source)],
+      );
+    }
+  }
+  return { servers, idpSessions };
+}
+
 /** Rejoin a residue snapshot with the store's values (store wins). */
 async function joinSnapshot(
   snapshot: OAuthPersistSnapshot,
   secretStore: SecretStore,
   namespace: string | undefined,
+  fallbacks: string[],
 ): Promise<OAuthPersistSnapshot> {
-  const requests = secretRequestsFor(snapshot, namespace);
-  // Strict: this read hydrates the memory state that later sectioned writes
-  // diff against, so a tolerant read during a store outage would present
-  // every credential as absent — and the next save would *delete* them from
-  // the store. An unreadable store must fail the read (5xx / failed load),
-  // not masquerade as empty.
-  const values =
-    requests.length > 0
-      ? await secretStoreGetManyStrict(secretStore, requests)
-      : {};
+  const values = await readEntrySecrets(
+    snapshot,
+    secretStore,
+    namespace,
+    fallbacks,
+  );
   return {
     servers: Object.fromEntries(
       Object.entries(snapshot.servers).map(([url, state]) => [
         url,
-        joinServerOAuthState(
-          state,
-          values[oauthSecretServerId(url, namespace)] ?? {},
-        ),
+        joinServerOAuthState(state, values.servers.get(url) ?? {}),
       ]),
     ),
     idpSessions: Object.fromEntries(
       Object.entries(snapshot.idpSessions).map(([issuer, session]) => [
         issuer,
-        joinIdpSession(
-          session,
-          values[oauthIdpSecretServerId(issuer, namespace)] ?? {},
-        ),
+        joinIdpSession(session, values.idpSessions.get(issuer) ?? {}),
       ]),
     ),
   };
@@ -1331,8 +1413,14 @@ export async function readOAuthStore(
     }
 
     // Reads never adopt: a legacy file's entries stay at their legacy ids
-    // until a write mints the namespace and moves them (#2549).
-    return joinSnapshot(snapshot, secretStore, parseSecretsNamespace(raw));
+    // until a write mints the namespace and moves them (#2549). An
+    // unstamped file also falls back to the namespaces it used to carry,
+    // so the state a save starts from still holds what only they have
+    // (#2630).
+    const namespace = parseSecretsNamespace(raw);
+    const fallbacks =
+      namespace === undefined ? await recordedNamespaces(filePath) : [];
+    return joinSnapshot(snapshot, secretStore, namespace, fallbacks);
   });
 }
 
