@@ -5,8 +5,10 @@ import {
 import type { AuthChallenge } from "../../auth/challenge.js";
 
 /**
- * Wrap fetch so MCP HTTP 401/403 responses become {@link AuthChallengeError}
- * before the SDK invokes `auth()` on a frozen remote token provider.
+ * Wrap fetch so MCP HTTP auth challenges — any 401, and a 403 carrying
+ * `WWW-Authenticate` — become {@link AuthChallengeError} before the SDK invokes
+ * `auth()` on a frozen remote token provider. A bare 403 is a denial, not a
+ * challenge, and is returned as-is (#2515).
  */
 export function createAuthChallengeInterceptFetch(
   baseFetch: typeof fetch,
@@ -40,8 +42,9 @@ export function createAuthChallengeInterceptFetch(
 }
 
 /**
- * Wrap fetch so every MCP HTTP 401/403 is *reported* — control flow untouched,
- * response returned as-is.
+ * Wrap fetch so every MCP HTTP auth challenge (as classified by
+ * `parseAuthChallengeFromResponse` — a bare 403 is not one, #2515) is
+ * *reported* — control flow untouched, response returned as-is.
  *
  * This is the passive sibling of {@link createAuthChallengeInterceptFetch},
  * and it exists for the one case that one cannot cover: a first-time
