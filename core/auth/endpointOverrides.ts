@@ -24,12 +24,25 @@
  *
  * Four consequences worth knowing:
  *
- * - **A metadata document is required.** When discovery returns nothing, the SDK
- *   falls back to `/authorize` and `/token` on the authorization server's origin
- *   and there is no document to patch. That matches the feature as asked for —
- *   overriding "whatever urls the authorization server returns" — and a server
- *   publishing no metadata is already on a path where the endpoints are not
- *   being advertised in the first place.
+ * - **No metadata document means one is synthesized (#2562).** When discovery
+ *   finds nothing, the SDK falls back to `/authorize` and `/token` on the
+ *   authorization server's origin — so a gateway that publishes no metadata and
+ *   fronts an external authorization server (Entra ID, say) could never be
+ *   pointed at it, which is exactly when an override is most needed. So when
+ *   the *last* discovery candidate fails the way the SDK walks past, and an
+ *   override is configured, the wrapper answers it with a minimal document:
+ *   the configured endpoints, and for anything not overridden the very
+ *   `/authorize`, `/token` and `/register` fallbacks the SDK would have used.
+ *   Its `issuer` is the authorization-server URL the SDK was discovering, so
+ *   the issuer-echo check and the callback binding see what they would have
+ *   recorded with no document at all. The response is stamped with
+ *   {@link SYNTHESIZED_METADATA_HEADER} so the Network tab does not present it
+ *   as the server's own answer. ⚠️ The last candidate is always an
+ *   `openid-configuration` URL, which the SDK validates as an OpenID provider
+ *   document; the synthesized one is plain RFC 8414 (inventing `jwks_uri`
+ *   would be fabricating the server's keys), so it reaches the SDK through
+ *   `withRfc8414OidcCompat`, which hands it to discovery as the RFC 8414
+ *   document it is. `InspectorClient` composes the two in that order.
  * - **They do not apply to the enterprise-managed (EMA) leg.** That flow
  *   authorizes against the enterprise IdP — a different authorization server —
  *   and its OIDC discovery runs through this same fetch, so `OAuthManager`
@@ -262,6 +275,138 @@ function isJsonDocumentResponse(contentType: string | null): boolean {
   return mediaType === "application/json" || mediaType.endsWith("+json");
 }
 
+/**
+ * Response header stamped on a metadata document this module synthesized
+ * because the authorization server published none (#2562). Inspector-private
+ * (`x-inspector-`), never sent on a request — it exists so a captured Network
+ * entry does not read as a 200 the server returned.
+ */
+export const SYNTHESIZED_METADATA_HEADER =
+  "x-inspector-oauth-metadata-synthesized";
+
+/** The OpenID Connect Discovery well-known path. */
+const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
+
+/**
+ * Whether a status makes the SDK move on to the next discovery candidate —
+ * a 4xx or a 502, mirroring `discoverAuthorizationServerMetadata`. Anything
+ * else the SDK throws on, and a synthesized document must not paper over an
+ * outage the SDK would have surfaced.
+ */
+function continuesDiscovery(status: number): boolean {
+  return (status >= 400 && status < 500) || status === 502;
+}
+
+/**
+ * The authorization-server URL a request was the **final** discovery candidate
+ * for, or `undefined` when it is not one.
+ *
+ * The SDK's `buildDiscoveryUrls` always ends its list with the path-appended
+ * OIDC form, `${path}/.well-known/openid-configuration` (just
+ * `/.well-known/openid-configuration` for an authorization server at the
+ * origin), and no earlier candidate ends that way: the RFC 8414 form and the
+ * path-inserted OIDC form both carry the authorization server's path *after*
+ * the well-known segment. So "the pathname ends with the OIDC well-known path"
+ * identifies the last candidate, and stripping that suffix recovers the
+ * authorization server it was built from. Synthesizing anywhere earlier would
+ * pre-empt a document a later candidate actually serves.
+ */
+export function authorizationServerForFinalCandidate(
+  url: string,
+): string | undefined {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return undefined;
+  }
+  if (!parsed.pathname.endsWith(OIDC_WELL_KNOWN)) return undefined;
+  const path = parsed.pathname.slice(0, -OIDC_WELL_KNOWN.length);
+  return `${parsed.origin}${path}`;
+}
+
+/**
+ * A minimal RFC 8414 metadata document for an authorization server that
+ * publishes none, carrying the configured overrides (#2562).
+ *
+ * Every endpoint not overridden is the fallback the SDK itself uses when
+ * discovery returns nothing (`startAuthorization`, `executeTokenRequest`,
+ * `registerClient`: `/authorize`, `/token`, `/register` resolved against the
+ * authorization server URL), so overriding one endpoint changes that endpoint
+ * and nothing else. `registration_endpoint` is required for that: with a
+ * document present the SDK refuses dynamic registration unless the document
+ * advertises it, where with none it would have tried `/register`.
+ */
+export function synthesizeAuthorizationServerMetadata(
+  issuer: string,
+  overrides: OAuthEndpointOverrides,
+): Record<string, unknown> {
+  return {
+    issuer,
+    authorization_endpoint:
+      overrides.authorizationUrl ?? new URL("/authorize", issuer).href,
+    token_endpoint: overrides.tokenUrl ?? new URL("/token", issuer).href,
+    registration_endpoint: new URL("/register", issuer).href,
+    response_types_supported: ["code"],
+    code_challenge_methods_supported: ["S256"],
+  };
+}
+
+/**
+ * The effective HTTP method of a `fetch` call, normalized. `fetch` defaults to
+ * `GET` and treats the method case-insensitively.
+ */
+function requestMethodOf(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): string {
+  if (init?.method) return init.method.toUpperCase();
+  if (typeof input !== "string" && !(input instanceof URL)) {
+    return input.method.toUpperCase();
+  }
+  return "GET";
+}
+
+/**
+ * The synthesized-document response for a failed final discovery candidate,
+ * or `undefined` when this failure is not one discovery would walk past.
+ */
+function synthesizedMetadataResponse(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  response: Response,
+  overrides: OAuthEndpointOverrides,
+): Response | undefined {
+  if (!continuesDiscovery(response.status)) return undefined;
+  // Discovery is a `GET`; an endpoint that merely lives under a well-known
+  // path answering some other method is not ours to replace.
+  if (requestMethodOf(input, init) !== "GET") return undefined;
+  const issuer = authorizationServerForFinalCandidate(requestUrlOf(input));
+  if (!issuer) return undefined;
+
+  // The failed response is dropped, so release its connection. Detached: the
+  // cancel is permitted never to settle, and nothing here may wait on it —
+  // the `void` is the callee-owns-its-failures case, since the `.catch`
+  // swallows a body already consumed or locked.
+  void response.body?.cancel().catch(() => {});
+  console.warn(
+    `[oauth] ${issuer} publishes no authorization server metadata; using ` +
+      `the configured endpoint override(s) in place of the SDK's ` +
+      `/authorize and /token fallbacks.`,
+  );
+  return new Response(
+    JSON.stringify(synthesizeAuthorizationServerMetadata(issuer, overrides)),
+    {
+      status: 200,
+      statusText: "OK",
+      headers: {
+        "content-type": "application/json",
+        [SYNTHESIZED_METADATA_HEADER]: "endpoint-overrides",
+      },
+    },
+  );
+}
+
 /** Rebuild a response around a replacement body, preserving status/headers. */
 function responseWithBody(response: Response, body: string): Response {
   const headers = new Headers(response.headers);
@@ -316,7 +461,12 @@ export function withOAuthEndpointOverrides(
     // Cheapest tests first: only a discovery request can carry the document
     // this wrapper rewrites, so ordinary traffic never reaches the clone below.
     if (!isAuthorizationServerMetadataRequest(input)) return response;
-    if (!response.ok) return response;
+    if (!response.ok) {
+      return (
+        synthesizedMetadataResponse(input, init, response, overrides) ??
+        response
+      );
+    }
     if (!isJsonDocumentResponse(response.headers.get("content-type")))
       return response;
 
