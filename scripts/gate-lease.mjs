@@ -82,7 +82,9 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import nodeFs, {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -156,9 +158,10 @@ export const MAX_WAIT_MS = 45 * 60_000;
  * - **POSIX:** `/tmp/mcp-inspector-gate-lease-<uid>`. `/tmp` is the one
  *   temporary directory every POSIX system has at a fixed path, and the uid
  *   suffix keeps two users of a shared box from contending for one directory
- *   neither can remove. A directory another user planted there that this one
- *   cannot write degrades to an unleased run with a warning, like any other
- *   unusable lease directory.
+ *   neither can remove. Because the name is predictable, a directory or
+ *   symlink another user planted there first is refused rather than adopted
+ *   ({@link assertTrustedLeaseDir}) and degrades to an unleased run with a
+ *   warning, like any other unusable lease directory.
  * - **Windows:** under the account's profile directory, read from the account
  *   (`os.userInfo()`) rather than from `%USERPROFILE%`, `%TEMP%` or `%TMP%`.
  *   Only if that lookup fails does it fall back to `os.tmpdir()`.
@@ -191,6 +194,43 @@ export function leaseDir(
     base = tmpdir();
   }
   return path.win32.join(base, "mcp-inspector-gate-lease");
+}
+
+/**
+ * Refuse a lease directory this user does not control, and make it private.
+ *
+ * The POSIX default is a predictable name in world-writable `/tmp`, and
+ * `mkdirSync(..., { recursive: true })` succeeds silently over an entry that
+ * is already there. Another local user who created that path first — as a
+ * directory they own, or as a symlink — would otherwise be adopted: they
+ * could remove the lock out from under a running gate (two gates overlap
+ * again, the thing this exists to prevent), and the holder record would be
+ * written wherever the symlink points. So the directory must be a real
+ * directory, not a symlink, owned by this uid; it is tightened to `0700`
+ * when it is not already. Throws otherwise, which the caller turns into the
+ * same unleased-with-a-warning run as any unusable lease directory. The same
+ * check guards mcpdo's `/tmp` root (`assertTrustedPrivateRoot` in
+ * `clients/mcpdo/src/daemon/paths.ts`). A no-op on Windows, which has no uid
+ * and no POSIX modes, and whose default lives under the account's profile.
+ *
+ * @param {string} dir
+ * @param {{ getuid?: () => number }} [host] injectable: the tests cannot
+ *   create a directory owned by a second user without root
+ */
+export function assertTrustedLeaseDir(dir, { getuid = process.getuid } = {}) {
+  if (typeof getuid !== "function") return;
+  const st = lstatSync(dir);
+  if (!st.isDirectory()) {
+    throw new Error(
+      `refusing ${dir}: not a directory (a file or symlink is in its place)`,
+    );
+  }
+  if (st.uid !== getuid()) {
+    throw new Error(
+      `refusing ${dir}: owned by uid ${st.uid}, not this user (uid ${getuid()})`,
+    );
+  }
+  if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
 }
 
 /**
@@ -678,7 +718,8 @@ export async function runUnderLease({
   } else {
     let usable = true;
     try {
-      mkdirSync(dir, { recursive: true });
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      assertTrustedLeaseDir(dir);
     } catch (err) {
       usable = false;
       log(

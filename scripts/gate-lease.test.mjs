@@ -10,12 +10,15 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import nodeFs from "node:fs";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -25,6 +28,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertTrustedLeaseDir,
   DIR_ENV,
   SKIP_ENV,
   STALE_MS,
@@ -477,6 +481,65 @@ test("a lease directory that cannot exist degrades to an unleased run", async ()
   assert.match(
     lines.join("\n"),
     /could not create .*; running without the lease/,
+  );
+});
+
+test(
+  "a symlink planted at the lease directory is refused, not followed",
+  {
+    skip:
+      process.platform === "win32" && "no POSIX ownership checks on Windows",
+  },
+  async () => {
+    const parent = freshDir();
+    const target = join(parent, "elsewhere");
+    mkdirSync(target);
+    const dir = join(parent, "lease");
+    symlinkSync(target, dir);
+    const { lines, log } = collectLog();
+    assert.equal(await runNode("", { dir, log }), 0);
+    assert.match(
+      lines.join("\n"),
+      /not a directory.*running without the lease/,
+    );
+    assert.deepEqual(readdirSync(target), [], "nothing was written through it");
+  },
+);
+
+test(
+  "assertTrustedLeaseDir: a directory owned by another uid is refused",
+  {
+    skip:
+      process.platform === "win32" && "no POSIX ownership checks on Windows",
+  },
+  () => {
+    const dir = freshDir();
+    const other = process.getuid() + 1;
+    assert.throws(
+      () => assertTrustedLeaseDir(dir, { getuid: () => other }),
+      new RegExp(
+        `owned by uid ${process.getuid()}, not this user \\(uid ${other}\\)`,
+      ),
+    );
+  },
+);
+
+test(
+  "assertTrustedLeaseDir: an open mode is tightened to 0700",
+  {
+    skip: process.platform === "win32" && "no POSIX modes on Windows",
+  },
+  () => {
+    const dir = freshDir();
+    chmodSync(dir, 0o777);
+    assertTrustedLeaseDir(dir);
+    assert.equal(statSync(dir).mode & 0o777, 0o700);
+  },
+);
+
+test("assertTrustedLeaseDir: a no-op without getuid (Windows)", () => {
+  assert.doesNotThrow(() =>
+    assertTrustedLeaseDir(join(freshDir(), "missing"), { getuid: null }),
   );
 });
 
