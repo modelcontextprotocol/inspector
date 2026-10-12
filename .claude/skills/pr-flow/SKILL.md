@@ -83,13 +83,41 @@ branch cut from `v2/main` arrives at `v1/main` carrying the whole v2 tree
 (Copilot). And never cut from a milestone-merge branch — it carries release-only
 commits that will show up in your PR's diff.
 
-Working in a git worktree is fine and often preferable. ⚠️ **A worktree needs a
-real `npm install`, not a symlinked `node_modules`** — a symlink passes
-lint/test/coverage and then fails all Storybook story files on Vite's
-`fs.allow`.
+**Always cut it into a new git worktree, never by switching branches in the
+primary checkout** (#2661). This repo is routinely worked by several agent
+sessions on one machine at once, and they share the primary checkout: a
+`git switch` there moves the branch out from under every other session using
+it, and carries one task's uncommitted edits, build output and `node_modules`
+state into another's. A worktree per issue gives each task its own tree and
+leaves the primary checkout alone.
+
+Run it from the primary checkout. The worktree is a **sibling** directory named
+for the checkout plus the issue number (`mcp-inspector-v2` →
+`../mcp-inspector-v2-2661`), never a directory inside the repo, where every
+lint, format and typecheck scope would see a second copy of the source:
+
+```sh
+git fetch origin
+git worktree add --no-track "../$(basename "$PWD")-<ISSUE_NUMBER>" \
+  -b v2/fix/<ISSUE_NUMBER>-<slug> origin/v2/main     # origin/v1/main for v1
+cd "../$(basename "$PWD")-<ISSUE_NUMBER>"
+npm install
+```
+
+- `--no-track` keeps the new branch from tracking `origin/v2/main`, so
+  `git status` does not report your work as "ahead of v2/main" and the first
+  push is an explicit `git push -u origin <branch>` to a branch of its own name.
+- ⚠️ **The `npm install` is part of the step, not optional.** A worktree starts
+  with no `node_modules`, and it needs a **real** install — a symlinked
+  `node_modules` passes lint/test/coverage and then fails all Storybook story
+  files on Vite's `fs.allow`. Background it if you have edits to make first;
+  the gate needs it finished.
+- Every later step — edits, the gate, commits, the push — runs **inside the
+  worktree**.
 
 For order-dependent PRs on one issue, **stack** them: each branch is based on the
-previous one, not all cut from `v2/main`.
+previous one, not all cut from `v2/main` — so the child's worktree is cut from
+the parent branch (`git worktree add … -b <child> <parent-branch>`).
 
 ## 3. Sign off every commit
 
@@ -453,3 +481,16 @@ nothing else.
 `Done` is only for work that **shipped** — a merged PR, or a parent whose last
 sub-issue closed. Anything else (duplicate, won't fix, not planned, obsolete)
 means nothing shipped, so **delete the card** instead; see `/board-ops`.
+
+**Then remove the worktree and its local branch**, from the primary checkout,
+once the PR shows as merged (or closed, for work abandoned). A stale worktree
+keeps its branch checked out — git refuses to check that branch out anywhere
+else — and holds a full `node_modules` on disk per issue:
+
+```sh
+git worktree remove "../$(basename "$PWD")-<ISSUE_NUMBER>"
+git branch -D v2/fix/<ISSUE_NUMBER>-<slug>
+```
+
+`git worktree remove` refuses a worktree with uncommitted or untracked changes;
+read what is there before reaching for `--force`.
