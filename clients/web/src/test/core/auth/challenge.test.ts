@@ -181,6 +181,29 @@ describe("parseAuthChallengeFromResponse", () => {
       "unauthorized",
     );
   });
+
+  // #2515: a 403 without WWW-Authenticate is an ordinary denial of the
+  // operation, not an OAuth challenge.
+  it("returns undefined for a 403 without WWW-Authenticate", () => {
+    const response = new Response(null, { status: 403 });
+    expect(parseAuthChallengeFromResponse(response)).toBeUndefined();
+  });
+
+  it("returns undefined for a 403 with an empty WWW-Authenticate", () => {
+    const response = new Response(null, {
+      status: 403,
+      headers: { "WWW-Authenticate": "" },
+    });
+    expect(parseAuthChallengeFromResponse(response)).toBeUndefined();
+  });
+
+  it("still treats a 401 without WWW-Authenticate as a challenge", () => {
+    const response = new Response(null, { status: 401 });
+    expect(parseAuthChallengeFromResponse(response)).toEqual({
+      reason: "token_expired",
+      raw: { httpStatus: 401 },
+    });
+  });
 });
 
 describe("parseAuthChallengeFromError", () => {

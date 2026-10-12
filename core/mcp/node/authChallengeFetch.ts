@@ -18,7 +18,8 @@ export function createAuthChallengeInterceptFetch(
     }
 
     const challenge = parseAuthChallengeFromResponse(response);
-    /* v8 ignore next 3 -- parseAuthChallengeFromResponse only returns undefined for non-401/403, which the status guard above already excludes */
+    // A 403 with no `WWW-Authenticate` is an ordinary denial, not a challenge
+    // (#2515): hand it to the transport untouched so the MCP caller sees it.
     if (!challenge) {
       return response;
     }
@@ -63,7 +64,7 @@ export function createAuthChallengeObserverFetch(
     const response = await baseFetch(input, init);
     if (response.status === 401 || response.status === 403) {
       const challenge = parseAuthChallengeFromResponse(response);
-      /* v8 ignore next 3 -- parseAuthChallengeFromResponse only returns undefined for non-401/403, which the status guard above already excludes */
+      // Undefined for a bare 403, which is a denial, not a challenge (#2515).
       if (challenge) {
         onChallenge(challenge);
       }

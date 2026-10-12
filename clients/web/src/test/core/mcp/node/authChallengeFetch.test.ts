@@ -86,6 +86,20 @@ describe("createAuthChallengeInterceptFetch", () => {
       AuthChallengeError,
     );
   });
+
+  // #2515: a bare 403 is a denial — it must reach the MCP caller as-is, with
+  // its body intact, rather than start OAuth recovery.
+  it("passes through a 403 without WWW-Authenticate untouched", async () => {
+    const baseFetch = vi.fn(
+      async () => new Response("forbidden", { status: 403 }),
+    );
+    const fetchFn = createAuthChallengeInterceptFetch(baseFetch);
+
+    const res = await fetchFn("https://example.com/mcp");
+
+    expect(res.status).toBe(403);
+    expect(await res.text()).toBe("forbidden");
+  });
 });
 
 describe("createAuthChallengeObserverFetch", () => {
@@ -132,6 +146,21 @@ describe("createAuthChallengeObserverFetch", () => {
     expect(onChallenge).toHaveBeenCalledWith(
       expect.objectContaining({ reason: "insufficient_scope" }),
     );
+  });
+
+  it("stays silent on a 403 without WWW-Authenticate", async () => {
+    const baseFetch = vi.fn(
+      async () => new Response("forbidden", { status: 403 }),
+    );
+    const onChallenge = vi.fn();
+
+    const res = await createAuthChallengeObserverFetch(
+      baseFetch,
+      onChallenge,
+    )("https://example.com/mcp");
+
+    expect(res.status).toBe(403);
+    expect(onChallenge).not.toHaveBeenCalled();
   });
 
   it("stays silent on a non-challenge response", async () => {

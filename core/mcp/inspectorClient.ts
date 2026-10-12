@@ -1845,9 +1845,10 @@ export class InspectorClient extends InspectorClientEventTarget {
           // for that upstream gap and should be deleted with it.
           //
           // Known, accepted side effect of turning intercept on with no stored
-          // tokens: `parseAuthChallengeFromResponse` treats 403 as a challenge
-          // too, so a probe answered 403 for a *non-auth* reason (a gateway
-          // rejecting the unknown `server/discover` method, say) now starts OAuth
+          // tokens: `parseAuthChallengeFromResponse` treats a 403 carrying
+          // `WWW-Authenticate` as a challenge too, so a probe answered that way
+          // for a *non-auth* reason (a gateway rejecting the unknown
+          // `server/discover` method, say) now starts OAuth
           // discovery instead of letting "auto" fall back to the legacy
           // `initialize`. The outcome is a surfaced `oauthError`, not a hang, and
           // it goes away with this clause.
