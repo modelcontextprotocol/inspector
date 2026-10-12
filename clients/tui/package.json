@@ -29,7 +29,7 @@
   },
   "dependencies": {
     "ink": "^6.0.0",
-    "ink-form": "^2.0.1",
+    "ink-form": "^2.0.2",
     "ink-scroll-view": "^0.3.6"
   },
   "overrides": {
