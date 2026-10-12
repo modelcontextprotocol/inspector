@@ -3,7 +3,11 @@ import type { LoggingLevel } from "@modelcontextprotocol/client";
 import { fn } from "storybook/test";
 import { LogStreamPanel } from "./LogStreamPanel";
 import type { LogEntryData } from "../../elements/LogEntry/LogEntry";
-import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
+import {
+  expectNoHorizontalOverflow,
+  expectScrollbarGutterIdleHidden,
+} from "../../../test/scrollAreaStoryAssertions";
+import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
 
 const meta: Meta<typeof LogStreamPanel> = {
   title: "Groups/LogStreamPanel",
@@ -78,5 +82,31 @@ export const WithEntries: Story = {
   // List scrollbar reserves a gutter and stays hidden when idle (#1474).
   play: async ({ canvasElement }) => {
     await expectScrollbarGutterIdleHidden(canvasElement);
+  },
+};
+
+// A long unbroken token (a URI, a hash) and a long logger name in the sidebar
+// must wrap or shrink inside the row, never widen the list (#2675).
+export const EmbeddedLongContent: Story = {
+  args: {
+    embedded: true,
+    entries: [
+      {
+        receivedAt: new Date("2026-03-17T10:00:01Z"),
+        params: {
+          level: "info",
+          logger: "resources.minted.gzip-file-as-resource",
+          data: "Minted demo://resource/minted/c05df264-ed9c-44a4-a81d-c2d7f3b9e1a0/gzip-file-as-resource/compressed-payload.gz",
+        },
+      },
+      {
+        receivedAt: new Date("2026-03-17T10:00:02Z"),
+        params: { level: "debug", data: "short line" },
+      },
+    ],
+  },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
   },
 };

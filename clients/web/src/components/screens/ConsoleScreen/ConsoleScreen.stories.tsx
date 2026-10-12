@@ -5,6 +5,8 @@ import { expect, fn, userEvent, within } from "storybook/test";
 import type { StderrLogEntry } from "../../../../../../core/mcp/types.js";
 import { ConsoleScreen } from "./ConsoleScreen";
 import { EMPTY_CONSOLE_UI } from "../screenUiState";
+import { expectNoHorizontalOverflow } from "../../../test/scrollAreaStoryAssertions";
+import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
 
 // ConsoleScreen is controlled (the search text lives in the parent as `ui` —
 // see #1417). This wrapper holds that state so the play-driven search actually
@@ -83,5 +85,25 @@ export const FilterBySearch: Story = {
         "ModuleNotFoundError: No module named 'mcp_server_time'",
       ),
     ).toBeInTheDocument();
+  },
+};
+
+// A long unbroken stderr token in the sidebar must wrap inside the line, never
+// widen the list (#2675).
+export const EmbeddedLongContent: Story = {
+  args: {
+    embedded: true,
+    entries: [
+      ...sampleEntries,
+      {
+        timestamp: new Date("2026-03-17T10:00:02Z"),
+        message:
+          "FileNotFoundError: /usr/local/lib/python3.12/site-packages/mcp_server_time/resources/minted/c05df264-ed9c-44a4-a81d-c2d7f3b9e1a0.gz",
+      },
+    ],
+  },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
   },
 };
