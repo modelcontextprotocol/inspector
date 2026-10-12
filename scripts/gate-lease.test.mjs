@@ -20,7 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve, win32 } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
@@ -108,13 +108,59 @@ function isAlive(pid) {
   }
 }
 
-test("leaseDir: explicit override, then XDG_RUNTIME_DIR, then tmpdir", () => {
-  assert.equal(leaseDir({ [DIR_ENV]: "/x/y" }), "/x/y");
+test("leaseDir: the explicit override wins", () => {
+  assert.equal(leaseDir({ [DIR_ENV]: "/x/y" }), resolve("/x/y"));
+});
+
+test("leaseDir: POSIX is a fixed per-uid path under /tmp, whatever the session sets (#2624)", () => {
+  const posix = { platform: "darwin", uid: () => 501 };
+  const expected = "/tmp/mcp-inspector-gate-lease-501";
+  // The #2624 overlap: one gate under the default macOS TMPDIR, one under
+  // `TMPDIR=/tmp`. Both — and an XDG desktop session — must land on one lock.
+  for (const env of [
+    {},
+    { TMPDIR: "/var/folders/xy/abc/T/" },
+    { TMPDIR: "/tmp" },
+    { XDG_RUNTIME_DIR: "/run/user/501" },
+  ]) {
+    assert.equal(leaseDir(env, posix), expected, JSON.stringify(env));
+  }
   assert.equal(
-    leaseDir({ XDG_RUNTIME_DIR: "/run/user/1" }),
-    join("/run/user/1", "mcp-inspector-gate-lease"),
+    leaseDir({}, { platform: "linux", uid: () => 1000 }),
+    "/tmp/mcp-inspector-gate-lease-1000",
   );
-  assert.equal(leaseDir({}), join(tmpdir(), "mcp-inspector-gate-lease"));
+});
+
+test("leaseDir: on this host it does not follow TMPDIR", () => {
+  // Undefined `env` would default to process.env; pass two that differ only
+  // in TMPDIR and check the real-host default ignores the difference.
+  assert.equal(leaseDir({ TMPDIR: "/a" }), leaseDir({ TMPDIR: "/b" }));
+});
+
+test("leaseDir: Windows keys on the account profile, not %TEMP%", () => {
+  assert.equal(
+    leaseDir(
+      { TEMP: "D:\\elsewhere", TMP: "D:\\elsewhere" },
+      { platform: "win32", home: () => "C:\\Users\\dev" },
+    ),
+    "C:\\Users\\dev\\AppData\\Local\\mcp-inspector-gate-lease",
+  );
+  // No profile record: fall back to tmpdir rather than run unleased.
+  assert.equal(
+    leaseDir(
+      {},
+      {
+        platform: "win32",
+        home: () => {
+          throw new Error("no passwd entry");
+        },
+      },
+    ),
+    win32.join(tmpdir(), "mcp-inspector-gate-lease"),
+  );
+});
+
+test("lockPathOf: the lock is a sibling of the target", () => {
   // The lock is a sibling of the target, never inside it — a file inside the
   // lock directory would make its removal (and so stale takeover) fail.
   assert.equal(lockPathOf("/d"), `${leaseTarget("/d")}.lock`);
