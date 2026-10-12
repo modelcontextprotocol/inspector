@@ -51,19 +51,23 @@ disconnects without invoking anything. It is the cheapest possible "is the
 server alive and speaking MCP" assertion, and the right first line of a smoke
 job.
 
-⚠️ **If your stdio server takes flags of its own, you need a `--` separator, and
-it splits the opposite way from the web and TUI clients.** Under `--cli`,
-everything **before** `--` is the target command and everything **after** is the
-Inspector's own options:
+A stdio server's own flags can follow the command directly
+(`node build/index.js --verbose --method tools/list`): any flag the Inspector
+does not define is passed to the server. ⚠️ **A server flag the Inspector
+_also_ defines needs a `--` separator.** When the line starts with the target,
+everything **before** `--` is the target command, taken verbatim, and
+everything **after** is the Inspector's own options — the opposite of the web
+and TUI clients:
 
 ```bash
 npx @modelcontextprotocol/inspector --cli \
   node build/index.js --config ./server.conf -- --method tools/list
 ```
 
-Without the `--`, the target is only the leading run of non-dash tokens, so
-`--config ./server.conf` would be eaten by the Inspector (and rejected as a
-conflict with its own `--config` flag).
+Without the `--`, `--config ./server.conf` would be eaten by the Inspector (and
+rejected as a conflict with its own `--config` flag). The full rules, including
+the `<options> -- <server args>` form, are in
+[MCP server configuration](./mcp-server-configuration.md#the----separator).
 
 **Always bound the connect.** `--connect-timeout <ms>` defaults to `15000` for
 ad-hoc `--server-url`/target runs and to the file-level timeout for
