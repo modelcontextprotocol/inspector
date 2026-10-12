@@ -267,7 +267,14 @@ export function openBrowser(url: string): void {
   // event on the child, which no `.catch` here could see and which crashed
   // the server at startup (#2533). `openUrl` turns it into a rejection.
   openUrl(url).catch((err: unknown) => {
-    console.warn("Could not open a browser automatically:", err);
+    // The message only, on one line, matching the CLI's wording
+    // (`core/cli/cli-oauth-navigation.ts`). Logging the error object printed
+    // a stack plus `spawnargs`, which carry the tokenized launch URL — a
+    // second copy of the token for anyone pasting the error (#2645).
+    const reason = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `Could not open a browser automatically (${reason}). Open the URL above manually.`,
+    );
   });
 }
 
