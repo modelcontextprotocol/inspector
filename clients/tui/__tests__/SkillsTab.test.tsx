@@ -997,6 +997,11 @@ describe("SkillsTab verify all (#2590)", () => {
     expect(frame).toContain("Incomplete:");
     expect(frame).toContain("catalog budget of 1 skills");
     expect(frame).toContain("Verification INCOMPLETE");
+    // The pane's own remedies — its launch flags and Enter — not the web's
+    // settings screen or the one-shot CLI's syntax (#2633).
+    expect(frame).toContain("--skill-catalog-max-skills");
+    expect(frame).toContain("by selecting it and pressing Enter");
+    expect(frame).not.toContain("--method");
   });
 
   it("covers the whole catalog even while a filter narrows the list", async () => {

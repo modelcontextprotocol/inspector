@@ -43,6 +43,7 @@ import {
 } from "@inspector/core/mcp/skillsSchemas.js";
 import {
   verifySkills,
+  type SkillBudgetHint,
   type SkillFileReport,
   type SkillVerifyReport,
 } from "@inspector/core/mcp/skillsVerification.js";
@@ -113,6 +114,18 @@ const FILE_COLOR: Record<string, string> = {
   unverifiable: "yellow",
   error: "red",
   "read-error": "red",
+};
+
+/**
+ * The pane's remedies for a skill `v` left unread under the catalog budget
+ * (#2633): the TUI raises it with its launch flags, and verifies one skill with
+ * Enter — which always reads that skill in full, since a run of one is never
+ * past the budget.
+ */
+const TUI_SKILL_BUDGET_HINT: SkillBudgetHint = {
+  raise:
+    "with --skill-catalog-max-skills / --skill-catalog-max-bytes at launch",
+  verifyOne: "by selecting it and pressing Enter",
 };
 
 /**
@@ -318,7 +331,12 @@ export function SkillsTab({
       // this key handler — which cannot await — to own.
       void (async () => {
         try {
-          const results = await verifySkills(inspectorClient, entries);
+          const results = await verifySkills(
+            inspectorClient,
+            entries,
+            undefined,
+            TUI_SKILL_BUDGET_HINT,
+          );
           // Read AFTER the run, so a listing that changed while it was in
           // flight is the one pruned against.
           const live = new Set(skillsRef.current.map(skillEntryKey));

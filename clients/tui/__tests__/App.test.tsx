@@ -135,8 +135,13 @@ const h = vi.hoisted(() => {
     // The options the mount effect built for this server. Captured so a test
     // can assert what was actually handed to the client — `defaultMetadata`
     // and the `environment.fetch` proxy wiring (#2067), both of which are
-    // invisible to a render-only assertion.
-    opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } };
+    // invisible to a render-only assertion — plus the connect-timeout remedy
+    // (#2615).
+    opts?: {
+      defaultMetadata?: unknown;
+      environment?: { fetch?: unknown };
+      connectionTimeoutRemedy?: string;
+    };
   }> = [];
   // What the mocked `createProxyFetch` returns. `undefined` is the real
   // behavior with no proxy env var set; a test points this at a sentinel to
@@ -167,11 +172,19 @@ const h = vi.hoisted(() => {
   class FakeClient {
     cfg: { type?: string; url?: string } | undefined;
     opts:
-      | { defaultMetadata?: unknown; environment?: { fetch?: unknown } }
+      | {
+          defaultMetadata?: unknown;
+          environment?: { fetch?: unknown };
+          connectionTimeoutRemedy?: string;
+        }
       | undefined;
     constructor(
       config?: { type?: string; url?: string },
-      opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } },
+      opts?: {
+        defaultMetadata?: unknown;
+        environment?: { fetch?: unknown };
+        connectionTimeoutRemedy?: string;
+      },
     ) {
       this.cfg = config;
       this.opts = opts;
@@ -390,7 +403,7 @@ vi.mock("../src/utils/openUrl.js", () => ({
   openUrl: h.openUrl,
 }));
 
-import App from "../src/App.js";
+import App, { TUI_CONNECTION_TIMEOUT_REMEDY } from "../src/App.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { TuiServer } from "../src/tui-servers.js";
 import {
@@ -1450,6 +1463,17 @@ describe("App (input handling, focus, effects)", () => {
       team: "alpha",
       trace: { id: "abc", hops: [1, 2] },
     });
+  });
+
+  it("names mcp.json's connectionTimeout, not Server Settings, as the timeout remedy (#2615)", async () => {
+    const r = await mount(httpWithSettings());
+    await expectFrame(r, "MCP Servers");
+    const web = h.clientInstances.find((c) => c.cfg?.url === "http://x");
+    expect(web?.opts?.connectionTimeoutRemedy).toBe(
+      TUI_CONNECTION_TIMEOUT_REMEDY,
+    );
+    expect(TUI_CONNECTION_TIMEOUT_REMEDY).toContain("connectionTimeout");
+    expect(TUI_CONNECTION_TIMEOUT_REMEDY).not.toContain("Server Settings");
   });
 
   it("passes top-level oauth client credentials into an http client", async () => {

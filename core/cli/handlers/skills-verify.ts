@@ -16,9 +16,37 @@ import {
   allSkillsVerified,
   anySkillFailed,
   anySkillUnverifiable,
+  type SkillBudgetHint,
   type SkillVerifyReport,
 } from "../../mcp/skillsVerification.js";
 import { EXIT_CODES } from "../error-handler.js";
+
+/**
+ * The one-shot CLI's remedies for a skill past the catalog budget (#2633).
+ *
+ * ⚠️ The command carries `--verify`. It once named only
+ * `--method skills/get --uri`, which on its own prints the skill and checks
+ * nothing — so the escape hatch returned no verdict at all (#2428).
+ * `skills-verify-cli.test.ts` runs the command back through the CLI.
+ */
+export const CLI_SKILL_BUDGET_HINT: SkillBudgetHint = {
+  raise:
+    "with --skill-catalog-max-skills / --skill-catalog-max-bytes, or the server's skillCatalogMaxSkills / skillCatalogMaxBytes",
+  verifyOne:
+    "with `--method skills/get --uri <uri> --verify`, where <uri> is this report's uri,",
+};
+
+/**
+ * mcpdo's remedies (#2633). It has no `--skill-catalog-max-*` flags — the
+ * daemon holds the connection, so the budget comes from the catalog entry —
+ * and it takes the skill URI positionally on a named connection.
+ */
+export const MCPDO_SKILL_BUDGET_HINT: SkillBudgetHint = {
+  raise:
+    "with skillCatalogMaxSkills / skillCatalogMaxBytes in the connection's catalog entry",
+  verifyOne:
+    "with `mcpdo @<conn> skills/get <uri> --verify`, where <uri> is this report's uri,",
+};
 
 /**
  * The exit code for a `--verify` run, or `undefined` for success.
