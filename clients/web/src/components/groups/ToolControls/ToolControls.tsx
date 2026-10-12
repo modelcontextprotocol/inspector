@@ -24,6 +24,7 @@ import {
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 import { toolRowKey } from "../../../utils/toolUtils";
+import { formatCountedLabel } from "../../../utils/listCount";
 
 export interface ToolControlsProps {
   tools: Tool[];
@@ -167,10 +168,20 @@ export function ToolControls({
     }))
     .filter(({ tool }) => !searchText || matchesQuery(tool, query));
 
+  // The server's total, not the search-filtered view: the header answers "how
+  // many tools does this server expose" (#2607). Omitted after a failed load,
+  // where "(0)" would read as an empty server.
+  const title = formatCountedLabel(
+    "Tools",
+    loadError
+      ? undefined
+      : { count: tools.length, partial: pagination.canLoadMore },
+  );
+
   return (
     <SidebarStack>
       <Group justify="space-between">
-        <ToolsTitle>Tools</ToolsTitle>
+        <ToolsTitle>{title}</ToolsTitle>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <SearchInput

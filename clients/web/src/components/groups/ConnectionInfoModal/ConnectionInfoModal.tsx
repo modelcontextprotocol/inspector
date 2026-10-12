@@ -9,6 +9,7 @@ import type { ServerType } from "@inspector/core/mcp/types.js";
 import type { ConnectionDiagnostics } from "@inspector/core/mcp/connectionDiagnostics.js";
 import {
   ConnectionInfoContent,
+  type ListCounts,
   type OAuthDetails,
 } from "../ConnectionInfoContent/ConnectionInfoContent";
 
@@ -41,6 +42,8 @@ export interface ConnectionInfoModalProps {
   discoverResult?: DiscoverResult;
   /** Live connection activity for the Connection Activity section (#2318). */
   diagnostics?: ConnectionDiagnostics;
+  /** Per-capability list counts for the Server Capabilities column (#2607). */
+  listCounts?: ListCounts;
   oauth?: OAuthDetails;
   onClearOAuth?: () => void;
 }
@@ -55,6 +58,7 @@ export function ConnectionInfoModal({
   protocolEra,
   discoverResult,
   diagnostics,
+  listCounts,
   oauth,
   onClearOAuth,
 }: ConnectionInfoModalProps) {
@@ -84,6 +88,7 @@ export function ConnectionInfoModal({
             protocolEra={protocolEra}
             discoverResult={discoverResult}
             diagnostics={diagnostics}
+            listCounts={listCounts}
             oauth={oauth}
             onClearOAuth={onClearOAuth}
           />

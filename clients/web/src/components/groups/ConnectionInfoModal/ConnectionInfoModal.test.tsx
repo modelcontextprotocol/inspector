@@ -56,6 +56,21 @@ describe("ConnectionInfoModal", () => {
     expect(screen.getByText("Be excellent to each other.")).toBeInTheDocument();
   });
 
+  it("forwards list counts to ConnectionInfoContent (#2607)", () => {
+    renderWithMantine(
+      <ConnectionInfoModal
+        opened
+        onClose={vi.fn()}
+        initializeResult={initializeResult}
+        serverInfoReported
+        clientCapabilities={clientCapabilities}
+        transport="stdio"
+        listCounts={{ tools: { count: 70, partial: false } }}
+      />,
+    );
+    expect(screen.getByText("Tools (70)")).toBeInTheDocument();
+  });
+
   it("forwards connection diagnostics to ConnectionInfoContent (#2318)", () => {
     renderWithMantine(
       <ConnectionInfoModal

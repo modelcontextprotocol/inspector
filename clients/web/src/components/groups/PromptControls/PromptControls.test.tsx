@@ -50,7 +50,7 @@ function ControlledPromptControls(props: Partial<PromptControlsProps>) {
 describe("PromptControls", () => {
   it("renders the title and search input", () => {
     renderWithMantine(<PromptControls {...baseProps} />);
-    expect(screen.getByText("Prompts")).toBeInTheDocument();
+    expect(screen.getByText("Prompts (5)")).toBeInTheDocument();
     expect(
       screen.getByPlaceholderText("Search prompts..."),
     ).toBeInTheDocument();
@@ -157,8 +157,33 @@ describe("PromptControls", () => {
 
   it("renders empty list when no prompts", () => {
     renderWithMantine(<PromptControls {...baseProps} prompts={[]} />);
-    expect(screen.getByText("Prompts")).toBeInTheDocument();
+    expect(screen.getByText("Prompts (0)")).toBeInTheDocument();
     expect(screen.queryByText("translate")).not.toBeInTheDocument();
+  });
+
+  // The header counts the server's whole list, so a search narrowing the view
+  // must not change it (#2607).
+  it("counts every prompt, not just the ones the search matches", () => {
+    renderWithMantine(<PromptControls {...baseProps} searchText="trans" />);
+    expect(screen.getByText("Prompts (5)")).toBeInTheDocument();
+  });
+
+  it("marks the count as a lower bound while more pages remain", () => {
+    renderWithMantine(
+      <PromptControls
+        {...baseProps}
+        pagination={{ ...noopPagination, paginated: true, canLoadMore: true }}
+      />,
+    );
+    expect(screen.getByText("Prompts (5+)")).toBeInTheDocument();
+  });
+
+  it("omits the count after a failed load", () => {
+    renderWithMantine(
+      <PromptControls {...baseProps} prompts={[]} loadError={new Error("x")} />,
+    );
+    expect(screen.getByText("Prompts")).toBeInTheDocument();
+    expect(screen.queryByText("Prompts (0)")).not.toBeInTheDocument();
   });
 
   // A failed load is rendered above the list instead of leaving the panel

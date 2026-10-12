@@ -24,6 +24,16 @@ export const SupportedWithCount: Story = {
   },
 };
 
+// Paginated mode with a `nextCursor` still unloaded: the count is a lower bound.
+export const SupportedWithPartialCount: Story = {
+  args: {
+    capability: "tools",
+    supported: true,
+    count: 10,
+    partial: true,
+  },
+};
+
 export const NotSupported: Story = {
   args: {
     capability: "completions",

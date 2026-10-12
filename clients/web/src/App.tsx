@@ -110,6 +110,7 @@ import {
 import { downloadJsonFile } from "./lib/downloadFile";
 import { serverWithDraftSettings } from "./utils/serverWithDraftSettings";
 import { offersRunAsTask } from "./utils/toolUtils";
+import { listCountOf } from "./utils/listCount";
 import { enrichProtocolEntries } from "./utils/correlateTransportErrors";
 import { visibleMalformedListItems } from "./utils/malformedListReport";
 import { parseDeepLink, deepLinkParseStatus } from "./utils/deepLink";
@@ -2125,6 +2126,11 @@ function App() {
           protocolEra={protocolEra}
           discoverResult={discoverResult}
           diagnostics={connectionDiagnostics}
+          listCounts={{
+            tools: listCountOf(toolsPagination),
+            prompts: listCountOf(promptsPagination),
+            resources: listCountOf(resourcesPagination),
+          }}
           oauth={connectionInfoOAuth}
           onClearOAuth={
             connectionInfoCanClearOAuth ? handleClearConnectionOAuth : undefined
