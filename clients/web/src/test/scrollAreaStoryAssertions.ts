@@ -32,6 +32,13 @@ export async function expectScrollbarGutterIdleHidden(
 // edges are rounded independently, so an exact `<=` can fail on a fit.
 const LAYOUT_EPSILON_PX = 1;
 
+// Whether an element generates a box at all. `display: none` (a collapsed
+// section) yields no client rects, while a flex item squeezed to zero width
+// still has one — so this tells "not shown" apart from "shown but crushed".
+function isRendered(element: Element): boolean {
+  return element.getClientRects().length > 0;
+}
+
 /**
  * Assert nothing in a list `ScrollArea` overflows its viewport horizontally:
  * the viewport does not scroll sideways, every row, card and button ends
@@ -66,9 +73,12 @@ export async function expectNoHorizontalOverflow(canvasElement: HTMLElement) {
     );
   }
   for (const button of viewport.querySelectorAll("button")) {
+    // Only a button that isn't rendered at all (inside a collapsed section)
+    // is exempt. A rendered one squeezed to zero width is the very collapse
+    // this helper exists to catch, so it must fail rather than be skipped.
+    if (!isRendered(button)) continue;
     const rect = button.getBoundingClientRect();
-    // A button inside a collapsed section has no box; it can't clip.
-    if (rect.width === 0) continue;
+    await expect(rect.width).toBeGreaterThan(0);
     await expect(rect.right).toBeLessThanOrEqual(right + LAYOUT_EPSILON_PX);
   }
   // A box that fits can still clip its own text: a squeezed button or badge
@@ -76,7 +86,7 @@ export async function expectNoHorizontalOverflow(canvasElement: HTMLElement) {
   for (const label of viewport.querySelectorAll<HTMLElement>(
     ".mantine-Button-label, .mantine-Badge-label",
   )) {
-    if (label.clientWidth === 0) continue;
+    if (!isRendered(label)) continue;
     await expect(label.scrollWidth).toBeLessThanOrEqual(
       label.clientWidth + LAYOUT_EPSILON_PX,
     );
