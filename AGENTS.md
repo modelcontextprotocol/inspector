@@ -396,6 +396,7 @@ skills; the rules are here.
 - **Attach screenshots as proof of functionality** for any web-UI or TUI change. Put them in a **`pr-screenshots/`** folder off the repo root — it is **gitignored**, so the images are staged for upload and never committed — and name them for what they show.
 - ⚠️ Closing keywords only auto-link and auto-close for PRs targeting the **default branch** (`main`). A v2 PR targets `v2/main`, so `Closes #N` there is only a cross-reference and the card shows no linked PR. **Link it explicitly** with the `addCloseIssueReferences` GraphQL mutation right after opening the PR (recipe in `pr-flow`, step 6). **On merge, manually close the issue and move the card to Done.** Keep the line anyway, so the issues close if/when `v2/main` reaches `main`.
 - **If new tasks are discovered during development, create issues** and add them to the board.
+- **Pace bulk GitHub writes: 1 s between requests, never in parallel, under 80 a minute and 500 an hour.** The secondary limit refuses while `gh api rate_limit` still shows quota, and most `gh` writes are GraphQL. After a refusal, wait out `retry-after`, or a minute without one; a refused create can still land, so look before retrying.
 
 ### Responding to Code Reviews
 
