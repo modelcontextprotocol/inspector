@@ -417,6 +417,9 @@ describe("authorizationServerForFinalCandidate", () => {
     "https://gateway.example.com/",
     "https://gateway.example.com/tenant",
     "https://gateway.example.com/tenant/",
+    // An issuer whose own path ends in the OIDC suffix makes *every* candidate
+    // end that way; only the last may be claimed (Copilot).
+    "https://gateway.example.com/tenant/.well-known/openid-configuration",
   ])("identifies only the SDK's last candidate for %s", (asUrl) => {
     const candidates = buildDiscoveryUrls(asUrl).map((c) => c.url.href);
     const matched = candidates.map(authorizationServerForFinalCandidate);
@@ -424,6 +427,14 @@ describe("authorizationServerForFinalCandidate", () => {
       candidates.slice(0, -1).map(() => undefined),
     );
     expect(matched.at(-1)).toBe(asUrl.replace(/\/$/, ""));
+  });
+
+  it("declines an issuer whose path begins with a well-known segment", () => {
+    expect(
+      authorizationServerForFinalCandidate(
+        "https://gateway.example.com/.well-known/openid-configuration/x/.well-known/openid-configuration",
+      ),
+    ).toBeUndefined();
   });
 
   it("rejects a URL that will not parse", () => {

@@ -301,6 +301,9 @@ export function isSynthesizedMetadataResponse(response: Response): boolean {
 /** The OpenID Connect Discovery well-known path. */
 const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
 
+/** The RFC 8414 well-known path. */
+const RFC8414_WELL_KNOWN = "/.well-known/oauth-authorization-server";
+
 /**
  * Whether a status makes the SDK move on to the next discovery candidate —
  * a 4xx or a 502, mirroring `discoverAuthorizationServerMetadata`. Anything
@@ -318,12 +321,20 @@ function continuesDiscovery(status: number): boolean {
  * The SDK's `buildDiscoveryUrls` always ends its list with the path-appended
  * OIDC form, `${path}/.well-known/openid-configuration` (just
  * `/.well-known/openid-configuration` for an authorization server at the
- * origin), and no earlier candidate ends that way: the RFC 8414 form and the
- * path-inserted OIDC form both carry the authorization server's path *after*
- * the well-known segment. So "the pathname ends with the OIDC well-known path"
- * identifies the last candidate, and stripping that suffix recovers the
- * authorization server it was built from. Synthesizing anywhere earlier would
- * pre-empt a document a later candidate actually serves.
+ * origin). The earlier candidates — the RFC 8414 form and the path-inserted
+ * OIDC form — both carry the authorization server's path *after* a well-known
+ * segment, so they start with `/.well-known/oauth-authorization-server/` or
+ * `/.well-known/openid-configuration/`. Ending with the suffix alone is not
+ * enough: an authorization server whose own path ends in
+ * `/.well-known/openid-configuration` makes every candidate end that way
+ * (Copilot). So the final candidate is the one that ends with the suffix and
+ * does **not** start with a well-known prefix, and stripping the suffix
+ * recovers the authorization server it was built from. Synthesizing anywhere
+ * earlier would pre-empt a document a later candidate actually serves.
+ *
+ * The one URL this declines that is genuinely final is an authorization server
+ * whose own path begins with a well-known segment. That only means no
+ * synthesis — discovery falls back exactly as it did before #2562.
  */
 export function authorizationServerForFinalCandidate(
   url: string,
@@ -334,9 +345,16 @@ export function authorizationServerForFinalCandidate(
   } catch {
     return undefined;
   }
-  if (!parsed.pathname.endsWith(OIDC_WELL_KNOWN)) return undefined;
-  const path = parsed.pathname.slice(0, -OIDC_WELL_KNOWN.length);
-  return `${parsed.origin}${path}`;
+  const { pathname } = parsed;
+  if (pathname === OIDC_WELL_KNOWN) return parsed.origin;
+  if (!pathname.endsWith(OIDC_WELL_KNOWN)) return undefined;
+  if (
+    pathname.startsWith(`${RFC8414_WELL_KNOWN}/`) ||
+    pathname.startsWith(`${OIDC_WELL_KNOWN}/`)
+  ) {
+    return undefined;
+  }
+  return `${parsed.origin}${pathname.slice(0, -OIDC_WELL_KNOWN.length)}`;
 }
 
 /**
