@@ -291,6 +291,14 @@ function reasonFromHttpResponse(
 /**
  * Build an AuthChallenge from an MCP HTTP response (401 / 403).
  * Returns undefined when the response is not an auth challenge.
+ *
+ * A 403 is a challenge only when it carries `WWW-Authenticate`. A bare 403 is
+ * an ordinary denial of that one operation — the server understood the
+ * credentials and refuses anyway — so treating it as a challenge started OAuth
+ * discovery and client registration against servers with no authorization
+ * server at all (#2515). Left undefined, the 403 reaches the MCP caller as a
+ * normal error. A bare 401 is still a challenge: 401 says the credentials
+ * themselves were not accepted.
  */
 export function parseAuthChallengeFromResponse(
   response: Response,
@@ -301,7 +309,10 @@ export function parseAuthChallengeFromResponse(
     return undefined;
   }
 
-  const wwwAuthenticate = response.headers.get("WWW-Authenticate") ?? undefined;
+  const wwwAuthenticate = response.headers.get("WWW-Authenticate") || undefined;
+  if (status === 403 && !wwwAuthenticate) {
+    return undefined;
+  }
   const bearer = wwwAuthenticate
     ? parseWwwAuthenticateBearer(wwwAuthenticate)
     : {};
