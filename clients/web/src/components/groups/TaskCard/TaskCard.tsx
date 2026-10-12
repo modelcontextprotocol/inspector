@@ -40,9 +40,14 @@ const TaskContainer = Card.withProps({
   variant: "inset",
 });
 
+// Wraps, so in a column too narrow for the title, the Cancel Task control and
+// the status badge all on one line (the 320px sidebar), the controls drop onto
+// a line of their own instead of being squeezed until their labels clip
+// (#2675).
 const HeaderRow = Group.withProps({
   justify: "space-between",
-  wrap: "nowrap",
+  wrap: "wrap",
+  gap: "xs",
 });
 
 const TaskIdText = Text.withProps({
@@ -88,9 +93,11 @@ const HeaderLeftGroup = Group.withProps({
 
 const HeaderRightGroup = Group.withProps({
   gap: "xs",
-  // Keep the Cancel Task control and the status badge together on the header's
-  // first row rather than letting the badge wrap beneath the button.
+  // Keep the Cancel Task control and the status badge together rather than
+  // letting the badge wrap beneath the button.
   wrap: "nowrap",
+  // Stays right-aligned when the header wraps it below the title.
+  ml: "auto",
 });
 
 const SectionTitle = Text.withProps({

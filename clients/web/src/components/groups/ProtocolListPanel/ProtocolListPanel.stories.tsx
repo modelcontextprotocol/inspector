@@ -2,7 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { MessageEntry } from "../../../../../../core/mcp/types.js";
 import { fn } from "storybook/test";
 import { ProtocolListPanel } from "./ProtocolListPanel.js";
-import { expectScrollbarGutterIdleHidden } from "../../../test/scrollAreaStoryAssertions";
+import {
+  expectNoHorizontalOverflow,
+  expectScrollbarGutterIdleHidden,
+} from "../../../test/scrollAreaStoryAssertions";
+import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
 
 const meta: Meta<typeof ProtocolListPanel> = {
   title: "Groups/ProtocolListPanel",
@@ -188,5 +192,71 @@ export const ModernWithMrtr: Story = {
     protocolEra: "modern",
     visibleDirections: { client: true, server: true },
     compact: false,
+  },
+};
+
+// The reported case (#2675): a `resources/read` of a minted resource whose URI
+// is far wider than the sidebar, beside short entries, plus a push
+// notification carrying a long subscription id. The URI must scroll
+// inside its own row; no card — short ones included — may widen past the
+// column, and every card's controls must stay on screen.
+const LONG_URI =
+  "demo://resource/minted/c05df264-ed9c-44a4-a81d-c2d7f3b9e1a0/gzip-file-as-resource/compressed-payload-with-a-very-long-name.gz";
+
+const longTargetEntries: MessageEntry[] = [
+  sampleEntries[0],
+  {
+    id: "req-long-uri",
+    timestamp: new Date("2026-03-17T10:03:00Z"),
+    direction: "request",
+    origin: "client",
+    message: {
+      jsonrpc: "2.0",
+      id: 5,
+      method: "resources/read",
+      params: { uri: LONG_URI },
+    },
+    response: {
+      jsonrpc: "2.0",
+      id: 5,
+      result: { contents: [{ uri: LONG_URI, text: "H4sIAAAAAAAAA..." }] },
+    },
+    duration: 12,
+  },
+  sampleEntries[3],
+  {
+    id: "notif-long-sub",
+    timestamp: new Date("2026-03-17T10:04:00Z"),
+    direction: "notification",
+    origin: "server",
+    message: {
+      jsonrpc: "2.0",
+      method: "notifications/resources/updated",
+      params: {
+        uri: LONG_URI,
+        _meta: {
+          "io.modelcontextprotocol/subscriptionId":
+            "listen:c05df264-ed9c-44a4-a81d-c2d7f3b9e1a0",
+        },
+      },
+    },
+  },
+];
+
+export const EmbeddedLongTarget: Story = {
+  args: { entries: longTargetEntries, embedded: true },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
+  },
+};
+
+// Same entries expanded, so the request/response JSON — which repeats the URI —
+// is held to the same rule as the header.
+export const EmbeddedLongTargetExpanded: Story = {
+  args: { entries: longTargetEntries, embedded: true, compact: false },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    await expectNoHorizontalOverflow(canvasElement);
   },
 };
