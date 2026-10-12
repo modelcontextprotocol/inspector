@@ -22,6 +22,26 @@ const testStatePath = path.join(
   `mcp-inspector-oauth-${process.pid}-storage-node.json`,
 );
 
+// Several cases below write to and clear whatever getStateFilePath()
+// resolves. integrationStorageSetup.ts points it at a temp directory (#2670).
+// A guard, not a test: a failed `it` would not stop the destructive cases
+// after it, but a throwing `beforeEach` fails every case before its body runs,
+// so a broken setup can never clear a real ~/.mcp-inspector/storage/oauth.json.
+// It runs before any nested `beforeEach`, so the resolution suite's own
+// unsetting of the variable does not trip it.
+beforeEach(() => {
+  const resolved = getStateFilePath();
+  if (
+    !resolved.startsWith(os.tmpdir()) ||
+    resolved.includes(path.join(".mcp-inspector", "storage"))
+  ) {
+    throw new Error(
+      `Default OAuth store resolves to ${resolved}, outside the test temp ` +
+        `directory; integrationStorageSetup.ts is not in effect (#2670).`,
+    );
+  }
+});
+
 async function resetTestStorage(stateFilePath: string): Promise<void> {
   try {
     await fs.unlink(stateFilePath);
@@ -575,16 +595,6 @@ describe("NodeOAuthStorage with custom storagePath", () => {
         /* ignore */
       }
     }
-  });
-
-  it("resolves the default store outside the developer's home directory", () => {
-    // The default-store cases below write to and clear whatever
-    // getStateFilePath() resolves. integrationStorageSetup.ts points it at a
-    // temp directory (#2670); if that ever stops holding, fail here rather
-    // than clear a real ~/.mcp-inspector/storage/oauth.json.
-    const resolved = getStateFilePath();
-    expect(resolved.startsWith(os.tmpdir())).toBe(true);
-    expect(resolved).not.toContain(path.join(".mcp-inspector", "storage"));
   });
 
   it("clearAllOAuthClientState clears every server in the default store", async () => {
