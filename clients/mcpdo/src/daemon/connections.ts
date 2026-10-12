@@ -35,6 +35,7 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
   AuthRecoveryRequiredError,
@@ -857,6 +858,9 @@ async function createConnectionClient(
       name: CONNECTION_CLIENT_NAME,
       version: readInspectorVersion(import.meta.url),
     },
+    // `mcpdo connect` takes the same --connect-timeout as the one-shot CLI, so
+    // a timeout names that rather than the web's Server Settings (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,

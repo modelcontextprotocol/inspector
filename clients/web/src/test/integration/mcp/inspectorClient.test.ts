@@ -477,6 +477,37 @@ describe("InspectorClient", () => {
       );
     });
 
+    it("appends the client-supplied remedy instead of the web's Server Settings wording (#2615)", async () => {
+      const fakeFactory = () => ({ transport: hangingTransport() });
+      const remedy = "To accommodate a slower server, pass --connect-timeout.";
+      client = new InspectorClient(
+        { type: "streamable-http", url: "http://localhost:1/never" },
+        {
+          environment: { transport: fakeFactory },
+          connectionTimeoutRemedy: remedy,
+          serverSettings: {
+            headers: [],
+            env: [],
+            metadata: {},
+            connectionTimeout: 50,
+            requestTimeout: 0,
+            taskTtl: 0,
+            maxFetchRequests: 1000,
+            roots: [],
+          },
+        },
+      );
+      const error = await client.connect().then(
+        () => undefined,
+        (err: unknown) => err,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe(
+        connectionTimeoutMessage(50, remedy),
+      );
+      expect((error as Error).message).not.toContain("Server Settings");
+    });
+
     it("bounds connect() with DEFAULT_CONNECTION_TIMEOUT_MS when the settings carry no timeout (#2320)", async () => {
       // No serverSettings at all — the shape every consumer that never opened
       // Server Settings hands the client. Before #2320 that meant "no bound",

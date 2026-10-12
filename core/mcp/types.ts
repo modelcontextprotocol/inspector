@@ -1265,6 +1265,14 @@ export interface InspectorClientOptions {
   pipeStderr?: boolean;
 
   /**
+   * The sentence `connect()` appends to its connect-time timeout error, naming
+   * where this client's user raises the timeout (#2615). Defaults to the web
+   * client's Server Settings wording; the CLI, mcpdo and TUI pass their own,
+   * since none of them has that form.
+   */
+  connectionTimeoutRemedy?: string;
+
+  /**
    * Initial logging level to set after connection, via `logging/setLevel`.
    * If not provided, the logging level will not be set automatically.
    *
