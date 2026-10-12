@@ -62,11 +62,13 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/l
 
 You can also connect to remote MCP servers using HTTP or SSE transports.
 
-**Connect to a remote MCP server (default is SSE)**
+**Connect to a remote MCP server (transport inferred from a `/mcp` or `/sse` path)**
 
 ```bash
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com/mcp --method tools/list
 ```
+
+There is no default transport: a URL whose path ends in neither `/mcp` nor `/sse` needs an explicit `--transport http` or `--transport sse`, as below. A target is either a positional command/URL or `--server-url`, never both, and `--transport stdio` cannot be used with a URL — either combination is refused rather than resolved by precedence.
 
 **Connect with Streamable HTTP transport**
 

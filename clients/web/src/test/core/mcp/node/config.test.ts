@@ -20,6 +20,7 @@ import {
   serverSourceConflict,
   readServerListFile,
   getNamedServerConfigs,
+  type ServerConfigOptions,
 } from "@inspector/core/mcp/node/config.js";
 
 describe("parseKeyValuePair", () => {
@@ -465,6 +466,73 @@ describe("resolveServerConfigs — single mode", () => {
     expect(() =>
       resolveServerConfigs({ target: ["cmd"], transport: "sse" }, "single"),
     ).toThrow(/Only stdio transport can be used with local commands/);
+  });
+
+  it("rejects a positional command combined with --server-url (#2611)", () => {
+    expect(() =>
+      resolveServerConfigs(
+        {
+          target: ["node", "./server.js"],
+          serverUrl: "https://example.com/mcp",
+        },
+        "single",
+      ),
+    ).toThrow(
+      /Cannot combine a positional target \(node\) with --server-url \(https:\/\/example\.com\/mcp\)/,
+    );
+  });
+
+  it("rejects a positional URL combined with --server-url", () => {
+    expect(() =>
+      resolveServerConfigs(
+        {
+          target: ["https://a.example.com/mcp"],
+          serverUrl: "https://b.example.com/mcp",
+        },
+        "single",
+      ),
+    ).toThrow(/Cannot combine a positional target/);
+  });
+
+  it("rejects --transport stdio with a --server-url ending in /mcp", () => {
+    expect(() =>
+      resolveServerConfigs(
+        { transport: "stdio", serverUrl: "https://example.com/mcp" },
+        "single",
+      ),
+    ).toThrow(/stdio transport cannot be used with a URL/);
+  });
+
+  it("rejects --transport stdio with an unhinted URL rather than calling it unspecified", () => {
+    expect(() =>
+      resolveServerConfigs(
+        { transport: "stdio", target: ["https://example.com/foo"] },
+        "single",
+      ),
+    ).toThrow(/stdio transport cannot be used with a URL/);
+  });
+
+  it("rejects an unrecognized transport with a URL instead of sniffing the path", () => {
+    // The web launcher passes --transport through unvalidated, so an
+    // arbitrary string can reach the builder at runtime.
+    const transport: string = "bogus";
+    expect(() =>
+      resolveServerConfigs(
+        {
+          transport: transport as ServerConfigOptions["transport"],
+          serverUrl: "https://example.com/mcp",
+        },
+        "single",
+      ),
+    ).toThrow(/Invalid transport type: bogus/);
+  });
+
+  it("respects an explicit --transport sse over a /mcp path", () => {
+    const [config] = resolveServerConfigs(
+      { transport: "sse", serverUrl: "https://example.com/mcp" },
+      "single",
+    );
+    expect(config).toEqual({ type: "sse", url: "https://example.com/mcp" });
   });
 
   it("requires a target when no config path is given", () => {
