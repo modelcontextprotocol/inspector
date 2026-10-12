@@ -1202,12 +1202,6 @@ export function InspectorView({
                 listChanged={toolsListChanged}
                 loadError={toolsLoadError}
                 serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
-                modernTasks={
-                  protocolEra === "modern" &&
-                  initializeResult?.capabilities?.extensions?.[
-                    TASKS_EXTENSION_KEY
-                  ] !== undefined
-                }
                 onUiChange={onToolsUiChange}
                 onRefreshList={onRefreshTools}
                 pagination={toolsPagination}
