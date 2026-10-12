@@ -3565,3 +3565,292 @@ describe("SchemaForm enlarge keyboard access (#2138)", () => {
     expect(noteField().tagName).toBe("INPUT");
   });
 });
+
+describe("SchemaForm array-of-object fields (#2561)", () => {
+  // The issue's own example, as Rust `schemars` emits it: the item shape lives
+  // under `$defs` and the array points at it. Through `toFormSchema`, as the
+  // Tools panel does, so the local `$ref` is inlined first.
+  const issueSchema = toFormSchema({
+    type: "object",
+    properties: {
+      email: { type: "string" },
+      items: { type: "array", items: { $ref: "#/$defs/Item" } },
+    },
+    required: ["email", "items"],
+    $defs: {
+      Item: {
+        type: "object",
+        properties: {
+          sku: { type: "string", description: "Product SKU" },
+          quantity: { type: "integer", description: "Units to return" },
+        },
+        required: ["sku", "quantity"],
+      },
+    },
+  })!;
+
+  function Harness({
+    schema,
+    initial = {},
+    onValues,
+    onValidityChange,
+  }: {
+    schema: InspectorFormSchema;
+    initial?: Record<string, unknown>;
+    onValues?: (values: Record<string, unknown>) => void;
+    onValidityChange?: (invalid: boolean) => void;
+  }) {
+    const [values, setValues] = useState<Record<string, unknown>>(initial);
+    return (
+      <SchemaForm
+        schema={schema}
+        values={values}
+        onChange={(next) => {
+          setValues(next);
+          onValues?.(next);
+        }}
+        onValidityChange={onValidityChange}
+      />
+    );
+  }
+
+  it("renders a row per item with the item schema's labels and descriptions", () => {
+    renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{ sku: "A1", quantity: 2 }] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Item 1")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /sku/ })).toHaveValue("A1");
+    expect(screen.getByRole("textbox", { name: /quantity/ })).toHaveValue("2");
+    expect(screen.getByText("Product SKU")).toBeInTheDocument();
+    expect(screen.getByText("Units to return")).toBeInTheDocument();
+    expect(screen.queryByLabelText("items")).not.toBeInTheDocument();
+  });
+
+  it("shows an empty list with an add button when there are no items", () => {
+    renderWithMantine(
+      <SchemaForm schema={issueSchema} values={{}} onChange={vi.fn()} />,
+    );
+    expect(screen.getByText("No items")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Add item to items" }),
+    ).toBeEnabled();
+  });
+
+  it("treats an explicit null as an empty list", () => {
+    renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: null }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("No items")).toBeInTheDocument();
+  });
+
+  it("adds, edits and removes items", async () => {
+    const user = userEvent.setup();
+    const onValues = vi.fn();
+    renderWithMantine(<Harness schema={issueSchema} onValues={onValues} />);
+
+    await user.click(screen.getByRole("button", { name: "Add item to items" }));
+    expect(onValues).toHaveBeenLastCalledWith({ items: [{}] });
+
+    await user.type(screen.getByRole("textbox", { name: /sku/ }), "A1");
+    await user.type(screen.getByRole("textbox", { name: /quantity/ }), "3");
+    expect(onValues).toHaveBeenLastCalledWith({
+      items: [{ sku: "A1", quantity: 3 }],
+    });
+
+    await user.click(screen.getByRole("button", { name: "Add item to items" }));
+    expect(onValues).toHaveBeenLastCalledWith({
+      items: [{ sku: "A1", quantity: 3 }, {}],
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove item 1 from items" }),
+    );
+    expect(onValues).toHaveBeenLastCalledWith({ items: [{}] });
+    expect(screen.getAllByRole("textbox", { name: /sku/ })[0]).toHaveValue("");
+  });
+
+  it("seeds a new item with the item schema's defaults and constants", async () => {
+    const user = userEvent.setup();
+    const onValues = vi.fn();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        lines: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "line" },
+              quantity: { type: "integer", default: 1 },
+            },
+            required: ["kind"],
+          },
+        },
+      },
+    };
+    renderWithMantine(<Harness schema={schema} onValues={onValues} />);
+    await user.click(screen.getByRole("button", { name: "Add item to lines" }));
+    expect(onValues).toHaveBeenLastCalledWith({
+      lines: [{ kind: "line", quantity: 1 }],
+    });
+  });
+
+  it("keeps a row's local state with that row when one above is removed", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <Harness
+        schema={issueSchema}
+        initial={{ items: [{ sku: "first" }, { sku: "second" }] }}
+      />,
+    );
+    // Enlarging a string field is state the row's own form holds, so it shows
+    // whether the row that survives is the same mounted row.
+    await user.click(screen.getAllByRole("textbox", { name: /sku/ })[1]);
+    await user.keyboard("{Enter}");
+    expect(screen.getAllByRole("textbox", { name: /sku/ })[1].tagName).toBe(
+      "TEXTAREA",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove item 1 from items" }),
+    );
+    const remaining = screen.getByRole("textbox", { name: /sku/ });
+    expect(remaining.tagName).toBe("TEXTAREA");
+    expect(remaining).toHaveValue("second\n");
+  });
+
+  it("honors maxItems and minItems on the add and remove buttons", async () => {
+    const user = userEvent.setup();
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        pair: {
+          type: "array",
+          minItems: 1,
+          maxItems: 2,
+          items: { type: "object", properties: { x: { type: "string" } } },
+        },
+      },
+    };
+    renderWithMantine(<Harness schema={schema} initial={{ pair: [{}] }} />);
+    const add = screen.getByRole("button", { name: "Add item to pair" });
+    expect(
+      screen.getByRole("button", { name: "Remove item 1 from pair" }),
+    ).toBeDisabled();
+
+    await user.click(add);
+    expect(add).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Remove item 1 from pair" }),
+    ).toBeEnabled();
+  });
+
+  it("disables the add and remove buttons when the form is disabled", () => {
+    renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{}] }}
+        onChange={vi.fn()}
+        disabled
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Add item to items" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Remove item 1 from items" }),
+    ).toBeDisabled();
+  });
+
+  it("follows an external change to the array's length", () => {
+    const { rerender } = renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{ sku: "a" }] }}
+        onChange={vi.fn()}
+      />,
+    );
+    rerender(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{ sku: "a" }, { sku: "b" }, { sku: "c" }] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole("textbox", { name: /sku/ })).toHaveLength(3);
+    rerender(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("No items")).toBeInTheDocument();
+  });
+
+  it("surfaces a row's invalid draft through the outer form, and clears it when the row goes", async () => {
+    const user = userEvent.setup();
+    const onValidityChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={issueSchema}
+        initial={{ items: [{}] }}
+        onValidityChange={onValidityChange}
+      />,
+    );
+    await user.type(screen.getByRole("textbox", { name: /quantity/ }), "-");
+    expect(onValidityChange).toHaveBeenLastCalledWith(true);
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove item 1 from items" }),
+    );
+    expect(onValidityChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("renders rows for a nullable item schema", () => {
+    const schema: InspectorFormSchema = {
+      type: "object",
+      properties: {
+        rows: {
+          type: "array",
+          items: {
+            anyOf: [
+              { type: "object", properties: { name: { type: "string" } } },
+              { type: "null" },
+            ],
+          },
+        },
+      },
+    };
+    renderWithMantine(
+      <SchemaForm
+        schema={schema}
+        values={{ rows: [{ name: "n" }] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("textbox", { name: /name/ })).toHaveValue("n");
+  });
+
+  it("keeps the JSON editor for a value the rows cannot show", () => {
+    renderWithMantine(
+      <SchemaForm
+        schema={issueSchema}
+        values={{ items: [{ sku: "a" }, 7] }}
+        onChange={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Add item to items" }),
+    ).not.toBeInTheDocument();
+    expect(getAceTextByLabel(/items/)).toContain("7");
+  });
+});
