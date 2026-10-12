@@ -26,6 +26,16 @@ import {
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
 import { callDaemon } from "../src/daemon/client.js";
 
+/** Budget for each mcpdo command, matching the sibling suites' `runMcp` calls. */
+const COMMAND_TIMEOUT_MS = 20_000;
+/**
+ * The test runs three commands in sequence, so its own budget must exceed all
+ * three together — otherwise Vitest's 15s default cuts in before a slow
+ * command's own timer can name it (an inner budget must be the tighter one;
+ * see AGENTS.md "Test-gate timeouts"), plus headroom for the HTTP server.
+ */
+const TEST_TIMEOUT_MS = 3 * COMMAND_TIMEOUT_MS + 10_000;
+
 /**
  * The reports of a `--verify` run under `--format json`, which mcpdo prints as
  * one JSON array — or a failure naming what the run printed instead.
@@ -63,76 +73,80 @@ describe("mcpdo skills catalog-budget hint (#2633)", () => {
     }
   });
 
-  it("names mcpdo's remedies, and the suggested command verifies the skipped skill", async () => {
-    const server = createTestServerHttp({
-      serverInfo: createTestServerInfo("skills-budget", "1.0.0"),
-      skills: true,
-    });
-    try {
-      await server.start();
-      configPath = createTestConfig({
-        mcpServers: {
-          skills: {
-            type: "streamable-http",
-            url: server.url,
-            skillCatalogMaxSkills: 1,
+  it(
+    "names mcpdo's remedies, and the suggested command verifies the skipped skill",
+    async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo("skills-budget", "1.0.0"),
+        skills: true,
+      });
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: {
+            skills: {
+              type: "streamable-http",
+              url: server.url,
+              skillCatalogMaxSkills: 1,
+            },
           },
-        },
-      });
-      storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcpdo-budget-"));
-      const env = {
-        MCP_STORAGE_DIR: storageDir,
-        MCP_INSPECTOR_DAEMON_DIR: storageDir,
-      };
+        });
+        storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcpdo-budget-"));
+        const env = {
+          MCP_STORAGE_DIR: storageDir,
+          MCP_INSPECTOR_DAEMON_DIR: storageDir,
+        };
 
-      expectCliSuccess(
-        await runMcp(
-          ["connect", "skills", "--config", configPath, "--format", "json"],
-          { env, timeout: 20000 },
-        ),
-      );
-
-      const listed = await runMcp(
-        ["@skills", "skills/list", "--verify", "--format", "json"],
-        { env, timeout: 20000 },
-      );
-      const skipped = reportsOf(listed).find((report) =>
-        report.incomplete?.includes("catalog budget"),
-      );
-      if (!skipped) throw new Error(`no skipped skill in: ${listed.output}`);
-      // mcpdo's own remedies — not the web's settings screen, nor the
-      // one-shot CLI's flags and `--method` syntax.
-      expect(skipped.incomplete).toContain(
-        "raise it with skillCatalogMaxSkills / skillCatalogMaxBytes in the connection's catalog entry",
-      );
-      expect(skipped.incomplete).toContain(
-        "`mcpdo @<conn> skills/get <uri> --verify`",
-      );
-      expect(skipped.incomplete).not.toMatch(
-        /--method|--skill-catalog-max|Skills settings/,
-      );
-      expect(skipped.incomplete).not.toContain(skipped.uri);
-
-      // Run the suggested command back, placeholders filled the way a user
-      // would fill them, minus the `mcpdo` program name itself.
-      const command = /`([^`]+)`/.exec(skipped.incomplete ?? "")?.[1] ?? "";
-      const argv = command
-        .split(/\s+/)
-        .slice(1)
-        .map((arg) =>
-          arg === "@<conn>" ? "@skills" : arg === "<uri>" ? skipped.uri : arg,
+        expectCliSuccess(
+          await runMcp(
+            ["connect", "skills", "--config", configPath, "--format", "json"],
+            { env, timeout: COMMAND_TIMEOUT_MS },
+          ),
         );
-      const got = await runMcp([...argv, "--format", "json"], {
-        env,
-        timeout: 20000,
-      });
-      const reports = reportsOf(got);
-      expect(reports).toHaveLength(1);
-      expect(reports[0].uri).toBe(skipped.uri);
-      expect(reports[0].incomplete ?? "").not.toMatch(/catalog budget/);
-      expect(reports[0].files.length).toBeGreaterThan(0);
-    } finally {
-      await server.stop();
-    }
-  });
+
+        const listed = await runMcp(
+          ["@skills", "skills/list", "--verify", "--format", "json"],
+          { env, timeout: COMMAND_TIMEOUT_MS },
+        );
+        const skipped = reportsOf(listed).find((report) =>
+          report.incomplete?.includes("catalog budget"),
+        );
+        if (!skipped) throw new Error(`no skipped skill in: ${listed.output}`);
+        // mcpdo's own remedies — not the web's settings screen, nor the
+        // one-shot CLI's flags and `--method` syntax.
+        expect(skipped.incomplete).toContain(
+          "raise it with skillCatalogMaxSkills / skillCatalogMaxBytes in the connection's catalog entry",
+        );
+        expect(skipped.incomplete).toContain(
+          "`mcpdo @<conn> skills/get <uri> --verify`",
+        );
+        expect(skipped.incomplete).not.toMatch(
+          /--method|--skill-catalog-max|Skills settings/,
+        );
+        expect(skipped.incomplete).not.toContain(skipped.uri);
+
+        // Run the suggested command back, placeholders filled the way a user
+        // would fill them, minus the `mcpdo` program name itself.
+        const command = /`([^`]+)`/.exec(skipped.incomplete ?? "")?.[1] ?? "";
+        const argv = command
+          .split(/\s+/)
+          .slice(1)
+          .map((arg) =>
+            arg === "@<conn>" ? "@skills" : arg === "<uri>" ? skipped.uri : arg,
+          );
+        const got = await runMcp([...argv, "--format", "json"], {
+          env,
+          timeout: COMMAND_TIMEOUT_MS,
+        });
+        const reports = reportsOf(got);
+        expect(reports).toHaveLength(1);
+        expect(reports[0].uri).toBe(skipped.uri);
+        expect(reports[0].incomplete ?? "").not.toMatch(/catalog budget/);
+        expect(reports[0].files.length).toBeGreaterThan(0);
+      } finally {
+        await server.stop();
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
