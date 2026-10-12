@@ -69,6 +69,8 @@ interface SkillsTabProps {
   modalOpen?: boolean;
   /** Told when the list filter starts or stops capturing keys (#2430). */
   onFilterEditingChange?: (editing: boolean) => void;
+  /** Told when a kept list filter starts or stops claiming Esc (#2647). */
+  onFilterEscapeClaimChange?: (claimed: boolean) => void;
 }
 
 /**
@@ -252,12 +254,14 @@ export function SkillsTab({
   onAuthRecoveryRequired,
   modalOpen = false,
   onFilterEditingChange,
+  onFilterEscapeClaimChange,
 }: SkillsTabProps) {
   // One more row than the bare list: the catalog summary line (#2590).
   const visibleCount = Math.max(1, height - 8 - LIST_FILTER_ROWS);
   const filter = useListFilter(skills, skillFilterFields, {
     enabled: !modalOpen && focusedPane === "list",
     onEditingChange: onFilterEditingChange,
+    onEscapeClaimChange: onFilterEscapeClaimChange,
   });
   const shownSkills = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(

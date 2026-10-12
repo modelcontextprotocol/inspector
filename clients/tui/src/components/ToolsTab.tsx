@@ -56,6 +56,8 @@ interface ToolsTabProps {
   modalOpen?: boolean;
   /** Told when the list filter starts or stops capturing keys (#2430). */
   onFilterEditingChange?: (editing: boolean) => void;
+  /** Told when a kept list filter starts or stops claiming Esc (#2647). */
+  onFilterEscapeClaimChange?: (claimed: boolean) => void;
 }
 
 /** What the `/` filter matches a tool against (#2430). */
@@ -73,11 +75,13 @@ export function ToolsTab({
   onViewDetails,
   modalOpen = false,
   onFilterEditingChange,
+  onFilterEscapeClaimChange,
 }: ToolsTabProps) {
   const visibleCount = Math.max(1, height - 7 - LIST_FILTER_ROWS);
   const filter = useListFilter(tools, toolFilterFields, {
     enabled: !modalOpen && focusedPane === "list",
     onEditingChange: onFilterEditingChange,
+    onEscapeClaimChange: onFilterEscapeClaimChange,
   });
   const shownTools = filter.items;
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(

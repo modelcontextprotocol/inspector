@@ -326,7 +326,7 @@ describe("ToolsTab list filter (#2430)", () => {
     stdin.write(DOWN);
     await tick();
     frame = lastFrame() ?? "";
-    expect(frame).toContain("(/ to edit)");
+    expect(frame).toContain("(/ edit · Esc clear)");
     expect(frame).toContain("▶ delta");
 
     // A query nothing matches.

@@ -1138,6 +1138,24 @@ describe("App (status, layout, modals)", () => {
     expect(h.disconnect).toHaveBeenCalled();
   });
 
+  it("clears a kept list filter on Esc instead of exiting (#2647)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      sampleTool,
+      { ...sampleTool, name: "dpt-tool", description: "D" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/", "d", "p", "t", ENTER]);
+    await expectFrame(r, "Tools (1/2)");
+    // The first Esc clears the kept filter; the app is still running and
+    // answering its accelerators.
+    await press(r, [ESC]);
+    await expectFrame(r, "Tools (2)");
+    await press(r, ["d"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
   it("types '?' into a list filter instead of opening the help (#2430 + #2436)", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];
