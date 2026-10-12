@@ -111,8 +111,17 @@ export function playwrightImage(version) {
  * incidental. `--ipc=host` is Playwright's own recommendation for Chromium-
  * family shared memory and harmless for Firefox. `CI` is not forwarded, so the
  * smokes behave as they do on a developer machine.
+ *
+ * The image runs as root, so on a rootful Linux daemon everything the install
+ * and build write into the bind mount is root-owned and the host cannot remove
+ * it afterwards. When the caller's `owner` (`uid:gid`) is known, an `EXIT` trap
+ * hands the tree back before the container exits — on success or failure — so
+ * the host-side cleanup can delete it. Docker Desktop maps ownership itself,
+ * where the `chown` is a harmless no-op.
  */
-export function dockerRunArgs({ exportDir, image, engine }) {
+export function dockerRunArgs({ exportDir, image, engine, owner }) {
+  const run = `npm install --no-audit --no-fund && npm run build && node scripts/run-engine-smokes.mjs ${engine}`;
+  const script = owner ? `trap 'chown -R ${owner} /src' EXIT; ${run}` : run;
   return [
     "run",
     "--rm",
@@ -126,7 +135,7 @@ export function dockerRunArgs({ exportDir, image, engine }) {
     image,
     "bash",
     "-lc",
-    `npm install --no-audit --no-fund && npm run build && node scripts/run-engine-smokes.mjs ${engine}`,
+    script,
   ];
 }
 
@@ -169,15 +178,56 @@ function dockerAvailable() {
   return probe.status === 0;
 }
 
+/** The caller's `uid:gid`, or undefined where POSIX ids do not exist (Windows). */
+function hostOwner() {
+  return typeof process.getuid === "function" &&
+    typeof process.getgid === "function"
+    ? `${process.getuid()}:${process.getgid()}`
+    : undefined;
+}
+
+/**
+ * The side effects `runInContainer` performs, injectable so its branches —
+ * the no-daemon skip, exit propagation, temp-tree cleanup — are tested
+ * without Docker.
+ */
+export const defaultContainerDeps = {
+  dockerAvailable,
+  readLockfile: (repoRoot) =>
+    readFileSync(join(repoRoot, "clients/web/package-lock.json"), "utf8"),
+  makeTempDir: (engine) =>
+    mkdtempSync(join(tmpdir(), `inspector-${engine}-smoke-`)),
+  exportWorkingTree,
+  runDocker: (args) => spawnSync("docker", args, { stdio: "inherit" }),
+  removeDir: (dir) =>
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 }),
+  hostOwner,
+  log: console.log,
+  warn: console.warn,
+  error: console.error,
+};
+
 /**
  * Run the engine pass in the container. Returns the exit status to use:
  * the container's status, or 0 on a loud skip when Docker is unavailable.
  */
-export function runInContainer({ repoRoot, engine }) {
+export function runInContainer({ repoRoot, engine }, deps = {}) {
+  const {
+    dockerAvailable,
+    readLockfile,
+    makeTempDir,
+    exportWorkingTree,
+    runDocker,
+    removeDir,
+    hostOwner,
+    log,
+    warn,
+    error,
+  } = { ...defaultContainerDeps, ...deps };
   const banner = `run-engine-smokes: ${engine} cannot launch natively on this host (${ISSUE})`;
 
   if (!dockerAvailable()) {
-    console.warn(
+    warn(
       [
         "",
         `⚠️  ${banner}, and no Docker daemon is reachable.`,
@@ -191,38 +241,30 @@ export function runInContainer({ repoRoot, engine }) {
   }
 
   const image = playwrightImage(
-    pinnedPlaywrightVersion(
-      readFileSync(join(repoRoot, "clients/web/package-lock.json"), "utf8"),
-    ),
+    pinnedPlaywrightVersion(readLockfile(repoRoot)),
   );
-  const exportDir = mkdtempSync(join(tmpdir(), `inspector-${engine}-smoke-`));
+  const exportDir = makeTempDir(engine);
   try {
     const count = exportWorkingTree(repoRoot, exportDir);
-    console.log(
-      `${banner}; running it in ${image} over ${count} exported files`,
-    );
-    const run = spawnSync(
-      "docker",
-      dockerRunArgs({ exportDir, image, engine }),
-      { stdio: "inherit" },
+    log(`${banner}; running it in ${image} over ${count} exported files`);
+    const run = runDocker(
+      dockerRunArgs({ exportDir, image, engine, owner: hostOwner() }),
     );
     if (run.error) {
-      console.error(`run-engine-smokes: docker failed: ${run.error.message}`);
+      error(`run-engine-smokes: docker failed: ${run.error.message}`);
       return 1;
     }
     if (run.status !== 0) {
-      console.error(
-        `run-engine-smokes: the ${engine} pass failed inside ${image}`,
-      );
+      error(`run-engine-smokes: the ${engine} pass failed inside ${image}`);
     }
     return run.status ?? 1;
   } finally {
     // Best effort: the container wrote node_modules and builds here, and a
     // leftover temp directory is not worth failing a green run over.
     try {
-      rmSync(exportDir, { recursive: true, force: true, maxRetries: 3 });
+      removeDir(exportDir);
     } catch (err) {
-      console.warn(
+      warn(
         `run-engine-smokes: could not remove ${exportDir}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }

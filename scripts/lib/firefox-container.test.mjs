@@ -19,6 +19,7 @@ import {
   exportablePaths,
   pinnedPlaywrightVersion,
   playwrightImage,
+  runInContainer,
   shouldUseContainer,
 } from "./firefox-container.mjs";
 
@@ -126,6 +127,20 @@ describe("dockerRunArgs", () => {
     assert.ok(args.includes(`${MODE_ENV}=native`));
   });
 
+  it("hands the tree back to the caller on exit when the owner is known", () => {
+    const owned = dockerRunArgs({
+      exportDir: "/tmp/x",
+      image: "img:tag",
+      engine: "firefox",
+      owner: "501:20",
+    });
+    assert.match(
+      owned.at(-1),
+      /^trap 'chown -R 501:20 \/src' EXIT; npm install /,
+    );
+    assert.doesNotMatch(args.at(-1), /chown/);
+  });
+
   it("installs, builds, then runs the same runner for the same engine", () => {
     assert.match(
       args.at(-1),
@@ -148,6 +163,93 @@ describe("exportablePaths", () => {
       exportablePaths("", () => true),
       [],
     );
+  });
+});
+
+describe("runInContainer", () => {
+  const LOCK = JSON.stringify({
+    packages: { "node_modules/playwright": { version: "1.62.1" } },
+  });
+
+  /** Fakes for every side effect, recording what was called. */
+  function fakes(overrides = {}) {
+    const calls = { docker: [], removed: [], warned: [], errored: [] };
+    const deps = {
+      dockerAvailable: () => true,
+      readLockfile: () => LOCK,
+      makeTempDir: () => "/tmp/export",
+      exportWorkingTree: () => 3,
+      runDocker: (args) => {
+        calls.docker.push(args);
+        return { status: 0 };
+      },
+      removeDir: (dir) => calls.removed.push(dir),
+      hostOwner: () => "501:20",
+      log: () => {},
+      warn: (msg) => calls.warned.push(msg),
+      error: (msg) => calls.errored.push(msg),
+      ...overrides,
+    };
+    return { calls, deps };
+  }
+  const run = (deps) =>
+    runInContainer({ repoRoot: "/repo", engine: "firefox" }, deps);
+
+  it("skips loudly and exits 0 when no Docker daemon answers", () => {
+    const { calls, deps } = fakes({ dockerAvailable: () => false });
+    assert.equal(run(deps), 0);
+    assert.equal(calls.docker.length, 0, "must not try to run docker");
+    assert.equal(calls.removed.length, 0, "nothing was created to remove");
+    const banner = calls.warned.join("\n");
+    assert.match(banner, /SKIPPING the firefox engine pass/);
+    assert.match(banner, /NOT a pass/);
+    assert.match(banner, new RegExp(ISSUE));
+  });
+
+  it("runs the pinned image over the export as the caller, then cleans up", () => {
+    const { calls, deps } = fakes();
+    assert.equal(run(deps), 0);
+    const [args] = calls.docker;
+    assert.ok(args.includes("mcr.microsoft.com/playwright:v1.62.1-noble"));
+    assert.ok(args.includes("/tmp/export:/src"));
+    assert.match(args.at(-1), /chown -R 501:20/);
+    assert.deepEqual(calls.removed, ["/tmp/export"]);
+  });
+
+  it("propagates a failing container's status and still cleans up", () => {
+    const { calls, deps } = fakes({ runDocker: () => ({ status: 7 }) });
+    assert.equal(run(deps), 7);
+    assert.match(calls.errored.join(), /failed inside/);
+    assert.deepEqual(calls.removed, ["/tmp/export"]);
+  });
+
+  it("fails on a docker spawn error and on a signal-killed container", () => {
+    const spawnErr = fakes({
+      runDocker: () => ({ status: null, error: new Error("ENOENT") }),
+    });
+    assert.equal(run(spawnErr.deps), 1);
+    assert.match(spawnErr.calls.errored.join(), /docker failed: ENOENT/);
+    assert.equal(run(fakes({ runDocker: () => ({ status: null }) }).deps), 1);
+  });
+
+  it("cleans up even when the export throws", () => {
+    const { calls, deps } = fakes({
+      exportWorkingTree: () => {
+        throw new Error("git ls-files failed");
+      },
+    });
+    assert.throws(() => run(deps), /git ls-files failed/);
+    assert.deepEqual(calls.removed, ["/tmp/export"]);
+  });
+
+  it("only warns when cleanup fails, keeping the run's status", () => {
+    const { calls, deps } = fakes({
+      removeDir: () => {
+        throw new Error("EACCES");
+      },
+    });
+    assert.equal(run(deps), 0);
+    assert.match(calls.warned.join(), /could not remove \/tmp\/export: EACCES/);
   });
 });
 
