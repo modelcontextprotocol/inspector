@@ -279,7 +279,7 @@ mcp-inspector --cli <server> --method tools/call --tool-name summarize --output 
 mcp-inspector --cli <server> --method tools/call --tool-name render_chart --output chart.png --output-format raw
 ```
 
-The flag is `--output-format` rather than a new `--format` value because `--format` already shapes **stdout**, and the two compose: in text mode stdout stays empty and a one-line `Wrote N bytes (json) to <path>` confirmation goes to stderr; under `--format json` stdout still carries exactly one envelope, with `output` in place of `result` — `{"output":{"path":"echo.json","format":"json","bytes":123}}`, plus `appInfo` / `schemaFindings` when they would otherwise appear.
+The flag is `--output-format` rather than a new `--format` value because `--format` already shapes **stdout**, and the two compose: in text mode stdout stays empty and a one-line `Wrote N bytes (json) to <path>` confirmation goes to stderr (suppressed by `-q`, like any other status line); under `--format json` stdout still carries exactly one envelope, with `output` in place of `result` — `{"output":{"path":"echo.json","format":"json","bytes":123}}`, plus `appInfo` / `schemaFindings` when they would otherwise appear.
 
 Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
 

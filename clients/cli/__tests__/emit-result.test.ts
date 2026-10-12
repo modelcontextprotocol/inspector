@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { emitResult, collectAppInfo } from "../src/cli.js";
 import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
@@ -77,6 +80,58 @@ describe("emitResult", () => {
       result: { value: 1 },
       appInfo: { hasApp: true, toolName: "t", resourceUri: "ui://x" },
     });
+  });
+});
+
+/**
+ * `--output` in text mode confirms the write with a status line on stderr,
+ * which `-q` must suppress like every other status line (#2614).
+ */
+describe("emitResult --output status line", () => {
+  let dir: string;
+  let stderr: string;
+  let originalWrite: typeof process.stderr.write;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "inspector-cli-emit-"));
+    stderr = "";
+    originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: unknown, ...rest: unknown[]): boolean => {
+      stderr += typeof chunk === "string" ? chunk : String(chunk);
+      const cb = rest.find((r) => typeof r === "function") as
+        | (() => void)
+        | undefined;
+      cb?.();
+      return true;
+    }) as typeof process.stderr.write;
+  });
+
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("prints the Wrote line to stderr without -q", async () => {
+    const path = join(dir, "out.json");
+    await emitResult({ ok: true }, undefined, {
+      method: "tools/call",
+      format: "text",
+      output: path,
+    });
+    expect(stderr).toMatch(/^Wrote \d+ bytes \(json\) to .*out\.json\n$/);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ ok: true });
+  });
+
+  it("suppresses the Wrote line under -q but still writes the file", async () => {
+    const path = join(dir, "out.json");
+    await emitResult({ ok: true }, undefined, {
+      method: "tools/call",
+      format: "text",
+      output: path,
+      quiet: true,
+    });
+    expect(stderr).toBe("");
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ ok: true });
   });
 });
 

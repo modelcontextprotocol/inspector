@@ -52,7 +52,7 @@ export async function emitResult(
   // `curl -o`. Under `--format json` stdout still carries exactly one envelope —
   // `{ output }` in place of `{ result }` — so a caller parsing it learns where
   // the result went; in text mode the confirmation goes to stderr, leaving
-  // stdout empty.
+  // stdout empty. That confirmation is a status line, so `-q` drops it (#2614).
   const written = args.output
     ? await writeResultFile(
         result,
@@ -70,9 +70,11 @@ export async function emitResult(
     if (args.strict && lint && lint.length > 0) envelope.schemaFindings = lint;
     await awaitableLog(JSON.stringify(envelope) + "\n");
   } else if (written) {
-    await awaitableError(
-      `Wrote ${written.bytes} bytes (${written.format}) to ${written.path}\n`,
-    );
+    if (!args.quiet) {
+      await awaitableError(
+        `Wrote ${written.bytes} bytes (${written.format}) to ${written.path}\n`,
+      );
+    }
   } else {
     await awaitableLog(JSON.stringify(result, null, 2) + "\n");
   }
