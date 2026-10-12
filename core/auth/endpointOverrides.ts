@@ -421,7 +421,18 @@ function acceptsJson(
   } else if (typeof input !== "string" && !(input instanceof URL)) {
     accept = input.headers.get("accept");
   }
-  return accept?.toLowerCase().includes("application/json") ?? false;
+  if (!accept) return false;
+  // Compared per media type, and an event-stream request is excluded outright:
+  // the SDK appends `text/event-stream` to a user-configured `Accept`, so a
+  // streamable-HTTP GET can carry `application/json, text/event-stream` and
+  // must still keep its 401 (Copilot).
+  const mediaTypes = accept
+    .split(",")
+    .map((part) => part.split(";")[0].trim().toLowerCase());
+  return (
+    mediaTypes.includes("application/json") &&
+    !mediaTypes.includes("text/event-stream")
+  );
 }
 
 /**

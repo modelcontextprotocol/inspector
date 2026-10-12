@@ -577,7 +577,27 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
         }),
       ),
     ).resolves.toBe(original);
+    // A configured `Accept: application/json` with the SDK's event-stream
+    // appended is still a stream request.
+    await expect(
+      wrapped(FINAL_CANDIDATE, {
+        headers: { Accept: "application/json, text/event-stream" },
+      }),
+    ).resolves.toBe(original);
     await expect(wrapped(FINAL_CANDIDATE)).resolves.toBe(original);
+  });
+
+  it("accepts a JSON Accept carrying parameters", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(new Response("nope", { status: 404 })),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, {
+        headers: { Accept: "Application/JSON; charset=utf-8" },
+      }),
+    ).resolves.toHaveProperty("status", 200);
   });
 
   it("does nothing when no override is configured", async () => {
