@@ -22,8 +22,9 @@
  *
  *   1. builds every client (`npm run build`);
  *   2. packs the publishable tarball (`npm pack`) and inspects its file list —
- *      asserting NO source maps ship and that `clients/web/{build,dist,static}`
- *      are all present (the packaging fixes this work landed);
+ *      asserting NO source maps ship, that `clients/web/{build,dist,static}`
+ *      are all present (the packaging fixes this work landed), and that the
+ *      `skills/mcpdo` agent skill ships (#2650);
  *   3. installs that tarball into a fresh temp dir (real `npm install <tgz>`,
  *      which runs the package's `postinstall`);
  *   4. runs the installed `mcp-inspector` bin: `--help`, `--cli`/`--tui` help
@@ -32,6 +33,9 @@
  *      the shipped `dist` — all from the INSTALLED location, not the repo —
  *      plus `npm exec @modelcontextprotocol/inspector --help`, so npm's own
  *      default-bin choice is exercised and not just the bin by name (#2651);
+ *      and the installed `mcpdo`: every bare import its bundle makes must
+ *      ESM-resolve from inside the package, and a daemon connect must carry a
+ *      real `tools/call` round trip (#2650);
  *   5. drives the **MCP Apps** path in headless Chromium against that same
  *      installed `--web` server — connect → open app → `data-app-status="ready"`
  *      (#2003). Asserting the sandbox proxy page merely *exists* (step 2/3) is
@@ -53,7 +57,13 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  existsSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -70,6 +80,10 @@ import {
   startMcpAppServer,
 } from "./lib/mcp-app-flow.mjs";
 import { winShellArgs } from "./lib/win-shell-args.mjs";
+import {
+  collectBareImports,
+  unresolvedFrom,
+} from "./lib/bundle-bare-imports.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const testServer = testServerEntryPath(repoRoot, "stdio");
@@ -226,22 +240,27 @@ if (maps.length > 0) {
 //     (The version the CLI/TUI report is read from the root package.json —
 //     always shipped — via readInspectorVersion(), so no client package.json
 //     needs to ship; that read is exercised by driving the bin in step 4.)
+//     `skills/mcpdo/SKILL.md` is not a runtime file, but it is a shipped one:
+//     the agent skill that teaches `mcpdo` is listed in "files" and nothing
+//     reads it at run time, so a "files" edit that dropped it would pass every
+//     other check here (#2650).
 for (const required of [
   "clients/web/build/index.js",
   "clients/web/dist/index.html",
   "clients/web/static/sandbox_proxy.html",
+  "skills/mcpdo/SKILL.md",
 ]) {
   if (!tarredPaths.includes(required)) {
     fail(
       `expected \`${required}\` in the published tarball but it is missing — ` +
-        `check the "files" field in the root package.json (and that ` +
-        `clients/web/.npmignore does not exclude it)`,
+        `check the "files" field in the root package.json (and that no ` +
+        `.npmignore excludes it)`,
     );
   }
 }
 console.log(
   `pack:verify — tarball OK: ${tarredPaths.length} files, no source maps, ` +
-    `clients/web/{build,dist,static} present (${(packInfo.unpackedSize / 1048576).toFixed(2)} MB unpacked)`,
+    `clients/web/{build,dist,static} and skills/mcpdo present (${(packInfo.unpackedSize / 1048576).toFixed(2)} MB unpacked)`,
 );
 
 // ---------------------------------------------------------------------------
@@ -448,6 +467,43 @@ try {
     });
     return { status: r.status, output: `${r.stdout ?? ""}${r.stderr ?? ""}` };
   };
+
+  // 4b¹. Every bare import the installed mcpdo bundle makes must resolve from
+  //      the consumer install (#2650). Driving commands only reaches the
+  //      imports those commands load — a lazy `import()` on another path
+  //      (`undici`, `@napi-rs/keyring`) stays untested until a user hits it.
+  //      Resolution is ESM, from inside the package (`lib/bundle-bare-imports`
+  //      says why a CommonJS `require.resolve` misreports `ext-tasks`).
+  const mcpdoBuild = join(installedPkg, "clients", "mcpdo", "build");
+  const mcpdoImports = [
+    ...new Set(
+      readdirSync(mcpdoBuild)
+        .filter((f) => f.endsWith(".js"))
+        .flatMap((f) =>
+          collectBareImports(readFileSync(join(mcpdoBuild, f), "utf8")),
+        ),
+    ),
+  ].sort();
+  if (mcpdoImports.length === 0) {
+    fail(`found no bare imports in ${mcpdoBuild} — the scan itself is broken`);
+  }
+  const unresolved = unresolvedFrom({
+    dir: mcpdoBuild,
+    specifiers: mcpdoImports,
+  });
+  if (unresolved.length > 0) {
+    fail(
+      `${unresolved.length} bare import(s) in the installed mcpdo bundle do not ` +
+        `resolve — check the root package.json "dependencies" and mcpdo's ` +
+        `tsup "external" list:\n  ` +
+        unresolved.map((u) => `${u.specifier}: ${u.error}`).join("\n  "),
+    );
+  }
+  console.log(
+    `pack:verify — all ${mcpdoImports.length} bare imports in the installed ` +
+      `mcpdo bundle ESM-resolve from the consumer install`,
+  );
+
   const mcpdoHelp = runMcpdo(["--help"]);
   if (mcpdoHelp.status !== 0 || !mcpdoHelp.output.includes("Usage: mcpdo")) {
     fail(
@@ -456,10 +512,15 @@ try {
     );
   }
   // Point the daemon dir into the throwaway consumer so the check never sees
-  // (or touches) a real daemon on the host.
+  // (or touches) a real daemon on the host. The name is one character on
+  // purpose: the socket lives at `<dir>/mcpdod.sock`, a Unix socket path is
+  // capped at 104 bytes on macOS, and `work` already sits under the long
+  // per-user `$TMPDIR` there — a longer directory is what failed the 2.10.0
+  // hand check (#2650).
+  const mcpdoDaemonDir = join(work, "d");
   const mcpdoServers = runMcpdo(
     ["servers/list", "--catalog", catalogPath, "--plain"],
-    { MCP_INSPECTOR_DAEMON_DIR: join(work, "mcpdo-daemon") },
+    { MCP_INSPECTOR_DAEMON_DIR: mcpdoDaemonDir },
   );
   if (mcpdoServers.status !== 0 || !mcpdoServers.output.includes("test")) {
     fail(
@@ -475,10 +536,10 @@ try {
   //      the same stdio fixture, verify the connection is listed, then tear
   //      everything down (stop the daemon before any fail() so nothing
   //      outlives the check).
-  step("verifying installed `mcpdo` daemon flow (connect/list/disconnect)...");
-  const mcpdoDaemonEnv = {
-    MCP_INSPECTOR_DAEMON_DIR: join(work, "mcpdo-daemon"),
-  };
+  step(
+    "verifying installed `mcpdo` daemon flow (connect/list/tools/call/disconnect)...",
+  );
+  const mcpdoDaemonEnv = { MCP_INSPECTOR_DAEMON_DIR: mcpdoDaemonDir };
   const stopMcpdoDaemon = () => runMcpdo(["daemon", "stop"], mcpdoDaemonEnv);
   const failMcpdoDaemonFlow = (message) => {
     stopMcpdoDaemon();
@@ -507,6 +568,23 @@ try {
       `\`mcpdo connections/list\` exited ${mcpdoConnections.status} or missing ` +
         `the "test" connection\n` +
         mcpdoConnections.output.slice(0, 800),
+    );
+  }
+  // A method dispatched through the daemon, not just its startup: `connect`
+  // proves the packaged daemon runs, this proves it can carry a request from
+  // the installed bundle to the server and the result back (#2650).
+  const mcpdoCall = runMcpdo(
+    ["@test", "tools/call", "echo", "message:=pack-verify", "--plain"],
+    mcpdoDaemonEnv,
+  );
+  if (
+    mcpdoCall.status !== 0 ||
+    !mcpdoCall.output.includes("Echo: pack-verify")
+  ) {
+    failMcpdoDaemonFlow(
+      `\`mcpdo @test tools/call echo\` exited ${mcpdoCall.status} or did not ` +
+        `echo "pack-verify"\n` +
+        mcpdoCall.output.slice(0, 800),
     );
   }
   const mcpdoDisconnect = runMcpdo(
@@ -546,7 +624,8 @@ try {
   console.log(
     "\npack:verify OK — published tarball installs clean and the real bin drives " +
       "web (prod / served dist + an MCP App rendered through the shipped sandbox " +
-      "proxy), cli (stdio tools/list), and tui (help) end to end.",
+      "proxy), cli (stdio tools/list), tui (help), and mcpdo (daemon tools/call) " +
+      "end to end.",
   );
 } catch (err) {
   // Unexpected throw (not via fail()) — route through fail() for consistent
