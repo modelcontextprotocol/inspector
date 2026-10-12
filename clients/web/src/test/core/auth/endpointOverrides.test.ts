@@ -515,6 +515,24 @@ describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => 
     ).resolves.toHaveProperty("status", 200);
   });
 
+  // The SDK walks past every non-OK status below 500, so a redirect a custom
+  // fetch did not follow is as much "no metadata here" as a 404 (Copilot).
+  it("treats a non-followed redirect like a 404, as the SDK does", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://elsewhere.example.com/" },
+        }),
+      ),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, DISCOVERY_INIT),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
   it("leaves a 500 alone — the SDK surfaces it as an outage", async () => {
     const original = new Response("boom", { status: 500 });
     const wrapped = withOAuthEndpointOverrides(

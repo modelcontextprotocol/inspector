@@ -305,13 +305,15 @@ const OIDC_WELL_KNOWN = "/.well-known/openid-configuration";
 const RFC8414_WELL_KNOWN = "/.well-known/oauth-authorization-server";
 
 /**
- * Whether a status makes the SDK move on to the next discovery candidate —
- * a 4xx or a 502, mirroring `discoverAuthorizationServerMetadata`. Anything
- * else the SDK throws on, and a synthesized document must not paper over an
- * outage the SDK would have surfaced.
+ * Whether a non-OK status makes the SDK move on to the next discovery
+ * candidate, mirroring `discoverAuthorizationServerMetadata` exactly: anything
+ * below 500 — a 4xx, but also a redirect a custom fetch did not follow, or an
+ * opaque status 0 — and 502 (Copilot). Any other 5xx the SDK throws on, and a
+ * synthesized document must not paper over an outage it would have surfaced.
+ * Only called for a response that is already not `ok`.
  */
 function continuesDiscovery(status: number): boolean {
-  return (status >= 400 && status < 500) || status === 502;
+  return status < 500 || status === 502;
 }
 
 /**
