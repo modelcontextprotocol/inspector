@@ -10,21 +10,25 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import nodeFs from "node:fs";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve, win32 } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 import {
+  assertTrustedLeaseDir,
   DIR_ENV,
   SKIP_ENV,
   STALE_MS,
@@ -108,13 +112,59 @@ function isAlive(pid) {
   }
 }
 
-test("leaseDir: explicit override, then XDG_RUNTIME_DIR, then tmpdir", () => {
-  assert.equal(leaseDir({ [DIR_ENV]: "/x/y" }), "/x/y");
+test("leaseDir: the explicit override wins", () => {
+  assert.equal(leaseDir({ [DIR_ENV]: "/x/y" }), resolve("/x/y"));
+});
+
+test("leaseDir: POSIX is a fixed per-uid path under /tmp, whatever the session sets (#2624)", () => {
+  const posix = { platform: "darwin", uid: () => 501 };
+  const expected = "/tmp/mcp-inspector-gate-lease-501";
+  // The #2624 overlap: one gate under the default macOS TMPDIR, one under
+  // `TMPDIR=/tmp`. Both — and an XDG desktop session — must land on one lock.
+  for (const env of [
+    {},
+    { TMPDIR: "/var/folders/xy/abc/T/" },
+    { TMPDIR: "/tmp" },
+    { XDG_RUNTIME_DIR: "/run/user/501" },
+  ]) {
+    assert.equal(leaseDir(env, posix), expected, JSON.stringify(env));
+  }
   assert.equal(
-    leaseDir({ XDG_RUNTIME_DIR: "/run/user/1" }),
-    join("/run/user/1", "mcp-inspector-gate-lease"),
+    leaseDir({}, { platform: "linux", uid: () => 1000 }),
+    "/tmp/mcp-inspector-gate-lease-1000",
   );
-  assert.equal(leaseDir({}), join(tmpdir(), "mcp-inspector-gate-lease"));
+});
+
+test("leaseDir: on this host it does not follow TMPDIR", () => {
+  // Undefined `env` would default to process.env; pass two that differ only
+  // in TMPDIR and check the real-host default ignores the difference.
+  assert.equal(leaseDir({ TMPDIR: "/a" }), leaseDir({ TMPDIR: "/b" }));
+});
+
+test("leaseDir: Windows keys on the account profile, not %TEMP%", () => {
+  assert.equal(
+    leaseDir(
+      { TEMP: "D:\\elsewhere", TMP: "D:\\elsewhere" },
+      { platform: "win32", home: () => "C:\\Users\\dev" },
+    ),
+    "C:\\Users\\dev\\AppData\\Local\\mcp-inspector-gate-lease",
+  );
+  // No profile record: fall back to tmpdir rather than run unleased.
+  assert.equal(
+    leaseDir(
+      {},
+      {
+        platform: "win32",
+        home: () => {
+          throw new Error("no passwd entry");
+        },
+      },
+    ),
+    win32.join(tmpdir(), "mcp-inspector-gate-lease"),
+  );
+});
+
+test("lockPathOf: the lock is a sibling of the target", () => {
   // The lock is a sibling of the target, never inside it — a file inside the
   // lock directory would make its removal (and so stale takeover) fail.
   assert.equal(lockPathOf("/d"), `${leaseTarget("/d")}.lock`);
@@ -431,6 +481,65 @@ test("a lease directory that cannot exist degrades to an unleased run", async ()
   assert.match(
     lines.join("\n"),
     /could not create .*; running without the lease/,
+  );
+});
+
+test(
+  "a symlink planted at the lease directory is refused, not followed",
+  {
+    skip:
+      process.platform === "win32" && "no POSIX ownership checks on Windows",
+  },
+  async () => {
+    const parent = freshDir();
+    const target = join(parent, "elsewhere");
+    mkdirSync(target);
+    const dir = join(parent, "lease");
+    symlinkSync(target, dir);
+    const { lines, log } = collectLog();
+    assert.equal(await runNode("", { dir, log }), 0);
+    assert.match(
+      lines.join("\n"),
+      /not a directory.*running without the lease/,
+    );
+    assert.deepEqual(readdirSync(target), [], "nothing was written through it");
+  },
+);
+
+test(
+  "assertTrustedLeaseDir: a directory owned by another uid is refused",
+  {
+    skip:
+      process.platform === "win32" && "no POSIX ownership checks on Windows",
+  },
+  () => {
+    const dir = freshDir();
+    const other = process.getuid() + 1;
+    assert.throws(
+      () => assertTrustedLeaseDir(dir, { getuid: () => other }),
+      new RegExp(
+        `owned by uid ${process.getuid()}, not this user \\(uid ${other}\\)`,
+      ),
+    );
+  },
+);
+
+test(
+  "assertTrustedLeaseDir: an open mode is tightened to 0700",
+  {
+    skip: process.platform === "win32" && "no POSIX modes on Windows",
+  },
+  () => {
+    const dir = freshDir();
+    chmodSync(dir, 0o777);
+    assertTrustedLeaseDir(dir);
+    assert.equal(statSync(dir).mode & 0o777, 0o700);
+  },
+);
+
+test("assertTrustedLeaseDir: a no-op without getuid (Windows)", () => {
+  assert.doesNotThrow(() =>
+    assertTrustedLeaseDir(join(freshDir(), "missing"), { getuid: null }),
   );
 });
 
