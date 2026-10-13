@@ -4,8 +4,10 @@
 // npm 11.19 gates dependency install scripts behind an `allowScripts` policy
 // in the installing project's `package.json`, but in 11.x a package that is
 // neither allowed nor denied still RUNS its script, with only a warning — only
-// an explicit `false` blocks it. So until npm makes blocking the default, a new
-// dependency that brings a `postinstall` runs it on every install, silently.
+// an explicit `false` blocks it. npm 12 blocks unreviewed scripts by default,
+// but this repo installs with npm 10 (CI's Node 22 bundle) and 11.x, so here a
+// new dependency that brings a `postinstall` still runs it on every install,
+// silently.
 // This guard turns each one into a decision made in review: every package with
 // an install script must carry an explicit `true` or `false` in the
 // `allowScripts` of the install that holds it.
