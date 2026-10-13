@@ -141,7 +141,13 @@ export function unreviewedScripts(lock, allowScripts) {
     if (!entryPath.startsWith("node_modules/")) continue;
     if (!entry || entry.link) continue;
     // A non-registry entry may run `prepare`, which no lockfile flag records.
-    const mayPrepare = registryIdentity(entry.resolved) === null;
+    // Only a `resolved` source says it is one: a bundled entry often carries
+    // none and never runs `prepare`, and an entry with no `resolved` at all is
+    // npm's own fallback for a registry dependency.
+    const mayPrepare =
+      !entry.inBundle &&
+      typeof entry.resolved === "string" &&
+      registryIdentity(entry.resolved) === null;
     if (!entry.hasInstallScript && !mayPrepare) continue;
     const bundled = entry.inBundle === true;
     if (!bundled && isReviewed(allowScripts, entry)) continue;

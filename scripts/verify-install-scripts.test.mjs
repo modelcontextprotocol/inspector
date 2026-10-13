@@ -169,6 +169,10 @@ test("a non-registry entry needs a decision even without the flag (prepare)", ()
   const lock = lockOf({
     "node_modules/b": { version: "1.0.0", resolved: git },
     "node_modules/linked": { resolved: "../linked", link: true },
+    // Scriptless and source-less: neither bundled nor registry-unresolved
+    // entries can run `prepare`, so neither needs a decision.
+    "node_modules/b/node_modules/bundled": { version: "1.0.0", inBundle: true },
+    "node_modules/unresolved": { version: "1.0.0" },
   });
   assert.deepEqual(unreviewedScripts(lock, {}), [
     {
