@@ -178,6 +178,25 @@ lowering the gate. See `/testing` for the acceptable reasons.
 Also check the file is inside a gated directory — the web coverage `include` is
 a whitelist, so a module placed outside it falls out of the gate silently.
 
+### `verify:coverage-scope`
+
+The last step of `coverage` (#2709). A client's `coverage-summary.json` is
+missing files its own coverage `include`/`exclude` declares, so those files
+were never judged by the per-file gate. The failure names the client and each
+missing file. Two causes:
+
+- **The run's glob matching changed** — typically a Vitest bump. The fix is
+  the client's `include` patterns (an absolute `path.join(dirname, …)` pattern
+  means the same thing under every matcher), never an entry that excuses the
+  files.
+- **A file is in scope but the run legitimately drops it.** State it in
+  `KNOWN_OMISSIONS` in `scripts/verify-coverage-scope.mjs`, with the reason —
+  or, better, add it to the client's coverage `exclude`, which says the same
+  thing where the gate reads it.
+
+"no `coverage-summary.json`" means the client's coverage did not run (or ran
+without the `json-summary` reporter). Run `npm run coverage`.
+
 ### `smoke:web*`
 
 ⚠️ **An orphaned prod web server from a previous run fakes a rejection.** It
