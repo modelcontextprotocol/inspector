@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { childInstallEnv } from "./install-clients.mjs";
@@ -170,6 +170,66 @@ test("the cascade still runs when the checkout is reached through a symlink", ()
     assert.match(result.stdout, /Installing dependencies for clients\/web/);
   } finally {
     rmSync(linkParent, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A stand-in `npm` on PATH that fails, as npm 11.19+ does, when
+ * allow-scripts reaches it through the environment. It pins the spawn wiring
+ * whatever npm the runner has: CI's Node 22 bundles npm 10, which predates
+ * the gate, so against the real npm there the cascade passes with or without
+ * the strip.
+ */
+function stubNpm() {
+  const dir = mkdtempSync(join(tmpdir(), "install-clients-npm-"));
+  const js = join(dir, "npm-stub.cjs");
+  writeFileSync(
+    js,
+    `const hit = Object.keys(process.env).some(
+  (k) => k.toLowerCase() === "npm_config_allow_scripts",
+);
+if (hit) {
+  console.error("npm error code EALLOWSCRIPTS");
+  process.exit(1);
+}
+`,
+  );
+  writeFileSync(
+    join(dir, "npm"),
+    `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`,
+    { mode: 0o755 },
+  );
+  writeFileSync(join(dir, "npm.cmd"), `@"${process.execPath}" "${js}" %*\r\n`);
+  return dir;
+}
+
+test("the cascade hands npm an environment without allow-scripts (stub npm)", () => {
+  const { root, home } = fixture();
+  const npmDir = stubNpm();
+  try {
+    const env = {
+      ...parentNpmEnv(home),
+      PATH: `${npmDir}${delimiter}${process.env.PATH ?? ""}`,
+    };
+    // The stub itself must reject the variable, or this case proves nothing.
+    const probe = spawnSync("npm", ["install"], {
+      ...npmCmd,
+      cwd: root,
+      env,
+    });
+    assert.equal(probe.status, 1);
+    assert.match(probe.stderr, /EALLOWSCRIPTS/);
+
+    const result = spawnSync(
+      process.execPath,
+      [join(root, "scripts", "install-clients.mjs")],
+      { encoding: "utf8", cwd: root, env },
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Installing dependencies for clients\/web/);
+  } finally {
+    rmSync(npmDir, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
