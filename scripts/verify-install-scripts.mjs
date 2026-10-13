@@ -42,7 +42,10 @@
 //  - A package with no provable registry identity (git, tarball, file) is
 //    reviewed only by a key equal to its `resolved` spec; otherwise it fails
 //    closed, as unreviewed.
-//  - A bundled dependency (`inBundle`) never runs its script, so it is skipped.
+//  - A bundled dependency (`inBundle`) is always reported. npm's matcher
+//    returns "unreviewed" for one unconditionally, so no `allowScripts` key can
+//    decide it, and under 11.x an unreviewed script still runs during the
+//    bundle rebuild. The only remedy is the dependency that bundles it.
 //
 // A matching key counts as a review whether it allows or denies; a value that
 // is neither `true` nor `false` does not count.
@@ -124,20 +127,23 @@ export function isReviewed(allowScripts, entry) {
 
 /**
  * Every lockfile entry with an install script that `allowScripts` has not
- * decided on, as `{ entryPath, name, version }` — `name` being the identity
- * npm matches, or the folder name when none can be proven.
+ * decided on, as `{ entryPath, name, version, bundled }` — `name` being the
+ * identity npm matches, or the folder name when none can be proven. A bundled
+ * entry is always included: no policy key can decide it.
  */
 export function unreviewedScripts(lock, allowScripts) {
   const found = [];
   for (const [entryPath, entry] of Object.entries(lock?.packages ?? {})) {
     if (!entryPath.startsWith("node_modules/")) continue;
-    if (!entry?.hasInstallScript || entry.inBundle) continue;
-    if (isReviewed(allowScripts, entry)) continue;
+    if (!entry?.hasInstallScript) continue;
+    const bundled = entry.inBundle === true;
+    if (!bundled && isReviewed(allowScripts, entry)) continue;
     const identity = registryIdentity(entry.resolved);
     found.push({
       entryPath,
       name: identity?.name ?? packageNameOf(entryPath),
       version: identity?.version ?? entry.version ?? "",
+      bundled,
     });
   }
   return found;
@@ -170,11 +176,15 @@ export function main(root = repoRoot) {
       readFileSync(path.join(dir, "package.json"), "utf8"),
     );
     scripted += Object.entries(lock.packages ?? {}).filter(
-      ([p, e]) =>
-        p.startsWith("node_modules/") && e?.hasInstallScript && !e.inBundle,
+      ([p, e]) => p.startsWith("node_modules/") && e?.hasInstallScript,
     ).length;
     for (const u of unreviewedScripts(lock, manifest.allowScripts))
-      problems.push(`  ${rel}: ${u.name}@${u.version} (${u.entryPath})`);
+      problems.push(
+        `  ${rel}: ${u.name}@${u.version} (${u.entryPath})` +
+          (u.bundled
+            ? " — bundled: no allowScripts key can decide it; drop or replace the dependency that bundles it"
+            : ""),
+      );
   }
   if (problems.length > 0) {
     console.error(

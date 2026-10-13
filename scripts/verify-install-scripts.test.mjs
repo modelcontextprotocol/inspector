@@ -119,18 +119,24 @@ test("unreviewedScripts reports only scripted, undecided dependencies", () => {
     "node_modules/fsevents": dep("fsevents", "2.3.3"),
     "node_modules/vite/node_modules/fsevents": dep("fsevents", "2.3.2"),
     "node_modules/aliased": dep("naughty", "1.0.0"),
-    "node_modules/a/node_modules/bundled": dep("bundled", "1.0.0", {
-      inBundle: true,
-    }),
     "node_modules/plain": { version: "1.0.0", resolved: tgz("plain", "1.0.0") },
   });
-  // The `""` project entry carries the root postinstall and is never reported,
-  // and a bundled dependency never runs its script.
+  // The `""` project entry carries the root postinstall and is never reported.
   assert.deepEqual(
     unreviewedScripts(lock, { fsevents: false, aliased: false }),
     [
-      { entryPath: "node_modules/esbuild", name: "esbuild", version: "0.28.2" },
-      { entryPath: "node_modules/aliased", name: "naughty", version: "1.0.0" },
+      {
+        entryPath: "node_modules/esbuild",
+        name: "esbuild",
+        version: "0.28.2",
+        bundled: false,
+      },
+      {
+        entryPath: "node_modules/aliased",
+        name: "naughty",
+        version: "1.0.0",
+        bundled: false,
+      },
     ],
   );
   assert.deepEqual(
@@ -141,15 +147,36 @@ test("unreviewedScripts reports only scripted, undecided dependencies", () => {
     }),
     [],
   );
-  const git = lockOf({
+  const file = lockOf({
     "node_modules/b": {
       version: "1.0.0",
       resolved: "file:../b",
       hasInstallScript: true,
     },
   });
-  assert.deepEqual(unreviewedScripts(git, {}), [
-    { entryPath: "node_modules/b", name: "b", version: "1.0.0" },
+  assert.deepEqual(unreviewedScripts(file, {}), [
+    {
+      entryPath: "node_modules/b",
+      name: "b",
+      version: "1.0.0",
+      bundled: false,
+    },
+  ]);
+});
+
+test("a bundled script is always reported: no policy key can decide it", () => {
+  const lock = lockOf({
+    "node_modules/a/node_modules/bundled": dep("bundled", "1.0.0", {
+      inBundle: true,
+    }),
+  });
+  assert.deepEqual(unreviewedScripts(lock, { bundled: false }), [
+    {
+      entryPath: "node_modules/a/node_modules/bundled",
+      name: "bundled",
+      version: "1.0.0",
+      bundled: true,
+    },
   ]);
 });
 
