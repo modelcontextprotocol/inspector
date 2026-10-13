@@ -252,6 +252,9 @@ export default defineConfig(({ command }) => {
           path.join(repoRoot, "core/mcp/remote/types.ts"),
           path.join(repoRoot, "core/mcp/import/types.ts"),
           "clients/web/server/types.ts",
+          // Type declarations only, so v8 reports no row for it at all — named
+          // here so `verify:coverage-scope` (#2709) is not left expecting one.
+          "src/utils/pendingReauth.ts",
           // .d.ts files are declaration-only.
           path.join(repoRoot, "**/*.d.ts"),
           // inspectorClientEventTarget.ts is types + a single empty-body class
