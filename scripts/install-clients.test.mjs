@@ -16,7 +16,9 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -65,7 +67,9 @@ test("childInstallEnv keeps every other npm config and does not mutate its input
  * client, and a HOME whose .npmrc sets allow-scripts — the reporter's setup.
  */
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), "install-clients-"));
+  // Canonical, so a symlinked tmpdir (macOS /var) can't make the plain case
+  // exercise the symlink path by accident; that has its own case below.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "install-clients-")));
   mkdirSync(join(root, "scripts"));
   copyFileSync(SCRIPT, join(root, "scripts", "install-clients.mjs"));
   const client = join(root, "clients", "web");
@@ -123,18 +127,49 @@ test(
   },
 );
 
+/** Run the fixture's copy of the script the way npm runs the postinstall. */
+function runCascade(script, cwd, home) {
+  // process.execPath is directly executable everywhere, so no shell: on
+  // Windows a shell would re-split a temp path containing a space.
+  return spawnSync(process.execPath, [script], {
+    encoding: "utf8",
+    cwd,
+    env: parentNpmEnv(home),
+  });
+}
+
 test("the cascade installs a client when the parent npm exported allow-scripts", () => {
   const { root, home } = fixture();
   try {
-    const result = spawnSync(
-      process.execPath,
-      [join(root, "scripts", "install-clients.mjs")],
-      { ...npmCmd, cwd: root, env: parentNpmEnv(home) },
+    const result = runCascade(
+      join(root, "scripts", "install-clients.mjs"),
+      root,
+      home,
     );
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Installing dependencies for clients\/web/);
     assert.doesNotMatch(result.stderr, /EALLOWSCRIPTS/);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("the cascade still runs when the checkout is reached through a symlink", () => {
+  const { root, home } = fixture();
+  const linkParent = mkdtempSync(join(tmpdir(), "install-clients-link-"));
+  const link = join(linkParent, "checkout");
+  try {
+    // A junction needs no privilege on Windows; the type is ignored elsewhere.
+    symlinkSync(root, link, "junction");
+    const result = runCascade(
+      join(link, "scripts", "install-clients.mjs"),
+      link,
+      home,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Installing dependencies for clients\/web/);
+  } finally {
+    rmSync(linkParent, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
