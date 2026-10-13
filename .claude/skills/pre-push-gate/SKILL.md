@@ -106,7 +106,11 @@ dependency you just added or bumped. npm 11.x still **runs** such a script, so
 this is a review decision, not a typo: add `"<name>": false` to block it, or
 `"<name>@<version>": true` if the package genuinely needs it. Each install
 reads only its own manifest, so a package held by several installs needs an
-entry in each. Don't reach for `ignore-scripts` — it also disables the root
+entry in each. A **non-registry** dependency (git, file, remote tarball) is
+reported even with no flagged script, since npm may run its `prepare`; clear it
+with a key equal to its exact `resolved` spec from the lockfile. A **bundled**
+one can't be cleared by any key — the fix is the dependency that bundles it.
+Don't reach for `ignore-scripts` — it also disables the root
 `postinstall` that installs every client.
 
 ### `local:dco`
