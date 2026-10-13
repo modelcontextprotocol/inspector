@@ -74,10 +74,11 @@
     "release:tag": "node scripts/release-tag.mjs",
     "action:resolve-pin": "node scripts/action-pin-resolve.mjs",
     "validate": "npm run validate:guards && npm run validate:core && npm run validate:web && npm run validate:cli && npm run validate:mcpdo && npm run validate:tui && npm run validate:launcher",
-    "validate:guards": "npm run verify:install-fresh && npm run verify:format-coverage && npm run verify:skills && npm run verify:typecheck-coverage && npm run verify:dep-lockstep && npm run verify:test-timeouts && npm run verify:action-pins && npm run test:scripts",
+    "validate:guards": "npm run verify:install-fresh && npm run verify:install-scripts && npm run verify:format-coverage && npm run verify:skills && npm run verify:typecheck-coverage && npm run verify:dep-lockstep && npm run verify:test-timeouts && npm run verify:action-pins && npm run test:scripts",
     "verify:format-coverage": "node scripts/verify-format-coverage.mjs",
     "verify:dep-lockstep": "node scripts/verify-dep-lockstep.mjs",
     "verify:install-fresh": "node scripts/verify-install-fresh.mjs",
+    "verify:install-scripts": "node scripts/verify-install-scripts.mjs",
     "verify:test-timeouts": "node scripts/verify-test-timeouts.mjs",
     "verify:action-pins": "node scripts/verify-action-pins.mjs",
     "verify:coverage-scope": "node scripts/verify-coverage-scope.mjs",
@@ -148,6 +149,9 @@
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "allowScripts": {
+    "fsevents": false
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
