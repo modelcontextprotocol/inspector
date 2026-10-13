@@ -1,6 +1,6 @@
 // Tests for the install-script review guard. The policy matching and the
-// lockfile scan are exercised in memory; `main` against a throwaway tree on
-// disk, so install discovery, the per-install policy and the exit status are
+// lockfile scan are exercised in memory, and `main` is exercised against a
+// throwaway tree on disk, so install discovery, the per-install policy and the exit status are
 // covered too. Run via `npm run test:scripts`.
 
 import { test } from "node:test";
@@ -10,10 +10,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   isReviewed,
+  keyMatches,
   main,
   packageNameOf,
+  registryIdentity,
   unreviewedScripts,
 } from "./verify-install-scripts.mjs";
+
+const REGISTRY = "https://registry.npmjs.org";
+const tgz = (name, version) =>
+  `${REGISTRY}/${name}/-/${name.split("/").pop()}-${version}.tgz`;
+const dep = (name, version, extra = {}) => ({
+  version,
+  resolved: tgz(name, version),
+  hasInstallScript: true,
+  ...extra,
+});
 
 const lockOf = (packages) => ({
   lockfileVersion: 3,
@@ -29,50 +41,116 @@ test("packageNameOf takes the innermost package, scoped names included", () => {
   assert.equal(packageNameOf("node_modules/a/node_modules/@s/b"), "@s/b");
 });
 
-test("a bare name reviews every version, allow or deny", () => {
-  assert.equal(isReviewed({ fsevents: false }, "fsevents", "2.3.2"), true);
-  assert.equal(isReviewed({ fsevents: true }, "fsevents", "9.0.0"), true);
+test("registryIdentity reads name and version off the tarball URL", () => {
+  assert.deepEqual(registryIdentity(tgz("esbuild", "0.28.2")), {
+    name: "esbuild",
+    version: "0.28.2",
+  });
+  assert.deepEqual(registryIdentity(`${REGISTRY}/@s/b/-/b-1.0.0.tgz`), {
+    name: "@s/b",
+    version: "1.0.0",
+  });
+  assert.deepEqual(
+    registryIdentity("https://host/mount/@s%2fb/-/b-1.0.0-rc.1.tgz"),
+    { name: "@s/b", version: "1.0.0-rc.1" },
+  );
 });
 
-test("a versioned key reviews only the versions its range satisfies", () => {
-  const policy = { "esbuild@0.28.2": true, "fsevents@^2.3.0": false };
-  assert.equal(isReviewed(policy, "esbuild", "0.28.2"), true);
-  assert.equal(isReviewed(policy, "esbuild", "0.28.3"), false);
-  assert.equal(isReviewed(policy, "fsevents", "2.3.3"), true);
-  assert.equal(isReviewed(policy, "fsevents", "3.0.0"), false);
+test("registryIdentity proves nothing for a non-registry source", () => {
+  assert.equal(registryIdentity(undefined), null);
+  assert.equal(registryIdentity("git+ssh://git@github.com/a/b.git#abc"), null);
+  assert.equal(registryIdentity("file:../pkg"), null);
+  assert.equal(registryIdentity("https://host/pkg.tgz"), null);
+  assert.equal(registryIdentity(`${REGISTRY}/a/-/b-1.0.0.tgz`), null);
+  assert.equal(registryIdentity(`${REGISTRY}/a/-/a-latest.tgz`), null);
+  assert.equal(registryIdentity(`${REGISTRY}/a/-/a-1.0.0.zip`), null);
 });
 
-test("a non-boolean value, an invalid range or another package is no review", () => {
-  assert.equal(isReviewed({ esbuild: "maybe" }, "esbuild", "1.0.0"), false);
+test("a bare name or name@* reviews every version, allow or deny", () => {
+  const id = { name: "fsevents", version: "2.3.2" };
+  assert.equal(keyMatches("fsevents", id), true);
+  assert.equal(keyMatches("fsevents@*", id), true);
+  assert.equal(keyMatches("@s/b", { name: "@s/b", version: "1.0.0" }), true);
+  assert.equal(isReviewed({ fsevents: true }, dep("fsevents", "9.0.0")), true);
+});
+
+test("only exact versions joined by || review a version, as npm reads them", () => {
+  const id = { name: "esbuild", version: "0.28.2" };
+  assert.equal(keyMatches("esbuild@0.28.2", id), true);
+  assert.equal(keyMatches("esbuild@0.28.1 || 0.28.2", id), true);
+  assert.equal(keyMatches("esbuild@0.28.3", id), false);
+  // npm rejects comparator ranges as policy keys, so they review nothing.
+  assert.equal(keyMatches("esbuild@^0.28.0", id), false);
+  assert.equal(keyMatches("esbuild@>=0.1.0", id), false);
+  assert.equal(keyMatches("esbuild@0.28.2 ||", id), false);
   assert.equal(
-    isReviewed({ "esbuild@not a range": true }, "esbuild", "1.0.0"),
-    false,
+    keyMatches("@s/b@1.0.0", { name: "@s/b", version: "1.0.0" }),
+    true,
   );
-  assert.equal(
-    isReviewed({ "esbuild-wasm": false }, "esbuild", "1.0.0"),
-    false,
-  );
-  assert.equal(isReviewed(undefined, "esbuild", "1.0.0"), false);
+});
+
+test("a non-boolean value or another package is no review", () => {
+  const entry = dep("esbuild", "1.0.0");
+  assert.equal(isReviewed({ esbuild: "maybe" }, entry), false);
+  assert.equal(isReviewed({ "esbuild-wasm": false }, entry), false);
+  assert.equal(isReviewed(undefined, entry), false);
+});
+
+test("an alias is matched by the package it resolves to, not its folder", () => {
+  // `"esbuild": "npm:naughty@1.0.0"` installs naughty under node_modules/esbuild.
+  const aliased = dep("naughty", "1.0.0");
+  assert.equal(isReviewed({ esbuild: false }, aliased), false);
+  assert.equal(isReviewed({ naughty: false }, aliased), true);
+});
+
+test("a non-registry entry is reviewed only by its exact resolved spec", () => {
+  const git = {
+    version: "1.0.0",
+    resolved: "git+ssh://git@github.com/a/b.git#abc",
+    hasInstallScript: true,
+  };
+  assert.equal(isReviewed({ b: false }, git), false);
+  assert.equal(isReviewed({ [git.resolved]: false }, git), true);
 });
 
 test("unreviewedScripts reports only scripted, undecided dependencies", () => {
   const lock = lockOf({
-    "node_modules/esbuild": { version: "0.28.2", hasInstallScript: true },
-    "node_modules/fsevents": { version: "2.3.3", hasInstallScript: true },
-    "node_modules/vite/node_modules/fsevents": {
-      version: "2.3.2",
-      hasInstallScript: true,
-    },
-    "node_modules/plain": { version: "1.0.0" },
+    "node_modules/esbuild": dep("esbuild", "0.28.2"),
+    "node_modules/fsevents": dep("fsevents", "2.3.3"),
+    "node_modules/vite/node_modules/fsevents": dep("fsevents", "2.3.2"),
+    "node_modules/aliased": dep("naughty", "1.0.0"),
+    "node_modules/a/node_modules/bundled": dep("bundled", "1.0.0", {
+      inBundle: true,
+    }),
+    "node_modules/plain": { version: "1.0.0", resolved: tgz("plain", "1.0.0") },
   });
-  // The `""` project entry carries the root postinstall and is never reported.
-  assert.deepEqual(unreviewedScripts(lock, { fsevents: false }), [
-    { entryPath: "node_modules/esbuild", name: "esbuild", version: "0.28.2" },
-  ]);
+  // The `""` project entry carries the root postinstall and is never reported,
+  // and a bundled dependency never runs its script.
   assert.deepEqual(
-    unreviewedScripts(lock, { esbuild: false, fsevents: false }),
+    unreviewedScripts(lock, { fsevents: false, aliased: false }),
+    [
+      { entryPath: "node_modules/esbuild", name: "esbuild", version: "0.28.2" },
+      { entryPath: "node_modules/aliased", name: "naughty", version: "1.0.0" },
+    ],
+  );
+  assert.deepEqual(
+    unreviewedScripts(lock, {
+      esbuild: false,
+      fsevents: false,
+      naughty: false,
+    }),
     [],
   );
+  const git = lockOf({
+    "node_modules/b": {
+      version: "1.0.0",
+      resolved: "file:../b",
+      hasInstallScript: true,
+    },
+  });
+  assert.deepEqual(unreviewedScripts(git, {}), [
+    { entryPath: "node_modules/b", name: "b", version: "1.0.0" },
+  ]);
 });
 
 function tree(installs) {
@@ -98,9 +176,7 @@ const silenced = (fn) => {
   }
 };
 
-const scripted = lockOf({
-  "node_modules/esbuild": { version: "0.28.2", hasInstallScript: true },
-});
+const scripted = lockOf({ "node_modules/esbuild": dep("esbuild", "0.28.2") });
 
 test("main passes when every install decides its own scripts", () => {
   const root = tree({
