@@ -160,8 +160,12 @@ export function diffCoverageScope({
   }
   const have = new Set(reported.map(slash));
   const rel = (abs) => slash(path.relative(repoRoot, abs));
+  // An omission is honored only with a stated reason; an entry without one
+  // would weaken the gate as silently as the glob drift this guard exists for.
+  const isJustified = (r) =>
+    typeof omissions[r] === "string" && omissions[r].trim() !== "";
   const missing = expected.filter(
-    (f) => !have.has(f) && !(rel(f) in omissions),
+    (f) => !have.has(f) && !(rel(f) in omissions && isJustified(rel(f))),
   );
   if (missing.length > 0) {
     failures.push(
@@ -173,11 +177,22 @@ export function diffCoverageScope({
     );
   }
   const expectedRel = new Set(expected.map(rel));
+  const reportedRel = new Set([...have].map(rel));
   for (const omitted of Object.keys(omissions)) {
-    if (!expectedRel.has(omitted)) {
+    if (!isJustified(omitted)) {
+      failures.push(
+        `${client}: KNOWN_OMISSIONS names ${omitted} without a reason — ` +
+          `state why the run may omit it, or remove the entry`,
+      );
+    } else if (!expectedRel.has(omitted)) {
       failures.push(
         `${client}: KNOWN_OMISSIONS names ${omitted}, which its declaration ` +
           `no longer matches — a stale entry hides nothing and should be removed`,
+      );
+    } else if (reportedRel.has(omitted)) {
+      failures.push(
+        `${client}: KNOWN_OMISSIONS names ${omitted}, which the report now ` +
+          `measures — the exemption is stale and should be removed`,
       );
     }
   }

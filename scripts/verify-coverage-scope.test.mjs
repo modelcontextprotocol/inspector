@@ -206,6 +206,37 @@ test("a stated omission is not reported missing, and a stale one is flagged", ()
   assert.match(stale[0], /KNOWN_OMISSIONS names clients\/web\/src\/gone\.ts/);
 });
 
+test("an omission without a reason is not honored and is itself a failure", () => {
+  for (const reason of ["", "   ", undefined]) {
+    const failures = diffCoverageScope({
+      client: "web",
+      expected: ["/r/clients/web/src/a.ts", "/r/clients/web/src/b.ts"],
+      reported: ["/r/clients/web/src/a.ts"],
+      omissions: { "clients/web/src/b.ts": reason },
+      repoRoot: "/r",
+    });
+    assert.equal(failures.length, 2, `reason ${JSON.stringify(reason)}`);
+    assert.match(failures[0], /^web: 1 of 2 file\(s\)/);
+    assert.match(failures[0], /clients\/web\/src\/b\.ts/);
+    assert.match(
+      failures[1],
+      /names clients\/web\/src\/b\.ts without a reason/,
+    );
+  }
+});
+
+test("an omission for a file the report now measures is flagged as stale", () => {
+  const failures = diffCoverageScope({
+    client: "web",
+    expected: ["/r/clients/web/src/a.ts"],
+    reported: ["/r/clients/web/src/a.ts"],
+    omissions: { "clients/web/src/a.ts": "types only" },
+    repoRoot: "/r",
+  });
+  assert.equal(failures.length, 1);
+  assert.match(failures[0], /which the report now measures/);
+});
+
 test("the roster fails on an unlisted coverage client and on a stale row", () => {
   const listed = CLIENTS.map((c) => c.name);
   assert.deepEqual(checkClientRoster([...listed].sort()), []);
