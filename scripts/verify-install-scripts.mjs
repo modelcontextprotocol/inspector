@@ -41,7 +41,11 @@
 //    so they are no review here either.
 //  - A package with no provable registry identity (git, tarball, file) is
 //    reviewed only by a key equal to its `resolved` spec; otherwise it fails
-//    closed, as unreviewed.
+//    closed, as unreviewed. That applies whether or not it is flagged
+//    `hasInstallScript`: npm also runs `prepare` for a non-registry dependency,
+//    and the lockfile flag records only preinstall/install/postinstall, so a
+//    prepare-only one would otherwise pass unseen. (A `link` entry points at
+//    in-repo source, which is reviewed as source, and is out of scope.)
 //  - A bundled dependency (`inBundle`) is always reported. npm's matcher
 //    returns "unreviewed" for one unconditionally, so no `allowScripts` key can
 //    decide it, and under 11.x an unreviewed script still runs during the
@@ -126,8 +130,8 @@ export function isReviewed(allowScripts, entry) {
 }
 
 /**
- * Every lockfile entry with an install script that `allowScripts` has not
- * decided on, as `{ entryPath, name, version, bundled }` — `name` being the
+ * Every lockfile entry with an install script — or, for a non-registry
+ * entry, possibly a `prepare` — that `allowScripts` has not decided on, as `{ entryPath, name, version, bundled }` — `name` being the
  * identity npm matches, or the folder name when none can be proven. A bundled
  * entry is always included: no policy key can decide it.
  */
@@ -135,7 +139,10 @@ export function unreviewedScripts(lock, allowScripts) {
   const found = [];
   for (const [entryPath, entry] of Object.entries(lock?.packages ?? {})) {
     if (!entryPath.startsWith("node_modules/")) continue;
-    if (!entry?.hasInstallScript) continue;
+    if (!entry || entry.link) continue;
+    // A non-registry entry may run `prepare`, which no lockfile flag records.
+    const mayPrepare = registryIdentity(entry.resolved) === null;
+    if (!entry.hasInstallScript && !mayPrepare) continue;
     const bundled = entry.inBundle === true;
     if (!bundled && isReviewed(allowScripts, entry)) continue;
     const identity = registryIdentity(entry.resolved);

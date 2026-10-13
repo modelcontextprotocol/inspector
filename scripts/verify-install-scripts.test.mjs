@@ -164,6 +164,23 @@ test("unreviewedScripts reports only scripted, undecided dependencies", () => {
   ]);
 });
 
+test("a non-registry entry needs a decision even without the flag (prepare)", () => {
+  const git = "git+ssh://git@github.com/a/b.git#abc";
+  const lock = lockOf({
+    "node_modules/b": { version: "1.0.0", resolved: git },
+    "node_modules/linked": { resolved: "../linked", link: true },
+  });
+  assert.deepEqual(unreviewedScripts(lock, {}), [
+    {
+      entryPath: "node_modules/b",
+      name: "b",
+      version: "1.0.0",
+      bundled: false,
+    },
+  ]);
+  assert.deepEqual(unreviewedScripts(lock, { [git]: false }), []);
+});
+
 test("a bundled script is always reported: no policy key can decide it", () => {
   const lock = lockOf({
     "node_modules/a/node_modules/bundled": dep("bundled", "1.0.0", {
