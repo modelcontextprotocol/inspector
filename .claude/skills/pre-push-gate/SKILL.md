@@ -98,6 +98,21 @@ stale install otherwise passes every check and fails later as a behavioral test
 reporting the *old* dependency's behavior as a product bug (#2494). Don't
 "fix" that test.
 
+### `verify:install-scripts`
+
+A dependency with an install script is neither allowed nor denied in the
+`allowScripts` of the `package.json` beside that lockfile (#2712) — usually a
+dependency you just added or bumped. npm 11.x still **runs** such a script, so
+this is a review decision, not a typo: add `"<name>": false` to block it, or
+`"<name>@<version>": true` if the package genuinely needs it. Each install
+reads only its own manifest, so a package held by several installs needs an
+entry in each. A **non-registry** dependency (git, file, remote tarball) is
+reported even with no flagged script, since npm may run its `prepare`; clear it
+with a key equal to its exact `resolved` spec from the lockfile. A **bundled**
+one can't be cleared by any key — the fix is the dependency that bundles it.
+Don't reach for `ignore-scripts` — it also disables the root
+`postinstall` that installs every client.
+
 ### `local:dco`
 
 A commit in `origin/v2/main..HEAD` (minus anything already on `origin/main`)
