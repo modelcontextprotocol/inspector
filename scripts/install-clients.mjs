@@ -93,12 +93,13 @@ function main() {
   }
 }
 
-// Compare real paths: Node resolves symlinks for import.meta.url but not for
-// argv[1], so a checkout reached through a symlink (macOS /var -> /private/var)
+// Compare real paths on both sides. By default Node resolves symlinks for
+// import.meta.url but not for argv[1], and --preserve-symlinks-main reverses
+// that, so a checkout reached through a symlink (macOS /var -> /private/var)
 // would otherwise skip the cascade silently.
 if (
   process.argv[1] &&
-  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 ) {
   main();
 }

@@ -128,10 +128,10 @@ test(
 );
 
 /** Run the fixture's copy of the script the way npm runs the postinstall. */
-function runCascade(script, cwd, home) {
+function runCascade(script, cwd, home, nodeArgs = []) {
   // process.execPath is directly executable everywhere, so no shell: on
   // Windows a shell would re-split a temp path containing a space.
-  return spawnSync(process.execPath, [script], {
+  return spawnSync(process.execPath, [...nodeArgs, script], {
     encoding: "utf8",
     cwd,
     env: parentNpmEnv(home),
@@ -154,25 +154,29 @@ test("the cascade installs a client when the parent npm exported allow-scripts",
   }
 });
 
-test("the cascade still runs when the checkout is reached through a symlink", () => {
-  const { root, home } = fixture();
-  const linkParent = mkdtempSync(join(tmpdir(), "install-clients-link-"));
-  const link = join(linkParent, "checkout");
-  try {
-    // A junction needs no privilege on Windows; the type is ignored elsewhere.
-    symlinkSync(root, link, "junction");
-    const result = runCascade(
-      join(link, "scripts", "install-clients.mjs"),
-      link,
-      home,
-    );
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Installing dependencies for clients\/web/);
-  } finally {
-    rmSync(linkParent, { recursive: true, force: true });
-    rmSync(root, { recursive: true, force: true });
-  }
-});
+for (const nodeArgs of [[], ["--preserve-symlinks-main"]]) {
+  const how = nodeArgs.length ? ` (${nodeArgs.join(" ")})` : "";
+  test(`the cascade still runs when the checkout is reached through a symlink${how}`, () => {
+    const { root, home } = fixture();
+    const linkParent = mkdtempSync(join(tmpdir(), "install-clients-link-"));
+    const link = join(linkParent, "checkout");
+    try {
+      // A junction needs no privilege on Windows; the type is ignored elsewhere.
+      symlinkSync(root, link, "junction");
+      const result = runCascade(
+        join(link, "scripts", "install-clients.mjs"),
+        link,
+        home,
+        nodeArgs,
+      );
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Installing dependencies for clients\/web/);
+    } finally {
+      rmSync(linkParent, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+}
 
 /**
  * A stand-in `npm` on PATH that fails, as npm 11.19+ does, when
