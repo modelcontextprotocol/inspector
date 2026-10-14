@@ -24,9 +24,9 @@
 import type { Command, Option } from "commander";
 import { LoggingLevelSchema } from "@modelcontextprotocol/core";
 import { ONE_SHOT_METHODS } from "@inspector/core/cli/handlers/method-types.js";
-import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
 import { OUTPUT_FILE_FORMATS } from "@inspector/core/cli/handlers/output-file.js";
 import { CATALOG_WRITE_METHODS } from "./handlers/servers-write.js";
+import { isBrokenPipe } from "./handlers/consume-outcome.js";
 
 export const COMPLETION_SHELLS = ["bash", "zsh", "fish"] as const;
 export type CompletionShell = (typeof COMPLETION_SHELLS)[number];
@@ -352,6 +352,34 @@ export function registerCompletionOption(program: Command): void {
 }
 
 /**
+ * Write the script to stdout, treating a reader that closes early as a normal
+ * end rather than a crash (#2646). `| head` closes the pipe before the whole
+ * script is written, and so does bash 3.2's `source <(…)`, whose process
+ * substitution does not keep it open; either way the write fails with EPIPE,
+ * which without an `'error'` listener is an unhandled event and a stack trace.
+ * Any other stdout error still rejects into the CLI's error path.
+ *
+ * The listener stays attached after a failed write: Node calls the write
+ * callback first and emits `'error'` afterwards, so detaching in the callback
+ * would leave that later emit unhandled. It is a `once`, so the emit removes
+ * it, and settling twice is a no-op.
+ */
+function writeCompletion(script: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const settle = (err: unknown) => {
+      if (isBrokenPipe(err)) resolve();
+      else reject(err);
+    };
+    process.stdout.once("error", settle);
+    process.stdout.write(script, (err) => {
+      if (err) return settle(err);
+      process.stdout.off("error", settle);
+      resolve();
+    });
+  });
+}
+
+/**
  * After `program.parse`: when `--completion` was given, write the script for
  * that shell and return true so the caller can short-circuit.
  */
@@ -360,6 +388,8 @@ export async function emitCompletionIfRequested(
 ): Promise<boolean> {
   const shell = program.opts<{ completion?: CompletionShell }>().completion;
   if (!shell) return false;
-  await awaitableLog(renderCompletion(shell, collectCompletionFlags(program)));
+  await writeCompletion(
+    renderCompletion(shell, collectCompletionFlags(program)),
+  );
   return true;
 }

@@ -1,11 +1,23 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
+  buildDiscoveryUrls,
+  discoverAuthorizationServerMetadata,
+  startAuthorization,
+} from "@modelcontextprotocol/client";
+import {
   applyOAuthEndpointOverrides,
+  authorizationServerForFinalCandidate,
+  SYNTHESIZED_METADATA_HEADER,
+  synthesizeAuthorizationServerMetadata,
   isAuthorizationServerMetadata,
   normalizeOAuthEndpointOverrides,
   oauthEndpointUrlError,
   withOAuthEndpointOverrides,
 } from "@inspector/core/auth/endpointOverrides.js";
+import {
+  COMPAT_SOURCE_HEADER,
+  withRfc8414OidcCompat,
+} from "@inspector/core/auth/oidcDiscoveryCompat.js";
 
 const METADATA = {
   issuer: "https://as.example.com",
@@ -391,4 +403,304 @@ describe("withOAuthEndpointOverrides", () => {
     expect(response.headers.get("content-encoding")).toBeNull();
     expect(response.headers.get("content-type")).toBe("application/json");
   });
+});
+
+// #2562: an authorization server that publishes no metadata at all. The SDK
+// would fall back to `/authorize` and `/token` on its origin, so without a
+// synthesized document the overrides had nothing to patch and were ignored.
+describe("authorizationServerForFinalCandidate", () => {
+  // The "last candidate" rule is a hand-written reading of the SDK's
+  // `buildDiscoveryUrls`; pinning it against the SDK's own export keeps the two
+  // from drifting if the SDK changes its candidate list.
+  it.each([
+    "https://gateway.example.com",
+    "https://gateway.example.com/",
+    "https://gateway.example.com/tenant",
+    "https://gateway.example.com/tenant/",
+    // An issuer whose own path ends in the OIDC suffix makes *every* candidate
+    // end that way; only the last may be claimed (Copilot).
+    "https://gateway.example.com/tenant/.well-known/openid-configuration",
+  ])("identifies only the SDK's last candidate for %s", (asUrl) => {
+    const candidates = buildDiscoveryUrls(asUrl).map((c) => c.url.href);
+    const matched = candidates.map(authorizationServerForFinalCandidate);
+    expect(matched.slice(0, -1)).toEqual(
+      candidates.slice(0, -1).map(() => undefined),
+    );
+    expect(matched.at(-1)).toBe(asUrl.replace(/\/$/, ""));
+  });
+
+  it("declines an issuer whose path begins with a well-known segment", () => {
+    expect(
+      authorizationServerForFinalCandidate(
+        "https://gateway.example.com/.well-known/openid-configuration/x/.well-known/openid-configuration",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("rejects a URL that will not parse", () => {
+    expect(authorizationServerForFinalCandidate("not a url")).toBeUndefined();
+  });
+});
+
+describe("synthesizeAuthorizationServerMetadata", () => {
+  it("uses the overrides and keeps the SDK's fallbacks for the rest", () => {
+    expect(
+      synthesizeAuthorizationServerMetadata("https://gateway.example.com/t", {
+        authorizationUrl: STAGING_AUTHORIZE,
+      }),
+    ).toEqual({
+      issuer: "https://gateway.example.com/t",
+      authorization_endpoint: STAGING_AUTHORIZE,
+      token_endpoint: "https://gateway.example.com/token",
+      registration_endpoint: "https://gateway.example.com/register",
+      response_types_supported: ["code"],
+      code_challenge_methods_supported: ["S256"],
+    });
+  });
+
+  it("uses the token override with the authorize fallback", () => {
+    expect(
+      synthesizeAuthorizationServerMetadata("https://gateway.example.com", {
+        tokenUrl: STAGING_TOKEN,
+      }),
+    ).toMatchObject({
+      authorization_endpoint: "https://gateway.example.com/authorize",
+      token_endpoint: STAGING_TOKEN,
+    });
+  });
+});
+
+describe("withOAuthEndpointOverrides with no published metadata (#2562)", () => {
+  const FINAL_CANDIDATE =
+    "https://gateway.example.com/.well-known/openid-configuration";
+  const OVERRIDES = {
+    authorizationUrl: STAGING_AUTHORIZE,
+    tokenUrl: STAGING_TOKEN,
+  };
+
+  /** What the SDK's discovery sends; synthesis requires a JSON `Accept`. */
+  const DISCOVERY_INIT = { headers: { Accept: "application/json" } };
+
+  function silenceWarn() {
+    return vi.spyOn(console, "warn").mockImplementation(() => {});
+  }
+
+  it("answers a failed final candidate with a synthesized document", async () => {
+    const warn = silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(new Response("nope", { status: 404 })),
+      () => OVERRIDES,
+    );
+    const response = await wrapped(FINAL_CANDIDATE, DISCOVERY_INIT);
+    expect(response.status).toBe(200);
+    expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBe(
+      "endpoint-overrides",
+    );
+    await expect(response.json()).resolves.toMatchObject({
+      issuer: "https://gateway.example.com",
+      authorization_endpoint: STAGING_AUTHORIZE,
+      token_endpoint: STAGING_TOKEN,
+    });
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("treats a 502 like a 404, as the SDK does", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(new Response("bad gateway", { status: 502 })),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, DISCOVERY_INIT),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
+  // The SDK walks past every non-OK status below 500, so a redirect a custom
+  // fetch did not follow is as much "no metadata here" as a 404 (Copilot).
+  it("treats a non-followed redirect like a 404, as the SDK does", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://elsewhere.example.com/" },
+        }),
+      ),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, DISCOVERY_INIT),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
+  it("leaves a 500 alone — the SDK surfaces it as an outage", async () => {
+    const original = new Response("boom", { status: 500 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => OVERRIDES,
+    );
+    await expect(wrapped(FINAL_CANDIDATE)).resolves.toBe(original);
+  });
+
+  it("does not synthesize on an earlier candidate", async () => {
+    const original = new Response("nope", { status: 404 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => OVERRIDES,
+    );
+    // Root RFC 8414 candidate: the OIDC candidate after it may still answer.
+    await expect(wrapped(AS_METADATA_URL)).resolves.toBe(original);
+  });
+
+  it("does not synthesize for a non-GET request", async () => {
+    const original = new Response("nope", { status: 404 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(new Request(FINAL_CANDIDATE, { method: "POST" })),
+    ).resolves.toBe(original);
+    await expect(wrapped(FINAL_CANDIDATE, { method: "post" })).resolves.toBe(
+      original,
+    );
+  });
+
+  it("recognizes a GET Request object", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(new Response("nope", { status: 404 })),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(new Request(FINAL_CANDIDATE, DISCOVERY_INIT)),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
+  // A legacy SSE / streamable-HTTP GET to an MCP endpoint whose URL happens
+  // to end in the OIDC well-known path must keep its OAuth 401 (Copilot).
+  it("does not synthesize for an event-stream GET", async () => {
+    const original = new Response("unauthorized", { status: 401 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, { headers: { Accept: "text/event-stream" } }),
+    ).resolves.toBe(original);
+    await expect(
+      wrapped(
+        new Request(FINAL_CANDIDATE, {
+          headers: { Accept: "text/event-stream" },
+        }),
+      ),
+    ).resolves.toBe(original);
+    // A configured `Accept: application/json` with the SDK's event-stream
+    // appended is still a stream request.
+    await expect(
+      wrapped(FINAL_CANDIDATE, {
+        headers: { Accept: "application/json, text/event-stream" },
+      }),
+    ).resolves.toBe(original);
+    await expect(wrapped(FINAL_CANDIDATE)).resolves.toBe(original);
+  });
+
+  it("accepts a JSON Accept carrying parameters", async () => {
+    silenceWarn();
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(new Response("nope", { status: 404 })),
+      () => OVERRIDES,
+    );
+    await expect(
+      wrapped(FINAL_CANDIDATE, {
+        headers: { Accept: "Application/JSON; charset=utf-8" },
+      }),
+    ).resolves.toHaveProperty("status", 200);
+  });
+
+  it("does nothing when no override is configured", async () => {
+    const original = new Response("nope", { status: 404 });
+    const wrapped = withOAuthEndpointOverrides(
+      passThrough(original),
+      () => undefined,
+    );
+    await expect(wrapped(FINAL_CANDIDATE)).resolves.toBe(original);
+  });
+
+  // The compat wrapper hands the synthesized document to discovery, but must
+  // not attribute it to the server or warn that the server returned it.
+  it("passes through the compat wrapper as synthesized, not as the server's", async () => {
+    const warn = silenceWarn();
+    const fetchFn = withRfc8414OidcCompat(
+      withOAuthEndpointOverrides(
+        async () => new Response("nope", { status: 404 }),
+        () => OVERRIDES,
+      ),
+    );
+    const response = await fetchFn(AS_METADATA_URL, DISCOVERY_INIT);
+    expect(response.status).toBe(200);
+    expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBe(
+      "endpoint-overrides",
+    );
+    expect(response.headers.get(COMPAT_SOURCE_HEADER)).toBeNull();
+    // Only the overrides wrapper's own warning — not the compat one.
+    expect(warn).toHaveBeenCalledOnce();
+    expect(String(warn.mock.calls[0][0])).toContain(
+      "publishes no authorization server metadata",
+    );
+  });
+
+  // Headers are server-controlled, so a real document carrying the marker
+  // must still be attributed to its source and warned about (Copilot).
+  it("does not trust a server-sent marker header in the compat wrapper", async () => {
+    const warn = silenceWarn();
+    const spoofed = (url: string) =>
+      url.endsWith("/.well-known/openid-configuration")
+        ? new Response(JSON.stringify(METADATA), {
+            headers: {
+              "content-type": "application/json",
+              [SYNTHESIZED_METADATA_HEADER]: "endpoint-overrides",
+            },
+          })
+        : new Response("nope", { status: 404 });
+    const fetchFn = withRfc8414OidcCompat(async (input) =>
+      spoofed(String(input)),
+    );
+    const response = await fetchFn(AS_METADATA_URL);
+    expect(response.headers.get(COMPAT_SOURCE_HEADER)).toBe(
+      "https://as.example.com/.well-known/openid-configuration",
+    );
+    expect(response.headers.get(SYNTHESIZED_METADATA_HEADER)).toBeNull();
+    expect(String(warn.mock.calls[0][0])).toContain("returned RFC 8414");
+  });
+
+  // The issue's reproduction, through the SDK's own discovery and
+  // authorization-URL construction: a server with no metadata anywhere, and
+  // the compat wrapper outermost exactly as `InspectorClient` composes it.
+  it.each(["https://gateway.example.com/", "https://gateway.example.com/api"])(
+    "sends the SDK's authorization request to the override for %s",
+    async (asUrl) => {
+      silenceWarn();
+      const fetchFn = withRfc8414OidcCompat(
+        withOAuthEndpointOverrides(
+          async () => new Response("nope", { status: 404 }),
+          () => OVERRIDES,
+        ),
+      );
+      const metadata = await discoverAuthorizationServerMetadata(asUrl, {
+        fetchFn,
+      });
+      expect(metadata?.token_endpoint).toBe(STAGING_TOKEN);
+      const { authorizationUrl } = await startAuthorization(asUrl, {
+        metadata,
+        clientInformation: { client_id: "client-123" },
+        redirectUrl: "http://127.0.0.1:6274/oauth/callback",
+        scope: "api://app/scope",
+      });
+      expect(`${authorizationUrl.origin}${authorizationUrl.pathname}`).toBe(
+        STAGING_AUTHORIZE,
+      );
+      expect(authorizationUrl.searchParams.get("client_id")).toBe("client-123");
+    },
+  );
 });

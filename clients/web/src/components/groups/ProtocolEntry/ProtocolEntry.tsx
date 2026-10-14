@@ -91,17 +91,58 @@ const HeaderRow = Group.withProps({
   wrap: "nowrap",
 });
 
-// Left / right clusters within a compact header line. The left cluster shrinks
-// (`miw: 0`) so a long target can truncate rather than push the row wider.
+// A line of the compact (sidebar) header. It wraps, so when the info cluster
+// and the controls cluster don't both fit, the controls drop onto a line of
+// their own rather than squeezing the badges and the target to nothing or
+// running past the card's edge (#2675). The sidebar can be as narrow as 320px,
+// where a method badge, a target and four controls cannot share one line.
+const CompactHeaderLine = Group.withProps({
+  justify: "space-between",
+  wrap: "wrap",
+  gap: "xs",
+});
+
+// Left / right clusters within a header line. The left cluster shrinks
+// (`miw: 0`) so a long target scrolls inside it rather than pushing the row
+// wider. Its basis stays `auto` — not `flex: 1`, whose zero basis would tell
+// the wrapping line it always fits — so a long target sends the controls to
+// the next line and then takes the full width there.
 const HeaderCluster = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
   miw: 0,
 });
 
-const ControlsCluster = Group.withProps({
+// The compact header's method + target cluster. It wraps too: a long method
+// badge (`notifications/resources/updated`) leaves too little room for the
+// target beside it at the narrowest sidebar, so the target takes a line of its
+// own instead of being squeezed to nothing.
+const GrowingHeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "wrap",
+  miw: 0,
+  flex: "1 1 auto",
+});
+
+// The target and its copy button, kept together. `flex: 1` fills whatever the
+// line leaves; the `miw` is the narrowest scroll window worth showing, and is
+// what makes the cluster wrap the target onto its own line rather than shrink
+// it below that.
+const TargetGroup = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  flex: 1,
+  miw: "6rem",
+});
+
+// The compact header's controls. `ml: auto` keeps them right-aligned when the
+// line wraps them below the info cluster, and `miw: 0` lets a long
+// subscription id among them scroll instead of overflowing the card.
+const CompactControlsCluster = Group.withProps({
   gap: "xs",
   wrap: "nowrap",
+  ml: "auto",
+  miw: 0,
 });
 
 const TimestampText = Text.withProps({
@@ -140,6 +181,7 @@ const SubscriptionLabel = Text.withProps({
 const SubscriptionId = Text.withProps({
   size: "sm",
   ff: "monospace",
+  variant: "nowrap",
 });
 
 const SubscriptionCluster = Group.withProps({
@@ -326,6 +368,26 @@ function McpSpecErrorAlert({
   );
 }
 
+// The `subscriptionId` tag: label, copy button, id. In the compact sidebar
+// header the id scrolls in place like the target, so a long one can't push the
+// card wider than its column (#2675); the wide layout has room for it inline.
+function SubscriptionTag({
+  id,
+  scrollable,
+}: {
+  id: string;
+  scrollable: boolean;
+}) {
+  const idText = <SubscriptionId>{id}</SubscriptionId>;
+  return (
+    <SubscriptionCluster>
+      <SubscriptionLabel>sub</SubscriptionLabel>
+      <CopyButton value={id} />
+      {scrollable ? <TargetScrollArea>{idText}</TargetScrollArea> : idText}
+    </SubscriptionCluster>
+  );
+}
+
 export function ProtocolEntry({
   entry,
   isPinned,
@@ -389,11 +451,7 @@ export function ProtocolEntry({
       </Badge>
     );
   const subscriptionBadge = subscriptionId && (
-    <SubscriptionCluster>
-      <SubscriptionLabel>sub</SubscriptionLabel>
-      <CopyButton value={subscriptionId} />
-      <SubscriptionId>{subscriptionId}</SubscriptionId>
-    </SubscriptionCluster>
+    <SubscriptionTag id={subscriptionId} scrollable={embedded} />
   );
   const durationText = entry.duration != null && (
     <DurationText>{formatDuration(entry.duration)}</DurationText>
@@ -413,14 +471,14 @@ export function ProtocolEntry({
         {embedded ? (
           // Compact two-line header for the narrow column.
           <Stack gap="xs">
-            <HeaderRow>
+            <CompactHeaderLine>
               <HeaderCluster>
                 <TimestampText>
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 {directionBadge}
               </HeaderCluster>
-              <ControlsCluster>
+              <CompactControlsCluster>
                 {durationText}
                 {resultTypeBadge}
                 {statusBadge}
@@ -429,29 +487,29 @@ export function ProtocolEntry({
                     method badge on the line below gets the full column width and
                     doesn't truncate against the pin control (#1630). */}
                 {subscriptionBadge}
-              </ControlsCluster>
-            </HeaderRow>
-            <HeaderRow>
-              <HeaderCluster flex={1}>
+              </CompactControlsCluster>
+            </CompactHeaderLine>
+            <CompactHeaderLine>
+              <GrowingHeaderCluster>
                 <MethodBadge method={method} />
                 {target && (
-                  <>
+                  <TargetGroup>
                     {resourceUri && <CopyButton value={resourceUri} />}
                     <TargetScrollArea>
                       <TargetScroll>{target}</TargetScroll>
                     </TargetScrollArea>
-                  </>
+                  </TargetGroup>
                 )}
-              </HeaderCluster>
-              <ControlsCluster>
+              </GrowingHeaderCluster>
+              <CompactControlsCluster>
                 {replayControls}
                 <PinToggle pinned={isPinned} onToggle={onTogglePin} />
                 <ExpandToggle
                   expanded={isExpanded}
                   onToggle={() => setIsExpanded((v) => !v)}
                 />
-              </ControlsCluster>
-            </HeaderRow>
+              </CompactControlsCluster>
+            </CompactHeaderLine>
           </Stack>
         ) : (
           <>

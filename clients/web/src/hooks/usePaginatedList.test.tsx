@@ -8,6 +8,7 @@ interface Params {
   managedItems: string[];
   managedRefresh: () => Promise<unknown>;
   managedError: Error | null;
+  managedLoaded: boolean;
   pagedItems: string[];
   pagedNextCursor?: string;
   pagedPageCount: number;
@@ -22,6 +23,7 @@ function makeParams(over: Partial<Params> = {}): Params {
     managedItems: ["m1", "m2"],
     managedRefresh: vi.fn(async () => []),
     managedError: null,
+    managedLoaded: true,
     pagedItems: ["p1"],
     pagedNextCursor: undefined,
     pagedPageCount: 0,
@@ -119,6 +121,40 @@ describe("usePaginatedList", () => {
     });
     const { result } = renderHook(() => usePaginatedList(params));
     expect(result.current.error).toBeNull();
+  });
+
+  // #2607: `loaded` follows the active source, so a list header can tell an
+  // in-flight first load from a server that has none.
+  it("reports the aggregate's loaded state in all-pages mode", () => {
+    const pending = makeParams({ managedLoaded: false, pagedPageCount: 1 });
+    expect(
+      renderHook(() => usePaginatedList(pending)).result.current.loaded,
+    ).toBe(false);
+    const done = makeParams({ managedLoaded: true });
+    expect(renderHook(() => usePaginatedList(done)).result.current.loaded).toBe(
+      true,
+    );
+  });
+
+  it("reports loaded once page 1 has landed in paginated mode", () => {
+    const pending = makeParams({ paginated: true, pagedPageCount: 0 });
+    expect(
+      renderHook(() => usePaginatedList(pending)).result.current.loaded,
+    ).toBe(false);
+    const done = makeParams({
+      paginated: true,
+      managedLoaded: false,
+      pagedPageCount: 1,
+    });
+    expect(renderHook(() => usePaginatedList(done)).result.current.loaded).toBe(
+      true,
+    );
+  });
+
+  it("is never loaded while disconnected", () => {
+    const params = makeParams({ connected: false, managedLoaded: true });
+    const { result } = renderHook(() => usePaginatedList(params));
+    expect(result.current.loaded).toBe(false);
   });
 
   it("onRefresh re-fetches the aggregate in all-pages mode", () => {

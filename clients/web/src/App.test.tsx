@@ -4068,6 +4068,7 @@ describe("App background command rejections (#2049)", () => {
       tools: [{ name: "get_acts", inputSchema: { type: "object" } }],
       error: null,
       listChanged: false,
+      loaded: true,
       refresh: vi.fn().mockResolvedValue([]),
       clearListChanged: clearToolsListChangedSpy,
     });
@@ -4120,6 +4121,7 @@ describe("App background command rejections (#2049)", () => {
       tools: [],
       error: LIST_FAILURE,
       listChanged: false,
+      loaded: true,
       refresh: vi.fn().mockRejectedValue(LIST_FAILURE),
       clearListChanged: clearToolsListChangedSpy,
     });
@@ -4352,6 +4354,7 @@ function managedResourcesResult(
     error: null,
     resources,
     listChanged: false,
+    loaded: true,
     refresh: vi.fn().mockResolvedValue(resources),
     clearListChanged: vi.fn(),
   };

@@ -417,6 +417,66 @@ describe("ManagedToolsState", () => {
   // caller to await it, so its rejection became an unhandled rejection and the
   // panel just rendered an empty list — indistinguishable from a server with no
   // tools (#1953).
+  // #2607: an empty list before the first load is "not loaded yet", not "the
+  // server has none" — `isLoaded` is what lets a count tell the two apart.
+  describe("loaded (#2607)", () => {
+    it("starts not loaded", () => {
+      expect(state.isLoaded()).toBe(false);
+    });
+
+    it("is loaded once a refresh commits a list, even an empty one", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [] });
+      await state.refresh();
+      expect(state.isLoaded()).toBe(true);
+    });
+
+    it("is already loaded when toolsChange fires", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")] });
+      let loadedAtDispatch: boolean | undefined;
+      state.addEventListener("toolsChange", () => {
+        loadedAtDispatch = state.isLoaded();
+      });
+      await state.refresh();
+      expect(loadedAtDispatch).toBe(true);
+    });
+
+    it("stays not loaded when a refresh has nothing to commit", async () => {
+      // Disconnected: fetchItems returns null and the list is left alone.
+      await state.refresh();
+      expect(state.isLoaded()).toBe(false);
+    });
+
+    it("stays not loaded when the first refresh fails", async () => {
+      client.setStatus("connected");
+      client.listAllTools.mockRejectedValueOnce(new Error("boom"));
+      await expect(state.refresh()).rejects.toThrow("boom");
+      expect(state.isLoaded()).toBe(false);
+    });
+
+    it("is cleared by a disconnect, before toolsChange fires", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")] });
+      await state.refresh();
+      let loadedAtDispatch: boolean | undefined;
+      state.addEventListener("toolsChange", () => {
+        loadedAtDispatch = state.isLoaded();
+      });
+      client.setStatus("disconnected");
+      expect(loadedAtDispatch).toBe(false);
+      expect(state.isLoaded()).toBe(false);
+    });
+
+    it("is cleared by destroy", async () => {
+      client.setStatus("connected");
+      client.queueToolPages({ tools: [tool("a")] });
+      await state.refresh();
+      state.destroy();
+      expect(state.isLoaded()).toBe(false);
+    });
+  });
+
   describe("load errors", () => {
     const boom = new Error("Invalid result for tools/list: ttlMs required");
 

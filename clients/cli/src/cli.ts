@@ -1,4 +1,4 @@
-import { Command } from "commander";
+import { Command, Option } from "commander";
 import {
   CATALOG_METHODS,
   emitCompletionIfRequested,
@@ -15,6 +15,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
+  CLI_CONNECTION_TIMEOUT_REMEDY,
   DEFAULT_CONNECT_TIMEOUT_MS,
   withConnectTimeout,
 } from "@inspector/core/cli/handlers/connect-timeout.js";
@@ -70,7 +71,7 @@ import type { ServerOAuthState } from "@inspector/core/auth/store.js";
 import { getOwnEntry } from "@inspector/core/storage/own-entry.js";
 import {
   readOAuthStore,
-  writeOAuthSections,
+  updateOAuthServerEntry,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   discoverAuthorizationServerMetadataFromCandidates,
@@ -209,6 +210,9 @@ async function callMethod(
     // which nothing here subscribes to, so the lines are discarded without the
     // child ever blocking on a full pipe (#2435).
     pipeStderr: args.quiet === true,
+    // Name the CLI's own knobs on a connect timeout, not the web's Server
+    // Settings (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     progress: false,
     sample: false,
     elicit: false,
@@ -460,8 +464,7 @@ export async function refreshStoredAuthToken(
         fetchFn: options?.fetchFn ?? storedAuthFetch,
       }));
 
-  const snapshot = await readOAuthSnapshot(statePath);
-  const servers = snapshot.servers as StoredServers;
+  const servers = await readOAuthServers(statePath);
   const found = findStoredServerState(servers, serverUrl);
   const credentials: StoredCredentials = found
     ? resolveStoredCredentials(found.state)
@@ -523,30 +526,36 @@ export async function refreshStoredAuthToken(
     );
   }
 
-  // Persist the rotated tokens back under the same key via the shared
-  // sectioned write: lock → fresh read → overlay just this server's entry →
-  // atomic write. This generalizes the read-modify-write this function used
-  // to hand-roll — the merge now happens against the file as it is at write
-  // time (not the snapshot read before the network round-trip), under the
-  // same cross-process lock every other writer uses, and keeps the file's
-  // owner-only `0o600` mode + `mkdir -p` via the shared store IO.
+  // Persist the rotated tokens back under the same key, against the entry as
+  // it is on disk NOW — not the snapshot read before the network round trip.
+  // The update runs under the shared state-file lock on a fresh, store-joined
+  // read, so a same-server write that landed during the refresh (a web OAuth
+  // flow adding an issuer slot, switching `activeIssuer`, saving new tokens)
+  // survives: only the refreshed slot's `tokens` change (#2574).
   //
   // The rotated tokens go back to the slot they were read from: the active
   // issuer's `byIssuer` entry (#2517), or the legacy top-level fields for a
-  // pre-issuer entry — never a slot the old tokens did not come from.
+  // pre-issuer entry — never a slot the old tokens did not come from. And only
+  // while that slot still holds the refresh token this grant spent: a slot
+  // whose tokens were cleared or replaced meanwhile (a sign-out, a same-issuer
+  // re-authorization) keeps its fresh state, as does a removed slot or entry.
+  // The fresh token is still returned for this run either way.
   const { issuer } = credentials;
-  servers[found.key] =
-    issuer !== undefined
-      ? {
-          ...found.state,
-          byIssuer: {
-            ...found.state.byIssuer,
-            // A computed key defines an own property, so `__proto__` is safe.
-            [issuer]: { ...getOwnEntry(found.state.byIssuer, issuer), tokens },
-          },
-        }
-      : { ...found.state, tokens };
-  await writeOAuthSections(statePath, snapshot, { servers: [found.key] });
+  const unchanged = (current: OAuthTokens | undefined): boolean =>
+    current?.refresh_token === refreshToken;
+  await updateOAuthServerEntry(statePath, found.key, (fresh) => {
+    if (fresh === undefined) return undefined;
+    if (issuer === undefined) {
+      return unchanged(fresh.tokens) ? { ...fresh, tokens } : fresh;
+    }
+    const slot = getOwnEntry(fresh.byIssuer, issuer);
+    if (slot === undefined || !unchanged(slot.tokens)) return fresh;
+    return {
+      ...fresh,
+      // A computed key defines an own property, so `__proto__` is safe.
+      byIssuer: { ...fresh.byIssuer, [issuer]: { ...slot, tokens } },
+    };
+  });
 
   return tokens.access_token;
 }
@@ -785,6 +794,11 @@ type ParseResult =
   // output and need no server connection; runCli returns immediately.
   | { shortCircuit: true };
 
+/** Commander's own test for "looks like an option": a dash plus at least one character. */
+function isOptionToken(arg: string): boolean {
+  return arg.length > 1 && arg.startsWith("-");
+}
+
 async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
@@ -822,21 +836,39 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       throw err;
     }
   });
+  // The ad-hoc target is whatever Commander does not consume as one of the
+  // Inspector's own options (#2631): its positionals plus any unknown flag, in
+  // their original order. So Inspector options may sit before, between or
+  // after the target's tokens, and a flag the Inspector does not define
+  // (`--crashable`) reaches the server. Splitting the target off as the leading
+  // run of non-dash tokens before parsing — the previous approach — lost the
+  // whole target as soon as any flag preceded it.
+  //
+  // A bare `--` has two readings, chosen by what comes first:
+  // - `<target…> -- <options…>` (the line starts with a target token): the
+  //   documented CLI form. Everything before `--` is the target verbatim, so a
+  //   server flag that collides with an Inspector option (`--config`) can be
+  //   passed there; what follows is parsed as Inspector options.
+  // - `<options…> -- <args…>` (the line starts with an option, or with `--`):
+  //   conventional end-of-options. Everything after `--` is appended to the
+  //   target verbatim. The old split read this shape as a target starting with
+  //   a dash, which could never run, so no working invocation changes meaning.
   const rawArgs = argv ?? process.argv;
   const scriptArgs = rawArgs.slice(2);
   const dashDashIndex = scriptArgs.indexOf("--");
-  let targetArgs: string[] = [];
-  let optionArgs: string[];
+  let leadingTarget: string[] = [];
+  let trailingTarget: string[] = [];
+  let optionArgs = scriptArgs;
   if (dashDashIndex >= 0) {
-    targetArgs = scriptArgs.slice(0, dashDashIndex);
-    optionArgs = scriptArgs.slice(dashDashIndex + 1);
-  } else {
-    let i = 0;
-    while (i < scriptArgs.length && !scriptArgs[i]!.startsWith("-")) {
-      targetArgs.push(scriptArgs[i]!);
-      i++;
+    const before = scriptArgs.slice(0, dashDashIndex);
+    const after = scriptArgs.slice(dashDashIndex + 1);
+    if (before.length > 0 && !isOptionToken(before[0]!)) {
+      leadingTarget = before;
+      optionArgs = after;
+    } else {
+      optionArgs = before;
+      trailingTarget = after;
     }
-    optionArgs = scriptArgs.slice(i);
   }
   const preArgs: string[] = [
     rawArgs[0] ?? "node",
@@ -846,6 +878,13 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
 
   program
     .name("inspector-cli")
+    // `-V, --version` prints the root package version and exits 0 through the
+    // exitOverride's non-throwing arm above, like `--help` (#2632).
+    .version(
+      readInspectorVersion(import.meta.url),
+      "-V, --version",
+      "Print the Inspector version",
+    )
     .allowUnknownOption()
     .argument(
       "[target...]",
@@ -1067,12 +1106,29 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .option(
       "--print-handoff",
       "Print a JSON handoff block (deepLink, portForwardCmd, oauthStatePath, apiToken) for --server-url and exit. No server connection is made.",
-    );
+    )
+    // The launcher's mode flag, accepted and ignored wherever it appears. It
+    // must be a known option now that unknown flags are forwarded to the
+    // target (#2631): forwarded, a stray `--cli` would reach a stdio server as
+    // an argument and make a URL target fail ("Arguments cannot be passed").
+    .addOption(new Option("--cli").hideHelp());
 
   registerCompletionOption(program);
   program.parse(preArgs);
   // `--completion <shell>` (#2434): print the script and exit, no connect.
   if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
+
+  // A target cannot begin with a dash, so unknown flags ahead of its first
+  // token are not server arguments. They are dropped, as every unknown flag
+  // was before #2631 — callers pass e.g. a stray `--cli` — rather than turned
+  // into the command, which would make a catalog run a failed ad-hoc launch.
+  const parsedTarget = [...program.args];
+  if (leadingTarget.length === 0) {
+    while (parsedTarget.length > 0 && isOptionToken(parsedTarget[0]!)) {
+      parsedTarget.shift();
+    }
+  }
+  const targetArgs = [...leadingTarget, ...parsedTarget, ...trailingTarget];
 
   // `--quiet` mutes `console.warn` for the rest of the run; `runCli` restores
   // it (#2435). Core reports advisories that way from many places the CLI

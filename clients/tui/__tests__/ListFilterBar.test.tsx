@@ -12,6 +12,14 @@ describe("ListFilterBar", () => {
     expect(lastFrame()).toContain("Enter keep · Esc clear");
   });
 
+  it("tells a focused list that Esc clears a kept query (#2647)", () => {
+    const { lastFrame } = render(
+      <ListFilterBar query="echo" editing={false} focused />,
+    );
+    expect(lastFrame()).toContain("/echo");
+    expect(lastFrame()).toContain("(/ edit · Esc clear)");
+  });
+
   it("shows a kept query and how to change it", () => {
     const { lastFrame } = render(
       <ListFilterBar query="echo" editing={false} focused={false} />,

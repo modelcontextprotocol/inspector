@@ -98,6 +98,21 @@ stale install otherwise passes every check and fails later as a behavioral test
 reporting the *old* dependency's behavior as a product bug (#2494). Don't
 "fix" that test.
 
+### `verify:install-scripts`
+
+A dependency with an install script is neither allowed nor denied in the
+`allowScripts` of the `package.json` beside that lockfile (#2712) — usually a
+dependency you just added or bumped. npm 11.x still **runs** such a script, so
+this is a review decision, not a typo: add `"<name>": false` to block it, or
+`"<name>@<version>": true` if the package genuinely needs it. Each install
+reads only its own manifest, so a package held by several installs needs an
+entry in each. A **non-registry** dependency (git, file, remote tarball) is
+reported even with no flagged script, since npm may run its `prepare`; clear it
+with a key equal to its exact `resolved` spec from the lockfile. A **bundled**
+one can't be cleared by any key — the fix is the dependency that bundles it.
+Don't reach for `ignore-scripts` — it also disables the root
+`postinstall` that installs every client.
+
 ### `local:dco`
 
 A commit in `origin/v2/main..HEAD` (minus anything already on `origin/main`)
@@ -178,6 +193,25 @@ lowering the gate. See `/testing` for the acceptable reasons.
 Also check the file is inside a gated directory — the web coverage `include` is
 a whitelist, so a module placed outside it falls out of the gate silently.
 
+### `verify:coverage-scope`
+
+The last step of `coverage` (#2709). A client's `coverage-summary.json` is
+missing files its own coverage `include`/`exclude` declares, so those files
+were never judged by the per-file gate. The failure names the client and each
+missing file. Two causes:
+
+- **The run's glob matching changed** — typically a Vitest bump. The fix is
+  the client's `include` patterns (an absolute `path.join(dirname, …)` pattern
+  means the same thing under every matcher), never an entry that excuses the
+  files.
+- **A file is in scope but the run legitimately drops it.** State it in
+  `KNOWN_OMISSIONS` in `scripts/verify-coverage-scope.mjs`, with the reason —
+  or, better, add it to the client's coverage `exclude`, which says the same
+  thing where the gate reads it.
+
+"no `coverage-summary.json`" means the client's coverage did not run (or ran
+without the `json-summary` reporter). Run `npm run coverage`.
+
 ### `smoke:web*`
 
 ⚠️ **An orphaned prod web server from a previous run fakes a rejection.** It
@@ -241,6 +275,14 @@ One stage has no GitHub CI counterpart, deliberately:
   Firefox. Trialled as a CI job and removed (#2086): across a dozen runs it never
   disagreed with Chromium, and `playwright install --with-deps` carries a real
   flake surface. Kept in front of a human about to push instead.
+  ⚠️ **On macOS 27 it runs inside the Linux Playwright container** (#2625):
+  Playwright's Firefox cannot launch there. It needs a running Docker daemon;
+  without one the stage prints a `SKIPPING … this is NOT a pass` warning and
+  exits 0 so `local:storybook` still runs — start Docker and re-run
+  `npm run smoke:web:firefox` before pushing. A container failure is a real
+  Firefox failure, not an infrastructure one, unless the log shows the image
+  pull or `npm install` failing. `INSPECTOR_FIREFOX_SMOKE=native|container`
+  overrides the routing (`scripts/lib/firefox-container.mjs`).
 
 A guard (`scripts/lib/workflow-gate.mjs`, run by `npm run test:scripts`) fails
 the suite if a workflow invokes a `local:*` script, a non-Chromium engine pass,

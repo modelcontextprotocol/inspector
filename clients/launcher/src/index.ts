@@ -34,7 +34,10 @@ program
   .description("MCP Inspector – run web UI, CLI, or TUI")
   .option("--web", "Run web UI (default)")
   .option("--cli", "Run CLI")
-  .option("--tui", "Run TUI");
+  .option("--tui", "Run TUI")
+  // Listed for the launcher's own help only: the flag is forwarded to the
+  // selected client (web by default), whose commander prints the version.
+  .option("-V, --version", "Print the Inspector version");
 
 let parsedArgv;
 try {

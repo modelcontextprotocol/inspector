@@ -32,6 +32,28 @@ describe("EmbeddableScrollArea", () => {
     expect(ref.current).toBeInstanceOf(HTMLElement);
   });
 
+  it("always constrains the content width when embedded (#2675)", () => {
+    renderWithMantine(
+      <EmbeddableScrollArea embedded={true} viewportRef={createRef()}>
+        <div>sidebar content</div>
+      </EmbeddableScrollArea>,
+    );
+    // No opt-in: every monitoring-sidebar panel gets the constraint, so a
+    // long non-wrapping row can't widen the list past the column.
+    const content = document.querySelector(".mantine-ScrollArea-content");
+    expect((content as HTMLElement).style.minWidth).toBe("0");
+  });
+
+  it("leaves the content width unconstrained full-size by default", () => {
+    renderWithMantine(
+      <EmbeddableScrollArea embedded={false} viewportRef={createRef()}>
+        <div>full-size content</div>
+      </EmbeddableScrollArea>,
+    );
+    const content = document.querySelector(".mantine-ScrollArea-content");
+    expect((content as HTMLElement).style.minWidth).toBe("");
+  });
+
   it.each([false, true])(
     "constrains the content width when asked (embedded=%s)",
     (embedded) => {

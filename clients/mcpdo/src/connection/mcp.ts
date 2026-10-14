@@ -1334,7 +1334,14 @@ function registerRpcCommands(program: CommandType): void {
             parseKeyValue,
             {},
           )
-          .option("--task", "Task-augmented tool call (callToolStream)")
+          // Legacy-only choice: on a modern (SEP-2663) connection the server
+          // decides per request whether to return a task, and an ordinary call
+          // already follows one to completion, so the flag changes nothing on
+          // the wire there (#2674).
+          .option(
+            "--task",
+            "Request a task-augmented tool call (legacy servers; on modern the server decides)",
+          )
           .option("--app-info", "Probe MCP App metadata only");
         cmd.action(
           async (

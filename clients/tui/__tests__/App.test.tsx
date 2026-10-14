@@ -2,6 +2,7 @@ import React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "./helpers/renderTui";
 import { BodyLines } from "../src/components/BodyLines.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 
 type RenderResult = ReturnType<typeof render>;
 
@@ -135,8 +136,13 @@ const h = vi.hoisted(() => {
     // The options the mount effect built for this server. Captured so a test
     // can assert what was actually handed to the client — `defaultMetadata`
     // and the `environment.fetch` proxy wiring (#2067), both of which are
-    // invisible to a render-only assertion.
-    opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } };
+    // invisible to a render-only assertion — plus the connect-timeout remedy
+    // (#2615).
+    opts?: {
+      defaultMetadata?: unknown;
+      environment?: { fetch?: unknown };
+      connectionTimeoutRemedy?: string;
+    };
   }> = [];
   // What the mocked `createProxyFetch` returns. `undefined` is the real
   // behavior with no proxy env var set; a test points this at a sentinel to
@@ -167,11 +173,19 @@ const h = vi.hoisted(() => {
   class FakeClient {
     cfg: { type?: string; url?: string } | undefined;
     opts:
-      | { defaultMetadata?: unknown; environment?: { fetch?: unknown } }
+      | {
+          defaultMetadata?: unknown;
+          environment?: { fetch?: unknown };
+          connectionTimeoutRemedy?: string;
+        }
       | undefined;
     constructor(
       config?: { type?: string; url?: string },
-      opts?: { defaultMetadata?: unknown; environment?: { fetch?: unknown } },
+      opts?: {
+        defaultMetadata?: unknown;
+        environment?: { fetch?: unknown };
+        connectionTimeoutRemedy?: string;
+      },
     ) {
       this.cfg = config;
       this.opts = opts;
@@ -390,7 +404,7 @@ vi.mock("../src/utils/openUrl.js", () => ({
   openUrl: h.openUrl,
 }));
 
-import App from "../src/App.js";
+import App, { TUI_CONNECTION_TIMEOUT_REMEDY } from "../src/App.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { TuiServer } from "../src/tui-servers.js";
 import {
@@ -819,6 +833,42 @@ describe("App (foundation)", () => {
     expect(frame).toContain("beta");
   });
 
+  // The header box draws a bottom border, which takes a row of its own; sized
+  // to one row, the border left the title row zero height and Ink clipped the
+  // right-justified version off screen (#2656).
+  describe("header", () => {
+    const version = readInspectorVersion(import.meta.url);
+    const originalColumns = process.stdout.columns;
+    afterEach(() => {
+      process.stdout.columns = originalColumns;
+    });
+
+    async function headerRows(columns: number) {
+      process.stdout.columns = columns;
+      const r = renderApp(stdioServer());
+      await expectFrame(r, "MCP Servers");
+      const [titleRow, borderRow] = (r.lastFrame() ?? "").split("\n");
+      return { titleRow, borderRow };
+    }
+
+    it("shows the full title and the version where the width allows", async () => {
+      const { titleRow, borderRow } = await headerRows(100);
+      expect(titleRow).toContain(
+        "MCP Inspector TUI - Terminal User Interface for the Model Context Protocol Inspector",
+      );
+      expect(titleRow.trimEnd().endsWith(`v${version}`)).toBe(true);
+      expect(borderRow).toMatch(/^─+$/);
+    });
+
+    it("truncates the description, not the version, on a narrow terminal", async () => {
+      const { titleRow, borderRow } = await headerRows(80);
+      expect(titleRow).toContain("MCP Inspector TUI - ");
+      expect(titleRow).toContain("…");
+      expect(titleRow.trimEnd().endsWith(`v${version}`)).toBe(true);
+      expect(borderRow).toMatch(/^─+$/);
+    });
+  });
+
   it("auto-selects the first server and shows its config", async () => {
     const r = renderApp(stdioServer());
     await expectFrame(r, "Server Configuration");
@@ -1138,6 +1188,24 @@ describe("App (status, layout, modals)", () => {
     expect(h.disconnect).toHaveBeenCalled();
   });
 
+  it("clears a kept list filter on Esc instead of exiting (#2647)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      sampleTool,
+      { ...sampleTool, name: "dpt-tool", description: "D" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, "/", "d", "p", "t", ENTER]);
+    await expectFrame(r, "Tools (1/2)");
+    // The first Esc clears the kept filter; the app is still running and
+    // answering its accelerators.
+    await press(r, [ESC]);
+    await expectFrame(r, "Tools (2)");
+    await press(r, ["d"]);
+    await waitUntil(() => h.disconnect.mock.calls.length > 0);
+    expect(h.disconnect).toHaveBeenCalled();
+  });
+
   it("types '?' into a list filter instead of opening the help (#2430 + #2436)", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];
@@ -1432,6 +1500,17 @@ describe("App (input handling, focus, effects)", () => {
       team: "alpha",
       trace: { id: "abc", hops: [1, 2] },
     });
+  });
+
+  it("names mcp.json's connectionTimeout, not Server Settings, as the timeout remedy (#2615)", async () => {
+    const r = await mount(httpWithSettings());
+    await expectFrame(r, "MCP Servers");
+    const web = h.clientInstances.find((c) => c.cfg?.url === "http://x");
+    expect(web?.opts?.connectionTimeoutRemedy).toBe(
+      TUI_CONNECTION_TIMEOUT_REMEDY,
+    );
+    expect(TUI_CONNECTION_TIMEOUT_REMEDY).toContain("connectionTimeout");
+    expect(TUI_CONNECTION_TIMEOUT_REMEDY).not.toContain("Server Settings");
   });
 
   it("passes top-level oauth client credentials into an http client", async () => {

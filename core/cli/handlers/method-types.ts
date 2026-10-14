@@ -55,7 +55,10 @@ export type MethodArgs = {
   outputFormat?: OutputFileFormat;
   /** Task id for tasks/get, tasks/cancel, tasks/result, tasks/update. */
   taskId?: string;
-  /** When true, tools/call uses callToolStream (task-augmented). */
+  /**
+   * When true, tools/call uses callToolStream (task-augmented). A tool whose
+   * `execution.taskSupport` is `"required"` takes that path regardless.
+   */
   task?: boolean;
   /**
    * `--verify`: run the SEP-2640 conformance and digest checks over the skills

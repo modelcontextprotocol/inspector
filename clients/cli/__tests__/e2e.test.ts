@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { spawn } from "node:child_process";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
 
@@ -73,6 +73,35 @@ function spawnCli(
     child.on("close", (exitCode) => {
       clearTimeout(timer);
       resolvePromise({ exitCode, stdout, stderr });
+    });
+  });
+}
+
+/**
+ * Spawn the binary with its stdout read end closed before the child can write,
+ * so its first stdout write fails with EPIPE — the `| head` / bash 3.2
+ * `source <(…)` early close (#2646), without a shell or a timing race: node
+ * boots for far longer than the close takes.
+ */
+function spawnCliWithClosedStdout(args: string[]): Promise<SpawnResult> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("node", [BIN, ...args], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.destroy();
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error("E2E CLI timed out"));
+    }, CHILD_TIMEOUT_MS);
+    child.stderr.on("data", (d) => (stderr += d.toString()));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      resolvePromise({ exitCode, stdout: "", stderr });
     });
   });
 }
@@ -223,6 +252,36 @@ describe("CLI binary (out-of-process E2E)", () => {
 
       expect(result.exitCode).not.toBe(0);
       expect(result.stderr).toContain("Method is required");
+    },
+    E2E_SPAWN_MS,
+  );
+
+  // #2632: `--version` used to fall through to the missing-method error. Out of
+  // process because commander exits 0 itself, which would end the test worker.
+  const { version } = JSON.parse(
+    readFileSync(resolve(here, "../../../package.json"), "utf8"),
+  ) as { version: string };
+
+  it.each(["--version", "-V"])(
+    "prints the root version and exits 0 for %s",
+    async (flag) => {
+      const result = await spawnCli([flag]);
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.trim()).toBe(version);
+    },
+    E2E_SPAWN_MS,
+  );
+
+  // #2646: a reader that closes before the completion script is written used
+  // to crash the CLI with an unhandled `'error'` event (`write EPIPE`).
+  it(
+    "exits quietly when --completion's reader closes early",
+    async () => {
+      const result = await spawnCliWithClosedStdout(["--completion", "bash"]);
+
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
     },
     E2E_SPAWN_MS,
   );

@@ -3,6 +3,7 @@ import type { Tool } from "@modelcontextprotocol/client";
 import {
   findToolByRowKey,
   hasInputFields,
+  offersRunAsTask,
   resolveDisplayLabel,
   toolRowKey,
 } from "./toolUtils";
@@ -153,5 +154,32 @@ describe("hasInputFields with root composition (#2123)", () => {
 
   it("still reports no fields for a bare object schema", () => {
     expect(hasInputFields(tool({ type: "object" }))).toBe(false);
+  });
+});
+
+describe("offersRunAsTask", () => {
+  const legacyTaskCaps = { tasks: { requests: { tools: { call: {} } } } };
+
+  it("offers the choice on a legacy server advertising tasks.requests.tools.call", () => {
+    expect(offersRunAsTask("legacy", legacyTaskCaps)).toBe(true);
+  });
+
+  it("offers the choice before the era is known, on the legacy capability alone", () => {
+    expect(offersRunAsTask(undefined, legacyTaskCaps)).toBe(true);
+  });
+
+  it("does not offer it on a legacy server without task tool calls", () => {
+    expect(offersRunAsTask("legacy", { tasks: {} })).toBe(false);
+    expect(offersRunAsTask("legacy", undefined)).toBe(false);
+  });
+
+  it("never offers it on a modern connection — task creation is server-directed (#2674)", () => {
+    const modernCaps = {
+      extensions: { "io.modelcontextprotocol/tasks": {} },
+    };
+    expect(offersRunAsTask("modern", modernCaps)).toBe(false);
+    // Even a legacy capability carried on a modern connection does not bring
+    // the per-call choice back.
+    expect(offersRunAsTask("modern", legacyTaskCaps)).toBe(false);
   });
 });

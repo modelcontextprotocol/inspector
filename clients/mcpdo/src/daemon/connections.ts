@@ -9,7 +9,10 @@ import {
   type InspectorServerSettings,
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
-import { createTransportNode } from "@inspector/core/mcp/node/index.js";
+import {
+  createProxyFetch,
+  createTransportNode,
+} from "@inspector/core/mcp/node/index.js";
 import {
   buildOAuthConnectionState,
   ConsoleNavigation,
@@ -32,6 +35,7 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
   AuthRecoveryRequiredError,
@@ -816,6 +820,12 @@ async function createConnectionClient(
 ): Promise<InspectorClient> {
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,
+    // HTTPS_PROXY / HTTP_PROXY / NO_PROXY, as in the one-shot CLI (#2642).
+    // `InspectorClient` builds its fetch chain on `environment.fetch ?? fetch`
+    // and always hands the transport the result, so the transport's own
+    // `createProxyFetch()` fallback is never reached — leave this out and the
+    // daemon connects direct. Undefined when no proxy variable is set.
+    fetch: createProxyFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   if (isOAuthCapableServerConfig(serverConfig)) {
@@ -848,6 +858,9 @@ async function createConnectionClient(
       name: CONNECTION_CLIENT_NAME,
       version: readInspectorVersion(import.meta.url),
     },
+    // `mcpdo connect` takes the same --connect-timeout as the one-shot CLI, so
+    // a timeout names that rather than the web's Server Settings (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,

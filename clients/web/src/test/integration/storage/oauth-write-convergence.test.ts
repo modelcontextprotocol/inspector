@@ -7,6 +7,10 @@
  * verify/re-apply pattern as `FileSecretStore.mutateLocked`. These tests
  * simulate the racing writer with a hook that rewrites the file immediately
  * after each `writeStoreFile`.
+ *
+ * `updateOAuthServerEntry` (#2574) rides the same loop, so its fresh-read
+ * semantics are pinned here too: the updater re-runs over whatever the
+ * racing writer left, and a rollback never clobbers that writer's secrets.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -16,6 +20,7 @@ import { join } from "node:path";
 import {
   writeOAuthSections,
   readOAuthStore,
+  updateOAuthServerEntry,
 } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
   InMemorySecretStore,
@@ -25,6 +30,7 @@ import {
   oauthSecretServerId,
   LEGACY_TOKENS_FIELD,
   LEGACY_CLIENT_SECRET_FIELD,
+  issuerTokensField,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import type { OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
@@ -606,5 +612,166 @@ describe("writeOAuthSections convergence verification", () => {
       ),
     ).toBe(true);
     warn.mockRestore();
+  });
+});
+
+describe("updateOAuthServerEntry", () => {
+  const NEW_TOKENS = {
+    access_token: "at-new",
+    token_type: "Bearer",
+    refresh_token: "rt-new",
+  };
+
+  it("hands the updater the store-joined entry and leaves other servers alone", async () => {
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({ [SERVER_B]: serverState("b") }),
+      { servers: [SERVER_B] },
+      store,
+    );
+    const update = vi.fn((entry) => ({ ...entry!, tokens: NEW_TOKENS }));
+
+    await updateOAuthServerEntry(filePath, SERVER_A, update, store);
+
+    // The updater saw the secrets, not just the file residue.
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0]![0]).toEqual(serverState("a"));
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_A]).toEqual({
+      ...serverState("a"),
+      tokens: NEW_TOKENS,
+    });
+    expect(read?.servers[SERVER_B]).toEqual(serverState("b"));
+  });
+
+  it("passes undefined for an absent entry, and an undefined result writes nothing for it", async () => {
+    const update = vi.fn(() => undefined);
+
+    await updateOAuthServerEntry(filePath, SERVER_B, update, store);
+
+    expect(update).toHaveBeenCalledWith(undefined);
+    const read = await readOAuthStore(filePath, store);
+    expect(Object.keys(read?.servers ?? {})).toEqual([SERVER_A]);
+    expect(read?.servers[SERVER_A]).toEqual(serverState("a"));
+  });
+
+  it("removes the entry and its secrets when the updater returns undefined", async () => {
+    await updateOAuthServerEntry(filePath, SERVER_A, () => undefined, store);
+
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_A]).toBeUndefined();
+    expect(await store.get(idOf(SERVER_A), LEGACY_TOKENS_FIELD)).toBeNull();
+    expect(
+      await store.get(idOf(SERVER_A), LEGACY_CLIENT_SECRET_FIELD),
+    ).toBeNull();
+  });
+
+  it("re-runs the updater over a racing writer's entry instead of overwriting it", async () => {
+    // The racing writer changed A's scope after our first attempt read the
+    // file. A whole-entry write from a stale snapshot would drop that; the
+    // retry must rebuild from what the racer left.
+    const racing = JSON.parse(onlyA) as {
+      servers: Record<string, { scope: string }>;
+    };
+    racing.servers[SERVER_A]!.scope = "read write";
+    let clobbers = 0;
+    hook.afterWrite = (path) => {
+      if (clobbers++ === 0) writeFileSync(path, JSON.stringify(racing));
+    };
+    const update = vi.fn((entry) => ({ ...entry!, tokens: NEW_TOKENS }));
+
+    await updateOAuthServerEntry(filePath, SERVER_A, update, store);
+
+    expect(update).toHaveBeenCalledTimes(2);
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_A]?.scope).toBe("read write");
+    expect(read?.servers[SERVER_A]?.tokens).toEqual(NEW_TOKENS);
+  });
+
+  it("rolls back without clobbering a secret a racing writer changed between attempts", async () => {
+    // Attempt 1 is clobbered by a writer that also rotated A's client
+    // secret; attempt 2 carries that secret forward unchanged and then fails
+    // to write the file. The rollback must restore the racer's secret, not
+    // the pre-call one — the updater carried it forward, it did not write it.
+    let writes = 0;
+    hook.beforeWrite = () => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
+    };
+    // The racer also edits the residue: a token-only change leaves the file
+    // bytes as they were, and attempt 1's read-back would then match.
+    const racing = JSON.parse(onlyA) as {
+      servers: Record<string, { scope: string }>;
+    };
+    racing.servers[SERVER_A]!.scope = "read write";
+    hook.afterWrite = async (path) => {
+      if (writes !== 1) return;
+      writeFileSync(path, JSON.stringify(racing));
+      await store.set(idOf(SERVER_A), LEGACY_CLIENT_SECRET_FIELD, "cs-racer");
+    };
+
+    await expect(
+      updateOAuthServerEntry(
+        filePath,
+        SERVER_A,
+        (entry) => ({ ...entry!, tokens: NEW_TOKENS }),
+        store,
+      ),
+    ).rejects.toThrow(/disk full/);
+
+    expect(await store.get(idOf(SERVER_A), LEGACY_CLIENT_SECRET_FIELD)).toBe(
+      "cs-racer",
+    );
+    // The token write this call did make is unwound to the pre-call value.
+    const read = await readOAuthStore(filePath, store);
+    expect(read?.servers[SERVER_A]?.tokens).toEqual(serverState("a").tokens);
+  });
+
+  it("does not resurrect secrets a racer deleted with the entry when a retry fails", async () => {
+    // Attempt 1 rotates an issuer slot's tokens and is clobbered by a writer
+    // that removed the server outright, secrets included. The retry's
+    // updater sees no entry and keeps it gone, then its file write fails:
+    // the rollback must not restore the slot's pre-call secrets with no file
+    // entry left to index them. Issuer-keyed on purpose — an absent entry
+    // still names every legacy field, but not a per-issuer one.
+    const ISSUER = "https://as.example";
+    await writeOAuthSections(
+      filePath,
+      snapshotOf({
+        [SERVER_B]: {
+          activeIssuer: ISSUER,
+          byIssuer: { [ISSUER]: { tokens: serverState("b").tokens } },
+        },
+      }),
+      { servers: [SERVER_B] },
+      store,
+    );
+    const tokensField = issuerTokensField(ISSUER);
+    expect(await store.get(idOf(SERVER_B), tokensField)).not.toBeNull();
+    let writes = 0;
+    hook.beforeWrite = () => {
+      writes += 1;
+      if (writes === 2) throw new Error("disk full");
+    };
+    hook.afterWrite = async (path) => {
+      if (writes !== 1) return;
+      writeFileSync(path, onlyA);
+      await store.deleteAllForServer(idOf(SERVER_B));
+    };
+
+    await expect(
+      updateOAuthServerEntry(
+        filePath,
+        SERVER_B,
+        (entry) =>
+          entry && {
+            ...entry,
+            byIssuer: { [ISSUER]: { tokens: NEW_TOKENS } },
+          },
+        store,
+      ),
+    ).rejects.toThrow(/disk full/);
+
+    expect(await store.get(idOf(SERVER_B), tokensField)).toBeNull();
   });
 });

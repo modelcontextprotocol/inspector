@@ -122,6 +122,16 @@ const APP_VERSION = readInspectorVersion(import.meta.url);
 const TUI_CLIENT_NAME = "inspector-tui";
 
 /**
+ * The TUI has no settings form and no per-run timeout flag, so a connect-time
+ * timeout points at the one knob it does read: the server entry's
+ * `connectionTimeout`. That entry may live in a `--catalog` or a `--config`
+ * file at any path, or not exist yet for an ad-hoc target, so the wording
+ * names neither a filename nor a single flag (#2615).
+ */
+export const TUI_CONNECTION_TIMEOUT_REMEDY =
+  "To accommodate a slower server, set connectionTimeout on the server's entry in a catalog (--catalog) or config (--config) file.";
+
+/**
  * Roots snapshot for `useStoreSnapshot`: module scope so both the reader and
  * the fallback are referentially stable across renders (#2432).
  */
@@ -191,6 +201,10 @@ function App({
   // global accelerators below stand down then, or typing a query would switch
   // tabs, connect, or quit on Esc. Reported by `useListFilter`.
   const [listFilterEditing, setListFilterEditing] = useState(false);
+  // True while a kept (non-empty, no longer edited) list filter has the
+  // keyboard (#2647). Esc then clears the filter instead of quitting; only the
+  // exit key stands down, since a kept filter exists so the rest still work.
+  const [listFilterClaimsEscape, setListFilterClaimsEscape] = useState(false);
   const [tabCounts, setTabCounts] = useState<{
     info?: number;
     resources?: number;
@@ -400,6 +414,7 @@ function App({
           environment,
           clientIdentity: { name: TUI_CLIENT_NAME, version: APP_VERSION },
           pipeStderr: true,
+          connectionTimeoutRemedy: TUI_CONNECTION_TIMEOUT_REMEDY,
           ...(savedSettings &&
             savedSettings.requestTimeout > 0 && {
               timeout: savedSettings.requestTimeout,
@@ -1639,8 +1654,10 @@ function App({
       return;
     }
 
-    // Exit accelerators
+    // Exit accelerators. A kept list filter takes Esc first — the tab clears
+    // it — so quitting is the second press (#2647).
     if (key.escape) {
+      if (listFilterClaimsEscape) return;
       exit();
     }
 
@@ -1806,7 +1823,10 @@ function App({
   });
 
   // Calculate layout dimensions
-  const headerHeight = 1;
+  // Two rows: the title line plus the header's bottom border, which Ink sizes
+  // inside the box. At 1 the border took the only row, leaving the title zero
+  // height, so Ink clipped the version off the right edge (#2656).
+  const headerHeight = 2;
   const serverListWidth = Math.floor(dimensions.width * 0.3);
   const contentWidth = dimensions.width - serverListWidth;
   // Derived, not assumed. The bar wraps once the visible tabs exceed the
@@ -1884,13 +1904,22 @@ function App({
         justifyContent="space-between"
         alignItems="center"
       >
-        <Box>
-          <Text bold color="cyan">
-            {APP_NAME}
+        {/* On a narrow terminal only the description gives way: wrapped, it
+            spilled into the border row and squeezed the version out. */}
+        <Box flexShrink={1} overflow="hidden">
+          <Box flexShrink={0}>
+            <Text bold color="cyan">
+              {APP_NAME}
+            </Text>
+          </Box>
+          <Text dimColor wrap="truncate-end">
+            {" "}
+            - {APP_DESCRIPTION}
           </Text>
-          <Text dimColor> - {APP_DESCRIPTION}</Text>
         </Box>
-        <Text dimColor>v{APP_VERSION}</Text>
+        <Box flexShrink={0} marginLeft={1}>
+          <Text dimColor>v{APP_VERSION}</Text>
+        </Box>
       </Box>
 
       {/* Main content area */}
@@ -2209,6 +2238,7 @@ function App({
               <ResourcesTab
                 key={`resources-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 resources={currentServerState.resources}
                 resourceTemplates={currentServerState.resourceTemplates}
                 inspectorClient={selectedInspectorClient}
@@ -2309,6 +2339,7 @@ function App({
               <SkillsTab
                 key={`skills-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 skills={managedSkills}
                 pageCount={managedSkillsPageCount}
                 loadError={managedSkillsError}
@@ -2338,6 +2369,7 @@ function App({
               <PromptsTab
                 key={`prompts-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 prompts={currentServerState.prompts}
                 inspectorClient={selectedInspectorClient}
                 width={contentWidth}
@@ -2381,6 +2413,7 @@ function App({
               <ToolsTab
                 key={`tools-${selectedServer}`}
                 onFilterEditingChange={setListFilterEditing}
+                onFilterEscapeClaimChange={setListFilterClaimsEscape}
                 tools={currentServerState.tools}
                 isConnected={inspectorStatus === "connected"}
                 width={contentWidth}

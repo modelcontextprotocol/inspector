@@ -27,6 +27,10 @@
     "format": "prettier --write src __tests__ scripts \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "format:check": "prettier --check src __tests__ scripts \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""
   },
+  "allowScripts": {
+    "esbuild": false,
+    "fsevents": false
+  },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "tsup": "^8.5.0"
@@ -35,7 +39,7 @@
     "@types/node": "^24.12.4",
     "esbuild": "^0.28.2",
     "sucrase": {
-      "commander": "^13.1.0"
+      "commander": "^15.0.0"
     }
   }
 }

@@ -2039,7 +2039,7 @@ describe("InspectorView", () => {
       await gotoTab("Prompts");
       // The Prompts screen has mounted (its heading is present)...
       expect(
-        await screen.findByRole("heading", { name: "Prompts" }),
+        await screen.findByRole("heading", { name: "Prompts (1)" }),
       ).toBeInTheDocument();
       // ...but the indicator is not, since promptsListChanged is false.
       expect(screen.queryByText("List updated")).not.toBeInTheDocument();

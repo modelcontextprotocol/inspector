@@ -12,7 +12,8 @@
  * What it shows, in priority order:
  *
  * - **editing** — the query with a cursor block, and the two ways out;
- * - **a kept filter** — the query, and how to change it;
+ * - **a kept filter** — the query, how to change it, and (while the list is
+ *   focused, the only time it applies) that Esc clears it (#2647);
  * - **the list is focused** — a dim `/ to filter`, so the feature is
  *   discoverable from the pane itself rather than only from documentation;
  * - otherwise nothing.
@@ -44,7 +45,9 @@ export function ListFilterBar({ query, editing, focused }: ListFilterBarProps) {
         <Text wrap="truncate-end">
           <Text color="cyan">/</Text>
           {query}
-          <Text dimColor> (/ to edit)</Text>
+          <Text dimColor>
+            {focused ? " (/ edit · Esc clear)" : " (/ to edit)"}
+          </Text>
         </Text>
       ) : focused ? (
         <Text dimColor>/ to filter</Text>

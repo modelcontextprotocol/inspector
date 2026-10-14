@@ -27,6 +27,7 @@ import {
 import { startViteDevServer } from "./start-vite-dev-server.js";
 import { startHonoServer } from "./server.js";
 import { ensureWebBuild } from "./ensure-web-build.js";
+import { readInspectorVersionSafe } from "../../../core/node/version.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -71,6 +72,15 @@ export async function runWeb(argv: string[]): Promise<number> {
   program
     .name("mcp-inspector-web")
     .description("Web UI for MCP Inspector")
+    // Prints the root package version and exits before any server binds — the
+    // web mode is the launcher's default, so a bare `mcp-inspector --version`
+    // lands here (#2632). The safe reader matches web-server-config.ts: an
+    // unresolvable manifest must not take startup down.
+    .version(
+      readInspectorVersionSafe(import.meta.url) ?? "unknown",
+      "-V, --version",
+      "Print the Inspector version",
+    )
     .allowExcessArguments()
     .allowUnknownOption()
     .option(

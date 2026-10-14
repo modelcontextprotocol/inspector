@@ -7,6 +7,14 @@ import type { CallbackNavigation } from "@inspector/core/auth/index.js";
 
 const authorizeInFrontend = vi.fn();
 
+// Wrap renameSync in a pass-through vi.fn so the stale-lock steal tests can
+// inject a concurrent stealer in the stat→rename window (ESM namespaces
+// cannot be spied on directly).
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return { ...actual, renameSync: vi.fn(actual.renameSync) };
+});
+
 vi.mock("../src/connection/authorize.js", () => ({
   authorizeInFrontend: (...args: unknown[]) => authorizeInFrontend(...args),
 }));
@@ -317,6 +325,67 @@ describe("auth-helper", () => {
       ).rejects.toMatchObject({ envelope: { code: "auth_required" } });
       // The stale lock was claimed away by the rename attempt or left in
       // place — either way this process never spawned a helper.
+    });
+
+    describe("a stealer that claims a lock another stealer just refreshed", () => {
+      const realRename = vi.mocked(fs.renameSync).getMockImplementation()!;
+
+      afterEach(() => {
+        vi.mocked(fs.renameSync).mockImplementation(realRename);
+      });
+
+      function staleLock(): string {
+        const lockPath = `${pendingAuthMarkerPath(SERVER_URL)}.lock`;
+        fs.writeFileSync(lockPath, "1234\n", { mode: 0o600 });
+        const old = new Date(Date.now() - 120_000);
+        fs.utimesSync(lockPath, old, old);
+        return lockPath;
+      }
+
+      function reserveAndExpectBackOff() {
+        return expect(
+          obtainPendingAuthUrl(
+            { type: "streamable-http", url: SERVER_URL },
+            undefined,
+            // Would fail loudly if a spawn were attempted.
+            {
+              helperArgv1: path.join(dir, "does-not-exist.mjs"),
+              waitMs: 60,
+              pollMs: 10,
+            },
+          ),
+        ).rejects.toMatchObject({ envelope: { code: "auth_required" } });
+      }
+
+      it("restores the fresh lock instead of deleting it", async () => {
+        const lockPath = staleLock();
+        // Stealer A wins first: it replaces the stale lock with a fresh one
+        // after this process saw it stale but before this process renames.
+        vi.mocked(fs.renameSync).mockImplementationOnce((from, to) => {
+          fs.rmSync(lockPath);
+          fs.writeFileSync(lockPath, "4242\n", { flag: "wx", mode: 0o600 });
+          realRename(from, to);
+        });
+        await reserveAndExpectBackOff();
+        // A's lock is back in place, so a third connect cannot win create().
+        expect(fs.readFileSync(lockPath, "utf8")).toBe("4242\n");
+        expect(fs.existsSync(`${lockPath}.claim-${process.pid}`)).toBe(false);
+      });
+
+      it("backs off without restoring when a newer lock already took the path", async () => {
+        const lockPath = staleLock();
+        vi.mocked(fs.renameSync).mockImplementationOnce((from, to) => {
+          fs.rmSync(lockPath);
+          fs.writeFileSync(lockPath, "4242\n", { flag: "wx", mode: 0o600 });
+          realRename(from, to);
+          // A third reserver created a lock in the now-empty path.
+          fs.writeFileSync(lockPath, "5353\n", { flag: "wx", mode: 0o600 });
+        });
+        await reserveAndExpectBackOff();
+        // The link refused to clobber the newer lock, and the claim is gone.
+        expect(fs.readFileSync(lockPath, "utf8")).toBe("5353\n");
+        expect(fs.existsSync(`${lockPath}.claim-${process.pid}`)).toBe(false);
+      });
     });
 
     it("maps a helper spawn failure to auth_required", async () => {

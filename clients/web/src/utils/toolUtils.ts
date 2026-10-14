@@ -1,4 +1,8 @@
-import type { Tool } from "@modelcontextprotocol/client";
+import type {
+  ProtocolEra,
+  ServerCapabilities,
+  Tool,
+} from "@modelcontextprotocol/client";
 import { declaresAnyFields } from "@inspector/core/json/rootUnion.js";
 import { listRowKey } from "./listRowKey";
 
@@ -63,4 +67,22 @@ export function findToolByRowKey(
 ): Tool | undefined {
   if (key === undefined) return undefined;
   return tools.find((tool, index) => toolRowKey(tool.name, index) === key);
+}
+
+/**
+ * Whether the Tools tab offers a per-call "Run as task" choice: only on a
+ * legacy (2025-11-25) connection whose server advertises
+ * `tasks.requests.tools.call`. On a modern connection task creation is
+ * server-directed (SEP-2663) — the server decides per request whether to return
+ * a task — so there is no choice for the client to make, and every modern
+ * `callTool` already accepts a returned handle (#2674). A server that also
+ * carries the legacy capability on a modern connection does not change that.
+ */
+export function offersRunAsTask(
+  protocolEra: ProtocolEra | undefined,
+  capabilities: ServerCapabilities | undefined,
+): boolean {
+  return (
+    protocolEra !== "modern" && !!capabilities?.tasks?.requests?.tools?.call
+  );
 }

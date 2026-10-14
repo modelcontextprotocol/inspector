@@ -217,6 +217,10 @@ jobs:
         # This also covers the web integration project: web's `test:coverage`
         # runs `--project=unit --project=integration --coverage`, so there is no
         # separate integration step anywhere in this workflow.
+        #
+        # `coverage` ends with `verify:coverage-scope` (#2709), which fails if
+        # any client's report measured fewer files than its coverage `include`
+        # declares — the gate otherwise passes on whatever subset it was handed.
         run: npm run coverage
 
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a

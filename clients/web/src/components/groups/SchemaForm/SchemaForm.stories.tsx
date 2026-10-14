@@ -259,3 +259,48 @@ export const RawJsonToggle: Story = {
     await expect(canvas.getByLabelText(/^Name$/)).toBeVisible();
   },
 };
+
+/**
+ * An array whose items are objects, edited as rows (#2561). Each row is the
+ * item schema's own sub-form, so field names, types, required markers and
+ * descriptions are all on screen instead of behind a blank JSON editor.
+ */
+export const ArrayOfObjects: Story = {
+  args: {
+    schema: {
+      type: "object",
+      properties: {
+        email: { type: "string", title: "Email" },
+        items: {
+          type: "array",
+          title: "Items",
+          description: "The line items to return.",
+          items: {
+            type: "object",
+            properties: {
+              sku: { type: "string", description: "Product SKU" },
+              quantity: { type: "integer", description: "Units to return" },
+            },
+            required: ["sku", "quantity"],
+          },
+        },
+      },
+      required: ["email", "items"],
+    },
+    values: {
+      email: "customer@example.com",
+      items: [
+        { sku: "A-100", quantity: 2 },
+        { sku: "B-200", quantity: 1 },
+      ],
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText("Item 2")).toBeVisible();
+    await expect(canvas.getAllByText("Product SKU")).toHaveLength(2);
+    await expect(
+      canvas.getByRole("button", { name: "Add item to Items" }),
+    ).toBeEnabled();
+  },
+};

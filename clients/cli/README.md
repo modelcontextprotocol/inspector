@@ -62,11 +62,13 @@ npx @modelcontextprotocol/inspector --cli node build/index.js --method prompts/l
 
 You can also connect to remote MCP servers using HTTP or SSE transports.
 
-**Connect to a remote MCP server (default is SSE)**
+**Connect to a remote MCP server (transport inferred from a `/mcp` or `/sse` path)**
 
 ```bash
-npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com
+npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com/mcp --method tools/list
 ```
+
+There is no default transport: a URL whose path ends in neither `/mcp` nor `/sse` needs an explicit `--transport http` or `--transport sse`, as below. A target is either a positional command/URL or `--server-url`, never both, and `--transport stdio` cannot be used with a URL — either combination is refused rather than resolved by precedence.
 
 **Connect with Streamable HTTP transport**
 
@@ -279,7 +281,7 @@ mcp-inspector --cli <server> --method tools/call --tool-name summarize --output 
 mcp-inspector --cli <server> --method tools/call --tool-name render_chart --output chart.png --output-format raw
 ```
 
-The flag is `--output-format` rather than a new `--format` value because `--format` already shapes **stdout**, and the two compose: in text mode stdout stays empty and a one-line `Wrote N bytes (json) to <path>` confirmation goes to stderr; under `--format json` stdout still carries exactly one envelope, with `output` in place of `result` — `{"output":{"path":"echo.json","format":"json","bytes":123}}`, plus `appInfo` / `schemaFindings` when they would otherwise appear.
+The flag is `--output-format` rather than a new `--format` value because `--format` already shapes **stdout**, and the two compose: in text mode stdout stays empty and a one-line `Wrote N bytes (json) to <path>` confirmation goes to stderr (suppressed by `-q`, like any other status line); under `--format json` stdout still carries exactly one envelope, with `output` in place of `result` — `{"output":{"path":"echo.json","format":"json","bytes":123}}`, plus `appInfo` / `schemaFindings` when they would otherwise appear.
 
 Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
 
@@ -430,7 +432,7 @@ For the common case where OAuth was already completed in the **web inspector on 
 
 **State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
 
-**Token refresh (#1665).** When the stored server state carries a `refresh_token` (plus the `clientInformation` the web inspector persists after a completed flow), `--use-stored-auth` runs the SDK's OAuth `refresh_token` grant to mint a fresh access token before connecting, then writes the rotated tokens back to the state file (owner-only `0o600`, via the shared store writer) so web and CLI stay consistent. The auth-server metadata is reused from the stored state, or discovered from `--server-url` when absent. This covers both an absent and an expired stored access token — the persisted blob carries no expiry, so the refresh token is treated as the durable credential. If the refresh fails (revoked token, transient auth-server error) **and** a stored access token is also present, the CLI falls back to injecting that token rather than hard-failing; only when there is nothing to fall back on does it exit `3` (`auth_required`, envelope `refresh_failed`). Without a stored `refresh_token` the access token is injected as-is, and a stale one surfaces as an HTTP `401` → exit `3`.
+**Token refresh (#1665).** When the stored server state carries a `refresh_token` (plus the `clientInformation` the web inspector persists after a completed flow), `--use-stored-auth` runs the SDK's OAuth `refresh_token` grant to mint a fresh access token before connecting, then writes the rotated tokens back to the state file (owner-only `0o600`, via the shared store writer) so web and CLI stay consistent. The write-back updates only the refreshed issuer slot's tokens, against the entry as it is on disk at write time, so a same-server change made while the grant was in flight (say, a web OAuth flow against another authorization server) is kept rather than overwritten, and a slot whose tokens were cleared or replaced meanwhile is left as it is (#2574). The auth-server metadata is reused from the stored state, or discovered from `--server-url` when absent. This covers both an absent and an expired stored access token — the persisted blob carries no expiry, so the refresh token is treated as the durable credential. If the refresh fails (revoked token, transient auth-server error) **and** a stored access token is also present, the CLI falls back to injecting that token rather than hard-failing; only when there is nothing to fall back on does it exit `3` (`auth_required`, envelope `refresh_failed`). Without a stored `refresh_token` the access token is injected as-is, and a stale one surfaces as an HTTP `401` → exit `3`.
 
 Because there is no stored expiry, a `refresh_token` is refreshed on every `--use-stored-auth` run. Two consequences with rotating refresh tokens: two concurrent invocations against the same state file race the single-use token (one wins), and a crash between a successful grant and the write-back leaves the rotated token unsaved. Both are narrow; re-authorize in the web inspector to recover.
 

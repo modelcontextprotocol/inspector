@@ -8,6 +8,7 @@ The root `package.json` also publishes it as an `inspector` bin. That alias is w
 
 - Parse mode from a leading prefix of `--web` (default), `--cli`, or `--tui` immediately after the script name.
 - Forward all following arguments unchanged (including tokens that look like mode flags).
+- `--version` / `-V` is forwarded like any other flag; each client prints the root package version and exits `0` without starting anything, so `mcp-inspector --version`, `--cli --version` and `--tui --version` all print the same version (#2632). `smoke:launcher` checks every mode.
 - Dynamically import that app’s runner from `clients/{web,cli,tui}/build/index.js` (relative to the launcher build output) and call it **in-process** (no `spawn()`).
 
 All configuration parsing, config-file loading, and server setup are handled by the app runners and by **core**; the launcher does not interpret server or client configuration, from files or from env vars. Its one exception is the debug switch described below.

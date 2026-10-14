@@ -48,6 +48,39 @@ import {
   type SkillResource,
 } from "./skillsSchemas.js";
 
+/**
+ * What a client tells its user to do about a skill the run's catalog budget
+ * left unread (#2633).
+ *
+ * The budget is shared core, but its two remedies are not: each client raises
+ * the budget in its own place and verifies one skill with its own syntax. A
+ * single hard-coded message named the web's Skills settings and the one-shot
+ * CLI's `--method skills/get` in every client, which sent an mcpdo or TUI user
+ * to a setting and a command that do not exist where they are. So the walk
+ * owns the sentence and each caller supplies the two clauses.
+ *
+ * ⚠️ Neither clause may splice in the skill's URI. It is server-controlled, and
+ * a command built from it is one a server wrote for the user to paste — a
+ * command names it with a `<uri>` placeholder, as the report already carries it.
+ */
+export interface SkillBudgetHint {
+  /** Where the budget is raised; completes "raise it …". */
+  raise: string;
+  /** How to verify one skill on its own; completes "verify it on its own …". */
+  verifyOne: string;
+}
+
+/**
+ * The client-neutral remedies, for a caller that names none. Every shipped
+ * client passes its own; this only keeps a new caller from inheriting another
+ * client's commands.
+ */
+export const DEFAULT_SKILL_BUDGET_HINT: SkillBudgetHint = {
+  raise:
+    "with the server's skillCatalogMaxSkills / skillCatalogMaxBytes settings",
+  verifyOne: "by verifying this skill alone",
+};
+
 /** One manifest entry's outcome. `read-error` means the fetch itself failed. */
 export type SkillFileStatus = SkillVerification["status"] | "read-error";
 
@@ -316,6 +349,7 @@ export async function verifySkills(
   client: InspectorClientProtocol,
   entries: readonly SkillEntry[],
   metadata?: RequestMetadata,
+  budgetHint: SkillBudgetHint = DEFAULT_SKILL_BUDGET_HINT,
 ): Promise<SkillVerifyReport[]> {
   // Computed once over the whole set, because a name collision is a property
   // of the listing rather than of an entry — `checkSkillConformance` sees one
@@ -386,18 +420,9 @@ export async function verifySkills(
     // running total would CROSS the limit, so a conforming skill (≤ 16 MiB in
     // total, by definition) is never truncated.
     const manifest = withinBudget ? boundedManifest(declared) : [];
-    // ⚠️ The suggested command carries `--verify`. It named only
-    // `--method skills/get --uri`, which on its own prints the skill and
-    // checks nothing — so the escape hatch this message advertises returned
-    // no verdict at all (#2428). `skills-verify-cli.test.ts` runs the command
-    // back through the CLI.
-    //
-    // ⚠️ The URI is a `<uri>` placeholder, never `entry.uri` spliced in. The
-    // URI is server-controlled and shell metacharacters are legal in one, so
-    // a command built from it is a command a server wrote for the user to
-    // paste (Copilot). The report already carries the URI in its own `uri`.
+    // The remedies are the caller's — see {@link SkillBudgetHint} (#2633).
     let incomplete = !withinBudget
-      ? `Not read: this run already reached its catalog budget of ${budget.maxSkills} skills / ${budget.maxBytes} bytes (raise it in the server's Skills settings). Nothing about this skill's files has been checked — verify it on its own with \`--method skills/get --uri <uri> --verify\`, where <uri> is this report's uri, to get a verdict.`
+      ? `Not read: this run already reached its catalog budget of ${budget.maxSkills} skills / ${budget.maxBytes} bytes (raise it ${budgetHint.raise}). Nothing about this skill's files has been checked — verify it on its own ${budgetHint.verifyOne} to get a verdict.`
       : manifest.length < declared.length
         ? `Only ${manifest.length} of ${declared.length} manifest entries were read: the skill exceeds the ${SKILL_MAX_RESOURCE_ENTRIES}-entry / ${SKILL_MAX_TOTAL_BYTES}-byte interoperability limits, so the rest were not fetched and cannot be reported on.`
         : undefined;

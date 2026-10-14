@@ -207,7 +207,7 @@ exist whichever one you are in:
 cd clients/web && npm run test-servers:build   # tsc -p test-servers → test-servers/build/
 ```
 
-Scripts reach this through `scripts/ensure-test-servers.mjs`, which builds
+Scripts reach this through `scripts/lib/ensure-test-servers.mjs`, which builds
 **unconditionally** (once per process per repo root).
 
 ⚠️ **Unconditional emit is not a clean.** A **deleted** source file leaves its

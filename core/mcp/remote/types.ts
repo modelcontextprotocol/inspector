@@ -103,6 +103,23 @@ export type RemoteConnectResponse =
   | RemoteConnectResponseTransportError
   | { sessionId: string };
 
+/**
+ * The HTTP classification an upstream `SdkHttpError` carried, relayed so the
+ * browser can rebuild the same error class (#2660). The SDK's era-negotiation
+ * probe classifies a failed `server/discover` by HTTP status — 401/403 auth,
+ * 5xx abort, any other 4xx falls back to the legacy handshake — and only an
+ * `SdkHttpError` reaches that branch. Flattened to a message string, a 400
+ * from a 2025-only server read as a network error and failed the connect.
+ */
+export interface RemoteHttpErrorData {
+  /** The `SdkErrorCode` the upstream transport threw with. */
+  code: string;
+  status: number;
+  statusText?: string;
+  /** The upstream response body, which the probe parses for a JSON-RPC error. */
+  text?: string;
+}
+
 export type RemoteSendResponse =
   | { ok: true }
   | {
@@ -114,6 +131,8 @@ export type RemoteSendResponse =
       ok: false;
       kind: "transport_error";
       error: string;
+      /** Present only when the upstream failure was an `SdkHttpError`. */
+      http?: RemoteHttpErrorData;
     };
 
 export interface RemoteSendRequest {
