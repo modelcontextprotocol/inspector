@@ -41,17 +41,13 @@ export interface ToolDetailPanelProps {
   formValues: Record<string, unknown>;
   isExecuting: boolean;
   progress?: ToolProgress;
-  /** Whether the connected server advertises task-augmented tool calls. */
-  serverSupportsTaskToolCalls: boolean;
   /**
-   * Modern (2026-07-28) connection with the `io.modelcontextprotocol/tasks`
-   * extension negotiated (SEP-2663). Task creation is server-directed there, so
-   * "Run as task" is offered for ANY tool (not just ones declaring per-tool
-   * `taskSupport`, which is the legacy mechanism). Defaults to false (legacy).
+   * Whether to offer the per-call "Run as task" choice: a legacy server that
+   * advertises `tasks.requests.tools.call`. Always false on a modern
+   * connection, where task creation is server-directed (#2674).
    */
-  modernTasks?: boolean;
-  /** User's "Run as task" preference (meaningful for `optional` tools and, on
-   * modern connections, any tool). */
+  serverSupportsTaskToolCalls: boolean;
+  /** User's "Run as task" preference (meaningful for `optional` tools). */
   runAsTask: boolean;
   onRunAsTaskChange: (value: boolean) => void;
   onFormChange: (values: Record<string, unknown>) => void;
@@ -213,7 +209,6 @@ export function ToolDetailPanel({
   isExecuting,
   progress,
   serverSupportsTaskToolCalls,
-  modernTasks = false,
   runAsTask,
   onRunAsTaskChange,
   onFormChange,
@@ -256,28 +251,22 @@ export function ToolDetailPanel({
   // single expandable control (aria-expanded + aria-controls).
   const descriptionRegionId = useId();
 
-  // Show the toggle when the server supports task tool calls and either the
-  // connection is modern (task creation is server-directed there, so any tool
-  // may become a task) or the tool doesn't forbid per-tool task support
-  // (legacy). `required` tools are forced on (checked + disabled); `optional`
-  // and (on modern) any tool follow the user's `runAsTask` choice.
-  //
-  // NOTE: on modern, a per-tool `taskSupport: "forbidden"` is DELIBERATELY
-  // ignored. Under SEP-2663 task creation is decided by the server per request,
-  // not declared per tool, so `taskSupport` (a legacy 2025-11-25 concept) does
-  // not gate the affordance — the server may return a task for any call. The
-  // toggle just declares intent to poll a returned handle.
+  // Show the toggle when the (legacy) server supports task tool calls and the
+  // tool doesn't forbid per-tool task support. `required` tools are forced on
+  // (checked + disabled); `optional` tools follow the user's `runAsTask`
+  // choice. A modern (SEP-2663) connection never gets here with
+  // `serverSupportsTaskToolCalls` set: task creation is server-directed there,
+  // so there is no per-call choice to offer (#2674).
   const taskSupport = getTaskSupport(tool);
   const showRunAsTask =
-    serverSupportsTaskToolCalls && (modernTasks || taskSupport !== "forbidden");
+    serverSupportsTaskToolCalls && taskSupport !== "forbidden";
   // Gate the effective decision on `showRunAsTask`: a stale `runAsTask`/`required`
-  // value must not route through callToolStream when the toggle is hidden. On
-  // legacy, a tool's taskSupport is only considered when the server advertises
-  // `tasks.requests.tools.call`; on modern, the user's choice governs any tool.
+  // value must not route through callToolStream when the toggle is hidden. A
+  // tool's taskSupport is only considered when the server advertises
+  // `tasks.requests.tools.call`.
   const effectiveRunAsTask =
     showRunAsTask &&
-    (taskSupport === "required" ||
-      ((taskSupport === "optional" || modernTasks) && runAsTask));
+    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
 
   // Two distinct reasons the arguments aren't sendable, and this panel used to
   // check neither — Execute was gated on `isExecuting` alone, so a required

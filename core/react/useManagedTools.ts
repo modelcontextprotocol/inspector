@@ -15,6 +15,9 @@ const NO_TOOLS: Tool[] = [];
 const readTools = (state: ManagedToolsState): Tool[] => state.getTools();
 const readListChanged = (state: ManagedToolsState): boolean =>
   state.getListChanged();
+// Keyed on the `toolsChange` signal: the state flips `loaded` just before it
+// dispatches that event, so the snapshot re-reads it on the same change.
+const readLoaded = (state: ManagedToolsState): boolean => state.isLoaded();
 
 export interface UseManagedToolsResult {
   /**
@@ -26,6 +29,12 @@ export interface UseManagedToolsResult {
   tools: Tool[];
   /** True when a `tools/list_changed` arrived since the last user refresh. */
   listChanged: boolean;
+  /**
+   * True once a fetch has committed the list this connection — false while the
+   * connect-time load is in flight, so an empty `tools` can be told apart from
+   * a server that has none (#2607).
+   */
+  loaded: boolean;
   refresh: () => Promise<Tool[]>;
   /**
    * Acknowledge the list-changed indicator without fetching the aggregate.
@@ -55,6 +64,12 @@ export function useManagedTools(
     readListChanged,
     false,
   );
+  const loaded = useStoreSnapshot(
+    managedToolsState,
+    "toolsChange",
+    readLoaded,
+    false,
+  );
 
   const error = useListError(managedToolsState);
 
@@ -78,5 +93,5 @@ export function useManagedTools(
     managedToolsState?.clearListChanged();
   }, [managedToolsState]);
 
-  return { tools, error, listChanged, refresh, clearListChanged };
+  return { tools, error, listChanged, loaded, refresh, clearListChanged };
 }

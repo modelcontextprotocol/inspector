@@ -52,16 +52,19 @@
  * pruned it, so a starved event loop costs it nothing but a moment, not its
  * place.
  *
- * **Why the lease is machine-wide.** The lock lives under `os.tmpdir()`
- * (`$XDG_RUNTIME_DIR` where a desktop session sets it), never inside a
- * worktree — a lock in the repo would be one per worktree, which is one per
- * session, which coordinates nothing.
+ * **Why the lease is machine-wide.** The lock lives at one fixed per-user
+ * path ({@link leaseDir}), never inside a worktree — a lock in the repo would
+ * be one per worktree, which is one per session, which coordinates nothing.
+ * For the same reason no environment variable a session might set moves it:
+ * it used to live under `os.tmpdir()`, which follows `$TMPDIR`, so a gate run
+ * as `TMPDIR=/tmp npm run local:gate` took a different lock and ran straight
+ * alongside one that was already holding the lease (#2624).
  *
  * **Why default-on.** The sessions that need it are the ones that did not
  * think to opt in. `INSPECTOR_SKIP_GATE_LEASE=1` bypasses it, and the first
  * "waiting" line names the holder, its worktree, and that variable, so a wait
  * is never a mystery. It is also never a gate: a lock that cannot be *created*
- * (an unwritable tmpdir) runs the command unleased with a warning, because a
+ * (an unwritable lease directory) runs the command unleased with a warning, because a
  * coordination aid must not acquire a new way to fail the gate it wraps.
  *
  * **Why the whole gate and not its parallel stages.** The serial stages are
@@ -79,7 +82,9 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import nodeFs, {
+  chmodSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -90,7 +95,7 @@ import nodeFs, {
   utimesSync,
   writeFileSync,
 } from "node:fs";
-import { hostname, constants as osConstants, tmpdir } from "node:os";
+import { hostname, constants as osConstants, tmpdir, userInfo } from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -142,10 +147,90 @@ export const PROGRESS_MS = 60_000;
  */
 export const MAX_WAIT_MS = 45 * 60_000;
 
-/** Where the lease lives. `$XDG_RUNTIME_DIR` is per-user and per-session where it exists. */
-export function leaseDir(env = process.env) {
+/**
+ * Where the lease lives: one path per user, which no per-session environment
+ * variable moves (#2624). Every gate on the machine has to agree on it, so
+ * anything a single session can set differently is disqualified — `$TMPDIR`
+ * (what `os.tmpdir()` follows, and which the #2609 workaround set), and
+ * `$XDG_RUNTIME_DIR` too, which a desktop terminal sets and an `ssh` or bare
+ * `tmux` session may not.
+ *
+ * - **POSIX:** `/tmp/mcp-inspector-gate-lease-<uid>`. `/tmp` is the one
+ *   temporary directory every POSIX system has at a fixed path, and the uid
+ *   suffix keeps two users of a shared box from contending for one directory
+ *   neither can remove. Because the name is predictable, a directory or
+ *   symlink another user planted there first is refused rather than adopted
+ *   ({@link assertTrustedLeaseDir}) and degrades to an unleased run with a
+ *   warning, like any other unusable lease directory.
+ * - **Windows:** under the account's profile directory, read from the account
+ *   (`os.userInfo()`) rather than from `%USERPROFILE%`, `%TEMP%` or `%TMP%`.
+ *   Only if that lookup fails does it fall back to `os.tmpdir()`.
+ *
+ * {@link DIR_ENV} still overrides it outright: that is a deliberate choice,
+ * made by whoever sets it for every gate, not an accident of one session.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ platform?: NodeJS.Platform, uid?: () => number, home?: () => string }} [host]
+ *   injectable for the tests, which must cover the platform they are not on
+ */
+export function leaseDir(
+  env = process.env,
+  {
+    platform = process.platform,
+    uid = () => process.getuid(),
+    home = () => userInfo().homedir,
+  } = {},
+) {
   if (env[DIR_ENV]) return path.resolve(env[DIR_ENV]);
-  return path.join(env.XDG_RUNTIME_DIR || tmpdir(), "mcp-inspector-gate-lease");
+  if (platform !== "win32") {
+    return path.posix.join("/tmp", `mcp-inspector-gate-lease-${uid()}`);
+  }
+  let base;
+  try {
+    base = path.win32.join(home(), "AppData", "Local");
+  } catch {
+    // An account with no profile record. Nothing better is reachable, and an
+    // unleased gate is worse than one keyed on %TEMP%.
+    base = tmpdir();
+  }
+  return path.win32.join(base, "mcp-inspector-gate-lease");
+}
+
+/**
+ * Refuse a lease directory this user does not control, and make it private.
+ *
+ * The POSIX default is a predictable name in world-writable `/tmp`, and
+ * `mkdirSync(..., { recursive: true })` succeeds silently over an entry that
+ * is already there. Another local user who created that path first — as a
+ * directory they own, or as a symlink — would otherwise be adopted: they
+ * could remove the lock out from under a running gate (two gates overlap
+ * again, the thing this exists to prevent), and the holder record would be
+ * written wherever the symlink points. So the directory must be a real
+ * directory, not a symlink, owned by this uid; it is tightened to `0700`
+ * when it is not already. Throws otherwise, which the caller turns into the
+ * same unleased-with-a-warning run as any unusable lease directory. The same
+ * check guards mcpdo's `/tmp` root (`assertTrustedPrivateRoot` in
+ * `clients/mcpdo/src/daemon/paths.ts`). A no-op on Windows, which has no uid
+ * and no POSIX modes, and whose default lives under the account's profile.
+ *
+ * @param {string} dir
+ * @param {{ getuid?: () => number }} [host] injectable: the tests cannot
+ *   create a directory owned by a second user without root
+ */
+export function assertTrustedLeaseDir(dir, { getuid = process.getuid } = {}) {
+  if (typeof getuid !== "function") return;
+  const st = lstatSync(dir);
+  if (!st.isDirectory()) {
+    throw new Error(
+      `refusing ${dir}: not a directory (a file or symlink is in its place)`,
+    );
+  }
+  if (st.uid !== getuid()) {
+    throw new Error(
+      `refusing ${dir}: owned by uid ${st.uid}, not this user (uid ${getuid()})`,
+    );
+  }
+  if ((st.mode & 0o077) !== 0) chmodSync(dir, 0o700);
 }
 
 /**
@@ -633,7 +718,8 @@ export async function runUnderLease({
   } else {
     let usable = true;
     try {
-      mkdirSync(dir, { recursive: true });
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
+      assertTrustedLeaseDir(dir);
     } catch (err) {
       usable = false;
       log(

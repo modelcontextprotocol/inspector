@@ -16,7 +16,6 @@
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,7 +29,9 @@ vi.mock("open", () => ({ default: openMock }));
 const { openBrowser } = await import("../../../../server/web-server-config.js");
 const { startHonoServer } = await import("../../../../server/server.js");
 
-const WARNING = "Could not open a browser automatically:";
+/** The one-line warning for `reason`: the message only, never the error object (#2645). */
+const warning = (reason: string) =>
+  `Could not open a browser automatically (${reason}). Open the URL above manually.`;
 
 /**
  * A stand-in for the `ChildProcess` `open` resolves with: like a real spawn it
@@ -43,23 +44,6 @@ function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
     outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
   );
   return child;
-}
-
-async function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.unref();
-    srv.on("error", reject);
-    srv.listen(0, "127.0.0.1", () => {
-      const addr = srv.address();
-      if (addr && typeof addr === "object") {
-        const { port } = addr;
-        srv.close(() => resolve(port));
-      } else {
-        srv.close(() => reject(new Error("Could not resolve a free port")));
-      }
-    });
-  });
 }
 
 /** An unhandledRejection fires on a later macrotask than the rejection. */
@@ -98,20 +82,34 @@ describe("openBrowser", () => {
       process.off("unhandledRejection", onUnhandled);
     }
     expect(unhandled).toEqual([]);
-    expect(warn).toHaveBeenCalledWith(WARNING, expect.any(Error));
+    expect(warn).toHaveBeenCalledWith(warning("no browser on this host"));
+  });
+
+  it("reports a non-Error rejection by its string form", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    openMock.mockRejectedValue("no opener");
+    openBrowser("http://127.0.0.1:6274");
+    await settle();
+    expect(warn).toHaveBeenCalledWith(warning("no opener"));
   });
 
   it("warns instead of crashing when the opener cannot be spawned", async () => {
     // `open` resolves first and the ENOENT arrives afterwards as an 'error'
     // event on the child; unlistened, that event throws and kills the server.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Shaped like the real error: `spawnargs` carries the tokenized URL,
+    // which must not reach the terminal a second time (#2645).
+    const url = "http://127.0.0.1:6274/?MCP_INSPECTOR_API_TOKEN=secret-token";
     const enoent = Object.assign(new Error("spawn xdg-open ENOENT"), {
       code: "ENOENT",
+      spawnargs: [url],
     });
     openMock.mockImplementation(async () => fakeChild(enoent));
-    expect(openBrowser("http://127.0.0.1:6274")).toBeUndefined();
+    expect(openBrowser(url)).toBeUndefined();
     await settle();
-    expect(warn).toHaveBeenCalledWith(WARNING, enoent);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(warning("spawn xdg-open ENOENT"));
+    expect(String(warn.mock.calls[0][0])).not.toContain("secret-token");
   });
 
   it("stays quiet when the browser opens", async () => {
@@ -120,7 +118,7 @@ describe("openBrowser", () => {
     openBrowser("http://127.0.0.1:6274");
     await settle();
     expect(openMock).toHaveBeenCalledWith("http://127.0.0.1:6274");
-    expect(warn).not.toHaveBeenCalledWith(WARNING, expect.anything());
+    expect(warn).not.toHaveBeenCalled();
   });
 });
 
@@ -136,10 +134,13 @@ describe("startHonoServer autoOpen", () => {
 
       staticRoot = await mkdtemp(join(tmpdir(), "inspector-autoopen-"));
       await writeFile(join(staticRoot, "index.html"), INDEX_HTML, "utf-8");
-      const port = await findFreePort();
-      const baseUrl = `http://127.0.0.1:${port}`;
+      // Bind `:0` and let the kernel pick, so the port is owned from the
+      // moment it is chosen. Probing for a free port and binding it later
+      // leaves a window where another process on a loaded machine takes it,
+      // and the server's EADDRINUSE handler then calls process.exit(1)
+      // (#2602).
       const config: WebServerConfig = {
-        port,
+        port: 0,
         hostname: "127.0.0.1",
         authToken: "auto-open-token",
         dangerouslyOmitAuth: false,
@@ -148,7 +149,9 @@ describe("startHonoServer autoOpen", () => {
         writable: true,
         initialServers: null,
         storageDir: undefined,
-        allowedOrigins: [baseUrl],
+        // The origin is unknown until the bind; this test never calls /api,
+        // which is the only surface the allow-list guards.
+        allowedOrigins: [],
         sandboxPort: 0,
         appOriginPort: 0,
         sandboxHost: "127.0.0.1",
@@ -164,9 +167,15 @@ describe("startHonoServer autoOpen", () => {
       }
       await settle();
 
-      expect(openMock).toHaveBeenCalledWith(expect.stringContaining(baseUrl));
+      // The URL handed to the opener is the banner URL, built from the port
+      // the server actually bound — so it is also where the server is.
+      expect(openMock).toHaveBeenCalledTimes(1);
+      const opened = new URL(String(openMock.mock.calls[0][0]));
+      expect(opened.hostname).toBe("127.0.0.1");
+      expect(Number(opened.port)).toBeGreaterThan(0);
+      const baseUrl = opened.origin;
       expect(unhandled).toEqual([]);
-      expect(warn).toHaveBeenCalledWith(WARNING, expect.any(Error));
+      expect(warn).toHaveBeenCalledWith(warning("no browser on this host"));
       // The point of warning rather than throwing: the server is still up.
       const res = await fetch(`${baseUrl}/`);
       expect(res.status).toBe(200);

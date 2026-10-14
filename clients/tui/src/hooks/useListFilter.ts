@@ -14,9 +14,10 @@
  *   the list as you type;
  * - **Enter keeps** the query and leaves editing, so the arrows, Enter and the
  *   app-wide accelerators work on the narrowed list;
- * - **Esc clears** the query and leaves editing. A kept filter is cleared the
- *   same way — `/` then Esc — because a bare Esc outside editing is the app's
- *   exit key and stays that.
+ * - **Esc clears** the query and leaves editing. Esc also clears a **kept**
+ *   filter while the list has the keyboard (#2647): a user who has just kept
+ *   a filter expects Esc to undo it, not to quit, so Esc is the app's exit key
+ *   only once no filter is left to clear — the second press.
  *
  * Up/Down are deliberately **not** consumed while editing, so the selection can
  * be moved without leaving the query.
@@ -30,6 +31,11 @@
  * withdrawn on every way editing can end — the keys above, the pane losing
  * focus or a modal opening (`enabled` going false), or the tab unmounting —
  * and App can never be left deaf to the keyboard.
+ *
+ * A kept filter mutes App's Esc alone, not the other accelerators — the whole
+ * point of keeping it is that they work on the narrowed list. That is a second,
+ * narrower report, `onEscapeClaimChange`, withdrawn the same way: once the
+ * query is cleared, or the pane loses the keyboard, Esc exits again.
  *
  * A match is a case-insensitive substring of any of the strings `fields`
  * returns for an item. `fields` is called during render, so it must be pure;
@@ -58,6 +64,13 @@ export interface UseListFilterOptions {
    * setter is), since it is an effect dependency.
    */
   onEditingChange?: (editing: boolean) => void;
+  /**
+   * Told whenever a kept (non-editing, non-empty) filter starts or stops
+   * claiming Esc while the list has the keyboard, so App can hold off its exit
+   * key until the filter is cleared (#2647). Must be referentially stable,
+   * like `onEditingChange`.
+   */
+  onEscapeClaimChange?: (claimed: boolean) => void;
 }
 
 export interface ListFilter<T> {
@@ -90,7 +103,7 @@ function printable(input: string): string {
 export function useListFilter<T>(
   items: readonly T[],
   fields: ListFilterFields<T>,
-  { enabled, onEditingChange }: UseListFilterOptions,
+  { enabled, onEditingChange, onEscapeClaimChange }: UseListFilterOptions,
 ): ListFilter<T> {
   const [query, setQuery] = useState("");
   const [editingRequested, setEditingRequested] = useState(false);
@@ -103,6 +116,16 @@ export function useListFilter<T>(
     onEditingChange?.(true);
     return () => onEditingChange?.(false);
   }, [editing, onEditingChange]);
+
+  const active = query.trim() !== "";
+  // While editing, App is already muted entirely; this covers the kept filter.
+  const claimsEscape = enabled && active && !editingRequested;
+
+  useEffect(() => {
+    if (!claimsEscape) return;
+    onEscapeClaimChange?.(true);
+    return () => onEscapeClaimChange?.(false);
+  }, [claimsEscape, onEscapeClaimChange]);
 
   const { filtered, indices } = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -126,6 +149,10 @@ export function useListFilter<T>(
       if (!editingRequested) {
         if (input === "/" && !key.ctrl && !key.meta) {
           setEditingRequested(true);
+          return true;
+        }
+        if (key.escape && query.trim() !== "") {
+          setQuery("");
           return true;
         }
         return false;
@@ -152,13 +179,13 @@ export function useListFilter<T>(
       if (text) setQuery((prev) => prev + text);
       return true;
     },
-    [enabled, editingRequested],
+    [enabled, editingRequested, query],
   );
 
   return {
     query,
     editing,
-    active: query.trim() !== "",
+    active,
     items: filtered,
     indices,
     handleInput,

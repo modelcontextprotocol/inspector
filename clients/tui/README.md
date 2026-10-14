@@ -103,7 +103,7 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 Any details view (opened from Resources, Prompts, Tools, Protocol or Network) and the **Auth** tab's access token can be copied out of the TUI ([#2421](https://github.com/modelcontextprotocol/inspector/issues/2421)):
 
 - **Y** copies the value to your clipboard with an [OSC 52](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h3-Operating-System-Commands) escape sequence. The sequence asks the _terminal emulator_ to set its clipboard, so it reaches the machine you are sitting at even when the TUI runs over SSH. A details view copies the entry's raw JSON; the Auth tab copies the full token, not the truncated prefix it displays.
-- **W** saves the value to a private temp file (`mcp-inspector-copy-*/value.txt`, mode `0600`) and shows its path — the fallback when OSC 52 does not work.
+- **W** saves the value to a private temp file (`mcp-inspector-copy-*/value.txt`, mode `0600`) and shows its path — the fallback when OSC 52 does not work. The file is deleted when the TUI exits, since it may hold a token; copy it somewhere else first if you want to keep it.
 
 OSC 52 is fire-and-forget: a terminal that does not support it (or has it disabled) fails silently, which is why the status line after **Y** points at **W**. Most modern terminals support it — iTerm2 (enable _Applications in terminal may access clipboard_), kitty, WezTerm, Alacritty, Windows Terminal, foot, and xterm with `allowWindowOps`. Inside **tmux**, set `set -g set-clipboard on` so tmux forwards the sequence. Some terminals cap the payload (often around 100 KB); a copy above that is flagged in the status line, and **W** has no such limit.
 
@@ -211,19 +211,3 @@ declaring a `react` peer must be in `noExternal` unless it is listed as external
 by design, each exempt package must also be a root dependency (external means
 consumers install it), and the root `react` range must stay open to the major.
 Add a React-rendering dependency, and that test tells you to bundle it.
-
-### The `ink-form` label patch
-
-Bundling `ink-form` also makes it patchable, which one label needs: the hint
-under an incomplete form reads "you have not **competed** yet". It is upstream's
-string, hardcoded in `ink-form/lib/SubmitButton.js` with no prop to override,
-and `ink-form` was last published in 2024 — so `tsup.config.ts` corrects it with
-an esbuild `onLoad` hook as the file enters the bundle. It is reported upstream
-as [lukasbach/ink-form#14](https://github.com/lukasbach/ink-form/issues/14); if
-a release ever carries the fix, drop the patch.
-
-The hook **throws** when the string isn't found rather than passing the source
-through. A silent no-op would let an `ink-form` upgrade retire the patch without
-anyone noticing it had stopped applying — or leave a patch aimed at a string
-that no longer exists. If the build fails there, check whether upstream fixed
-the typo and delete the patch instead of re-targeting it.

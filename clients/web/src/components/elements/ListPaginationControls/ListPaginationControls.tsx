@@ -14,6 +14,12 @@ export interface ListPaginationControlsProps {
   loadedPages: number;
   /** Paginated mode only: fetch the next page. */
   onLoadMore: () => void;
+  /**
+   * Whether the list has finished its first load this connection. Not read by
+   * this control — it rides along so the list header beside it can withhold
+   * its count until there is one to show (#2607). Absent means loaded.
+   */
+  loaded?: boolean;
 }
 
 // Switch fully left, "Load next page" fully right; the page-count sits on its

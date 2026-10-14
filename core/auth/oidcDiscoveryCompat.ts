@@ -92,6 +92,10 @@
 
 import { callerSignalOf, OAuthRequestTimeoutError } from "./requestTimeout.js";
 import {
+  isSynthesizedMetadataResponse,
+  SYNTHESIZED_METADATA_HEADER,
+} from "./endpointOverrides.js";
+import {
   OAuthMetadataSchema,
   OpenIdProviderDiscoveryMetadataSchema,
 } from "@modelcontextprotocol/core";
@@ -395,6 +399,23 @@ export function withRfc8414OidcCompat(fetchFn: typeof fetch): typeof fetch {
       // reason as the non-OK probe above (#2389): the substitution must not
       // wait on a cancel that may never settle.
       releaseBodyDetached(response);
+      // A document `withOAuthEndpointOverrides` synthesized for a server that
+      // publishes none (#2562) is not something `source` returned, so it is
+      // neither warned about nor attributed to it — it keeps its own marker,
+      // and the overrides wrapper has already said what it did. Recognized by
+      // object identity, never by the marker header: headers are
+      // server-controlled, so a real document carrying it must still be
+      // warned about and attributed (Copilot).
+      if (isSynthesizedMetadataResponse(probe)) {
+        return new Response(body, {
+          status: 200,
+          statusText: "OK",
+          headers: {
+            "content-type": "application/json",
+            [SYNTHESIZED_METADATA_HEADER]: "endpoint-overrides",
+          },
+        });
+      }
       console.warn(
         `[oauth] ${source} returned RFC 8414 OAuth 2.0 authorization server ` +
           `metadata, not an OpenID provider document. The MCP TypeScript SDK ` +

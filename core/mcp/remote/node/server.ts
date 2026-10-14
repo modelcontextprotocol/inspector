@@ -36,6 +36,7 @@ import type {
   RemoteSetAuthStateRequest,
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
+import { SdkHttpError } from "@modelcontextprotocol/client";
 import { AuthChallengeError } from "../../../auth/challenge.js";
 import {
   parseOAuthStoreWriteBody,
@@ -1110,6 +1111,24 @@ export function createRemoteApp(
         });
       }
       const msg = err instanceof Error ? err.message : String(err);
+      // Keep an HTTP failure's classification typed on the wire, so the
+      // browser rebuilds an `SdkHttpError` the era probe can classify (#2660).
+      if (err instanceof SdkHttpError) {
+        const text = err.data.text;
+        return c.json({
+          ok: false,
+          kind: "transport_error",
+          error: msg,
+          http: {
+            code: err.code,
+            status: err.status,
+            ...(err.statusText !== undefined && {
+              statusText: err.statusText,
+            }),
+            ...(typeof text === "string" && { text }),
+          },
+        });
+      }
       return c.json({ ok: false, kind: "transport_error", error: msg });
     } finally {
       clientSignal.removeEventListener("abort", onClientDisconnect);

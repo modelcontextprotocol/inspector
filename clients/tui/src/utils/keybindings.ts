@@ -46,7 +46,10 @@ export function globalBindings(
 ): readonly KeyBinding[] {
   return [
     { keys: "?", action: "Show or hide this help" },
-    { keys: "Esc / Ctrl+C", action: "Exit (Esc closes a dialog first)" },
+    {
+      keys: "Esc / Ctrl+C",
+      action: "Exit (Esc closes a dialog or clears a kept filter first)",
+    },
     {
       keys: "Tab / Shift+Tab",
       action: "Move focus: servers → tabs → list → details",

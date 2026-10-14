@@ -57,7 +57,10 @@ export function useCopyKeys(value: string | undefined, label: string) {
       if (key === SAVE_KEY) {
         try {
           const file = writeCopyFile(value);
-          setStatus({ tone: "success", message: `Saved ${label} to ${file}` });
+          setStatus({
+            tone: "success",
+            message: `Saved ${label} to ${file} (deleted when the TUI exits)`,
+          });
         } catch (err) {
           setStatus({
             tone: "error",

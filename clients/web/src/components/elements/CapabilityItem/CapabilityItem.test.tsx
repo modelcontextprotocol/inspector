@@ -24,6 +24,13 @@ describe("CapabilityItem", () => {
     expect(screen.getByText("Resources (5)")).toBeInTheDocument();
   });
 
+  it("marks a partial count as a lower bound", () => {
+    renderWithMantine(
+      <CapabilityItem capability="tools" supported count={10} partial />,
+    );
+    expect(screen.getByText("Tools (10+)")).toBeInTheDocument();
+  });
+
   it("falls back to capability key for unknown labels", () => {
     renderWithMantine(
       <CapabilityItem capability={"custom" as never} supported />,

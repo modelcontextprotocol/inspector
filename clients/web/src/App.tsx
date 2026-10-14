@@ -109,6 +109,8 @@ import {
 } from "./components/groups/PendingClientRequestModal/PendingClientRequestModal";
 import { downloadJsonFile } from "./lib/downloadFile";
 import { serverWithDraftSettings } from "./utils/serverWithDraftSettings";
+import { offersRunAsTask } from "./utils/toolUtils";
+import { listCountOf } from "./utils/listCount";
 import { enrichProtocolEntries } from "./utils/correlateTransportErrors";
 import { visibleMalformedListItems } from "./utils/malformedListReport";
 import { parseDeepLink, deepLinkParseStatus } from "./utils/deepLink";
@@ -1069,6 +1071,7 @@ function App() {
     onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: toolsPagination.canLoadMore,
     loadedPages: toolsPagination.loadedPages,
+    loaded: toolsPagination.loaded,
     onLoadMore: onLoadMoreTools,
   };
   const promptsPaginationControls: ListPaginationControlsProps = {
@@ -1076,6 +1079,7 @@ function App() {
     onPaginatedChange: onTogglePaginatedLists,
     canLoadMore: promptsPagination.canLoadMore,
     loadedPages: promptsPagination.loadedPages,
+    loaded: promptsPagination.loaded,
     onLoadMore: onLoadMorePrompts,
   };
   const resourcesPaginationControls: ListPaginationControlsProps = {
@@ -1866,9 +1870,7 @@ function App() {
     toolsUi: ui.toolsUi,
     toolCallState,
     toolsPagination: toolsPaginationControls,
-    serverSupportsTaskToolCalls:
-      !!capabilities?.tasks?.requests?.tools?.call ||
-      (inspectorClient?.isTasksExtensionNegotiated() ?? false),
+    serverSupportsTaskToolCalls: offersRunAsTask(protocolEra, capabilities),
     onToolsUiChange,
     onCallTool: dispatchCallTool,
     onCancelToolCall,
@@ -2126,6 +2128,11 @@ function App() {
           protocolEra={protocolEra}
           discoverResult={discoverResult}
           diagnostics={connectionDiagnostics}
+          listCounts={{
+            tools: listCountOf(toolsPagination),
+            prompts: listCountOf(promptsPagination),
+            resources: listCountOf(resourcesPagination),
+          }}
           oauth={connectionInfoOAuth}
           onClearOAuth={
             connectionInfoCanClearOAuth ? handleClearConnectionOAuth : undefined

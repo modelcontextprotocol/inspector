@@ -256,6 +256,36 @@ export async function recordNamespaceKeys(
 }
 
 /**
+ * Every namespace the ledger records, newest first (#2630). A namespace is
+ * appended when it is first recorded and JSON keeps that order, so the last
+ * one recorded is the one the file most recently carried.
+ *
+ * This is how an unstamped file's entries reach the secrets their old
+ * namespace still holds. A ≤ 2.9.x save strips the stamp but keeps the
+ * entries, and reads secrets only from the legacy shared ids, which
+ * adoption already emptied, so a confidential DCR client's `client_secret`
+ * survives only under the stripped namespace. Reads and adoption fall back
+ * to these namespaces for any field the legacy ids lack, which carries the
+ * secret into the next namespace before the purge removes the old one.
+ *
+ * Best-effort like the rest of the ledger: an unreadable ledger warns and
+ * reads as empty, which is the same outcome as not having a ledger.
+ */
+export async function recordedNamespaces(
+  stateFilePath: string,
+): Promise<string[]> {
+  try {
+    const ledger = parseLedger(
+      await readStoreFile(namespaceLedgerPath(stateFilePath)),
+    );
+    return [...ledger.keys()].reverse();
+  } catch (error) {
+    warnLedgerFailure("read", error);
+    return [];
+  }
+}
+
+/**
  * Purge, from `secretStore`, every recorded namespace other than `current`
  * — the namespace the state file actually carries, or `undefined` when it
  * carries none (a stripped stamp, a file deleted by hand, a whole-file

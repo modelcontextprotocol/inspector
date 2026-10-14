@@ -11,7 +11,11 @@ import type {
   JSONRPCMessage,
   MessageExtraInfo,
 } from "@modelcontextprotocol/client";
-import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
+import {
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
+} from "@modelcontextprotocol/client";
 import { findHeader, isLongLivedStreamResponse } from "../fetchTracking.js";
 import type { InspectorServerSettings, StderrLogEntry } from "../types.js";
 import type { FetchRequestEntryBase, FetchStreamState } from "../types.js";
@@ -30,6 +34,7 @@ import type {
   RemoteConnectResponse,
   RemoteAuthState,
   RemoteEvent,
+  RemoteHttpErrorData,
   RemoteSendResponse,
 } from "./types.js";
 import { oauthTokensToRemoteAuthState } from "./types.js";
@@ -152,6 +157,32 @@ function isConnectTransportError(
     "kind" in json &&
     json.kind === "transport_error"
   );
+}
+
+const SDK_ERROR_CODES: ReadonlySet<string> = new Set(
+  Object.values(SdkErrorCode),
+);
+
+/**
+ * Rebuild the `SdkHttpError` the backend's upstream transport threw, from the
+ * typed fields it relayed (#2660). The class is what matters: the SDK's
+ * era-negotiation probe classifies only an `SdkHttpError` by HTTP status, so a
+ * plain `Error` here turns a 2025-only server's 400 into a failed connect
+ * instead of a legacy fallback. The relayed code is backend-supplied text, so
+ * one this SDK does not know falls back to the code a non-OK POST throws with.
+ */
+function toSdkHttpError(
+  message: string,
+  http: RemoteHttpErrorData,
+): SdkHttpError {
+  const code = SDK_ERROR_CODES.has(http.code)
+    ? (http.code as SdkErrorCode)
+    : SdkErrorCode.ClientHttpNotImplemented;
+  return new SdkHttpError(code, message, {
+    status: http.status,
+    ...(http.statusText !== undefined && { statusText: http.statusText }),
+    ...(http.text !== undefined && { text: http.text }),
+  });
 }
 
 function legacySessionId(json: RemoteConnectResponse): string | undefined {
@@ -821,6 +852,9 @@ export class RemoteClientTransport implements Transport {
       return;
     }
 
+    if (json.http) {
+      throw toSdkHttpError(json.error, json.http);
+    }
     throw new Error(json.error);
   }
 

@@ -25,12 +25,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Options } from "tsup";
-import tsupConfig, {
-  INK_FORM_INCOMPLETE_HINT,
-  INK_FORM_SUBMIT_BUTTON,
-  fixInkFormIncompleteHint,
-  inkFormLabelPatch,
-} from "../tsup.config.js";
+import tsupConfig from "../tsup.config.js";
 
 const clientDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -93,15 +88,6 @@ function reactRenderingDependencies(): string[] {
     (name) => readPackageJson(name).peerDependencies?.react !== undefined,
   );
 }
-
-/** The real `ink-form` module the label patch targets. */
-const submitButtonPath = path.join(
-  clientDir,
-  "node_modules",
-  "ink-form",
-  "lib",
-  "SubmitButton.js",
-);
 
 const config = singleConfig(tsupConfig);
 const noExternal = stringEntries(config.noExternal);
@@ -174,84 +160,6 @@ describe("tui tsup config", () => {
   it("keeps react itself external, as the single shared instance", () => {
     expect(external).toContain("react");
     expect(noExternal).not.toContain("react");
-  });
-
-  it("corrects ink-form's misspelled incomplete-form hint", () => {
-    // Read the real dependency, so an `ink-form` upgrade that fixes or rewords
-    // the label fails here — the patch must then be removed, not left silently
-    // matching nothing.
-    const patched = fixInkFormIncompleteHint(
-      readFileSync(submitButtonPath, "utf8"),
-      submitButtonPath,
-    );
-    expect(patched).toContain(INK_FORM_INCOMPLETE_HINT.fixed);
-    expect(patched).not.toContain(INK_FORM_INCOMPLETE_HINT.typo);
-  });
-
-  it("routes the real module through the plugin, not just the helper", async () => {
-    // The helper is only reached if the plugin's onLoad filter matches. Drive
-    // the plugin as esbuild would — register, then invoke — so a filter that
-    // stops matching the real module's path fails here instead of no-opping
-    // through a green build (the exact silence this patch exists to prevent).
-    type OnLoadCallback = (args: {
-      path: string;
-    }) => Promise<{ contents: string }>;
-    const registered: { filter: RegExp; callback: OnLoadCallback }[] = [];
-
-    const build = {
-      onLoad: (options: { filter: RegExp }, callback: OnLoadCallback) =>
-        registered.push({ filter: options.filter, callback }),
-    };
-    // esbuild's `PluginBuild` carries far more than this patch touches, and the
-    // stub above deliberately implements only the one hook it registers — so
-    // the double cast is bridging a real structural gap, not hiding a mismatch.
-    // A hook the patch called but the stub lacks fails as undefined here rather
-    // than passing silently.
-    // esbuild types `setup` as `void | Promise<void>`; await it so the
-    // assertions below can't run before an async setup has registered.
-    await inkFormLabelPatch.setup(
-      build as unknown as Parameters<typeof inkFormLabelPatch.setup>[0],
-    );
-
-    expect(registered).toHaveLength(1);
-    const [{ filter, callback }] = registered;
-    expect(filter.test(submitButtonPath)).toBe(true);
-
-    const { contents } = await callback({ path: submitButtonPath });
-    expect(contents).toContain(INK_FORM_INCOMPLETE_HINT.fixed);
-    expect(contents).not.toContain(INK_FORM_INCOMPLETE_HINT.typo);
-  });
-
-  it("scopes the patch to ink-form's SubmitButton and nothing else", () => {
-    expect(INK_FORM_SUBMIT_BUTTON.test(submitButtonPath)).toBe(true);
-    // A Windows-style path must match too — the filter runs against whatever
-    // esbuild resolved, and its separator is the platform's.
-    expect(
-      INK_FORM_SUBMIT_BUTTON.test(
-        "C:\\repo\\node_modules\\ink-form\\lib\\SubmitButton.js",
-      ),
-    ).toBe(true);
-    for (const other of [
-      "/repo/node_modules/ink-form/lib/Form.js",
-      "/repo/node_modules/ink-select-input/build/SubmitButton.js",
-      "/repo/src/SubmitButton.jsx",
-    ]) {
-      expect(INK_FORM_SUBMIT_BUTTON.test(other), other).toBe(false);
-    }
-  });
-
-  it("fails loudly rather than silently skipping a label it cannot find", () => {
-    expect(() =>
-      fixInkFormIncompleteHint("no such label here", "SubmitButton.js"),
-    ).toThrow(/no longer contains the ink-form label/);
-  });
-
-  it("only rewrites the misspelling", () => {
-    // The two strings must differ by exactly the fix, or the patch is silently
-    // changing copy nobody reviewed.
-    expect(INK_FORM_INCOMPLETE_HINT.fixed).toBe(
-      INK_FORM_INCOMPLETE_HINT.typo.replace("competed", "completed"),
-    );
   });
 
   it("verifies the deps it exempts are still declared", () => {

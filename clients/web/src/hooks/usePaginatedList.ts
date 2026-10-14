@@ -15,6 +15,13 @@ export interface PaginatedListModel<T> {
   /** Paginated mode: pages loaded so far. */
   loadedPages: number;
   /**
+   * Whether the active source has committed a list this connection — page 1
+   * in paginated mode, the aggregate otherwise. False while the connect-time
+   * load is in flight, so an empty `items` is not read as "the server has
+   * none" (#2607).
+   */
+  loaded: boolean;
+  /**
    * Paginated mode: fetch the next page (no-op otherwise). Returns the load
    * promise so the caller can wrap it in auth recovery.
    */
@@ -46,6 +53,8 @@ export interface UsePaginatedListParams<T> {
   managedRefresh: () => Promise<unknown>;
   /** The aggregate store's last-fetch error (all-pages mode). */
   managedError: Error | null;
+  /** Whether the aggregate store has committed a list (all-pages mode). */
+  managedLoaded: boolean;
   /** The accumulated paged list (paginated mode display source). */
   pagedItems: T[];
   /** The paged store's current `nextCursor` (undefined = at the end). */
@@ -76,6 +85,7 @@ export function usePaginatedList<T>({
   managedItems,
   managedRefresh,
   managedError,
+  managedLoaded,
   pagedItems,
   pagedNextCursor,
   pagedPageCount,
@@ -99,6 +109,8 @@ export function usePaginatedList<T>({
     // meaningful page count (the store resets on disconnect).
     canLoadMore: connected && paginated && pagedNextCursor !== undefined,
     loadedPages: connected ? pagedPageCount : 0,
+    // The paged store counts page 1 as its first committed page.
+    loaded: connected && (paginated ? pagedPageCount > 0 : managedLoaded),
     onLoadMore,
     onRefresh,
   };

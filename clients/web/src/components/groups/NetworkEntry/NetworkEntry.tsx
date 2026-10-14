@@ -89,16 +89,36 @@ const UrlScroll = Text.withProps({
   variant: "nowrap",
 });
 
-// Left / right clusters for a compact header line (mirrors ProtocolEntry).
-const HeaderCluster = Group.withProps({
-  gap: "sm",
-  wrap: "nowrap",
-  miw: 0,
-});
-
+// The wide header's right-hand cluster.
 const ControlsCluster = Group.withProps({
   gap: "sm",
   wrap: "nowrap",
+});
+
+// The compact header's first line. It wraps, so at the narrowest sidebar
+// (320px), where the badges and the duration/status cannot share one line, the
+// status drops onto a line of its own instead of squeezing every badge until
+// its label clips (#2675).
+const CompactHeaderLine = Group.withProps({
+  justify: "space-between",
+  wrap: "wrap",
+  gap: "xs",
+});
+
+// The compact first line's timestamp + badges. Every item is short, so the
+// cluster wraps them rather than truncating the badges when they outgrow the
+// line (#2675).
+const CompactHeaderCluster = Group.withProps({
+  gap: "sm",
+  wrap: "wrap",
+  miw: 0,
+});
+
+// Right-aligned even when the line wraps it below the badges.
+const CompactControlsCluster = Group.withProps({
+  gap: "sm",
+  wrap: "nowrap",
+  ml: "auto",
 });
 
 const DurationText = Text.withProps({
@@ -571,17 +591,17 @@ export function NetworkEntry({
         {embedded ? (
           // Compact two-line header for the narrow column.
           <Stack gap="xs">
-            <HeaderRow>
-              <HeaderCluster>
+            <CompactHeaderLine>
+              <CompactHeaderCluster>
                 <TimestampText>
                   {formatTimestampCompact(entry.timestamp)}
                 </TimestampText>
                 <MethodBadge method={entry.method} />
                 <CategoryBadge category={entry.category} />
                 {phaseBadge}
-              </HeaderCluster>
-              <ControlsCluster>{metaBadges}</ControlsCluster>
-            </HeaderRow>
+              </CompactHeaderCluster>
+              <CompactControlsCluster>{metaBadges}</CompactControlsCluster>
+            </CompactHeaderLine>
             <CompactUrlRow>
               <CopyButton value={entry.url} />
               <UrlScrollArea>

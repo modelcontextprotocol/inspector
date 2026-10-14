@@ -252,6 +252,9 @@ export default defineConfig(({ command }) => {
           path.join(repoRoot, "core/mcp/remote/types.ts"),
           path.join(repoRoot, "core/mcp/import/types.ts"),
           "clients/web/server/types.ts",
+          // Type declarations only, so v8 reports no row for it at all — named
+          // here so `verify:coverage-scope` (#2709) is not left expecting one.
+          "src/utils/pendingReauth.ts",
           // .d.ts files are declaration-only.
           path.join(repoRoot, "**/*.d.ts"),
           // inspectorClientEventTarget.ts is types + a single empty-body class
@@ -374,7 +377,13 @@ export default defineConfig(({ command }) => {
             // can transform core/ modules and run tests against the source.
             root: repoRoot,
             include: [integrationGlob],
-            setupFiles: [NO_RETRY_SETUP],
+            // Points the default OAuth state file at a per-test-file temp
+            // directory, so no suite reads or rewrites the developer's real
+            // `~/.mcp-inspector/storage/oauth.json` (#2670).
+            setupFiles: [
+              path.join(dirname, "src/test/integrationStorageSetup.ts"),
+              NO_RETRY_SETUP,
+            ],
             // Integration tests spawn real HTTP/stdio servers via test-servers/,
             // bind sockets, run e2e OAuth flows, and exercise filesystem-backed
             // storage. 30s matches the v1.5 core/vitest.config.ts. Now stated

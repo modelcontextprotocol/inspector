@@ -310,17 +310,27 @@ interface TrackedNotificationStream extends NotificationStreamState {
 const MAX_URL_ELICITATION_RETRIES = 5;
 
 /**
+ * The web client's remedy for a connect-time timeout — the default
+ * {@link InspectorClientOptions.connectionTimeoutRemedy}, since the web is the
+ * only client with a Server Settings form to point at.
+ */
+export const WEB_CONNECTION_TIMEOUT_REMEDY =
+  "To accommodate a slower server, you may increase the timeout value in Server Settings.";
+
+/**
  * The message `connect()` rejects with when the connect-time timeout fires.
  * Names the bound that fired and, since the default is now a real value that
  * a slow server on a slow link can legitimately hit, says where to raise it
- * (#2320). All three clients surface this text as-is: the web client's
- * "Failed to connect" toast, the TUI status line, and the CLI error envelope.
+ * (#2320). Every client surfaces this text as-is — the web client's "Failed
+ * to connect" toast, the TUI status line, the CLI and mcpdo error envelopes —
+ * so the remedy sentence is the client's to supply: each one names its own
+ * knob rather than a web-only setting (#2615).
  */
-export function connectionTimeoutMessage(timeoutMs: number): string {
-  return (
-    `Connection timed out after ${timeoutMs} ms. To accommodate a slower ` +
-    `server, you may increase the timeout value in Server Settings.`
-  );
+export function connectionTimeoutMessage(
+  timeoutMs: number,
+  remedy: string = WEB_CONNECTION_TIMEOUT_REMEDY,
+): string {
+  return `Connection timed out after ${timeoutMs} ms. ${remedy}`;
 }
 
 /**
@@ -544,6 +554,7 @@ export class InspectorClient extends InspectorClientEventTarget {
   /** Dedupes concurrent ambient auth challenges (reason + scopes). */
   private ambientAuthChallengeInFlight = new Map<string, Promise<void>>();
   private pipeStderr: boolean;
+  private connectionTimeoutRemedy: string;
   private initialLoggingLevel?: LoggingLevel;
   // Modern-era per-request log level (#1629). On 2026-07-28 servers
   // `logging/setLevel` is gone; the client opts into logs per request via the
@@ -794,6 +805,8 @@ export class InspectorClient extends InspectorClientEventTarget {
 
     // Initialize content cache
     this.pipeStderr = options.pipeStderr ?? false;
+    this.connectionTimeoutRemedy =
+      options.connectionTimeoutRemedy ?? WEB_CONNECTION_TIMEOUT_REMEDY;
     this.initialLoggingLevel = options.initialLoggingLevel;
     this.sample = options.sample ?? true;
     this.elicit = options.elicit ?? true;
@@ -1845,9 +1858,10 @@ export class InspectorClient extends InspectorClientEventTarget {
           // for that upstream gap and should be deleted with it.
           //
           // Known, accepted side effect of turning intercept on with no stored
-          // tokens: `parseAuthChallengeFromResponse` treats 403 as a challenge
-          // too, so a probe answered 403 for a *non-auth* reason (a gateway
-          // rejecting the unknown `server/discover` method, say) now starts OAuth
+          // tokens: `parseAuthChallengeFromResponse` treats a 403 carrying
+          // `WWW-Authenticate` as a challenge too, so a probe answered that way
+          // for a *non-auth* reason (a gateway rejecting the unknown
+          // `server/discover` method, say) now starts OAuth
           // discovery instead of letting "auto" fall back to the legacy
           // `initialize`. The outcome is a surfaced `oauthError`, not a hang, and
           // it goes away with this clause.
@@ -1975,7 +1989,14 @@ export class InspectorClient extends InspectorClientEventTarget {
           const timeoutPromise = new Promise<never>((_, reject) => {
             timer = setTimeout(() => {
               connectTimedOut = true;
-              reject(new Error(connectionTimeoutMessage(connectTimeoutMs)));
+              reject(
+                new Error(
+                  connectionTimeoutMessage(
+                    connectTimeoutMs,
+                    this.connectionTimeoutRemedy,
+                  ),
+                ),
+              );
             }, connectTimeoutMs);
           });
           try {

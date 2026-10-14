@@ -34,6 +34,26 @@ describe("useManagedPrompts", () => {
     expect(result.current.prompts).toEqual([]);
   });
 
+  // #2607: lets a count tell an in-flight first load from an empty server.
+  it("reports loaded only once a fetch has committed the list", async () => {
+    const { result } = renderHook(() => useManagedPrompts(client, state));
+    expect(result.current.loaded).toBe(false);
+
+    client.queuePromptPages({ prompts: [prompt("a")] });
+    await act(async () => {
+      await state.refresh();
+    });
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+
+    act(() => client.setStatus("disconnected"));
+    await waitFor(() => expect(result.current.loaded).toBe(false));
+  });
+
+  it("is not loaded when state is null", () => {
+    const { result } = renderHook(() => useManagedPrompts(client, null));
+    expect(result.current.loaded).toBe(false);
+  });
+
   it("updates when state dispatches promptsChange", async () => {
     const { result } = renderHook(() => useManagedPrompts(client, state));
     expect(result.current.prompts).toEqual([]);

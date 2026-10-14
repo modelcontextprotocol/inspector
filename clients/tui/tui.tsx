@@ -10,6 +10,7 @@ import {
 } from "@inspector/core/mcp/node/index.js";
 import type { ServerProtocolEra } from "@inspector/core/mcp/types.js";
 import { loadRunnerClientConfig } from "@inspector/core/client/runner.js";
+import { readInspectorVersion } from "@inspector/core/node/version.js";
 import {
   parseRunnerOAuthCallbackUrl,
   DEFAULT_RUNNER_OAUTH_CALLBACK_URL,
@@ -23,6 +24,12 @@ export async function runTui(args?: string[]): Promise<void> {
   program
     .name("mcp-inspector-tui")
     .description("Terminal UI for MCP Inspector")
+    // Prints the root package version and exits before Ink renders (#2632).
+    .version(
+      readInspectorVersion(import.meta.url),
+      "-V, --version",
+      "Print the Inspector version",
+    )
     .option(
       "--catalog <path>",
       "Writable catalog file (created if missing; default: ~/.mcp-inspector/mcp.json, or MCP_CATALOG_PATH)",

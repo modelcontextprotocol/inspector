@@ -33,6 +33,10 @@
     "preview": "vite preview",
     "storybook": "storybook dev -p 6006"
   },
+  "allowScripts": {
+    "esbuild": false,
+    "fsevents": false
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^8.0.0",
@@ -79,6 +83,7 @@
     "yaml": "^2.9.0"
   },
   "overrides": {
+    "@types/node": "^24.12.4",
     "esbuild": "^0.28.2",
     "vitest": "4.1.11"
   }

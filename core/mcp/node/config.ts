@@ -223,11 +223,27 @@ function loadServerFromConfig(
   return server;
 }
 
-/** Build one MCPServerConfig from ad-hoc options (no config file). */
+/**
+ * Build one MCPServerConfig from ad-hoc options (no config file).
+ *
+ * The target is decided before the transport, and a contradiction between
+ * flags is refused rather than resolved by precedence (#2611): a positional
+ * target next to `--server-url` names two servers, and `--transport stdio`
+ * next to a URL names a transport that URL cannot use. Either used to be
+ * dropped silently in favour of the URL. Path sniffing (`/mcp`, `/sse`) runs
+ * only when `--transport` was absent, so a given transport is never reported
+ * as missing.
+ */
 function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
   const target = options.target ?? [];
   const first = target[0];
   const rest = target.slice(1);
+
+  if (first && options.serverUrl) {
+    throw new Error(
+      `Cannot combine a positional target (${first}) with --server-url (${options.serverUrl}). Pass one or the other.`,
+    );
+  }
 
   const urlFromTarget =
     first && (first.startsWith("http://") || first.startsWith("https://"))
@@ -236,14 +252,23 @@ function buildConfigFromOptions(options: ServerConfigOptions): MCPServerConfig {
   const url = urlFromTarget ?? options.serverUrl ?? null;
 
   if (url) {
-    if (rest.length > 0 && urlFromTarget) {
+    if (rest.length > 0) {
       throw new Error("Arguments cannot be passed to a URL-based MCP server.");
+    }
+    if (options.transport === "stdio") {
+      throw new Error(
+        `stdio transport cannot be used with a URL (${url}). Use --transport http or --transport sse, or pass a local command instead.`,
+      );
     }
     let transportType: "sse" | "streamable-http";
     const t =
       options.transport === "http" ? "streamable-http" : options.transport;
     if (t === "sse" || t === "streamable-http") {
       transportType = t;
+    } else if (t) {
+      throw new Error(
+        `Invalid transport type: ${t}. Valid types are: sse, http, stdio`,
+      );
     } else {
       const u = new URL(url);
       if (u.pathname.endsWith("/mcp")) {

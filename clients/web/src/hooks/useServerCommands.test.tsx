@@ -119,6 +119,7 @@ function pagination<T>(
     paginated: false,
     canLoadMore: false,
     loadedPages: 1,
+    loaded: true,
     error: null,
     onRefresh: vi.fn().mockResolvedValue(undefined),
     onLoadMore: vi.fn().mockResolvedValue(undefined),

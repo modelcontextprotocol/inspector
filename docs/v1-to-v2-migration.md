@@ -209,16 +209,16 @@ and writes one JSON line to **stderr** on any non-zero exit:
 
 **Migration note:** a CI step that chained `inspector --cli … --method tools/call … && next-step` silently continued past failing tool calls in v1. In v2 it stops. That is the intended behavior, but it will surface as "v2 broke my pipeline" the first time a tool was failing all along. Parse the class with `2>&1 | tail -1 | jq .error` rather than matching on prose.
 
-### 2. The target must come first
+### 2. Before v2.11, the target had to come first
 
-v2's CLI reads the leading run of non-dash tokens as the server target. Anything after the first flag is no longer part of it:
+From v2.11 the CLI tolerates either order again, as v1 did:
 
 ```bash
-mcp-inspector --cli node build/index.js --method tools/list   # ✅
-mcp-inspector --cli --method tools/list node build/index.js   # ❌ target silently dropped
+mcp-inspector --cli node build/index.js --method tools/list
+mcp-inspector --cli --method tools/list node build/index.js
 ```
 
-The second form does **not** error — the target is discarded and the Inspector falls back to your catalog, so it appears to work against the wrong server. v1 tolerated either order.
+Earlier v2 releases read only the leading run of non-dash tokens as the target, so the second form silently discarded `node build/index.js` and fell back to your catalog — appearing to work against the wrong server. On those releases, put the target first (#2631).
 
 ### 3. `--` splits the other way under `--cli`
 
@@ -228,23 +228,26 @@ On **web and TUI**, everything _after_ `--` goes to the target command — same 
 mcp-inspector node build/index.js -- --config /etc/myserver.conf --verbose
 ```
 
-Under **`--cli`** it is reversed: everything _before_ `--` is the target, everything _after_ is the Inspector's own options.
+Under **`--cli`**, when the line **starts with the target**, it is reversed: everything _before_ `--` is the target, everything _after_ is the Inspector's own options.
 
 ```bash
 mcp-inspector --cli node build/index.js -- --method tools/list
 ```
 
-So the web example above, run verbatim under `--cli`, would have `--config /etc/myserver.conf` consumed as the Inspector's read-only-session flag (and then rejected as a catalog/ad-hoc conflict). To pass a leading-dash argument through to a stdio server, put it **before** the `--` instead — everything on that side is forwarded to the target untouched, flags included:
+So the web example above, run verbatim under `--cli`, would have `--config /etc/myserver.conf` consumed as the Inspector's read-only-session flag (and then rejected as a catalog/ad-hoc conflict). To pass a server flag the Inspector also defines, either put it **before** the `--` — everything on that side is forwarded to the target untouched, flags included — or start the line with an Inspector option, which gives `--` its v1 meaning:
 
 ```bash
 # v1
 mcp-inspector node build/index.js -- --config /etc/myserver.conf --verbose
 
-# v2, same thing under --cli — target and its flags first, Inspector options after
+# v2 under --cli — target and its flags first, Inspector options after
 mcp-inspector --cli node build/index.js --config /etc/myserver.conf --verbose -- --method tools/list
+
+# v2 under --cli, v2.11+ — an option leads, so everything after -- goes to the server
+mcp-inspector --cli --method tools/list node build/index.js -- --config /etc/myserver.conf --verbose
 ```
 
-(Without a `--` on the line, the target is only the leading run of non-dash tokens — so `--` is required whenever the server itself takes flags.)
+A flag the Inspector does not define (`--verbose`) needs no separator from v2.11: it reaches the server wherever it follows the target's first token. Earlier v2 releases dropped it unless it sat before a `--`.
 
 ### 4. An ambiguous URL path no longer guesses a transport
 

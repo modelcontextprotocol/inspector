@@ -27,9 +27,13 @@
     "format": "prettier --write src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "format:check": "prettier --check src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""
   },
+  "allowScripts": {
+    "esbuild": false,
+    "fsevents": false
+  },
   "dependencies": {
     "ink": "^6.0.0",
-    "ink-form": "^2.0.1",
+    "ink-form": "^2.0.2",
     "ink-scroll-view": "^0.3.6"
   },
   "overrides": {

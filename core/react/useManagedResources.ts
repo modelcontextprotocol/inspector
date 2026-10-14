@@ -16,6 +16,9 @@ const readResources = (state: ManagedResourcesState): Resource[] =>
   state.getResources();
 const readListChanged = (state: ManagedResourcesState): boolean =>
   state.getListChanged();
+// Keyed on the `resourcesChange` signal: the state flips `loaded` just before it
+// dispatches that event, so the snapshot re-reads it on the same change.
+const readLoaded = (state: ManagedResourcesState): boolean => state.isLoaded();
 
 export interface UseManagedResourcesResult {
   /**
@@ -29,6 +32,12 @@ export interface UseManagedResourcesResult {
    * True when a `resources/list_changed` arrived since the last user refresh.
    */
   listChanged: boolean;
+  /**
+   * True once a fetch has committed the list this connection — false while the
+   * connect-time load is in flight, so an empty `resources` can be told apart
+   * from a server that has none (#2607).
+   */
+  loaded: boolean;
   refresh: () => Promise<Resource[]>;
   /** Acknowledge the list-changed indicator without fetching (#1721). */
   clearListChanged: () => void;
@@ -53,6 +62,12 @@ export function useManagedResources(
     readListChanged,
     false,
   );
+  const loaded = useStoreSnapshot(
+    managedResourcesState,
+    "resourcesChange",
+    readLoaded,
+    false,
+  );
 
   const error = useListError(managedResourcesState);
 
@@ -75,5 +90,5 @@ export function useManagedResources(
     managedResourcesState?.clearListChanged();
   }, [managedResourcesState]);
 
-  return { resources, error, listChanged, refresh, clearListChanged };
+  return { resources, error, listChanged, loaded, refresh, clearListChanged };
 }

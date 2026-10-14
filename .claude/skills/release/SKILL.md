@@ -161,9 +161,13 @@ the `pack:verify OK` line) for the ledger below.
 
 **Every contribution closed in the milestone gets driven, not read.** The bar is
 observed behavior from the running app — a rendered panel, a status attribute, a
-server's own stderr — against a real test server, through whichever clients the
-change touches (web, CLI, TUI). "Its tests pass" is not evidence for this step;
-the gate already said that. For a change with no observable surface, the
+server's own stderr — against a real test server, through whichever surfaces the
+change touches: the web client, the one-shot CLI, the TUI, `mcpdo` (the
+connection CLI, shipped in the same package since 2.10.0) and the Docker image.
+**A change to `core/cli/` is driven through both CLIs** — the one-shot CLI and
+`mcpdo` share its method handlers, exit codes, OAuth flow and output styling
+(#2461), so passing through one says nothing about the other. "Its tests pass"
+is not evidence for this step; the gate already said that. For a change with no observable surface, the
 evidence is the thing that holds it — a probe that makes the guard fire, a
 counted before/after, a resolved binary path.
 
@@ -187,6 +191,14 @@ and link it from PR 2. Shape it like the
 - **One section per theme**, each a table of *Issue · What was driven ·
   Observed · Status*. One row per closed issue, issue-linked, with the actual
   output in the Observed cell.
+  - **An `mcpdo` row runs against a real connection** — `mcpdo connect …`, the
+    command under test, then `mcpdo disconnect …` — and its *What was driven*
+    cell shows all three. ⚠️ The connection daemon (`mcpdod`) outlives a
+    rebuild and keeps serving the code it started with, so a daemon left over
+    from before the production build smokes the wrong bundle and the row reads
+    as a pass. Run `pkill mcpdod` before the first `mcpdo` row (or rebuild with
+    `npm run build:dev` in `clients/mcpdo`, which stops it); see
+    `clients/mcpdo/README.md`.
 - **Notes / findings** — anything that is a caveat rather than a pass, called
   out rather than folded into a row.
 

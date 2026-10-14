@@ -1,8 +1,11 @@
 import {
+  Button,
   Checkbox,
   Group,
+  Input,
   MultiSelect,
   NumberInput,
+  Paper,
   Select,
   Stack,
   Switch,
@@ -15,6 +18,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,6 +56,7 @@ import {
 import {
   applySchemaConstants,
   collectSchemaDefaults,
+  seedSchemaValues,
 } from "../../../utils/jsonUtils";
 
 const FieldLabel = Text.withProps({
@@ -614,6 +619,271 @@ function SchemaNumberInput({
         onChange(toNumericValue(next));
       }}
     />
+  );
+}
+
+// One row of an array-of-objects field (#2561): a bordered card holding the
+// item's own sub-form, so where one item ends and the next begins is visible.
+const ItemCard = Paper.withProps({ withBorder: true, p: "sm" });
+
+// The row's header line — its ordinal on the left, its remove button on the
+// right.
+const ItemHeader = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const ItemTitle = Text.withProps({ size: "xs", fw: 500, c: "dimmed" });
+
+const RemoveItemButton = Button.withProps({
+  variant: "subtle",
+  color: "red",
+  size: "compact-xs",
+});
+
+const AddItemButton = Button.withProps({ variant: "light", size: "xs" });
+
+// Column holding the rows and the add button, below the field's own label.
+const ItemList = Stack.withProps({ gap: "xs", mt: "xs" });
+
+/**
+ * Whether a value can be shown as rows of an array-of-objects field: absent,
+ * `null` (a nullable array with no answer yet), or an array whose every member
+ * is a plain object. Anything else — a scalar member, a nested array, a value
+ * that is not an array at all — has no faithful row rendering, so the field
+ * keeps its JSON editor rather than displaying something other than what would
+ * be sent.
+ */
+function isObjectList(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return Array.isArray(value) && value.every(isJsonObject);
+}
+
+/**
+ * Stable React keys for an array-of-objects field's rows, held alongside the
+ * array rather than derived from the index. Index keys would hand a removed
+ * row's local state — a half-typed number, an unparsed JSON draft — to the row
+ * that slides up into its place.
+ */
+interface RowKeys {
+  keys: number[];
+  next: number;
+}
+
+/** Grow or shrink the row keys to match `length`, keeping the ones that stay. */
+function fitRowKeys(state: RowKeys, length: number): RowKeys {
+  if (state.keys.length === length) return state;
+  if (state.keys.length > length) {
+    return { ...state, keys: state.keys.slice(0, length) };
+  }
+  const added = Array.from(
+    { length: length - state.keys.length },
+    (_, offset) => state.next + offset,
+  );
+  return { keys: [...state.keys, ...added], next: state.next + added.length };
+}
+
+/**
+ * One row's values with the item schema's defaults filled in where absent —
+ * recursively into nested objects, and from the branch the row's values
+ * select when the item is a union — then its constants applied. The same
+ * seeding each row's own `SchemaForm` would otherwise do for itself on mount,
+ * done here for every row at once (see {@link ObjectArrayField}).
+ */
+function seedItem(
+  itemSchema: InspectorFormSchema,
+  item: Record<string, unknown>,
+): Record<string, unknown> {
+  return applySchemaConstants(itemSchema, seedSchemaValues(itemSchema, item));
+}
+
+interface ObjectArrayFieldProps {
+  fieldName: string;
+  label: string;
+  description?: string;
+  withAsterisk: boolean;
+  disabled: boolean;
+  /** The field's value with its default resolved; see {@link isObjectList}. */
+  value: unknown;
+  /** The `items` schema, already known to be an object with properties. */
+  itemSchema: InspectorFormSchema;
+  minItems?: number;
+  maxItems?: number;
+  /** Prefix for each row's nested form `resetKey`. */
+  resetKey?: string;
+  onChange: (value: Record<string, unknown>[]) => void;
+  onValidityChange: DraftValidityReporter;
+}
+
+/**
+ * An array whose items are objects, edited as a list of rows (#2561).
+ *
+ * Before this, such a field fell through to the JSON editor, which shows
+ * nothing of the item shape — no field names, types, required markers or
+ * descriptions — although the schema carries all of them, and list-shaped
+ * inputs are often a tool's most important argument. Each row is the same
+ * indented sub-form a nested object field already renders, so every item gets
+ * those labels for free.
+ *
+ * Rows are seeded with the item schema's defaults and constants here, for the
+ * whole array at once, rather than left for each row's own form to seed on
+ * mount: that seeding reports through a closure over the array as it was when
+ * the row rendered, so two rows seeding in the same commit would each
+ * overwrite the other's correction — leaving a row displaying a default the
+ * submitted payload does not carry. Each row's form is handed its seeded
+ * values, so it finds nothing to seed itself.
+ *
+ * `minItems`/`maxItems` gate the remove and add buttons, so the list cannot be
+ * taken outside the length the schema states.
+ */
+function ObjectArrayField({
+  fieldName,
+  label,
+  description,
+  withAsterisk,
+  disabled,
+  value,
+  itemSchema,
+  minItems,
+  maxItems,
+  resetKey,
+  onChange,
+  onValidityChange,
+}: ObjectArrayFieldProps) {
+  const items = Array.isArray(value)
+    ? (value as Record<string, unknown>[])
+    : [];
+  const seededItems = items.map((item) => seedItem(itemSchema, item));
+  // Compared as JSON: `applySchemaConstants` returns a fresh object whenever
+  // the schema pins a field, even when the value already matches.
+  const seededJson = serializeJson(seededItems);
+  const needsSeed = seededJson !== serializeJson(items);
+
+  // Report the seeded array upward when what needs seeding changes. An effect,
+  // not a render-time call, because `onChange` belongs to the parent; read
+  // through a ref so the parent's fresh closure each render is not a
+  // dependency — the same shape `SchemaForm`'s own seeding uses.
+  const latestSeed = useRef({ seededItems, onChange });
+  useEffect(() => {
+    latestSeed.current = { seededItems, onChange };
+  });
+  useEffect(() => {
+    if (needsSeed) latestSeed.current.onChange(latestSeed.current.seededItems);
+  }, [needsSeed, seededJson]);
+
+  // Names each row's card after its visible "Item N" title, so a screen reader
+  // announces which row a repeated "sku" or "quantity" control belongs to.
+  const titleIdPrefix = useId();
+
+  const [rowKeys, setRowKeys] = useState(() =>
+    fitRowKeys({ keys: [], next: 0 }, items.length),
+  );
+  // An external change of length — a cleared form, a loaded example, the raw
+  // JSON editor — re-fits the keys. The add and remove handlers fit them
+  // themselves, so for those this finds nothing to do.
+  useValueChange(items.length, (length) =>
+    setRowKeys((previous) => fitRowKeys(previous, length)),
+  );
+
+  // Which rows hold a draft that cannot be sent. Keyed by row key, not index,
+  // so removing a row above an invalid one cannot move the block onto the
+  // wrong row.
+  const [invalidRows, setInvalidRows] = useState<ReadonlySet<number>>(
+    () => new Set(),
+  );
+  const reportRowValidity = useCallback((rowKey: number, invalid: boolean) => {
+    setInvalidRows((previous) => {
+      if (previous.has(rowKey) === invalid) return previous;
+      const next = new Set(previous);
+      if (invalid) next.add(rowKey);
+      else next.delete(rowKey);
+      return next;
+    });
+  }, []);
+  useDraftValidity(fieldName, invalidRows.size === 0, onValidityChange);
+
+  const canAdd = maxItems === undefined || items.length < maxItems;
+  const canRemove = minItems === undefined || items.length > minItems;
+
+  function addItem() {
+    setRowKeys((previous) => fitRowKeys(previous, items.length + 1));
+    onChange([...seededItems, seedItem(itemSchema, {})]);
+  }
+
+  function removeItem(index: number) {
+    setRowKeys((previous) => ({
+      ...previous,
+      keys: previous.keys.filter((_, position) => position !== index),
+    }));
+    onChange(seededItems.filter((_, position) => position !== index));
+  }
+
+  function updateItem(index: number, item: Record<string, unknown>) {
+    onChange(
+      seededItems.map((existing, position) =>
+        position === index ? item : existing,
+      ),
+    );
+  }
+
+  return (
+    // A wrapper rather than a bare label: it gives the field the same label,
+    // required marker and description every other field has. Rendered as a
+    // `div` because there is no single control for a `<label>` to point at.
+    <Input.Wrapper
+      label={label}
+      description={description}
+      withAsterisk={withAsterisk}
+      labelElement="div"
+    >
+      <ItemList>
+        {items.length === 0 && <FieldDescription>No items</FieldDescription>}
+        {seededItems.map((item, index) => {
+          // Undefined only in a render React is about to discard, between an
+          // external length change and the re-fit above.
+          /* v8 ignore next -- see above */
+          const rowKey = rowKeys.keys[index] ?? -1 - index;
+          const titleId = `${titleIdPrefix}-item-${rowKey}`;
+          return (
+            <ItemCard key={rowKey} role="group" aria-labelledby={titleId}>
+              <Stack gap="xs">
+                <ItemHeader>
+                  <ItemTitle id={titleId}>Item {index + 1}</ItemTitle>
+                  <RemoveItemButton
+                    aria-label={`Remove item ${index + 1} from ${label}`}
+                    disabled={disabled || !canRemove}
+                    onClick={() => removeItem(index)}
+                  >
+                    Remove
+                  </RemoveItemButton>
+                </ItemHeader>
+                <SchemaForm
+                  schema={itemSchema}
+                  values={item}
+                  onChange={(next) => updateItem(index, next)}
+                  disabled={disabled}
+                  resetKey={`${resetKey ?? ""}:${fieldName}[${rowKey}]`}
+                  onValidityChange={(invalid) =>
+                    reportRowValidity(rowKey, invalid)
+                  }
+                  // The outer switch already edits the whole array as JSON.
+                  allowRawJson={false}
+                />
+              </Stack>
+            </ItemCard>
+          );
+        })}
+        <Group>
+          <AddItemButton
+            aria-label={`Add item to ${label}`}
+            disabled={disabled || !canAdd}
+            onClick={addItem}
+          >
+            Add item
+          </AddItemButton>
+        </Group>
+      </ItemList>
+    </Input.Wrapper>
   );
 }
 
@@ -1498,6 +1768,39 @@ export function SchemaForm({
           data={data}
           value={(rawValue as string[]) ?? []}
           onChange={(val) => handleFieldChange(fieldName, val)}
+        />
+      );
+    }
+
+    // array of objects: a row per item, each its own sub-form (#2561). The
+    // items schema is collapsed like a field's, so `items: X | null` qualifies.
+    // A held value the rows cannot show faithfully keeps the JSON editor below.
+    const itemSchema =
+      fieldSchema.type === "array" && fieldSchema.items
+        ? normalizeNullableUnion(fieldSchema.items)
+        : undefined;
+    if (
+      itemSchema?.type === "object" &&
+      itemSchema.properties &&
+      isObjectList(rawValue)
+    ) {
+      return (
+        <ObjectArrayField
+          // Holds row keys and row validity, so it remounts with the entity
+          // like the other stateful fields.
+          key={draftKey === undefined ? fieldName : `${draftKey}:${fieldName}`}
+          fieldName={fieldName}
+          label={label}
+          description={description}
+          withAsterisk={isRequired}
+          disabled={disabled}
+          value={rawValue}
+          itemSchema={itemSchema}
+          minItems={fieldSchema.minItems}
+          maxItems={fieldSchema.maxItems}
+          resetKey={draftKey}
+          onChange={(val) => handleFieldChange(fieldName, val)}
+          onValidityChange={reportFieldValidity}
         />
       );
     }

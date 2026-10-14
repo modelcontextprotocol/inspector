@@ -16,7 +16,7 @@ import type {
  * True for the error a write to a closed pipe raises — the reader went away
  * (`| head`, `| grep -m1`, quitting `less`), which ends the stream normally.
  */
-function isBrokenPipe(err: unknown): boolean {
+export function isBrokenPipe(err: unknown): boolean {
   return (
     err instanceof Error && (err as NodeJS.ErrnoException).code === "EPIPE"
   );

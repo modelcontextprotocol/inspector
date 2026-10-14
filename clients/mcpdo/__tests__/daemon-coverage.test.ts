@@ -1268,6 +1268,41 @@ describe("mcp connection coverage", () => {
     expectCliFailure(result);
   });
 
+  it("names --connect-timeout, not Server Settings, when connect times out (#2615)", async () => {
+    // Accept the TCP connection and never answer, so the handshake hangs
+    // until the connect-time timeout fires.
+    const sockets = new Set<net.Socket>();
+    const listener = net.createServer((socket) => {
+      sockets.add(socket);
+    });
+    await new Promise<void>((resolve) =>
+      listener.listen(0, "127.0.0.1", resolve),
+    );
+    const { port } = listener.address() as net.AddressInfo;
+    try {
+      const result = await runMcp(
+        [
+          "connect",
+          `http://127.0.0.1:${port}/mcp`,
+          "--connection",
+          "hang",
+          "--connect-timeout",
+          "200",
+          "--format",
+          "json",
+        ],
+        { env: env(), timeout: 10000 },
+      );
+      expectCliFailure(result);
+      expect(result.stderr).toContain("Connection timed out after 200 ms.");
+      expect(result.stderr).toContain("--connect-timeout <ms>");
+      expect(result.stderr).not.toContain("Server Settings");
+    } finally {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+    }
+  });
+
   it("requires explicit connection in non-interactive mode without opt-in", async () => {
     configPath = createSampleTestConfig();
     storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-sess-ci-"));

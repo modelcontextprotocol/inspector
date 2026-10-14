@@ -11,7 +11,10 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
-import { createTransportNode } from "@inspector/core/mcp/node/index.js";
+import {
+  createProxyFetch,
+  createTransportNode,
+} from "@inspector/core/mcp/node/index.js";
 import {
   eraToVersionNegotiation,
   type InspectorClientEnvironment,
@@ -19,6 +22,7 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { connectInspectorWithOAuth } from "@inspector/core/cli/cliOAuth.js";
 import {
@@ -55,6 +59,12 @@ export async function authorizeInFrontend(
 
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,
+    // HTTPS_PROXY / HTTP_PROXY / NO_PROXY, as in the one-shot CLI (#2642):
+    // `InspectorClient` always hands the transport a defined fetch, so the
+    // transport's own proxy fallback never fires — the proxy has to sit here,
+    // at the bottom of the stack, for OAuth discovery and token requests to
+    // reach it. Undefined when no proxy variable is set.
+    fetch: createProxyFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(
@@ -100,6 +110,8 @@ export async function authorizeInFrontend(
       name: "inspector-cli",
       version: readInspectorVersion(import.meta.url),
     },
+    // Same knobs as the daemon's connect: --connect-timeout or mcp.json (#2615).
+    connectionTimeoutRemedy: CLI_CONNECTION_TIMEOUT_REMEDY,
     initialLoggingLevel: "debug",
     progress: false,
     sample: false,
