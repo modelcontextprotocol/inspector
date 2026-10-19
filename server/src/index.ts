@@ -9,6 +9,10 @@ import {
   createPinnedAgent,
   ProxyTargetError,
 } from "./proxy-security.js";
+import {
+  createOriginValidationMiddleware,
+  isAuthDisabledFlag,
+} from "./request-guards.js";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -230,34 +234,12 @@ const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For d
 // Use provided token from environment or generate a new one
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+const authDisabled = isAuthDisabledFlag(process.env.DANGEROUSLY_OMIT_AUTH);
 
-// Origin validation middleware to prevent DNS rebinding attacks
-const originValidationMiddleware = (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-) => {
-  const origin = req.headers.origin;
-
-  // Default origins based on CLIENT_PORT or use environment variable
-  const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigin = `http://localhost:${clientPort}`;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
-    defaultOrigin,
-  ];
-
-  if (origin && !allowedOrigins.includes(origin)) {
-    console.error(`Invalid origin: ${origin}`);
-    res.status(403).json({
-      error: "Forbidden - invalid origin",
-      message:
-        "Request blocked to prevent DNS rebinding attacks. Configure allowed origins via environment variable.",
-    });
-    return;
-  }
-  next();
-};
+// Origin validation middleware to prevent DNS rebinding attacks. When auth is
+// disabled it also rejects requests that carry no Origin header.
+const originValidationMiddleware =
+  createOriginValidationMiddleware(authDisabled);
 
 const authMiddleware = (
   req: express.Request,
