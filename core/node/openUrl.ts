@@ -24,40 +24,60 @@ import open from "open";
 export const OPEN_URL_TIMEOUT_MS = 5_000;
 
 /**
- * Settle once the opener process has actually launched. `open` resolves with
- * the `ChildProcess` as soon as it has called `spawn()`, and a spawn failure
- * (the opener binary missing from `PATH`: `ENOENT`) arrives afterwards as an
- * `'error'` event on that child. `open` only listens for it when called with
- * `{ wait: true }`, which is unusable here: on macOS it adds `open -W`, which
- * waits for the browser to quit. Unlistened, the event crashes the process
- * instead of reaching the caller's fallback (#2531).
+ * The only schemes {@link openUrl} hands to the platform opener.
  *
- * Chained directly onto `open`'s promise, this runs as a microtask. That is
- * only ahead of the `process.nextTick` emitting `'error'` or `'spawn'` when
- * `open` itself ran inside a microtask: from a timer or I/O callback, Node
- * drains `nextTick` before promise reactions, and on macOS `open` reaches
- * `spawn()` with no earlier `await`. So {@link openUrl} calls `open` from a
- * queued microtask, which puts the spawn and this listener in the same drain
- * whatever the caller's context. The listener stays attached (`on`, not
- * `once`) so an error after settling is still absorbed.
+ * The URL is not always ours: the CLI and TUI open an OAuth authorization URL
+ * built from the `authorization_endpoint` a remote MCP server advertises, so
+ * whatever that server returns reaches this function. `open` passes its target
+ * to `open` / `xdg-open` / PowerShell's `Start`, all of which also launch
+ * files, `file:` paths and custom protocol handlers, and its README is explicit
+ * that it does not sanitize untrusted input. Nothing this function is for
+ * needs anything but a web page, so anything else is refused before `open` is
+ * reached and the caller falls back to printing the URL.
  */
-function launched(child: ChildProcess): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    child.on("error", reject);
-    child.once("spawn", () => resolve());
-  });
+const OPENABLE_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
+
+/** Throw unless `href` parses as an `http:` or `https:` URL. */
+function assertOpenable(href: string): void {
+  let protocol: string;
+  try {
+    protocol = new URL(href).protocol;
+  } catch {
+    throw new Error("refusing to open an invalid URL");
+  }
+  if (!OPENABLE_PROTOCOLS.has(protocol)) {
+    throw new Error(`refusing to open a non-http(s) URL (${protocol})`);
+  }
 }
 
 /**
- * Open a URL in the user's default browser (best-effort). Rejects when the
- * opener fails, cannot be spawned, or does not launch within `timeoutMs`;
- * callers print the URL themselves and decide what to tell the user.
+ * Keep absorbing the opener's `'error'` events once it has launched.
+ *
+ * Since v11, `open` itself waits for the child's `'spawn'` event (on Windows,
+ * for PowerShell to exit) before resolving, and rejects when the opener cannot
+ * be spawned (the binary missing from `PATH`: `ENOENT`) — so the spawn failure
+ * that used to crash the process (#2531) now arrives as a rejection the caller
+ * sees. What it no longer does is listen afterwards: it removes its own
+ * `'error'` listener on launch, so a later `'error'` on the child would be
+ * unlistened and crash the process. A no-op listener keeps that failure where
+ * it belongs, in a best-effort open nobody is waiting on.
+ */
+function absorbLateErrors(child: ChildProcess): void {
+  child.on("error", () => {});
+}
+
+/**
+ * Open a URL in the user's default browser (best-effort). Rejects when the URL
+ * is not `http:`/`https:`, when the opener fails or cannot be spawned, or when
+ * it does not launch within `timeoutMs`; callers print the URL themselves and
+ * decide what to tell the user.
  */
 export async function openUrl(
   url: string | URL,
   timeoutMs: number = OPEN_URL_TIMEOUT_MS,
 ): Promise<void> {
   const href = typeof url === "string" ? url : url.href;
+  assertOpenable(href);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(
@@ -67,10 +87,7 @@ export async function openUrl(
     );
   });
   try {
-    const opened = Promise.resolve()
-      .then(() => open(href))
-      .then(launched);
-    await Promise.race([opened, timeout]);
+    await Promise.race([open(href).then(absorbLateErrors), timeout]);
   } finally {
     clearTimeout(timer);
   }

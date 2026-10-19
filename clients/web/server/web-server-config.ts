@@ -262,10 +262,10 @@ export function printServerBanner(
  * `.catch` is two chances for one of them to drift back to a bare `open(url)`.
  */
 export function openBrowser(url: string): void {
-  // Through core's `openUrl`, not a bare `open(url)`: `open` resolves before a
-  // spawn failure (the opener missing from `PATH`) arrives as an `'error'`
-  // event on the child, which no `.catch` here could see and which crashed
-  // the server at startup (#2533). `openUrl` turns it into a rejection.
+  // Through core's `openUrl`, not a bare `open(url)`: it bounds a stalled
+  // opener with a timeout, refuses anything but http(s), and absorbs an
+  // `'error'` on the child after launch, which unlistened would crash the
+  // server (#2533). Every one of those failures reaches the `.catch` below.
   openUrl(url).catch((err: unknown) => {
     // The message only, on one line, matching the CLI's wording
     // (`core/cli/cli-oauth-navigation.ts`). Logging the error object printed

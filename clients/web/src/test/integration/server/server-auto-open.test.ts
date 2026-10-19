@@ -34,16 +34,12 @@ const warning = (reason: string) =>
   `Could not open a browser automatically (${reason}). Open the URL above manually.`;
 
 /**
- * A stand-in for the `ChildProcess` `open` resolves with: like a real spawn it
- * reports on a later `process.nextTick` — `'spawn'` when the opener launched,
- * `'error'` when it could not be spawned (#2533).
+ * A stand-in for the `ChildProcess` `open` resolves with. Since v11 `open`
+ * resolves only after the child's `'spawn'` and rejects on a spawn failure
+ * itself, so the child it hands back has already launched.
  */
-function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
-  const child = new EventEmitter();
-  process.nextTick(() =>
-    outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
-  );
-  return child;
+function fakeChild(): EventEmitter {
+  return new EventEmitter();
 }
 
 /** An unhandledRejection fires on a later macrotask than the rejection. */
@@ -94,8 +90,8 @@ describe("openBrowser", () => {
   });
 
   it("warns instead of crashing when the opener cannot be spawned", async () => {
-    // `open` resolves first and the ENOENT arrives afterwards as an 'error'
-    // event on the child; unlistened, that event throws and kills the server.
+    // `open` (v11+) rejects with the child's ENOENT 'error'; before #2533 an
+    // unlistened 'error' event threw and killed the server.
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     // Shaped like the real error: `spawnargs` carries the tokenized URL,
     // which must not reach the terminal a second time (#2645).
@@ -104,7 +100,7 @@ describe("openBrowser", () => {
       code: "ENOENT",
       spawnargs: [url],
     });
-    openMock.mockImplementation(async () => fakeChild(enoent));
+    openMock.mockRejectedValue(enoent);
     expect(openBrowser(url)).toBeUndefined();
     await settle();
     expect(warn).toHaveBeenCalledTimes(1);

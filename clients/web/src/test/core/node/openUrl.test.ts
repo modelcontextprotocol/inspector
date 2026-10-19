@@ -2,20 +2,12 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * A stand-in for the `ChildProcess` `open` resolves with. Like a real spawn,
- * it reports the outcome on a later `process.nextTick`: `'spawn'` when the
- * opener launched, `'error'` when it could not be spawned.
+ * A stand-in for `open` v11, which resolves with the `ChildProcess` only once
+ * the opener has emitted `'spawn'` (and rejects when it cannot be spawned),
+ * then stops listening for `'error'` on it.
  */
-function fakeChild(outcome: "spawn" | Error = "spawn"): EventEmitter {
-  const child = new EventEmitter();
-  process.nextTick(() =>
-    outcome === "spawn" ? child.emit("spawn") : child.emit("error", outcome),
-  );
-  return child;
-}
-
 const openMock = vi.fn<(...args: unknown[]) => Promise<EventEmitter>>(
-  async () => fakeChild(),
+  async () => new EventEmitter(),
 );
 
 vi.mock("open", () => ({
@@ -25,7 +17,7 @@ vi.mock("open", () => ({
 describe("openUrl", () => {
   beforeEach(() => {
     openMock.mockClear();
-    openMock.mockImplementation(async () => fakeChild());
+    openMock.mockImplementation(async () => new EventEmitter());
   });
 
   afterEach(() => {
@@ -46,6 +38,44 @@ describe("openUrl", () => {
     );
   });
 
+  it("forwards a plain http URL (the web backend's own local address)", async () => {
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
+    await openUrl("http://localhost:6274/?MCP_INSPECTOR_API_TOKEN=abc");
+    expect(openMock).toHaveBeenCalledWith(
+      "http://localhost:6274/?MCP_INSPECTOR_API_TOKEN=abc",
+    );
+  });
+
+  it.each([
+    ["file:", "file:///C:/Windows/System32/calc.exe"],
+    ["javascript:", "javascript:alert(1)"],
+    ["ms-settings:", "ms-settings:privacy"],
+    ["smb:", "smb://attacker.example/share"],
+    ["data:", "data:text/html,<script>alert(1)</script>"],
+  ])("refuses a %s URL without calling open", async (protocol, href) => {
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
+    await expect(openUrl(href)).rejects.toThrow(
+      `refusing to open a non-http(s) URL (${protocol})`,
+    );
+    expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses a non-http(s) URL instance without calling open", async () => {
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
+    await expect(openUrl(new URL("file:///etc/passwd"))).rejects.toThrow(
+      "refusing to open a non-http(s) URL (file:)",
+    );
+    expect(openMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unparseable URL without calling open", async () => {
+    const { openUrl } = await import("@inspector/core/node/openUrl.js");
+    await expect(openUrl("not a url")).rejects.toThrow(
+      "refusing to open an invalid URL",
+    );
+    expect(openMock).not.toHaveBeenCalled();
+  });
+
   it("rejects when the opener rejects", async () => {
     openMock.mockRejectedValue(new Error("xdg-open not found"));
     const { openUrl } = await import("@inspector/core/node/openUrl.js");
@@ -58,39 +88,17 @@ describe("openUrl", () => {
     const enoent = Object.assign(new Error("spawn open ENOENT"), {
       code: "ENOENT",
     });
-    openMock.mockImplementation(async () => fakeChild(enoent));
+    openMock.mockRejectedValue(enoent);
     const { openUrl } = await import("@inspector/core/node/openUrl.js");
-    await expect(openUrl("https://example.com/auth")).rejects.toThrow(
-      "spawn open ENOENT",
-    );
-  });
-
-  it("catches a spawn failure when entered from a timer or I/O callback", async () => {
-    // From a macrotask, Node drains process.nextTick BEFORE promise reactions,
-    // and on macOS `open` reaches spawn() without an earlier await, so a
-    // listener chained on its promise alone would attach too late.
-    const enoent = Object.assign(new Error("spawn open ENOENT"), {
-      code: "ENOENT",
-    });
-    openMock.mockImplementation(async () => fakeChild(enoent));
-    const { openUrl } = await import("@inspector/core/node/openUrl.js");
-    const outcome = await new Promise<unknown>((resolve) => {
-      setImmediate(() => {
-        openUrl("https://example.com/auth").then(
-          () => resolve("resolved"),
-          (err: unknown) => resolve(err),
-        );
-      });
-    });
-    expect(outcome).toBe(enoent);
+    await expect(openUrl("https://example.com/auth")).rejects.toBe(enoent);
   });
 
   it("absorbs an opener error that arrives after launch", async () => {
-    let child: EventEmitter | undefined;
-    openMock.mockImplementation(async () => (child = fakeChild()));
+    const child = new EventEmitter();
+    openMock.mockResolvedValue(child);
     const { openUrl } = await import("@inspector/core/node/openUrl.js");
     await openUrl("https://example.com/auth");
-    expect(() => child!.emit("error", new Error("late"))).not.toThrow();
+    expect(() => child.emit("error", new Error("late"))).not.toThrow();
   });
 
   it("rejects when the opener does not settle within the timeout", async () => {
