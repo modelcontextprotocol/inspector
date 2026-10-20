@@ -182,6 +182,7 @@ import {
 import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
+  ModernDirectoryReadResultSchema,
   GetSkillEnvelopeSchema,
   ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
@@ -5056,16 +5057,22 @@ export class InspectorClient extends InspectorClientEventTarget {
       // for page one.
       ...(cursor !== undefined ? { cursor } : {}),
     };
-    // One schema for both eras (#2373): the SDK codec enforces and lifts
-    // `resultType` on a modern connection, and SEP-2640 requires no caching
-    // attributes of this method — see `skillsSchemas.ts` for why that differs
-    // from `skills/list`.
+    // Era-aware, like `listSkills` and `getSkillResult` (#2740): the stable
+    // ext-skills spec makes `ReadResourceDirectoryResult` a `CacheableResult`,
+    // so a modern result must carry `ttlMs` / `cacheScope`. The SDK codec
+    // checks and lifts `resultType` (#2373) but, for a consumer-owned method,
+    // neither caching attribute — so this schema is the only thing that does.
+    // Legacy stays permissive. The result is returned whole: the CLI prints it
+    // as received, so the attributes reach its output.
+    const resultSchema = this.isModernEra()
+      ? ModernDirectoryReadResultSchema
+      : DirectoryReadResultSchema;
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: RESOURCES_DIRECTORY_READ_METHOD, params },
-            DirectoryReadResultSchema,
+            resultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: RESOURCES_DIRECTORY_READ_METHOD },

@@ -600,13 +600,11 @@ export function readDirectoryPage(
   const from = Number.isFinite(start) && start > 0 ? start : 0;
   const next = from + DIRECTORY_PAGE_SIZE;
   return {
-    // `resultType` ONLY — deliberately not the full `MODERN_RESULT_ENVELOPE`
-    // the two `skills/*` results carry. SEP-2640 requires `ttlMs`/`cacheScope`
-    // of a modern `skills/list` in as many words and says nothing of the kind
-    // here, and its one worked example of a directory result carries
-    // `resultType` alone. A fixture that sent more than the SEP shows would
-    // make a client that wrongly required them look correct.
-    resultType: MODERN_RESULT_ENVELOPE.resultType,
+    // The full envelope, as the two `skills/*` results carry. SEP-2640 as
+    // accepted showed `resultType` alone here, so this fixture once sent only
+    // that; the stable ext-skills spec makes `ReadResourceDirectoryResult` a
+    // `CacheableResult`, with `ttlMs`/`cacheScope` REQUIRED (#2740).
+    ...MODERN_RESULT_ENVELOPE,
     resources: children.slice(from, next),
     ...(next < children.length ? { nextCursor: String(next) } : {}),
   };
@@ -681,15 +679,14 @@ const GetSkillResultShape = z.object({
 });
 
 /**
- * The `resources/directory/read` result. Carries `resultType` from the modern
- * envelope but **not** `ttlMs` / `cacheScope`: SEP-2640 states those for
- * `skills/list` and says nothing about them here, and its one worked example of
- * a directory result omits them. The fixture matches the SEP's example so a
- * client that requires more than the spec asks for fails against it — which is
- * the whole point of a conformance fixture.
+ * The `resources/directory/read` result: the full modern envelope, like the
+ * two `skills/*` results. The stable ext-skills spec makes
+ * `ReadResourceDirectoryResult` a `CacheableResult`, so `ttlMs` /
+ * `cacheScope` are required and a fixture sending `resultType` alone would be
+ * non-conformant on the modern leg (#2740).
  */
 const DirectoryReadResultShape = z.object({
-  resultType: ModernEnvelopeShape.resultType,
+  ...ModernEnvelopeShape,
   resources: z.array(
     z.object({
       uri: z.string(),
