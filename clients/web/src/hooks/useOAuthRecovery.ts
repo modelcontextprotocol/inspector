@@ -1480,7 +1480,10 @@ export function useOAuthRecovery({
             : undefined;
         const stepUpScopesGranted =
           !stepUpChallenge ||
-          (await client.checkAuthChallengeSatisfied(stepUpChallenge));
+          // The callback just completed the grant, so only scope is in question.
+          (await client.checkAuthChallengeSatisfied(stepUpChallenge, {
+            scopeOnly: true,
+          }));
 
         if (stepUpChallenge && !stepUpScopesGranted) {
           notifications.show({
