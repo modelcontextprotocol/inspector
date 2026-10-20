@@ -1242,6 +1242,50 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
     ).toBeNull();
   });
 
+  it("records owners only for the entries a save writes", async () => {
+    // A keychain save for client A, then a fallback-backend save that
+    // re-registers as B under the same stamp: a later keychain save of an
+    // unrelated server must not relabel the keychain's A secret as B's.
+    const keyring = new KeyringSecretStore();
+    await writeOAuthSections(
+      fileA,
+      confidentialClient("client-a", "secret-a"),
+      undefined,
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    await writeOAuthSections(
+      fileA,
+      confidentialClient("client-b", "secret-b"),
+      { servers: [SERVER] },
+      new InMemorySecretStore(),
+    );
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "y" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    const ledger = JSON.parse(
+      readFileSync(namespaceLedgerPath(fileA), "utf8"),
+    ) as {
+      namespaces: Record<
+        string,
+        Record<string, { owners?: Record<string, Record<string, string>> }>
+      >;
+    };
+    expect(ledger.namespaces[ns1].keyring.owners?.[SERVER]).toEqual({
+      [SECRET_FIELD]: "client-a",
+      [`registration-token:${ISSUER}`]: "client-a",
+    });
+    expect(ledger.namespaces[ns1].memory.owners?.[SERVER]).toEqual({
+      [SECRET_FIELD]: "client-b",
+      [`registration-token:${ISSUER}`]: "client-b",
+    });
+  });
+
   it("does not resurrect the tokens, only the client's credentials", async () => {
     const keyring = new KeyringSecretStore();
     const { ns2 } = await readoptElsewhere(keyring, new InMemorySecretStore());

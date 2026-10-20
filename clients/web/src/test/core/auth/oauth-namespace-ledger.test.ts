@@ -785,6 +785,65 @@ describe("pending carry-over (#2672)", () => {
       expect(await store.get(from, SECRET)).toBeNull();
     });
 
+    it("ends the pass at a failed carry, so an older record cannot take the newer one's field", async () => {
+      await owed("c", "older");
+      await recordNamespaceKeys(
+        stateFile,
+        store,
+        NS3,
+        [SERVER],
+        [],
+        owners("c"),
+      );
+      await store.set(oauthSecretServerId(SERVER, NS3), SECRET, "newer");
+      await markUncarriedNamespaces(stateFile, elsewhere, NS2);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(store, "set").mockRejectedValueOnce(new Error("busy"));
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBeNull();
+      expect(await store.get(from, SECRET)).toBe("older");
+      expect(warn).toHaveBeenCalled();
+
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBe("newer");
+    });
+
+    it("in a keychain run, trusts the keychain's owner over a secrets file's", async () => {
+      // The hand-off keeps a value the keychain already holds, so where
+      // both record one, the keychain's value is its own record's client's.
+      const keyring = new FakeKeyring();
+      const fileStore = new FileSecretStore({
+        filePath: join(tempDir, "secrets.json"),
+        passphrase: "",
+      });
+      await recordNamespaceKeys(
+        stateFile,
+        keyring,
+        NS1,
+        [SERVER],
+        [],
+        owners("a"),
+      );
+      await recordNamespaceKeys(
+        stateFile,
+        fileStore,
+        NS1,
+        [SERVER],
+        [],
+        owners("b"),
+      );
+      await markUncarriedNamespaces(stateFile, store, NS2);
+      const [carry] = await pendingCarries(stateFile, keyring, NS2);
+      expect([...carry.owners.get(SERVER)!]).toEqual([[SECRET, "a"]]);
+
+      // And the file run's hand-off of its record keeps the keychain's.
+      vi.spyOn(fileStore, "deleteAllForServer").mockResolvedValue(undefined);
+      await purgeSupersededNamespaces(stateFile, fileStore, NS2, owners("b"));
+      expect(readLedger()[NS1].keyring.owners).toEqual({
+        [SERVER]: { [SECRET]: "a" },
+      });
+    });
+
     it("hands a secrets file's owed record to the keychain, mark and owners included", async () => {
       // Its entries may have been absorbed into the keychain before this
       // file run, which then finds nothing to carry.

@@ -978,7 +978,18 @@ async function writeOAuthSectionsFrom(
           namespace,
           Object.keys(merged.servers),
           Object.keys(merged.idpSessions),
-          snapshotClientOwners(merged),
+          // Only the entries this save writes: another entry's secret in
+          // this store was written for whatever client it was written for,
+          // and relabeling it from the file would misattribute it (#2672).
+          snapshotClientOwners({
+            servers: Object.fromEntries(
+              (effective.servers ?? []).flatMap((url) => {
+                const entry = getOwnEntry(merged.servers, url);
+                return entry === undefined ? [] : [[url, entry]];
+              }),
+            ),
+            idpSessions: {},
+          }),
         );
 
         for (const url of effective.servers ?? []) {

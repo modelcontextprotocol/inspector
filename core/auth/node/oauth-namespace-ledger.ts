@@ -157,6 +157,28 @@ const emptyKeys = (): LedgerKeys => ({
   owners: new Map(),
 });
 
+/**
+ * The owners a run in `location` should trust for one namespace's
+ * credentials (#2672): a covered secrets file's, overlaid by its own
+ * record's. The file-to-keychain hand-off keeps a value the keychain
+ * already holds, so where both record an owner for a field, the value the
+ * keychain holds is the keychain record's client's.
+ */
+function effectiveOwners(
+  location: string,
+  byLocation: Map<string, LedgerKeys>,
+): ClientCredentialOwners {
+  const owners: ClientCredentialOwners = new Map();
+  for (const { location: recorded, keys } of coveredLocations(
+    location,
+    byLocation,
+  )) {
+    if (recorded !== location) mergeOwners(owners, keys.owners);
+  }
+  mergeOwners(owners, byLocation.get(location)?.owners ?? new Map());
+  return owners;
+}
+
 /** Merge `source` into `target`, the later owner winning; reports a change. */
 function mergeOwners(
   target: ClientCredentialOwners,
@@ -404,10 +426,14 @@ export async function pendingCarries(
   const carries: Array<{ namespace: string; owners: ClientCredentialOwners }> =
     [];
   for (const [namespace, byLocation] of ledger) {
-    for (const { keys } of coveredLocations(location, byLocation)) {
-      if (keys.owedTo === current) {
-        carries.push({ namespace, owners: keys.owners });
-      }
+    const owed = coveredLocations(location, byLocation).some(
+      ({ keys }) => keys.owedTo === current,
+    );
+    if (owed) {
+      carries.push({
+        namespace,
+        owners: effectiveOwners(location, byLocation),
+      });
     }
   }
   return carries.reverse();
@@ -429,11 +455,11 @@ async function carryOwed(
   secretStore: SecretStore,
   namespace: string,
   current: string,
-  keys: LedgerKeys,
+  recorded: ClientCredentialOwners,
   now: ClientCredentialOwners,
 ): Promise<boolean> {
   let carried = true;
-  for (const [url, fields] of keys.owners) {
+  for (const [url, fields] of recorded) {
     for (const [field, clientId] of fields) {
       if (now.get(url)?.get(field) !== clientId) continue;
       try {
@@ -516,7 +542,9 @@ export async function recordedNamespaces(
  * holds now — still matches (see {@link markUncarriedNamespaces}); a
  * failed carry leaves the record unpurged, for the same retry. Records are
  * visited newest first, so where two owe the same field the newer value
- * is the one carried, as a read would have seen it.
+ * is the one carried, as a read would have seen it — and a failed carry
+ * ends the pass, so an older record cannot fill the field the newer one
+ * still owes it.
  *
  * Only call this under the real file lock: it deletes credentials, and an
  * unlocked caller could be racing an adopter whose namespace is recorded
@@ -540,8 +568,11 @@ export async function purgeSupersededNamespaces(
     return;
   }
   let changed = false;
+  let carryFailed = false;
   for (const [namespace, byLocation] of [...ledger].reverse()) {
+    if (carryFailed) break;
     if (namespace === current) continue;
+    const trusted = effectiveOwners(location, byLocation);
     for (const { location: recorded, keys } of coveredLocations(
       location,
       byLocation,
@@ -556,11 +587,12 @@ export async function purgeSupersededNamespaces(
           secretStore,
           namespace,
           current,
-          keys,
+          trusted,
           owners,
         ))
       ) {
-        continue;
+        carryFailed = true;
+        break;
       }
       const purges = [
         ...[...keys.servers].map(
@@ -592,7 +624,11 @@ export async function purgeSupersededNamespaces(
         const keyring = byLocation.get(KEYRING_LOCATION) ?? emptyKeys();
         for (const url of keys.servers) keyring.servers.add(url);
         for (const issuer of keys.idpSessions) keyring.idpSessions.add(issuer);
-        mergeOwners(keyring.owners, keys.owners);
+        // The keychain's own owner wins, as its value does in the hand-off.
+        const merged: ClientCredentialOwners = new Map();
+        mergeOwners(merged, keys.owners);
+        mergeOwners(merged, keyring.owners);
+        keyring.owners = merged;
         keyring.owedTo ??= keys.owedTo;
         byLocation.set(KEYRING_LOCATION, keyring);
       }
