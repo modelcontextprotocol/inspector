@@ -19,6 +19,7 @@ import type {
   ResourceSubscriptionStreamState,
 } from "../../../../../../core/mcp/types.js";
 import { NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE } from "../../../../../../core/mcp/subscriptionAck.js";
+import { subscriptionListenRefusalMessage } from "../../../../../../core/mcp/subscriptionRefusal.js";
 import { isModernEra } from "../../elements/EraBadge/eraUtils";
 import { SubscriptionStreamBadge } from "../../elements/SubscriptionStreamBadge/SubscriptionStreamBadge";
 import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListChangedIndicator";
@@ -50,6 +51,15 @@ const StreamNotice = Alert.withProps({
   color: "orange",
   variant: "light",
   title: "Subscription not acknowledged",
+});
+
+// An HTTP refusal of the listen (#2722) is spelled out for the same reason, and
+// is shown even with no subscription left to list: the refused subscribe was
+// rolled back, so this notice is the only trace of it in the section.
+const RefusalNotice = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "Subscription refused",
 });
 
 const SearchInput = TextInput.withProps({
@@ -209,11 +219,20 @@ export function ResourceControls({
   // persistent stream. Also gated on the *filtered* count so the badge hides
   // alongside the section when a search matches none of the live subscriptions
   // (rather than sitting next to a disabled "Subscriptions (0)" header).
+  //
+  // The exception is an HTTP refusal of the listen (#2722), shown whatever the
+  // count: the refused URI was rolled back, so gating it on a live subscription
+  // would hide the one status that explains why there is none.
+  const streamRefusal =
+    isModernEra(protocolEra) && subscriptionStreamState?.status === "refused"
+      ? subscriptionStreamState.refusal
+      : undefined;
   const streamStatus =
-    isModernEra(protocolEra) &&
-    subscriptionStreamState?.active === true &&
-    filteredSubscriptions.length > 0
-      ? subscriptionStreamState.status
+    streamRefusal ||
+    (isModernEra(protocolEra) &&
+      subscriptionStreamState?.active === true &&
+      filteredSubscriptions.length > 0)
+      ? subscriptionStreamState?.status
       : undefined;
 
   // Subscriptions are only meaningful when the server advertises the
@@ -244,7 +263,9 @@ export function ResourceControls({
   const sectionItemCounts: Record<string, number> = {
     resources: filteredResources.length,
     templates: filteredTemplates.length,
-    subscriptions: filteredSubscriptions.length,
+    // The refusal notice counts as content, so the section can be opened to
+    // read it with no subscription listed (#2722).
+    subscriptions: filteredSubscriptions.length + (streamRefusal ? 1 : 0),
   };
   const visibleOpenSections = openSections.filter(
     (section) =>
@@ -386,10 +407,10 @@ export function ResourceControls({
             value="subscriptions"
             flex={sectionFlex(
               visibleOpenSections.includes("subscriptions"),
-              filteredSubscriptions.length,
+              sectionItemCounts.subscriptions,
             )}
           >
-            <Accordion.Control disabled={filteredSubscriptions.length === 0}>
+            <Accordion.Control disabled={sectionItemCounts.subscriptions === 0}>
               <TightRow>
                 <Text span>
                   {formatSectionCount(
@@ -408,6 +429,11 @@ export function ResourceControls({
                   <StreamNotice>
                     {NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE}
                   </StreamNotice>
+                )}
+                {streamRefusal && (
+                  <RefusalNotice>
+                    {subscriptionListenRefusalMessage(streamRefusal)}
+                  </RefusalNotice>
                 )}
                 {filteredSubscriptions.map(({ subscription: sub, key }) => (
                   <ResourceSubscribedItem

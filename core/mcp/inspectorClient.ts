@@ -53,6 +53,7 @@ import type {
   InspectorClientOptions,
   PendingRequestOrigin,
   ResourceSubscriptionStreamState,
+  SubscriptionListenRefusal,
   ExcludedTool,
   RequestMetadata,
   InspectorTask,
@@ -83,6 +84,10 @@ import {
   subscriptionFailureMessage,
   NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE,
 } from "./subscriptionAck.js";
+import {
+  subscriptionListenRefusal,
+  subscriptionListenRefusalMessage,
+} from "./subscriptionRefusal.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -698,6 +703,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // site to the two failure handlers. Cleared by any user-initiated refresh (a
   // subscribe/unsubscribe is a fresh attempt, and the server may have changed).
   private modernNeverAcknowledged = false;
+  // Set when the last `listen()` was refused at the HTTP layer with a status a
+  // retry cannot change (#2722) — the sibling of `modernNeverAcknowledged`,
+  // carried and cleared the same way, holding the HTTP answer the UI reports.
+  private modernListenRefusal: SubscriptionListenRefusal | null = null;
   /** Which in-flight task calls own each progress token (#2316). */
   private readonly taskProgress = new TaskProgressRouter();
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
@@ -1598,6 +1607,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.clearModernReconnectTimer();
     this.modernReconnectAttempts = 0;
     this.modernNeverAcknowledged = false;
+    this.modernListenRefusal = null;
     this.modernSubscription = null;
     // Announced only once both have moved: a listener that ran between them
     // would see an empty set with an `active` stream — the combination this
@@ -5610,6 +5620,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.clearModernReconnectTimer();
       this.modernReconnectAttempts = 0;
       this.modernNeverAcknowledged = false;
+      this.modernListenRefusal = null;
     }
     const generation = ++this.modernListenGeneration;
 
@@ -5643,11 +5654,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       // already cleared the flag for its own attempt, and a stale caller writing
       // to it afterwards would make that attempt's *unrelated* failure look
       // deterministic and end a stream that deserved a retry.
-      if (
-        generation === this.modernListenGeneration &&
-        isNeverAcknowledgedSubscriptionClose(error)
-      ) {
-        this.modernNeverAcknowledged = true;
+      if (generation === this.modernListenGeneration) {
+        if (isNeverAcknowledgedSubscriptionClose(error)) {
+          this.modernNeverAcknowledged = true;
+        }
+        // The HTTP-refusal sibling (#2722), recorded under the same gate.
+        this.modernListenRefusal = subscriptionListenRefusal(error) ?? null;
       }
       throw error;
     }
@@ -5760,6 +5772,14 @@ export class InspectorClient extends InspectorClientEventTarget {
    * its error either way — the retry is about the subscriptions, not the call.
    */
   private reconcileModernStreamStateAfterFailedRefresh(): void {
+    // Ahead of the empty-filter test, unlike the never-acknowledged case below:
+    // a refused subscribe is rolled back, and on a server with no list-change
+    // opt-in that rollback empties the filter — reporting it inactive would
+    // swallow the refusal the same way the retry run did (#2722).
+    if (this.modernListenRefusal) {
+      this.endModernStreamRefused(this.modernListenRefusal);
+      return;
+    }
     if (!this.wantsModernStream()) {
       this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
       return;
@@ -5794,6 +5814,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       active: this.modernStreamActive(),
       status: "never-acknowledged",
       honoredUris: [],
+    });
+  }
+
+  /**
+   * Settle the stream on an HTTP refusal of the listen (#2722): the
+   * `"refused"` status carrying the HTTP answer, no reconnect, and a log line
+   * with the sentence the UI shows. Reported whatever `active` says — see
+   * `ResourceSubscriptionStreamState`.
+   */
+  private endModernStreamRefused(refusal: SubscriptionListenRefusal): void {
+    this.clearModernReconnectTimer();
+    const message = subscriptionListenRefusalMessage(refusal);
+    this.logger.warn({ message }, "subscriptions/listen refused over HTTP");
+    this.setModernStreamState({
+      active: this.modernStreamActive(),
+      status: "refused",
+      honoredUris: [],
+      refusal,
     });
   }
 
@@ -5843,6 +5881,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.wantsModernStream()
     ) {
       this.endModernStreamNeverAcknowledged();
+      return;
+    }
+    // Likewise a re-listen the server refused over HTTP (#2722) — the observed
+    // shape: a stream reconnecting after its URI was rolled back, kept alive by
+    // the list-change opt-ins, re-sent until the cap.
+    if (this.modernListenRefusal && !isTerminalStatus(this.status)) {
+      this.endModernStreamRefused(this.modernListenRefusal);
       return;
     }
     this.modernReconnectAttempts += 1;

@@ -26,6 +26,19 @@ describe("subscriptionStreamPresentation", () => {
       color: "orange",
       label: "Not acknowledged",
     });
+    expect(subscriptionStreamPresentation("refused")).toMatchObject({
+      color: "red",
+      label: "Refused",
+    });
+  });
+
+  // The refused tooltip has to say nothing is retried — the silent retry run is
+  // what #2722 is about. The HTTP status itself is per-event, so it lives in the
+  // panel notice rather than this static copy.
+  it("says a refused listen is not retried", () => {
+    expect(subscriptionStreamPresentation("refused").tooltip).toMatch(
+      /refused the subscriptions\/listen request over HTTP.*Not retrying/,
+    );
   });
 
   // The never-acknowledged tooltip must carry the *reason*, not just the generic
@@ -43,6 +56,7 @@ describe("subscriptionStreamPresentation", () => {
       "reconnecting",
       "ended",
       "never-acknowledged",
+      "refused",
     ] as const) {
       expect(subscriptionStreamPresentation(status).tooltip).toContain(
         "subscriptions/listen stream",
@@ -70,5 +84,10 @@ describe("SubscriptionStreamBadge", () => {
   it("renders a labelled never-acknowledged badge", () => {
     renderWithMantine(<SubscriptionStreamBadge status="never-acknowledged" />);
     expect(screen.getByText("Not acknowledged")).toBeInTheDocument();
+  });
+
+  it("renders a labelled refused badge", () => {
+    renderWithMantine(<SubscriptionStreamBadge status="refused" />);
+    expect(screen.getByText("Refused")).toBeInTheDocument();
   });
 });

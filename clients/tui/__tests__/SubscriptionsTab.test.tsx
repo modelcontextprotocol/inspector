@@ -274,6 +274,30 @@ describe("SubscriptionsTab", () => {
     expect(frame).not.toContain("last updated");
   });
 
+  // The refused subscribe was rolled back, so nothing is subscribed and the
+  // stream is inactive — the refusal must show anyway (#2722).
+  it("shows an HTTP refusal with nothing subscribed", () => {
+    const { lastFrame } = renderTab({
+      width: 260,
+      streamState: {
+        active: false,
+        status: "refused",
+        honoredUris: [],
+        refusal: { status: 403, statusText: "Forbidden" },
+      },
+    });
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("Listen stream: refused by the server");
+    expect(frame).toContain(
+      "The server refused subscriptions/listen (HTTP 403 Forbidden). Not retrying",
+    );
+  });
+
+  it("shows no stream line for an inactive stream that was not refused", () => {
+    const { lastFrame } = renderTab();
+    expect(lastFrame()).not.toContain("Listen stream:");
+  });
+
   it("ignores keys while a modal is open", async () => {
     const { stdin, client } = renderTab({ modalOpen: true });
     stdin.write("\r");
