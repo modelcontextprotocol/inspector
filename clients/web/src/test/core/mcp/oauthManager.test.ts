@@ -1427,38 +1427,46 @@ describe("OAuthManager", () => {
         );
       });
 
-      it("refreshes instead of replaying, and accepts the refreshed opaque token", async () => {
-        const params = createMockParams();
-        let stored: OAuthTokens = {
-          access_token: expiredJwt(),
-          refresh_token: "r1",
-          token_type: "Bearer",
-          scope: COVERED,
-        };
-        storageOf(params).getTokens.mockImplementation(async () => stored);
-        storageOf(params).getScope.mockResolvedValue(COVERED);
-        mockedMcpAuth.mockImplementation(async () => {
-          // A refresh grant that returns an opaque token: no readable `exp`,
-          // so only a scope-only post-grant check can call it satisfied.
-          stored = {
-            access_token: "opaque-refreshed",
-            refresh_token: "r2",
+      // A token response may omit `scope` when it equals the request (RFC
+      // 6749 §5.1); coverage then comes from the persisted scope.
+      it.each([
+        ["carries its scope", COVERED],
+        ["omits scope", undefined],
+      ])(
+        "refreshes instead of replaying when the token %s, and accepts the refreshed opaque token",
+        async (_label, tokenScope) => {
+          const params = createMockParams();
+          let stored: OAuthTokens = {
+            access_token: expiredJwt(),
+            refresh_token: "r1",
             token_type: "Bearer",
-            scope: COVERED,
+            scope: tokenScope,
           };
-          return "AUTHORIZED";
-        });
-        const manager = new OAuthManager(params);
+          storageOf(params).getTokens.mockImplementation(async () => stored);
+          storageOf(params).getScope.mockResolvedValue(COVERED);
+          mockedMcpAuth.mockImplementation(async () => {
+            // A refresh grant that returns an opaque token: no readable `exp`,
+            // so only a scope-only post-grant check can call it satisfied.
+            stored = {
+              access_token: "opaque-refreshed",
+              refresh_token: "r2",
+              token_type: "Bearer",
+              scope: tokenScope,
+            };
+            return "AUTHORIZED";
+          });
+          const manager = new OAuthManager(params);
 
-        const outcome = await manager.handleAuthChallenge(challenge);
+          const outcome = await manager.handleAuthChallenge(challenge);
 
-        expect(outcome).toEqual({ kind: "satisfied" });
-        expect(mockedMcpAuth).toHaveBeenCalledOnce();
-        // Covered scope: an ordinary refresh, not a forced re-authorization.
-        expect(mockedMcpAuth.mock.calls[0]?.[1]).toEqual(
-          expect.objectContaining({ forceReauthorization: false }),
-        );
-      });
+          expect(outcome).toEqual({ kind: "satisfied" });
+          expect(mockedMcpAuth).toHaveBeenCalledOnce();
+          // Covered scope: an ordinary refresh, not a forced re-authorization.
+          expect(mockedMcpAuth.mock.calls[0]?.[1]).toEqual(
+            expect.objectContaining({ forceReauthorization: false }),
+          );
+        },
+      );
 
       it("re-mints an EMA token without a step-up prompt when nothing is broadened", async () => {
         const params = createMockParams({

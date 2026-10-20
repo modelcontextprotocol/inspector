@@ -921,9 +921,16 @@ export class OAuthManager {
         fetchFn: this.params.effectiveAuthFetch,
         resourceMetadataUrl,
         ...(enriched.reason === "insufficient_scope" && {
+          // Judge coverage the way checkAuthChallengeSatisfied does: a token
+          // response that omitted `scope` granted what was stored, so a
+          // covered challenge on an expired token refreshes rather than
+          // forcing interactive authorization (#2724).
           forceReauthorization: isStrictScopeSuperset(
             scopeForAuth,
-            tokens?.scope,
+            resolveEffectiveGrantedScope(
+              await this.oauthConfig.storage?.getScope(serverUrl),
+              tokens?.scope,
+            ),
           ),
         }),
       });
