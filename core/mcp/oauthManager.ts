@@ -42,6 +42,7 @@ import { EmaTransportOAuthProvider } from "../auth/ema/transportProvider.js";
 import type {
   AuthChallenge,
   AuthChallengeOutcome,
+  CheckAuthChallengeSatisfiedOptions,
   HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
 import {
@@ -597,16 +598,23 @@ export class OAuthManager {
    * Re-read persisted OAuth state and determine whether `challenge` is already
    * satisfied without an authorization-server round-trip.
    *
-   * Returns `true` for `insufficient_scope` when stored + token scope cover the
-   * SEP-2350 union. For `token_expired`, returns `true` only when storage holds
-   * a *provably* unexpired token — a JWT whose `exp` is still in the future. An
-   * opaque token carries no local expiry evidence, so the resource server's
-   * verdict stands and re-authorization proceeds. `invalid_token` and
-   * `unauthorized` always return `false` — the resource server explicitly
-   * rejected the credential.
+   * For `token_expired` and `insufficient_scope`, returns `true` only when
+   * storage holds a *provably* unexpired token — a JWT whose `exp` is still in
+   * the future. An opaque token carries no local expiry evidence, so the
+   * resource server's verdict stands and re-authorization proceeds.
+   * `insufficient_scope` additionally requires stored + token scope to cover
+   * the SEP-2350 union: some resource servers answer an *expired* token with
+   * `insufficient_scope`, and a scope-only check would replay that dead token
+   * instead of refreshing it (#2724, the same gap #2051 closed for
+   * `token_expired`). `invalid_token` and `unauthorized` always return
+   * `false` — the resource server explicitly rejected the credential.
+   *
+   * A caller that has just completed a grant passes `scopeOnly` — see
+   * {@link CheckAuthChallengeSatisfiedOptions}.
    */
   async checkAuthChallengeSatisfied(
     challenge: AuthChallenge,
+    options?: CheckAuthChallengeSatisfiedOptions,
   ): Promise<boolean> {
     const storage = this.oauthConfig.storage;
     if (!storage) {
@@ -626,6 +634,19 @@ export class OAuthManager {
       );
     }
 
+    if (!options?.scopeOnly && !isAccessTokenProvablyUnexpired(tokens)) {
+      return false;
+    }
+    return this.isStepUpScopeCovered(challenge, storage, tokens);
+  }
+
+  /** Stored + token scope cover the challenge's SEP-2350 union. */
+  private async isStepUpScopeCovered(
+    challenge: AuthChallenge,
+    storage: OAuthStorage,
+    tokens: OAuthTokens,
+  ): Promise<boolean> {
+    const serverUrl = this.getServerUrl();
     const enriched = await this.enrichChallengeWithAuthorizationScopes(
       challenge,
       tokens.scope,
@@ -771,7 +792,14 @@ export class OAuthManager {
     const enriched =
       await this.enrichChallengeWithAuthorizationScopes(challenge);
 
-    if (enriched.reason === "insufficient_scope" && !options?.confirmedStepUp) {
+    // A challenge whose scope storage already covers reached here only because
+    // the stored token is not provably live (#2724) — that is an expiry, and
+    // re-minting it broadens nothing, so it needs no step-up consent.
+    if (
+      enriched.reason === "insufficient_scope" &&
+      !options?.confirmedStepUp &&
+      !(await this.checkAuthChallengeSatisfied(enriched, { scopeOnly: true }))
+    ) {
       return { kind: "step_up_confirm", challenge: enriched };
     }
 
@@ -780,7 +808,9 @@ export class OAuthManager {
     if (enriched.reason === "insufficient_scope") {
       const silent = await trySilentEmaAuth(config);
       if (silent.status === "success") {
-        if (await this.checkAuthChallengeSatisfied(enriched)) {
+        if (
+          await this.checkAuthChallengeSatisfied(enriched, { scopeOnly: true })
+        ) {
           const minted = await this.requireStorage().getTokens(
             this.getServerUrl(),
           );
@@ -891,9 +921,16 @@ export class OAuthManager {
         fetchFn: this.params.effectiveAuthFetch,
         resourceMetadataUrl,
         ...(enriched.reason === "insufficient_scope" && {
+          // Judge coverage the way checkAuthChallengeSatisfied does: a token
+          // response that omitted `scope` granted what was stored, so a
+          // covered challenge on an expired token refreshes rather than
+          // forcing interactive authorization (#2724).
           forceReauthorization: isStrictScopeSuperset(
             scopeForAuth,
-            tokens?.scope,
+            resolveEffectiveGrantedScope(
+              await this.oauthConfig.storage?.getScope(serverUrl),
+              tokens?.scope,
+            ),
           ),
         }),
       });
@@ -903,7 +940,9 @@ export class OAuthManager {
 
     if (result === "AUTHORIZED") {
       if (enriched.reason === "insufficient_scope") {
-        if (await this.checkAuthChallengeSatisfied(enriched)) {
+        if (
+          await this.checkAuthChallengeSatisfied(enriched, { scopeOnly: true })
+        ) {
           const freshTokens = await provider.tokens();
           const scopeToPersist = resolvePersistedScopeAfterGrant(
             freshTokens?.scope,
@@ -1044,7 +1083,7 @@ export class OAuthManager {
     if (result !== "AUTHORIZED") {
       return null;
     }
-    if (await this.checkAuthChallengeSatisfied(enriched)) {
+    if (await this.checkAuthChallengeSatisfied(enriched, { scopeOnly: true })) {
       const freshTokens = await provider.tokens();
       const scopeToPersist = resolvePersistedScopeAfterGrant(
         freshTokens?.scope,

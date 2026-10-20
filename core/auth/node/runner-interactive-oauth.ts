@@ -1,4 +1,7 @@
-import type { AuthChallenge } from "../challenge.js";
+import type {
+  AuthChallenge,
+  CheckAuthChallengeSatisfiedOptions,
+} from "../challenge.js";
 import { findIssuerBindingFailure } from "../issuerBinding.js";
 import { issuerBindingFailureCopy } from "../oauthUx.js";
 import {
@@ -12,7 +15,10 @@ export interface RunnerInteractiveOAuthClient {
   authenticate(): Promise<URL | undefined>;
   beginInteractiveAuthorization(authorizationUrl: URL): Promise<void>;
   completeOAuthFlow(authorizationCode: string, iss?: string): Promise<void>;
-  checkAuthChallengeSatisfied(challenge: AuthChallenge): Promise<boolean>;
+  checkAuthChallengeSatisfied(
+    challenge: AuthChallenge,
+    options?: CheckAuthChallengeSatisfiedOptions,
+  ): Promise<boolean>;
 }
 
 export interface RunnerInteractiveOAuthRedirectProvider {
@@ -204,7 +210,10 @@ export async function runRunnerInteractiveOAuth(
 
     if (options.authChallenge) {
       const satisfied = await racingSignals(
-        options.client.checkAuthChallengeSatisfied(options.authChallenge),
+        // The token exchange just completed, so only scope is in question.
+        options.client.checkAuthChallengeSatisfied(options.authChallenge, {
+          scopeOnly: true,
+        }),
       );
       if (!satisfied) {
         return {

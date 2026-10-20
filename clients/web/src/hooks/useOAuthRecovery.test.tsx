@@ -1985,6 +1985,12 @@ describe("useOAuthRecovery", () => {
       await waitFor(() =>
         expect(toastTitles()).toContain("Authorization complete"),
       );
+      // #2724: the callback just minted the token, so only scope is checked —
+      // a liveness test would reject a fresh opaque token.
+      expect(client.checkAuthChallengeSatisfied).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: "insufficient_scope" }),
+        { scopeOnly: true },
+      );
     });
   });
 

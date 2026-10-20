@@ -222,6 +222,11 @@ describe("runRunnerInteractiveOAuth", () => {
     });
 
     expect(result).toEqual({ kind: "insufficient_scope", challenge });
+    // #2724: the exchange just minted the token, so only scope is checked — a
+    // liveness test would reject a fresh opaque token.
+    expect(client.checkAuthChallengeSatisfied).toHaveBeenCalledWith(challenge, {
+      scopeOnly: true,
+    });
   });
 
   it("propagates completeOAuthFlow failures", async () => {
