@@ -30,11 +30,19 @@ test("a minting scope in a job's own permissions makes it credentialed", () => {
     "    permissions:",
     "      contents: read",
     "      packages: write",
+    "  scan:",
+    "    permissions:",
+    "      contents: read",
+    "      security-events: write",
     "  plain:",
     "    permissions:",
     "      contents: read",
   );
-  assert.deepEqual([...credentialedJobs(yaml)].sort(), ["image", "publish"]);
+  assert.deepEqual([...credentialedJobs(yaml)].sort(), [
+    "image",
+    "publish",
+    "scan",
+  ]);
 });
 
 test("write-all counts as a minting scope", () => {
