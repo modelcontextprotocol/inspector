@@ -3,8 +3,9 @@
  *
  * Tests cover:
  *  - isAuthDisabledFlag: only explicit truthy values disable auth
- *  - createOriginValidationMiddleware: missing / allowed / disallowed Origin,
- *    with auth enabled and disabled, exercised through a real express server
+ *  - createOriginValidationMiddleware: missing / allowed / disallowed / "null"
+ *    Origin and HEAD requests, with auth enabled and disabled, exercised
+ *    through a real express server
  */
 
 import http from "node:http";
@@ -69,14 +70,18 @@ async function startApp(authDisabled: boolean): Promise<number> {
   return (server!.address() as AddressInfo).port;
 }
 
-function get(port: number, origin?: string): Promise<number> {
+function get(
+  port: number,
+  origin?: string,
+  method: "GET" | "HEAD" = "GET",
+): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: "127.0.0.1",
         port,
         path: "/stdio",
-        method: "GET",
+        method,
         headers: origin ? { Origin: origin } : {},
       },
       (res) => {
@@ -120,6 +125,18 @@ describe("createOriginValidationMiddleware", () => {
     it("rejects a request with a disallowed Origin", async () => {
       const port = await startApp(true);
       expect(await get(port, DISALLOWED)).toBe(403);
+    });
+
+    // Sandboxed iframes and file:// pages send the literal string "null".
+    it('rejects a request with Origin "null"', async () => {
+      const port = await startApp(true);
+      expect(await get(port, "null")).toBe(403);
+    });
+
+    // Express routes HEAD through the GET handler, so the guard must run there too.
+    it("rejects a HEAD request with no Origin", async () => {
+      const port = await startApp(true);
+      expect(await get(port, undefined, "HEAD")).toBe(403);
     });
 
     it("honors ALLOWED_ORIGINS", async () => {

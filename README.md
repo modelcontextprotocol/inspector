@@ -215,7 +215,7 @@ DANGEROUSLY_OMIT_AUTH=true npm start
 
 Only `true`, `1` or `yes` (case-insensitive) disable authentication. Any other value, including `false`, `0` or an empty string, leaves it enabled.
 
-While authentication is disabled, the proxy accepts only requests that carry an `Origin` header from an allowed origin (see `ALLOWED_ORIGINS` below), which the Inspector web client always sends. Non-browser clients that send no `Origin` header need authentication enabled and the session token.
+While authentication is disabled, the proxy accepts only requests that carry an `Origin` header from an allowed origin (see `ALLOWED_ORIGINS` below), which the Inspector web client sends in its default setup, where it and the proxy run on different ports. Non-browser clients that send no `Origin` header need authentication enabled and the session token.
 
 ---
 
