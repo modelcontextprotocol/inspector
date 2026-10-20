@@ -58,6 +58,8 @@ function createMockCallbackServer(handlers: {
 }
 
 const CALLBACK_ISS = "https://as.example";
+/** The OAuth `state` the redirect echoes; it selects the flow's verifier (#2726). */
+const CALLBACK_STATE = "c".repeat(64);
 
 /**
  * Drive the loopback callback the way a browser redirect would, including the
@@ -71,7 +73,7 @@ async function simulateCallback(
   if (!handlers.onCallback) {
     throw new Error("onCallback not registered");
   }
-  await handlers.onCallback({ code, iss });
+  await handlers.onCallback({ code, iss, state: CALLBACK_STATE });
 }
 
 describe("runRunnerInteractiveOAuth", () => {
@@ -155,6 +157,7 @@ describe("runRunnerInteractiveOAuth", () => {
     expect(client.completeOAuthFlow).toHaveBeenCalledWith(
       "auth-code-123",
       CALLBACK_ISS,
+      CALLBACK_STATE,
     );
     expect(redirectUrlProvider.redirectUrl).toBe(
       "http://127.0.0.1:6276/oauth/callback",
@@ -192,6 +195,7 @@ describe("runRunnerInteractiveOAuth", () => {
     expect(client.completeOAuthFlow).toHaveBeenCalledWith(
       "step-up-code",
       CALLBACK_ISS,
+      CALLBACK_STATE,
     );
   });
 

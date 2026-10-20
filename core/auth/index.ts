@@ -85,6 +85,13 @@ export {
   BaseOAuthClientProvider,
 } from "./providers.js";
 
+// Per-flow PKCE verifier store (#2726)
+export type { PkceFlowStore, PkceFlowStorageArea } from "./pkce-flow-store.js";
+export {
+  createWebStoragePkceFlowStore,
+  PKCE_FLOW_STORAGE_KEY_PREFIX,
+} from "./pkce-flow-store.js";
+
 // Utilities
 export {
   parseHttpUrl,

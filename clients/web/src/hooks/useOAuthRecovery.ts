@@ -1381,6 +1381,8 @@ export function useOAuthRecovery({
         await client.resumeAfterOAuth(params.code, {
           remoteSessionId: resumeSnapshot?.remoteSessionId,
           iss: params.iss,
+          // #2726: selects this flow's PKCE verifier from the tab's store.
+          state: stateParam ?? undefined,
         });
       } catch (err) {
         connectStartRef.current = undefined;

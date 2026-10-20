@@ -6336,8 +6336,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   async completeOAuthFlow(
     authorizationCode: string,
     iss?: string,
+    state?: string,
   ): Promise<void> {
-    await this.ensureOAuthManager().completeOAuthFlow(authorizationCode, iss);
+    await this.ensureOAuthManager().completeOAuthFlow(
+      authorizationCode,
+      iss,
+      state,
+    );
     if (this.usesDirectAuthRecovery()) {
       await this.reconnectAfterAuthRecovery();
     }
@@ -6365,9 +6370,13 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   async resumeAfterOAuth(
     authorizationCode: string,
-    options?: { remoteSessionId?: string; iss?: string },
+    options?: { remoteSessionId?: string; iss?: string; state?: string },
   ): Promise<void> {
-    await this.completeOAuthFlow(authorizationCode, options?.iss);
+    await this.completeOAuthFlow(
+      authorizationCode,
+      options?.iss,
+      options?.state,
+    );
 
     const remoteSessionId = options?.remoteSessionId;
     const transport = this.baseTransport;

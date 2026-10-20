@@ -10,7 +10,8 @@ import type {
   OAuthDiscoveryState,
 } from "@modelcontextprotocol/client";
 import type { OAuthStorage, SaveClientInformationOptions } from "./storage.js";
-import { generateOAuthState } from "./utils.js";
+import { generateOAuthState, parseOAuthState } from "./utils.js";
+import type { PkceFlowStore } from "./pkce-flow-store.js";
 import { applyAuthorizationParams } from "./authorizationParams.js";
 import { scopeForDeclinedRefreshGrant } from "./scopes.js";
 
@@ -136,6 +137,13 @@ export type OAuthProviderConfig = {
    * the request when {@link requestRefreshToken} is false. (#2068)
    */
   configuredScope?: string;
+  /**
+   * Where the in-flight PKCE verifier lives (#2726). When set, the verifier is
+   * keyed by the OAuth `state` of the flow that created it instead of sharing
+   * the server-URL-keyed slot in {@link storage}, so overlapping flows for the
+   * same server cannot overwrite each other's. See `pkce-flow-store.ts`.
+   */
+  flowStore?: PkceFlowStore;
 };
 
 /**
@@ -161,6 +169,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected requestRefreshToken: boolean;
   /** Server-configured scope, for the #2068 `offline_access` distinction. */
   protected configuredScope?: string;
+  /** Per-flow verifier store (#2726); absent → the shared storage slot. */
+  protected flowStore?: PkceFlowStore;
+  /**
+   * The authId of the flow this provider is driving: set by {@link state} on the
+   * redirect leg and by {@link resumeAuthorizationFlow} on the callback leg.
+   */
+  private flowId: string | undefined;
 
   constructor(serverUrl: string, oauthConfig: OAuthProviderConfig) {
     this.serverUrl = serverUrl;
@@ -171,6 +186,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.authorizationParams = oauthConfig.authorizationParams;
     this.requestRefreshToken = oauthConfig.requestRefreshToken ?? true;
     this.configuredScope = oauthConfig.configuredScope;
+    this.flowStore = oauthConfig.flowStore;
   }
 
   /**
@@ -266,7 +282,28 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   state(): string | Promise<string> {
-    return generateOAuthState();
+    const state = generateOAuthState();
+    // The SDK calls `state()` immediately before `saveCodeVerifier()`, so this
+    // is the flow the verifier about to be saved belongs to (#2726).
+    this.flowId = state;
+    return state;
+  }
+
+  /**
+   * Bind this provider to the flow a callback's `state` names, so
+   * {@link codeVerifier} reads that flow's verifier and no other (#2726). A
+   * `state` that is not one of ours binds nothing — and, with a flow store, a
+   * flow-less read then fails rather than reaching for the shared slot.
+   */
+  resumeAuthorizationFlow(state: string): void {
+    this.flowId = parseOAuthState(state)?.authId;
+  }
+
+  /** Drop the bound flow's verifier once its exchange has completed. */
+  async clearAuthorizationFlow(): Promise<void> {
+    if (this.flowStore && this.flowId) {
+      await this.flowStore.clearCodeVerifier(this.flowId);
+    }
   }
 
   async clientInformation(
@@ -471,10 +508,32 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveCodeVerifier(codeVerifier: string): Promise<void> {
+    if (this.flowStore && this.flowId) {
+      await this.flowStore.saveCodeVerifier(
+        this.flowId,
+        this.serverUrl,
+        codeVerifier,
+      );
+      return;
+    }
     await this.storage.saveCodeVerifier(this.serverUrl, codeVerifier);
   }
 
   async codeVerifier(): Promise<string> {
+    if (this.flowStore) {
+      // Never fall back to the shared slot here: whatever it holds belongs to
+      // some other flow, and exchanging with it is exactly the PKCE failure
+      // this store exists to prevent (#2726).
+      const verifier = this.flowId
+        ? await this.flowStore.getCodeVerifier(this.flowId, this.serverUrl)
+        : undefined;
+      if (!verifier) {
+        throw new Error(
+          "No code verifier saved for this authorization flow. It may have been started in another browser tab or already completed; please re-authenticate.",
+        );
+      }
+      return verifier;
+    }
     const verifier = await this.storage.getCodeVerifier(this.serverUrl);
     if (!verifier) {
       throw new Error("No code verifier saved for session");
@@ -529,6 +588,10 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         await this.storage.clearTokens(this.serverUrl);
         return;
       case "verifier":
+        if (this.flowStore) {
+          await this.clearAuthorizationFlow();
+          return;
+        }
         await this.storage.clearCodeVerifier(this.serverUrl);
         return;
       case "discovery":
