@@ -194,12 +194,17 @@ class ErrorTally {
 /**
  * Run `call` under the given bounds and summarize what happened. Workers pull
  * slots from a shared counter, so `concurrency` is a hard cap on calls in
- * flight and `requests` a hard cap on calls started. With `rate`, slot `i`
- * may not start before `i / rate` seconds into the run — an even schedule
- * rather than a burst each second.
+ * flight and `requests` a hard cap on calls started. With `rate`, starts are
+ * at least `1 / rate` seconds apart — an even schedule rather than a burst
+ * each second.
  *
- * A slot whose scheduled start falls past the duration is never started, so a
- * rate-limited run does not overshoot its window by sleeping into it.
+ * The rate limiter keys off the time the last slot was actually handed out,
+ * not off the run's start: a slot nobody was free to take is dropped rather
+ * than owed, so a stall (one slow call at concurrency 1) is never followed by
+ * a catch-up burst against a server that may just be recovering.
+ *
+ * A slot scheduled past the duration is never started, and the deadline is
+ * checked again after the wait, since a timer can wake late under load.
  */
 export async function runLoad(
   call: () => Promise<LoadCallOutcome>,
@@ -216,17 +221,23 @@ export async function runLoad(
 
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
+  const interval = rate === undefined ? 0 : 1000 / rate;
+  // Earliest time the next slot may start. Claimed synchronously, so two
+  // workers can never be handed the same slot.
+  let nextStart = start;
 
   const worker = async (): Promise<void> => {
     for (;;) {
       if (requests !== undefined && started >= requests) return;
       if (clock.now() >= deadline) return;
-      const slot = started++;
+      started++;
       if (rate !== undefined) {
-        const scheduled = start + (slot * 1000) / rate;
+        const scheduled = Math.max(nextStart, clock.now());
+        nextStart = scheduled + interval;
         if (scheduled >= deadline) return;
         const wait = scheduled - clock.now();
         if (wait > 0) await clock.sleep(wait);
+        if (clock.now() >= deadline) return;
       }
       const t0 = clock.now();
       try {

@@ -1350,6 +1350,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     if (options.appInfo) {
       throw new Error("--load cannot be combined with --app-info.");
     }
+    if (options.listStoredAuth || options.printHandoff) {
+      throw new Error(
+        "--load cannot be combined with --list-stored-auth or --print-handoff.",
+      );
+    }
     if (options.output !== undefined || options.outputFormat !== undefined) {
       throw new Error(
         "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",

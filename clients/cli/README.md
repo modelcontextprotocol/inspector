@@ -341,18 +341,25 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   sub-millisecond stdio echo.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
-  With `--load-rate`, a call whose slot falls past the window is never started.
+  With `--load-rate`, starts are at least `1/rate` seconds apart, and a slot
+  nobody was free to take is dropped rather than made up later — a stall is
+  never followed by a catch-up burst. A slot that falls past the window is
+  never started.
 
 **All calls share one connection**, so this measures how a server copes with
 concurrent requests on a single session — not with many sessions. A slow call
 is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
+A load run does not prompt for OAuth step-up: a tool that needs scopes the
+session lacks fails every call, and the challenge shows in `errorMessages`.
+Run one plain `tools/call` of the tool first to grant them, then load it.
+
 The tool is looked up once before the clock starts, so a missing tool fails
 the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
-is the result. `--load` is rejected with any other method and with
-`--app-info`, `--output` and `--output-format`, and each `--load-*` flag is
+is the result. `--load` is rejected with any other method and with `--app-info`,
+`--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
 rejected without `--load`.
 
 #### Schema portability (`--strict`)

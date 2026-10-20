@@ -29,17 +29,38 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 
 /**
- * A clock that only moves when told to. `sleep` advances it by the requested
- * amount, so a rate-limited run completes instantly while still observing
- * the schedule it would keep in real time.
+ * A clock that only moves when told to, with a timer queue: each `sleep`
+ * wakes at an absolute time, and timers fire one at a time in wake order,
+ * each on its own macrotask so the woken worker runs (up to its next await)
+ * before the clock moves again — as real timers behave. A rate-limited run
+ * therefore completes instantly while keeping the schedule it would in real
+ * time.
  */
 function fakeClock(): LoadClock & { advance: (ms: number) => void } {
   let t = 1000;
+  const timers: { wakeAt: number; resolve: () => void }[] = [];
+  let pumping = false;
+  const pump = (): void => {
+    timers.sort((a, b) => a.wakeAt - b.wakeAt);
+    const next = timers.shift();
+    if (!next) {
+      pumping = false;
+      return;
+    }
+    t = Math.max(t, next.wakeAt);
+    next.resolve();
+    setImmediate(pump);
+  };
   return {
     now: () => t,
-    sleep: async (ms) => {
-      t += ms;
-    },
+    sleep: (ms) =>
+      new Promise<void>((resolve) => {
+        timers.push({ wakeAt: t + ms, resolve });
+        if (!pumping) {
+          pumping = true;
+          setImmediate(pump);
+        }
+      }),
     advance: (ms) => {
       t += ms;
     },
@@ -233,6 +254,52 @@ describe("load-test engine", () => {
       expect(summary.requests).toBe(4);
     });
 
+    it("drops missed rate slots instead of bursting to catch up", async () => {
+      const clock = fakeClock();
+      const starts: number[] = [];
+      let n = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        starts.push(clock.now() - 1000);
+        if (n++ === 0) clock.advance(1000);
+        return "ok";
+      };
+      await runLoad(call, { concurrency: 1, requests: 5, rate: 10 }, clock);
+      // The 1s stall forfeits slots 100..900; spacing resumes from 1000.
+      expect(starts).toEqual([0, 1000, 1100, 1200, 1300]);
+    });
+
+    it("keeps concurrent workers spaced at the rate", async () => {
+      const clock = fakeClock();
+      const starts: number[] = [];
+      const call = async (): Promise<LoadCallOutcome> => {
+        starts.push(clock.now() - 1000);
+        return "ok";
+      };
+      await runLoad(call, { concurrency: 3, requests: 6, rate: 5 }, clock);
+      expect([...starts].sort((a, b) => a - b)).toEqual([
+        0, 200, 400, 600, 800, 1000,
+      ]);
+    });
+
+    it("does not start a call when its timer wakes past the deadline", async () => {
+      const clock = fakeClock();
+      // Every timer fires 100ms late.
+      clock.sleep = async (ms) => clock.advance(ms + 100);
+      const starts: number[] = [];
+      const call = async (): Promise<LoadCallOutcome> => {
+        starts.push(clock.now() - 1000);
+        return "ok";
+      };
+      const summary = await runLoad(
+        call,
+        { concurrency: 1, durationMs: 100, rate: 20 },
+        clock,
+      );
+      // Slot 50 wakes at 150, past the 100ms window, and is not started.
+      expect(starts).toEqual([0]);
+      expect(summary.requests).toBe(1);
+    });
+
     it("does not sleep for a slot whose time has already passed", async () => {
       const clock = fakeClock();
       const call = async (): Promise<LoadCallOutcome> => {
@@ -360,6 +427,30 @@ describe("--load (CLI)", () => {
     [
       ["--method", "tools/call", "--tool-name", "echo", "--load", "--app-info"],
       "--load cannot be combined with --app-info.",
+    ],
+    [
+      [
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "echo",
+        "--load",
+        "--list-stored-auth",
+      ],
+      "--load cannot be combined with --list-stored-auth or --print-handoff.",
+    ],
+    [
+      [
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "echo",
+        "--load",
+        "--print-handoff",
+        "--server-url",
+        "http://localhost:1/mcp",
+      ],
+      "--load cannot be combined with --list-stored-auth or --print-handoff.",
     ],
     [
       [
