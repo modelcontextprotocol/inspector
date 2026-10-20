@@ -581,13 +581,25 @@ export interface InspectorResourceSubscription {
  *   in the same breath it was opened (#2097). Distinct from `"ended"` because
  *   the condition is deterministic rather than a shutdown of an established
  *   stream: the Inspector does not retry it, and the UI says why.
+ * - `"refused"` — the server refused the `listen()` request at the HTTP layer
+ *   with a status a retry cannot change (a bare 403, or a 400/404/405), so the
+ *   stream never opened (#2722). Like `"never-acknowledged"` it is deterministic,
+ *   is not retried, and has a status of its own so the UI can say why; the HTTP
+ *   answer is on `ResourceSubscriptionStreamState.refusal`.
  */
 export type ResourceSubscriptionStreamStatus =
   | "connecting"
   | "acknowledged"
   | "reconnecting"
   | "ended"
-  | "never-acknowledged";
+  | "never-acknowledged"
+  | "refused";
+
+/** The HTTP answer a refused `subscriptions/listen` carried (#2722). */
+export interface SubscriptionListenRefusal {
+  status: number;
+  statusText?: string;
+}
 
 /**
  * State of the modern-era resource-subscription listen stream (#1630).
@@ -604,11 +616,18 @@ export type ResourceSubscriptionStreamStatus =
  * list-change opt-ins, so it can be open with no subscribed URI at all (#1920).
  * This state describes the Subscriptions section, which has nothing to show for
  * such a stream.
+ *
+ * The one exception is `"refused"` (#2722), which is reported whatever `active`
+ * says: a subscribe the server refused is rolled back, so the subscribed set is
+ * empty and `active` false by the time the state is announced — and gating the
+ * refusal on `active` is what hid it before.
  */
 export interface ResourceSubscriptionStreamState {
   active: boolean;
   status: ResourceSubscriptionStreamStatus;
   honoredUris: string[];
+  /** The HTTP refusal, present exactly when `status` is `"refused"`. */
+  refusal?: SubscriptionListenRefusal;
 }
 
 /** The stream state reported on the legacy era (or before any subscription). */

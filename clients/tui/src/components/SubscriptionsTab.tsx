@@ -27,6 +27,7 @@ import {
   AuthRecoveryRequiredError,
   findNestedAuthError,
 } from "@inspector/core/auth/challenge.js";
+import { subscriptionListenRefusalMessage } from "@inspector/core/mcp/subscriptionRefusal.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 import { errorMessage } from "../utils/errorText.js";
 import {
@@ -47,6 +48,7 @@ const STREAM_STATUS_TEXT: Record<
     text: "closed without acknowledging (server answered listen with a result)",
     color: "red",
   },
+  refused: { text: "refused by the server", color: "red" },
 };
 
 interface SubscriptionsTabProps {
@@ -166,6 +168,8 @@ export function SubscriptionsTab({
   }, [selectedIndex]);
 
   const streamText = STREAM_STATUS_TEXT[streamState.status];
+  const streamRefusal =
+    streamState.status === "refused" ? streamState.refusal : undefined;
   // On the modern era a server may honor only part of the filter; say so for
   // the selected URI once the stream has been acknowledged.
   const notHonored =
@@ -284,11 +288,21 @@ export function SubscriptionsTab({
               )}
             </>
           )}
-          {streamState.active && (
+          {/* A refusal is shown whatever `active` says: the refused subscribe
+              was rolled back, so there is no live subscription to gate on
+              (#2722). */}
+          {(streamState.active || streamRefusal) && (
             <Box flexShrink={0}>
               <Text>
                 Listen stream:{" "}
                 <Text color={streamText.color}>{streamText.text}</Text>
+              </Text>
+            </Box>
+          )}
+          {streamRefusal && (
+            <Box flexShrink={0}>
+              <Text color="red">
+                {subscriptionListenRefusalMessage(streamRefusal)}
               </Text>
             </Box>
           )}

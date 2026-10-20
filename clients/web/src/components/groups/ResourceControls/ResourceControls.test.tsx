@@ -7,6 +7,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { InspectorResourceSubscription } from "@inspector/core/mcp/types.js";
 import { NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE } from "@inspector/core/mcp/subscriptionAck.js";
+import { subscriptionListenRefusalMessage } from "@inspector/core/mcp/subscriptionRefusal.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
 import {
   ResourceControls,
@@ -413,6 +414,50 @@ describe("ResourceControls", () => {
       expect(
         screen.getByText(NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE),
       ).toBeInTheDocument();
+    });
+
+    // The refused subscribe was rolled back, so there is no subscription left
+    // to gate on — the refusal has to show regardless, and the section has to
+    // open to show it (#2722).
+    it("spells out an HTTP refusal with no subscription left", async () => {
+      const user = userEvent.setup();
+      const refusal = { status: 403, statusText: "Forbidden" };
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="modern"
+          subscriptions={[]}
+          openSections={[]}
+          subscriptionStreamState={{
+            active: false,
+            status: "refused",
+            honoredUris: [],
+            refusal,
+          }}
+        />,
+      );
+      expect(screen.getByText("Subscriptions (0)")).toBeInTheDocument();
+      expect(screen.getByText("Refused")).toBeInTheDocument();
+
+      await user.click(screen.getByText("Subscriptions (0)"));
+      expect(
+        await screen.findByText(subscriptionListenRefusalMessage(refusal)),
+      ).toBeVisible();
+    });
+
+    it("shows no refusal on the legacy era", () => {
+      renderWithMantine(
+        <ControlledResourceControls
+          protocolEra="legacy"
+          subscriptions={[]}
+          subscriptionStreamState={{
+            active: false,
+            status: "refused",
+            honoredUris: [],
+            refusal: { status: 403 },
+          }}
+        />,
+      );
+      expect(screen.queryByText("Refused")).not.toBeInTheDocument();
     });
 
     it("shows no such notice while the stream is healthy", () => {
