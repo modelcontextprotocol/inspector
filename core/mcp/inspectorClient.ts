@@ -285,6 +285,7 @@ import {
 import {
   annotateRequestTimeout,
   isRequestTimeoutError,
+  describeSendFailure,
   type ConnectionDiagnostics,
   type LastResponse,
   type NotificationStreamState,
@@ -1171,6 +1172,13 @@ export class InspectorClient extends InspectorClientEventTarget {
         if (this.outstandingRequests.delete(message.id)) {
           this.dispatchConnectionDiagnosticsChange();
         }
+        // The request's log entry is resolved too: no response frame is
+        // coming for it, so without this it reads "Pending" forever — even
+        // when the server answered with a definitive HTTP refusal (#2721).
+        this.dispatchTypedEvent("requestFailed", {
+          id: message.id,
+          reason: describeSendFailure(error),
+        });
       },
       trackResponse: (
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
