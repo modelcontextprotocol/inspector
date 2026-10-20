@@ -51,9 +51,12 @@ describe("createWebStoragePkceFlowStore (#2726)", () => {
   });
 
   it("does not answer for a different server than the flow was started for", async () => {
-    const store = createWebStoragePkceFlowStore(() => makeArea());
+    const area = makeArea();
+    const store = createWebStoragePkceFlowStore(() => area);
     await store.saveCodeVerifier(FLOW, SERVER, "cv");
 
+    // Same area, so only the server binding can make this read miss.
+    expect(await store.getCodeVerifier(FLOW, SERVER)).toBe("cv");
     expect(
       await store.getCodeVerifier(FLOW, "https://other.example.com"),
     ).toBeUndefined();
