@@ -270,6 +270,7 @@ import {
   parseAuthChallengeFromError,
   type AuthChallenge,
   type AuthChallengeOutcome,
+  type CheckAuthChallengeSatisfiedOptions,
   type HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
@@ -6133,8 +6134,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   async checkAuthChallengeSatisfied(
     challenge: AuthChallenge,
+    options?: CheckAuthChallengeSatisfiedOptions,
   ): Promise<boolean> {
-    return this.ensureOAuthManager().checkAuthChallengeSatisfied(challenge);
+    return this.ensureOAuthManager().checkAuthChallengeSatisfied(
+      challenge,
+      options,
+    );
   }
 
   /**
