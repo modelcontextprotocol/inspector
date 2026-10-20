@@ -7,6 +7,11 @@ Tests live under `__tests__/` and run via Vitest.
   coverage gate. Suite-wide
   `helpers/mock-open-url.ts` (vitest `setupFiles`) mocks core's `openUrl` so an armed
   interactive OAuth path cannot launch a real browser.
+- Suite-wide `helpers/oauth-state-isolation.ts` (vitest `setupFiles`) points
+  `MCP_INSPECTOR_OAUTH_STATE_PATH` at a per-file temp dir so no test touches
+  the real `~/.mcp-inspector` OAuth store, and fails any test whose state path
+  resolves outside `os.tmpdir()`. A test that overrides the variable must
+  restore the previous value, not delete it (#2719).
 - `e2e.test.ts` (and root `scripts/smoke-cli.mjs`) spawn the built binary for
   shebang / `process.exit` paths — `pretest` builds `test-servers` + the CLI
   bundle first.
@@ -56,12 +61,13 @@ npm run validate          # format:check && lint && typecheck && test
 
 ## Helpers
 
-| Helper                     | Role                                                      |
-| -------------------------- | --------------------------------------------------------- |
-| `helpers/cli-runner.ts`    | In-process `runCli` with stdout/stderr capture            |
-| `helpers/mock-open-url.ts` | Suite-wide `openUrl` mock (vitest `setupFiles`)           |
-| `helpers/assertions.ts`    | `expectCliSuccess` / `expectCliFailure` / output matchers |
-| `helpers/fixtures.ts`      | Temp config / client.json factories                       |
+| Helper                             | Role                                                           |
+| ---------------------------------- | -------------------------------------------------------------- |
+| `helpers/cli-runner.ts`            | In-process `runCli` with stdout/stderr capture                 |
+| `helpers/mock-open-url.ts`         | Suite-wide `openUrl` mock (vitest `setupFiles`)                |
+| `helpers/oauth-state-isolation.ts` | Suite-wide temp OAuth state path + guard (vitest `setupFiles`) |
+| `helpers/assertions.ts`            | `expectCliSuccess` / `expectCliFailure` / output matchers      |
+| `helpers/fixtures.ts`              | Temp config / client.json factories                            |
 
 OAuth interactive tests stub or drive the loopback callback in-process rather
 than requiring a real browser.
