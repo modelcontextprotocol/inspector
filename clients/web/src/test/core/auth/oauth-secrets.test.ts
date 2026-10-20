@@ -493,8 +493,15 @@ describe("client-credential owner stamps (#2734)", () => {
     ["no stamp", undefined],
     ["a malformed stamp", "{"],
     ["a non-object stamp", "null"],
-    ["a non-string client_id", JSON.stringify({ client_id: 7, sha256: "" })],
+    ["a non-string client_id", JSON.stringify({ client_id: 7, mac: "" })],
     ["another value's stamp", clientCredentialStamp("cid", "other")],
+    [
+      "a stamp whose client was swapped",
+      JSON.stringify({
+        ...(JSON.parse(clientCredentialStamp("cid", "ics")) as object),
+        client_id: "other",
+      }),
+    ],
   ])("names no owner for %s", (_label, stamp) => {
     expect(stampedOwner(stamp, "ics")).toBeUndefined();
   });

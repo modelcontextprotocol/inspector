@@ -766,7 +766,7 @@ describe("pending carry-over (#2672)", () => {
       ["no stamp", null],
       ["a malformed stamp", "{not json"],
       ["a stamp that is not an object", "7"],
-      ["a stamp naming no client", JSON.stringify({ sha256: "x" })],
+      ["a stamp naming no client", JSON.stringify({ mac: "x" })],
       // The hand-off keeps and copies per account: a kept value can meet a
       // copied stamp, and an older Inspector can rewrite a value alone.
       ["another value's stamp", clientCredentialStamp("c", "other")],

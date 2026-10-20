@@ -20,7 +20,7 @@
  * route); the browser round-trips full snapshots over the authed local API.
  */
 
-import { createHash, randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { setOwnEntry } from "../../storage/own-entry.js";
@@ -160,20 +160,28 @@ export const IDP_SESSION_FIELD = "idp-session";
 export const clientCredentialStampField = (field: string): string =>
   `${field}#owner`;
 
-const credentialDigest = (value: string): string =>
-  createHash("sha256").update(value).digest("hex");
+/**
+ * A MAC over `clientId` keyed by the credential itself: only a writer
+ * holding `value` can produce it, and it matches only that value and that
+ * client. Keyed rather than a plain digest of the value, so the credential
+ * is never the hashed input — a fast unkeyed hash of a secret is the shape
+ * of an offline-guessable password hash, even though this one sits in the
+ * same store as the value and so reveals nothing that store does not.
+ */
+const credentialMac = (clientId: string, value: string): string =>
+  createHmac("sha256", value).update(clientId).digest("hex");
 
 /**
- * The stamp naming `clientId` as the owner of `value`. It carries a digest
- * of the value so a stamp separated from its value — the hand-off keeps
- * and copies per account, so a kept value can meet a copied stamp, and an
- * older Inspector can rewrite a value without its stamp — never vouches
- * for another value. The digest is as protected as the value beside it.
+ * The stamp naming `clientId` as the owner of `value`. It carries a MAC
+ * bound to the value so a stamp separated from its value — the hand-off
+ * keeps and copies per account, so a kept value can meet a copied stamp,
+ * and an older Inspector can rewrite a value without its stamp — never
+ * vouches for another value.
  */
 export function clientCredentialStamp(clientId: string, value: string): string {
   return JSON.stringify({
     client_id: clientId,
-    sha256: credentialDigest(value),
+    mac: credentialMac(clientId, value),
   });
 }
 
@@ -195,8 +203,8 @@ export function stampedOwner(
     return undefined;
   }
   if (typeof parsed !== "object" || parsed === null) return undefined;
-  const { client_id: clientId, sha256 } = parsed as Record<string, unknown>;
-  if (typeof clientId !== "string" || sha256 !== credentialDigest(value)) {
+  const { client_id: clientId, mac } = parsed as Record<string, unknown>;
+  if (typeof clientId !== "string" || mac !== credentialMac(clientId, value)) {
     return undefined;
   }
   return clientId;
