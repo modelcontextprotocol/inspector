@@ -327,6 +327,52 @@ describe("InspectorClient skills methods (#2234)", () => {
       // server; the live check is in the integration suite.
       const client = makeClient();
       internals(client).protocolEra = "modern";
+      stubRequest(client, {
+        resources: [CHILD],
+        ttlMs: 0,
+        cacheScope: "public",
+      });
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).resolves.toMatchObject({ resources: [CHILD] });
+    });
+
+    it("requires the caching attributes on a modern resources/directory/read (#2740)", async () => {
+      // The stable ext-skills spec makes `ReadResourceDirectoryResult` a
+      // `CacheableResult`. The SDK codec checks neither attribute for a
+      // consumer-owned method, so without the modern schema this server would
+      // read as conforming.
+      const client = makeClient();
+      internals(client).protocolEra = "modern";
+      stubRequest(client, { resources: [CHILD] });
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).rejects.toBeDefined();
+    });
+
+    it("returns the modern caching attributes whole — the CLI prints the result as received", async () => {
+      const client = makeClient();
+      internals(client).protocolEra = "modern";
+      stubRequest(client, {
+        resources: [CHILD],
+        ttlMs: 5,
+        cacheScope: "private",
+      });
+      declareSkills(client, true);
+      await expect(
+        client.readResourceDirectory("skill://demo"),
+      ).resolves.toEqual({
+        resources: [CHILD],
+        ttlMs: 5,
+        cacheScope: "private",
+      });
+    });
+
+    it("does NOT require the caching attributes on a legacy connection", async () => {
+      // 2026-era attributes a legacy server has no business sending.
+      const client = makeClient();
       stubRequest(client, { resources: [CHILD] });
       declareSkills(client, true);
       await expect(

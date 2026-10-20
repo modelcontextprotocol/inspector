@@ -120,16 +120,16 @@ modern leg builds a fresh server per request, so there is no era to branch on
 when the handlers are registered, and on the legacy leg they are three extra
 members no codec inspects.
 
-⚠️ **`resources/directory/read` deliberately carries `resultType` alone.**
-SEP-2640 states the caching attributes for a modern `skills/list` in as many
-words and says nothing of the kind for this method, whose one worked example
-carries `resultType` and nothing else. A fixture sending more than the SEP shows
-would make a client that wrongly *required* them look correct, which is the
-opposite of what a conformance fixture is for — so `readDirectoryPage` stops
-where the spec does. On the client, the SDK's modern codec enforces
-`resultType` and lifts it off before the Inspector's own schema runs, so
-`DirectoryReadResultSchema` serves both eras and requires no caching attributes
-([#2373](https://github.com/modelcontextprotocol/inspector/issues/2373)).
+`resources/directory/read` carries the same full envelope. SEP-2640 as accepted
+showed `resultType` alone for this method, and the fixture once stopped where
+the SEP did; the stable ext-skills spec makes `ReadResourceDirectoryResult` a
+`CacheableResult`, so `ttlMs` / `cacheScope` are required there too
+([#2740](https://github.com/modelcontextprotocol/inspector/issues/2740)). On
+the client, the SDK's modern codec enforces `resultType` and lifts it off
+before the Inspector's own schema runs
+([#2373](https://github.com/modelcontextprotocol/inspector/issues/2373)), and
+`ModernDirectoryReadResultSchema` requires the two caching attributes on a
+modern connection, as the `skills/list` and `skills/get` schemas do.
 
 It works on **either era**: `skills/list`, `skills/get` and
 `resources/directory/read` are consumer-owned extension methods that neither
