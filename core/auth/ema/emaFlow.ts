@@ -66,11 +66,9 @@ export async function mintEmaResourceTokens(
       "EMA requires resource authorization server clientId (per-server oauth.clientId)",
     );
   }
-  if (!config.resourceClientSecret?.trim()) {
-    throw new Error(
-      "EMA requires resource authorization server client secret in server OAuth settings (Test Client secret from xaa.dev resource registration)",
-    );
-  }
+  // No secret check: a resource AS that registers public clients
+  // (`token_endpoint_auth_method: none`) issues no secret, and leg 3 already
+  // redeems without one (#2725).
 
   const idToken = await getValidIdToken({
     idp: config.idp,

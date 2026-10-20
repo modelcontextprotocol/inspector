@@ -203,7 +203,7 @@ describe("emaFlow", () => {
     ).rejects.toThrow("Valid IdP ID Token required for EMA token mint");
   });
 
-  it("mintEmaResourceTokens throws when resource client secret is missing", async () => {
+  it("mintEmaResourceTokens throws when resource client id is missing", async () => {
     const exp = Math.floor(Date.now() / 1000) + 3600;
     idpSessions[IDP_ISSUER] = { idToken: jwtWithExp(exp) };
 
@@ -211,12 +211,55 @@ describe("emaFlow", () => {
       mintEmaResourceTokens(
         {
           ...baseConfig(storage),
-          resourceClientSecret: "",
+          resourceClientId: "",
           fetchFn: mockEmaFetch(jwtWithExp(exp)),
         },
         resourceContext(),
       ),
-    ).rejects.toThrow(/resource authorization server client secret/);
+    ).rejects.toThrow(/resource authorization server clientId/);
+  });
+
+  it("mintEmaResourceTokens redeems leg 3 as a public client when the secret is empty (#2725)", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+    const fetchFn = mockEmaFetch(idToken);
+
+    const { tokens } = await mintEmaResourceTokens(
+      { ...baseConfig(storage), resourceClientSecret: "", fetchFn },
+      resourceContext(),
+    );
+
+    expect(tokens.access_token).toBe("resource-access-token");
+    const leg3 = fetchFn.mock.calls.find(
+      ([input]) => String(input) === `${AS_ISSUER}/token`,
+    );
+    expect(leg3).toBeDefined();
+    const body = new URLSearchParams(leg3?.[1]?.body as string);
+    expect(body.get("client_id")).toBe(EMA_MOCK_RESOURCE_CLIENT_ID);
+    expect(body.has("client_secret")).toBe(false);
+    expect(new Headers(leg3?.[1]?.headers).has("authorization")).toBe(false);
+  });
+
+  it("mintEmaResourceTokens falls back to the PRM resource when the context has no resourceUrl", async () => {
+    const exp = Math.floor(Date.now() / 1000) + 3600;
+    const idToken = jwtWithExp(exp);
+    idpSessions[IDP_ISSUER] = { idToken };
+    const fetchFn = mockEmaFetch(idToken);
+
+    await mintEmaResourceTokens(
+      { ...baseConfig(storage), fetchFn },
+      { ...resourceContext(), resourceUrl: undefined },
+    );
+
+    const bodyFor = (url: string) =>
+      new URLSearchParams(
+        fetchFn.mock.calls.find(([input]) => String(input) === url)?.[1]
+          ?.body as string,
+      );
+    // Leg 2 must carry `resource`, so it takes the PRM's; leg 3 omits it.
+    expect(bodyFor(`${IDP_ISSUER}/token`).get("resource")).toBe(MCP_RESOURCE);
+    expect(bodyFor(`${AS_ISSUER}/token`).has("resource")).toBe(false);
   });
 
   it("trySilentEmaAuth saves tagged tokens when mint succeeds", async () => {
@@ -250,7 +293,7 @@ describe("emaFlow", () => {
 
     const result = await trySilentEmaAuth({
       ...baseConfig(storage),
-      resourceClientSecret: "",
+      resourceClientId: "",
       fetchFn: mockEmaFetch(idToken),
     });
 
@@ -260,7 +303,7 @@ describe("emaFlow", () => {
         /EMA legs 2–3 \(resource token mint\)/,
       );
       expect(result.error.message).toMatch(
-        /resource authorization server client secret/,
+        /resource authorization server clientId/,
       );
     }
     expect(storage.saveTokens).not.toHaveBeenCalled();
@@ -449,7 +492,7 @@ describe("emaFlow", () => {
     const fetchFn = mockEmaFetch(idToken);
     const config = {
       ...baseConfig(storage),
-      resourceClientSecret: "",
+      resourceClientId: "",
       fetchFn,
     };
 
