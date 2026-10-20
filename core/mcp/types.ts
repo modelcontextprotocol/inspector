@@ -401,6 +401,9 @@ export interface MessageEntry {
    * `ttlMs`/`cacheScope`. Distinct from a JSON-RPC `error` response: the server
    * answered successfully and the wire frame is valid, so without this the
    * entry renders as a clean success even though the call failed (#1953).
+   * Also set on a request whose send failed — refused at the HTTP layer (a
+   * bare `403`) or never delivered — since no response will ever be folded
+   * into it and it would otherwise render as "Pending" for good (#2721).
    */
   clientError?: string;
 }
