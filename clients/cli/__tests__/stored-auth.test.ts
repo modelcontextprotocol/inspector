@@ -547,7 +547,9 @@ describe("--use-stored-auth", () => {
         "--method",
         "tools/list",
       ],
-      { env: { MCP_STORAGE_DIR: dir } },
+      // Blank out the suite-wide isolated path (oauth-state-isolation.ts) so
+      // resolution falls through to MCP_STORAGE_DIR, as the title says.
+      { env: { MCP_STORAGE_DIR: dir, MCP_INSPECTOR_OAUTH_STATE_PATH: "" } },
     );
     expectCliSuccess(result);
     const last = server.getRecordedRequests().at(-1)!;
