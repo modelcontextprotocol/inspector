@@ -20,7 +20,7 @@
  * route); the browser round-trips full snapshots over the authed local API.
  */
 
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { OAuthTokensSchema } from "@modelcontextprotocol/core";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
 import { setOwnEntry } from "../../storage/own-entry.js";
@@ -144,6 +144,72 @@ export const PREREG_REGISTRATION_TOKEN_FIELD = "prereg-registration-token";
 /** One IdP issuer's session tokens (JSON `{ idToken?, refreshToken? }`). */
 export const IDP_SESSION_FIELD = "idp-session";
 
+/**
+ * Field for the owner stamp stored beside a DCR client credential (#2734):
+ * which `client_id` the value in `field` was written for. The store does
+ * not otherwise record that pairing, and a carry-over from a superseded
+ * namespace needs it — a secret paired with the wrong client is useless.
+ *
+ * It lives in the store, beside the value, rather than in the namespace
+ * ledger because the value moves without the ledger seeing it: the
+ * file-to-keychain hand-off copies each account it finds unless the
+ * keychain already holds one, and knows nothing of state files. A stamp in
+ * the store is copied or kept exactly as its value is, so it names the
+ * client of the value actually there, however many hand-offs ran.
+ */
+export const clientCredentialStampField = (field: string): string =>
+  `${field}#owner`;
+
+/**
+ * A MAC over `clientId` keyed by the credential itself: only a writer
+ * holding `value` can produce it, and it matches only that value and that
+ * client. Keyed rather than a plain digest of the value, so the credential
+ * is never the hashed input — a fast unkeyed hash of a secret is the shape
+ * of an offline-guessable password hash, even though this one sits in the
+ * same store as the value and so reveals nothing that store does not.
+ */
+const credentialMac = (clientId: string, value: string): string =>
+  createHmac("sha256", value).update(clientId).digest("hex");
+
+/**
+ * The stamp naming `clientId` as the owner of `value`. It carries a MAC
+ * bound to the value so a stamp separated from its value — the hand-off
+ * keeps and copies per account, so a kept value can meet a copied stamp,
+ * and an older Inspector can rewrite a value without its stamp — never
+ * vouches for another value.
+ */
+export function clientCredentialStamp(clientId: string, value: string): string {
+  return JSON.stringify({
+    client_id: clientId,
+    mac: credentialMac(clientId, value),
+  });
+}
+
+/**
+ * The `client_id` a stamp names as `value`'s owner, or `undefined` when
+ * there is no stamp, it is malformed, or it was written for a different
+ * value — all of which make the owner unknown, and an unknown owner is
+ * never guessed.
+ */
+export function stampedOwner(
+  stamp: string | undefined,
+  value: string,
+): string | undefined {
+  if (stamp === undefined) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stamp);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const { client_id: clientId, mac } = parsed as Record<string, unknown>;
+  if (typeof clientId !== "string" || mac !== credentialMac(clientId, value)) {
+    return undefined;
+  }
+  return clientId;
+}
+
 /** Secret values extracted from one entry, keyed by store field. */
 export type OAuthSecretValues = Record<string, string>;
 
@@ -239,14 +305,20 @@ function splitTokens(
  * `StoredOAuthClientInformation` in `store.ts`).
  */
 type ClientInfoSecretKeys = {
+  client_id?: unknown;
   client_secret?: string;
   registration_access_token?: string;
 };
 
-/** The pair of store fields one `clientInformation` slot splits into. */
+/**
+ * The pair of store fields one `clientInformation` slot splits into, and
+ * whether each value is stamped with its owner (DCR slots only — see
+ * {@link clientCredentialOwners} for why pre-registered ones are not).
+ */
 interface ClientInfoFields {
   clientSecret: string;
   registrationToken: string;
+  stamped: boolean;
 }
 
 /**
@@ -254,7 +326,8 @@ interface ClientInfoFields {
  * `secrets`, returning the public residue. Both keys are handled in one
  * place so a slot with a `registration_access_token` but no `client_secret`
  * still splits — key-by-key extraction is how the token used to slip
- * through to plaintext.
+ * through to plaintext. A DCR slot's values are stamped with the client
+ * they belong to (#2734).
  */
 function splitClientInformation<T extends ClientInfoSecretKeys>(
   info: T,
@@ -265,12 +338,18 @@ function splitClientInformation<T extends ClientInfoSecretKeys>(
   if (client_secret === undefined && registration_access_token === undefined) {
     return info;
   }
-  if (client_secret !== undefined) {
-    secrets[fields.clientSecret] = client_secret;
-  }
-  if (registration_access_token !== undefined) {
-    secrets[fields.registrationToken] = registration_access_token;
-  }
+  const put = (field: string, value: string | undefined): void => {
+    if (value === undefined) return;
+    secrets[field] = value;
+    if (fields.stamped && typeof info.client_id === "string") {
+      secrets[clientCredentialStampField(field)] = clientCredentialStamp(
+        info.client_id,
+        value,
+      );
+    }
+  };
+  put(fields.clientSecret, client_secret);
+  put(fields.registrationToken, registration_access_token);
   return publicInfo as T;
 }
 
@@ -301,14 +380,17 @@ function joinClientInformation<T extends ClientInfoSecretKeys>(
 const issuerClientInfoFields = (issuer: string): ClientInfoFields => ({
   clientSecret: issuerClientSecretField(issuer),
   registrationToken: issuerRegistrationTokenField(issuer),
+  stamped: true,
 });
 const LEGACY_CLIENT_INFO_FIELDS: ClientInfoFields = {
   clientSecret: LEGACY_CLIENT_SECRET_FIELD,
   registrationToken: LEGACY_REGISTRATION_TOKEN_FIELD,
+  stamped: true,
 };
 const PREREG_CLIENT_INFO_FIELDS: ClientInfoFields = {
   clientSecret: PREREG_CLIENT_SECRET_FIELD,
   registrationToken: PREREG_REGISTRATION_TOKEN_FIELD,
+  stamped: false,
 };
 
 /**
@@ -559,17 +641,25 @@ export function joinIdpSession(
 export function serverSecretFields(
   state: ServerOAuthState | undefined,
 ): string[] {
+  const stamped = (field: string): string[] => [
+    field,
+    clientCredentialStampField(field),
+  ];
   const fields = new Set<string>([
     LEGACY_TOKENS_FIELD,
-    LEGACY_CLIENT_SECRET_FIELD,
-    LEGACY_REGISTRATION_TOKEN_FIELD,
+    ...stamped(LEGACY_CLIENT_SECRET_FIELD),
+    ...stamped(LEGACY_REGISTRATION_TOKEN_FIELD),
     PREREG_CLIENT_SECRET_FIELD,
     PREREG_REGISTRATION_TOKEN_FIELD,
   ]);
   for (const issuer of Object.keys(state?.byIssuer ?? {})) {
     fields.add(issuerTokensField(issuer));
-    fields.add(issuerClientSecretField(issuer));
-    fields.add(issuerRegistrationTokenField(issuer));
+    for (const field of stamped(issuerClientSecretField(issuer))) {
+      fields.add(field);
+    }
+    for (const field of stamped(issuerRegistrationTokenField(issuer))) {
+      fields.add(field);
+    }
   }
   return [...fields];
 }
@@ -601,6 +691,32 @@ export function clientCredentialOwners(
     add(slot.clientInformation, issuerClientInfoFields(issuer));
   }
   return owners;
+}
+
+/**
+ * `secrets` with each DCR client credential's stamp made to vouch for the
+ * value beside it (#2734), for a write that copies values it read rather
+ * than splitting them from state (adoption). A stamp that already vouches
+ * for its value is kept, whichever client it names — it records where that
+ * value came from. Any other value is stamped for the client `state` pairs
+ * it with, which is the pairing the copy itself asserts; a stamp whose
+ * value is absent is dropped.
+ */
+export function restampClientCredentials(
+  state: ServerOAuthState,
+  secrets: OAuthSecretValues,
+): OAuthSecretValues {
+  const out: OAuthSecretValues = { ...secrets };
+  for (const [field, clientId] of clientCredentialOwners(state)) {
+    const stampField = clientCredentialStampField(field);
+    const value = Object.hasOwn(out, field) ? out[field] : undefined;
+    if (value === undefined) {
+      delete out[stampField];
+    } else if (stampedOwner(out[stampField], value) === undefined) {
+      setOwnEntry(out, stampField, clientCredentialStamp(clientId, value));
+    }
+  }
+  return out;
 }
 
 /** Does this `clientInformation` object still carry a bearer-grade key? */

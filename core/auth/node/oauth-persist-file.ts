@@ -84,6 +84,7 @@ import { MAX_WRITE_ATTEMPTS } from "./file-secret-store.js";
 import {
   IDP_SESSION_FIELD,
   clientCredentialOwners,
+  clientCredentialStampField,
   getPersistTokensPolicy,
   isUsableStoredSecret,
   isValidSecretsNamespace,
@@ -92,10 +93,12 @@ import {
   newSecretsNamespace,
   oauthIdpSecretServerId,
   oauthSecretServerId,
+  restampClientCredentials,
   serverSecretFields,
   snapshotHasPlaintextSecrets,
   splitIdpSession,
   splitServerOAuthState,
+  stampedOwner,
   type OAuthSecretValues,
 } from "./oauth-secrets.js";
 
@@ -468,9 +471,14 @@ async function adoptSecretsNamespace(
   const touched: SecretFieldSnapshot[] = [];
   try {
     const copies = [
+      // Restamped: a value read from the legacy ids predates stamps, and a
+      // fallback's stamp may belong to a value read from elsewhere (#2734).
       ...[...values.servers].map(([url, secrets]) => ({
         scopedId: oauthSecretServerId(url, namespace),
-        secrets,
+        secrets: restampClientCredentials(
+          getOwnEntry(snapshot.servers, url) ?? {},
+          secrets,
+        ),
       })),
       ...[...values.idpSessions].map(([issuer, secrets]) => ({
         scopedId: oauthIdpSecretServerId(issuer, namespace),
@@ -1298,8 +1306,10 @@ type PendingCarry = Awaited<ReturnType<typeof pendingCarries>>[number];
  *
  * `carries` is non-empty only for a stamped file with records in this
  * store an adoption elsewhere could not read (#2672, `pendingCarries`):
- * each supplies only the client-credential fields it recorded an owner
- * for, and only for a client the file still holds under that `client_id`.
+ * each supplies only the client-credential fields it recorded, and only
+ * where the value's owner stamp (#2734) names the client the file holds
+ * for that field now — the stamp, not the ledger, because a hand-off can
+ * have kept or copied a value no ledger record describes.
  *
  * Strict: this read hydrates the memory state that later sectioned writes
  * diff against, so a tolerant read during a store outage would present
@@ -1335,29 +1345,42 @@ async function readEntrySecrets(
     }
   }
   const owners = snapshotClientOwners(snapshot);
-  for (const { namespace: from, owners: recorded } of carries) {
+  for (const { namespace: from, fields: recorded } of carries) {
     const requests: SecretBulkRequest[] = [];
     for (const [url, fields] of recorded) {
       const target = servers.get(url);
       if (!target) continue;
-      const wanted = [...fields]
-        .filter(
-          ([field, clientId]) =>
-            owners.get(url)?.get(field) === clientId &&
-            !Object.hasOwn(target, field),
-        )
-        .map(([field]) => field);
+      const wanted = [...fields].filter(
+        (field) =>
+          owners.get(url)?.has(field) === true && !Object.hasOwn(target, field),
+      );
       if (wanted.length > 0) {
         requests.push({
           serverId: oauthSecretServerId(url, from),
-          fields: wanted,
+          fields: wanted.flatMap((field) => [
+            field,
+            clientCredentialStampField(field),
+          ]),
         });
       }
     }
     if (requests.length === 0) continue;
     const values = await secretStoreGetManyStrict(secretStore, requests);
     for (const [url, target] of servers) {
-      fillMissingSecrets(target, values[oauthSecretServerId(url, from)]);
+      const found = values[oauthSecretServerId(url, from)] ?? {};
+      for (const [field, clientId] of owners.get(url) ?? []) {
+        const value = Object.hasOwn(found, field) ? found[field] : undefined;
+        const stampField = clientCredentialStampField(field);
+        if (
+          value === undefined ||
+          Object.hasOwn(target, field) ||
+          stampedOwner(found[stampField], value) !== clientId
+        ) {
+          continue;
+        }
+        setOwnEntry(target, field, value);
+        setOwnEntry(target, stampField, found[stampField]);
+      }
     }
   }
   return { servers, idpSessions };

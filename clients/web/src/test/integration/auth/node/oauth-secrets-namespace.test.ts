@@ -94,6 +94,8 @@ import {
   IDP_SESSION_FIELD,
   issuerClientSecretField,
   resetPersistTokensPolicyWarnings,
+  clientCredentialStampField,
+  stampedOwner,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import {
   writeStoreFile,
@@ -1300,6 +1302,161 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
     };
     expect(ledger.namespaces[namespaceOf(fileA)].keyring.owners).toBe(
       undefined,
+    );
+  });
+
+  /**
+   * The issue's (#2734) steps 1–4 and the strip of step 5: client A saved
+   * to `secrets.json` and absorbed, client B registered in the file under
+   * the same stamp, absorbed again — the keychain keeps A's value — then
+   * the stamp stripped and the file re-adopted on a memory backend.
+   */
+  async function repeatedHandOff(
+    keyring: SecretStore,
+    reregister: boolean,
+  ): Promise<{ ns1: string; ns2: string }> {
+    const secretsFile = join(tempDir, "secrets.json");
+    const fileStore = () =>
+      new FileSecretStore({ filePath: secretsFile, passphrase: "" });
+    const savedFileEnv = process.env[SECRET_FILE_ENV];
+    process.env[SECRET_FILE_ENV] = secretsFile;
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await writeOAuthSections(
+        fileA,
+        confidentialClient("client-a", "secret-a"),
+        undefined,
+        fileStore(),
+      );
+      await flushStoreFileWrites(fileA);
+      await absorbFileSecretsIntoKeyring(keyring);
+      await writeOAuthSections(
+        fileA,
+        reregister
+          ? confidentialClient("client-b", "secret-b")
+          : { servers: { [OTHER]: { scope: "x" } }, idpSessions: {} },
+        { servers: [reregister ? SERVER : OTHER] },
+        fileStore(),
+      );
+      await flushStoreFileWrites(fileA);
+      await absorbFileSecretsIntoKeyring(keyring);
+      expect(existsSync(secretsFile)).toBe(false);
+    } finally {
+      if (savedFileEnv === undefined) delete process.env[SECRET_FILE_ENV];
+      else process.env[SECRET_FILE_ENV] = savedFileEnv;
+    }
+    const ns1 = namespaceOf(fileA);
+    await stripStamp(fileA);
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "y" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      new InMemorySecretStore(),
+    );
+    await flushStoreFileWrites(fileA);
+    return { ns1, ns2: namespaceOf(fileA) };
+  }
+
+  it("does not pair a secret a repeated hand-off kept with the client the file registered since (#2734)", async () => {
+    const keyring = new KeyringSecretStore();
+    const { ns1, ns2 } = await repeatedHandOff(keyring, true);
+    // The keychain kept A's value; the file, and its record, say B.
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns1), SECRET_FIELD),
+    ).toBe("secret-a");
+    expect(clientOf(await readOAuthStore(fileA, keyring))).toEqual({
+      client_id: "client-b",
+    });
+
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "z" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns2), SECRET_FIELD),
+    ).toBeNull();
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns1), SECRET_FIELD),
+    ).toBeNull();
+  });
+
+  it("still carries a secret a repeated hand-off kept for the client it was written for (#2734)", async () => {
+    const keyring = new KeyringSecretStore();
+    const { ns1, ns2 } = await repeatedHandOff(keyring, false);
+    expect(clientOf(await readOAuthStore(fileA, keyring))).toEqual({
+      client_id: "client-a",
+      client_secret: "secret-a",
+    });
+
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "z" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns2), SECRET_FIELD),
+    ).toBe("secret-a");
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns1), SECRET_FIELD),
+    ).toBeNull();
+  });
+
+  it("stamps a legacy secret adoption moves, so a later re-adoption elsewhere can still carry it (#2734)", async () => {
+    // A pre-#2549 file: no stamp, and its client secret at the shared
+    // legacy id with no owner stamp beside it.
+    const keyring = new KeyringSecretStore();
+    await writeStoreFile(
+      fileA,
+      JSON.stringify({
+        servers: {
+          [SERVER]: {
+            activeIssuer: ISSUER,
+            byIssuer: {
+              [ISSUER]: {
+                clientInformation: { client_id: "dcr-client" },
+                clientRegistrationKind: "dcr",
+              },
+            },
+          },
+        },
+        idpSessions: {},
+      }),
+    );
+    await flushStoreFileWrites(fileA);
+    await keyring.set(oauthSecretServerId(SERVER), SECRET_FIELD, "s3cret");
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "x" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    expect(
+      stampedOwner(
+        (await keyring.get(
+          oauthSecretServerId(SERVER, ns1),
+          clientCredentialStampField(SECRET_FIELD),
+        )) ?? undefined,
+        "s3cret",
+      ),
+    ).toBe("dcr-client");
+
+    await stripStamp(fileA);
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "y" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      new InMemorySecretStore(),
+    );
+    await flushStoreFileWrites(fileA);
+    expect(clientOf(await readOAuthStore(fileA, keyring))?.client_secret).toBe(
+      "s3cret",
     );
   });
 
