@@ -2,7 +2,8 @@
  * Unit tests for the secrets-namespace ledger (#2560): its tolerant parse,
  * record-only-when-new writes, per-namespace purge bookkeeping, and the
  * pending carry-over a record an adoption could not read owes its
- * successor (#2672), and the best-effort failure handling that keeps a ledger problem from ever
+ * successor (#2672) — carried only where the store's owner stamp vouches
+ * for the value (#2734) — and the best-effort failure handling that keeps a ledger problem from ever
  * failing the OAuth save or removal it rides on. The end-to-end scenarios
  * (a stripped stamp re-adopted, a stripped file removed) live in the
  * integration suite's `oauth-secrets-namespace.test.ts`.
@@ -65,6 +66,8 @@ class FakeKeyring extends KeyringSecretStore {
 import {
   LEGACY_TOKENS_FIELD,
   IDP_SESSION_FIELD,
+  clientCredentialStamp,
+  clientCredentialStampField,
   issuerClientSecretField,
   oauthIdpSecretServerId,
   oauthSecretServerId,
@@ -514,8 +517,30 @@ describe("pending carry-over (#2672)", () => {
   const SECRET = issuerClientSecretField(ISSUER);
   const owners = (clientId: string) =>
     new Map([[SERVER, new Map([[SECRET, clientId]])]]);
+  const STAMP = clientCredentialStampField(SECRET);
   // Another run's store: marking is about the records it could not read.
   const elsewhere = new KeyringSecretStore();
+
+  /** The keychain, as far as `instanceof` is concerned, over a map. */
+  class MapKeyring extends KeyringSecretStore {
+    readonly inner = new InMemorySecretStore();
+    get = this.inner.get.bind(this.inner);
+    getStrict = this.inner.get.bind(this.inner);
+    set = this.inner.set.bind(this.inner);
+    deleteAllForServer = this.inner.deleteAllForServer.bind(this.inner);
+  }
+
+  /** Store `secret` under `namespace`, stamped as `clientId`'s, as a save would. */
+  async function stamped(
+    target: { set: InMemorySecretStore["set"] },
+    namespace: string,
+    secret: string,
+    clientId: string,
+  ) {
+    const id = oauthSecretServerId(SERVER, namespace);
+    await target.set(id, SECRET, secret);
+    await target.set(id, STAMP, clientCredentialStamp(clientId, secret));
+  }
 
   /** NS1's record in this run's store, owed to NS2 by a run elsewhere. */
   async function owed(clientId = "c", secret: string | null = "s3cret") {
@@ -527,9 +552,7 @@ describe("pending carry-over (#2672)", () => {
       [],
       owners(clientId),
     );
-    if (secret !== null) {
-      await store.set(oauthSecretServerId(SERVER, NS1), SECRET, secret);
-    }
+    if (secret !== null) await stamped(store, NS1, secret, clientId);
     await markUncarriedNamespaces(stateFile, elsewhere, NS2);
   }
 
@@ -675,11 +698,11 @@ describe("pending carry-over (#2672)", () => {
         }),
       );
       const carries = await pendingCarries(stateFile, store, NS2);
-      expect(carries.map((c) => [c.namespace, [...c.owners.keys()]])).toEqual([
+      expect(carries.map((c) => [c.namespace, [...c.fields.keys()]])).toEqual([
         ["44444444-4444-4444-8444-444444444444", []],
         [NS3, [SERVER]],
       ]);
-      expect([...carries[1].owners.get(SERVER)!]).toEqual([["ok", "c"]]);
+      expect([...carries[1].fields.get(SERVER)!]).toEqual(["ok"]);
     });
   });
 
@@ -691,6 +714,10 @@ describe("pending carry-over (#2672)", () => {
       await owed();
       await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
       expect(await store.get(to, SECRET)).toBe("s3cret");
+      // With its stamp, so it still vouches for the value there.
+      expect(await store.get(to, STAMP)).toBe(
+        clientCredentialStamp("c", "s3cret"),
+      );
       expect(await store.get(from, SECRET)).toBeNull();
       // The carried key and its owner are recorded under the current
       // namespace, like every other write the ledger tracks.
@@ -729,11 +756,31 @@ describe("pending carry-over (#2672)", () => {
         [],
         owners("c"),
       );
-      await store.set(oauthSecretServerId(SERVER, NS3), SECRET, "newer");
+      await stamped(store, NS3, "newer", "c");
       await markUncarriedNamespaces(stateFile, elsewhere, NS2);
       await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
       expect(await store.get(to, SECRET)).toBe("newer");
     });
+
+    it.each([
+      ["no stamp", null],
+      ["a malformed stamp", "{not json"],
+      ["a stamp that is not an object", "7"],
+      ["a stamp naming no client", JSON.stringify({ sha256: "x" })],
+      // The hand-off keeps and copies per account: a kept value can meet a
+      // copied stamp, and an older Inspector can rewrite a value alone.
+      ["another value's stamp", clientCredentialStamp("c", "other")],
+    ])(
+      "does not carry a value with %s, and still purges",
+      async (_l, stamp) => {
+        await owed();
+        if (stamp === null) await store.delete(from, STAMP);
+        else await store.set(from, STAMP, stamp);
+        await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+        expect(await store.get(to, SECRET)).toBeNull();
+        expect(await store.get(from, SECRET)).toBeNull();
+      },
+    );
 
     it.each([
       ["a different client now", owners("other")],
@@ -795,7 +842,7 @@ describe("pending carry-over (#2672)", () => {
         [],
         owners("c"),
       );
-      await store.set(oauthSecretServerId(SERVER, NS3), SECRET, "newer");
+      await stamped(store, NS3, "newer", "c");
       await markUncarriedNamespaces(stateFile, elsewhere, NS2);
       const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
       vi.spyOn(store, "set").mockRejectedValueOnce(new Error("busy"));
@@ -808,14 +855,13 @@ describe("pending carry-over (#2672)", () => {
       expect(await store.get(to, SECRET)).toBe("newer");
     });
 
-    it("in a keychain run, trusts the keychain's owner over a secrets file's", async () => {
-      // The hand-off keeps a value the keychain already holds, so where
-      // both record one, the keychain's value is its own record's client's.
+    /** A `secrets.json` store at `name`, for its ledger location only. */
+    const secretsFile = (name = "secrets.json") =>
+      new FileSecretStore({ filePath: join(tempDir, name), passphrase: "" });
+
+    it("in a keychain run, looks in every field a covered record wrote, keeping the keychain's own owner", async () => {
       const keyring = new FakeKeyring();
-      const fileStore = new FileSecretStore({
-        filePath: join(tempDir, "secrets.json"),
-        passphrase: "",
-      });
+      const fileStore = secretsFile();
       await recordNamespaceKeys(
         stateFile,
         keyring,
@@ -834,9 +880,9 @@ describe("pending carry-over (#2672)", () => {
       );
       await markUncarriedNamespaces(stateFile, store, NS2);
       const [carry] = await pendingCarries(stateFile, keyring, NS2);
-      expect([...carry.owners.get(SERVER)!]).toEqual([[SECRET, "a"]]);
+      expect([...carry.fields.get(SERVER)!]).toEqual([SECRET]);
 
-      // And the file run's hand-off of its record keeps the keychain's.
+      // The file run's hand-off of its record keeps the keychain's owner.
       vi.spyOn(fileStore, "deleteAllForServer").mockResolvedValue(undefined);
       await purgeSupersededNamespaces(stateFile, fileStore, NS2, owners("b"));
       expect(readLedger()[NS1].keyring.owners).toEqual({
@@ -844,56 +890,103 @@ describe("pending carry-over (#2672)", () => {
       });
     });
 
-    it("in a keychain run, carries nothing a secrets file names an owner for when the keychain record's own is unknown", async () => {
-      // Written to the keychain before owners were kept (or for a client
-      // with no secret): the hand-off may have kept that value or filled
-      // the field from the file, and nothing says which.
-      const keyring = new FakeKeyring();
-      const fileStore = new FileSecretStore({
-        filePath: join(tempDir, "secrets.json"),
-        passphrase: "",
-      });
-      await recordNamespaceKeys(stateFile, keyring, NS1, [SERVER], []);
+    it("in a keychain run, carries a value absorbed from a re-registered secrets file only for the client it was written for (#2734)", async () => {
+      // A's secret reached the keychain in one hand-off; the file then
+      // re-registered B, and the next hand-off kept A's value. The file's
+      // record says B, but the value is A's.
+      const keyring = new MapKeyring();
       await recordNamespaceKeys(
         stateFile,
-        fileStore,
+        secretsFile(),
         NS1,
         [SERVER],
         [],
         owners("b"),
       );
+      await stamped(keyring, NS1, "a-secret", "a");
       await markUncarriedNamespaces(stateFile, store, NS2);
-      const [carry] = await pendingCarries(stateFile, keyring, NS2);
-      expect(carry.owners.size).toBe(0);
 
-      // The file run's hand-off does not label the keychain's field either.
-      vi.spyOn(fileStore, "deleteAllForServer").mockResolvedValue(undefined);
-      await purgeSupersededNamespaces(stateFile, fileStore, NS2, owners("b"));
-      expect(readLedger()[NS1].keyring.owners).toBeUndefined();
+      await purgeSupersededNamespaces(stateFile, keyring, NS2, owners("b"));
+      expect(await keyring.get(to, SECRET)).toBeNull();
+      expect(await keyring.get(from, SECRET)).toBeNull();
     });
+
+    it("in a keychain run, still carries for the client the stamp names when a file record says otherwise", async () => {
+      const keyring = new MapKeyring();
+      await recordNamespaceKeys(
+        stateFile,
+        secretsFile(),
+        NS1,
+        [SERVER],
+        [],
+        owners("b"),
+      );
+      await stamped(keyring, NS1, "a-secret", "a");
+      await markUncarriedNamespaces(stateFile, store, NS2);
+
+      await purgeSupersededNamespaces(stateFile, keyring, NS2, owners("a"));
+      expect(await keyring.get(to, SECRET)).toBe("a-secret");
+    });
+
+    it("in a keychain run, carries an absorbed value its own record lists the server for but names no owner of (#2734)", async () => {
+      // An unrelated keychain save lists every merged server in its record
+      // but owners only for what it writes; that is no keychain write here.
+      const keyring = new MapKeyring();
+      await recordNamespaceKeys(stateFile, keyring, NS1, [SERVER], []);
+      await recordNamespaceKeys(
+        stateFile,
+        secretsFile(),
+        NS1,
+        [SERVER],
+        [],
+        owners("c"),
+      );
+      await stamped(keyring, NS1, "s3cret", "c");
+      await markUncarriedNamespaces(stateFile, store, NS2);
+
+      await purgeSupersededNamespaces(stateFile, keyring, NS2, owners("c"));
+      expect(await keyring.get(to, SECRET)).toBe("s3cret");
+    });
+
+    it.each([
+      ["the client whose file was absorbed", "a", "a-secret"],
+      ["the other file's client", "b", null],
+    ])(
+      "in a keychain run with two secrets files, carries only for %s (#2734)",
+      async (_label, now, carried) => {
+        // F1 holds A's secret and F2 B's under one namespace; the keychain
+        // absorbed F1's. Records are merged in no order that says which.
+        const keyring = new MapKeyring();
+        await recordNamespaceKeys(
+          stateFile,
+          secretsFile("f1.json"),
+          NS1,
+          [SERVER],
+          [],
+          owners("a"),
+        );
+        await recordNamespaceKeys(
+          stateFile,
+          secretsFile("f2.json"),
+          NS1,
+          [SERVER],
+          [],
+          owners("b"),
+        );
+        await stamped(keyring, NS1, "a-secret", "a");
+        await markUncarriedNamespaces(stateFile, store, NS2);
+
+        await purgeSupersededNamespaces(stateFile, keyring, NS2, owners(now));
+        expect(await keyring.get(to, SECRET)).toBe(carried);
+      },
+    );
 
     it("in a keychain run, carries before purging a covered file record listed ahead of the owed one", async () => {
       // An unowed `file:` record ahead of the owed keychain record: its
       // purge also deletes the server's ids from the keychain, so the
       // carry has to run first.
-      class MapKeyring extends KeyringSecretStore {
-        readonly inner = new InMemorySecretStore();
-        get = this.inner.get.bind(this.inner);
-        getStrict = this.inner.get.bind(this.inner);
-        set = this.inner.set.bind(this.inner);
-        deleteAllForServer = this.inner.deleteAllForServer.bind(this.inner);
-      }
       const keyring = new MapKeyring();
-      await recordNamespaceKeys(
-        stateFile,
-        new FileSecretStore({
-          filePath: join(tempDir, "secrets.json"),
-          passphrase: "",
-        }),
-        NS1,
-        [SERVER],
-        [],
-      );
+      await recordNamespaceKeys(stateFile, secretsFile(), NS1, [SERVER], []);
       await recordNamespaceKeys(
         stateFile,
         keyring,
@@ -902,7 +995,7 @@ describe("pending carry-over (#2672)", () => {
         [],
         owners("c"),
       );
-      await keyring.set(from, SECRET, "s3cret");
+      await stamped(keyring, NS1, "s3cret", "c");
       await markUncarriedNamespaces(stateFile, store, NS2);
 
       await purgeSupersededNamespaces(stateFile, keyring, NS2, owners("c"));
@@ -913,10 +1006,7 @@ describe("pending carry-over (#2672)", () => {
     it("hands a secrets file's owed record to the keychain, mark and owners included", async () => {
       // Its entries may have been absorbed into the keychain before this
       // file run, which then finds nothing to carry.
-      const fileStore = new FileSecretStore({
-        filePath: join(tempDir, "secrets.json"),
-        passphrase: "",
-      });
+      const fileStore = secretsFile();
       await recordNamespaceKeys(
         stateFile,
         fileStore,

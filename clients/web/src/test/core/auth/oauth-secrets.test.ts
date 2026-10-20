@@ -27,6 +27,10 @@ import {
   joinIdpSession,
   serverSecretFields,
   snapshotHasPlaintextSecrets,
+  clientCredentialStamp,
+  clientCredentialStampField,
+  restampClientCredentials,
+  stampedOwner,
 } from "@inspector/core/auth/node/oauth-secrets.js";
 import type { ServerOAuthState } from "@inspector/core/auth/store.js";
 import type { OAuthTokens } from "@modelcontextprotocol/client";
@@ -396,20 +400,126 @@ describe("serverSecretFields", () => {
       [
         LEGACY_TOKENS_FIELD,
         LEGACY_CLIENT_SECRET_FIELD,
+        clientCredentialStampField(LEGACY_CLIENT_SECRET_FIELD),
         LEGACY_REGISTRATION_TOKEN_FIELD,
+        clientCredentialStampField(LEGACY_REGISTRATION_TOKEN_FIELD),
         PREREG_CLIENT_SECRET_FIELD,
         PREREG_REGISTRATION_TOKEN_FIELD,
       ].sort(),
     );
     const issuer = "https://as.example";
-    expect(serverSecretFields({ byIssuer: { [issuer]: {} } })).toContain(
+    const fields = serverSecretFields({ byIssuer: { [issuer]: {} } });
+    for (const field of [
       issuerTokensField(issuer),
-    );
-    expect(serverSecretFields({ byIssuer: { [issuer]: {} } })).toContain(
       issuerClientSecretField(issuer),
-    );
-    expect(serverSecretFields({ byIssuer: { [issuer]: {} } })).toContain(
+      clientCredentialStampField(issuerClientSecretField(issuer)),
       issuerRegistrationTokenField(issuer),
+      clientCredentialStampField(issuerRegistrationTokenField(issuer)),
+    ]) {
+      expect(fields).toContain(field);
+    }
+  });
+});
+
+describe("client-credential owner stamps (#2734)", () => {
+  const issuer = "https://as.example";
+  const SECRET = issuerClientSecretField(issuer);
+  const STAMP = clientCredentialStampField(SECRET);
+  const dcr = (clientId: string, secret?: string): ServerOAuthState => ({
+    byIssuer: {
+      [issuer]: {
+        clientInformation: {
+          client_id: clientId,
+          ...(secret !== undefined && { client_secret: secret }),
+        },
+      },
+    },
+  });
+
+  it("stamps each DCR client credential with its client, and never a pre-registered one", () => {
+    const { secrets } = splitServerOAuthState(
+      {
+        ...dcr("cid", "ics"),
+        clientInformation: {
+          client_id: "legacy",
+          client_secret: "cs",
+          registration_access_token: "rat",
+        } as ServerOAuthState["clientInformation"],
+        preregisteredClientInformation: {
+          client_id: "pre",
+          client_secret: "pre-cs",
+        },
+      },
+      "all",
+    );
+    expect(stampedOwner(secrets[STAMP], "ics")).toBe("cid");
+    expect(
+      stampedOwner(
+        secrets[clientCredentialStampField(LEGACY_CLIENT_SECRET_FIELD)],
+        "cs",
+      ),
+    ).toBe("legacy");
+    expect(
+      stampedOwner(
+        secrets[clientCredentialStampField(LEGACY_REGISTRATION_TOKEN_FIELD)],
+        "rat",
+      ),
+    ).toBe("legacy");
+    expect(
+      secrets[clientCredentialStampField(PREREG_CLIENT_SECRET_FIELD)],
+    ).toBeUndefined();
+    // The join serves the values and ignores the stamps.
+    expect(
+      joinServerOAuthState(
+        { byIssuer: { [issuer]: { clientInformation: { client_id: "cid" } } } },
+        secrets,
+      ).byIssuer![issuer]!.clientInformation,
+    ).toEqual({ client_id: "cid", client_secret: "ics" });
+  });
+
+  it("stamps nothing for a client with no client_id", () => {
+    const { secrets } = splitServerOAuthState(
+      {
+        clientInformation: {
+          client_secret: "cs",
+        } as ServerOAuthState["clientInformation"],
+      },
+      "all",
+    );
+    expect(secrets).toEqual({ [LEGACY_CLIENT_SECRET_FIELD]: "cs" });
+  });
+
+  it.each([
+    ["no stamp", undefined],
+    ["a malformed stamp", "{"],
+    ["a non-object stamp", "null"],
+    ["a non-string client_id", JSON.stringify({ client_id: 7, sha256: "" })],
+    ["another value's stamp", clientCredentialStamp("cid", "other")],
+  ])("names no owner for %s", (_label, stamp) => {
+    expect(stampedOwner(stamp, "ics")).toBeUndefined();
+  });
+
+  it("restamps only what no stamp vouches for, keeping a valid one whatever client it names", () => {
+    const valid = clientCredentialStamp("earlier", "ics");
+    expect(
+      restampClientCredentials(dcr("cid"), { [SECRET]: "ics", [STAMP]: valid }),
+    ).toEqual({ [SECRET]: "ics", [STAMP]: valid });
+    expect(
+      restampClientCredentials(dcr("cid"), {
+        [SECRET]: "ics",
+        [STAMP]: clientCredentialStamp("cid", "other"),
+      }),
+    ).toEqual({
+      [SECRET]: "ics",
+      [STAMP]: clientCredentialStamp("cid", "ics"),
+    });
+    expect(restampClientCredentials(dcr("cid"), { [SECRET]: "ics" })).toEqual({
+      [SECRET]: "ics",
+      [STAMP]: clientCredentialStamp("cid", "ics"),
+    });
+    // A stamp with no value beside it vouches for nothing.
+    expect(restampClientCredentials(dcr("cid"), { [STAMP]: valid })).toEqual(
+      {},
     );
   });
 });
