@@ -78,11 +78,14 @@ export function resolveTlsConfig(
   // Validate the pair now rather than at bind time, where the same OpenSSL
   // error surfaces from inside the server constructor with no hint of which
   // variable to fix. Catches a non-PEM file and a key that does not match the
-  // certificate alike.
+  // certificate alike. An empty file needs its own check: Node accepts
+  // `{ key: "", cert: "" }` and builds a server that can never complete a
+  // handshake.
   try {
+    if (!key.trim() || !cert.trim()) throw new Error("empty PEM file");
     createSecureContext({ key, cert });
   } catch (err) {
-    // createSecureContext only throws Error instances (OpenSSL failures).
+    // Both throwers above raise Error instances (OpenSSL failures or ours).
     const reason = (err as Error).message;
     throw new Error(
       `${TLS_KEY_PATH_ENV}="${keyPath}" and ${TLS_CERT_PATH_ENV}="${certPath}" are not a usable PEM key/certificate pair (${reason}).`,

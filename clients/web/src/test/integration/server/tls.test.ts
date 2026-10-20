@@ -40,10 +40,30 @@ describe("resolveTlsConfig", () => {
   });
 
   it("reads process.env by default", () => {
-    // The suite's own environment carries neither variable.
-    expect(process.env[TLS_KEY_PATH_ENV]).toBeUndefined();
-    expect(process.env[TLS_CERT_PATH_ENV]).toBeUndefined();
-    expect(resolveTlsConfig()).toBeUndefined();
+    // Saved and cleared so a shell that exported the pair (as docs/tls.md
+    // suggests) cannot decide the outcome.
+    const saved = {
+      key: process.env[TLS_KEY_PATH_ENV],
+      cert: process.env[TLS_CERT_PATH_ENV],
+    };
+    try {
+      delete process.env[TLS_KEY_PATH_ENV];
+      delete process.env[TLS_CERT_PATH_ENV];
+      expect(resolveTlsConfig()).toBeUndefined();
+      process.env[TLS_KEY_PATH_ENV] = fixture.keyPath;
+      process.env[TLS_CERT_PATH_ENV] = fixture.certPath;
+      expect(resolveTlsConfig()).toEqual(
+        resolveTlsConfig(env(fixture.keyPath, fixture.certPath)),
+      );
+    } finally {
+      for (const [name, value] of [
+        [TLS_KEY_PATH_ENV, saved.key],
+        [TLS_CERT_PATH_ENV, saved.cert],
+      ] as const) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
   });
 
   it("refuses a key path without a cert path, naming both variables", () => {
@@ -118,6 +138,16 @@ describe("resolveTlsConfig", () => {
     writeFileSync(junk, "not a certificate\n");
     expect(() => resolveTlsConfig(env(fixture.keyPath, junk))).toThrow(
       `${TLS_KEY_PATH_ENV}="${fixture.keyPath}" and ${TLS_CERT_PATH_ENV}="${junk}" are not a usable PEM key/certificate pair (`,
+    );
+  });
+
+  it.each(["key", "cert"] as const)("refuses an empty %s file", (which) => {
+    const empty = join(fixture.dir, `empty-${which}.pem`);
+    writeFileSync(empty, "\n");
+    const [key, cert] =
+      which === "key" ? [empty, fixture.certPath] : [fixture.keyPath, empty];
+    expect(() => resolveTlsConfig(env(key, cert))).toThrow(
+      `${TLS_KEY_PATH_ENV}="${key}" and ${TLS_CERT_PATH_ENV}="${cert}" are not a usable PEM key/certificate pair (empty PEM file).`,
     );
   });
 
