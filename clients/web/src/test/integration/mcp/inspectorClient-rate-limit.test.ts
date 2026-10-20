@@ -84,6 +84,14 @@ function startThrottlingServer(): Promise<ThrottlingServer> {
       res.writeHead(202).end();
       return;
     }
+    if (body.method === "tools/call") {
+      res.writeHead(THROTTLED.status, {
+        "content-type": "text/plain",
+        ...THROTTLED.headers,
+      });
+      res.end(THROTTLED.body);
+      return;
+    }
     if (body.method === "tools/list") {
       res.writeHead(toolsListReply.status, {
         "content-type": "text/plain",
@@ -107,6 +115,30 @@ function startThrottlingServer(): Promise<ThrottlingServer> {
       } else {
         res.end("second");
       }
+      return;
+    }
+    if (body.method === "server/discover") {
+      // Only a modern-era connect sends this; the legacy-pinned cases never do.
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            resultType: "complete",
+            ttlMs: 0,
+            cacheScope: "public",
+            supportedVersions: ["2026-07-28"],
+            // The tasks extension is what routes a modern `tools/call` onto
+            // ext-tasks' raw-wire channel instead of the SDK's `request`.
+            capabilities: {
+              tools: {},
+              extensions: { "io.modelcontextprotocol/tasks": {} },
+            },
+            serverInfo: { name: "throttling-server", version: "1.0.0" },
+          },
+        }),
+      );
       return;
     }
     const result =
@@ -204,13 +236,15 @@ describe("InspectorClient rate-limit recognition (#2442)", () => {
   async function connectTo(
     url: string,
     transport: CreateTransport = createTransportNode,
+    era: "legacy" | "modern" = "legacy",
   ): Promise<InspectorClient> {
     client = new InspectorClient(
       { type: "streamable-http", url },
       {
         environment: { transport },
-        // Pinned legacy so the connect is exactly `initialize`.
-        versionNegotiation: eraToVersionNegotiation("legacy"),
+        // Pinned, so the connect is exactly `initialize` (legacy) or
+        // `server/discover` (modern) and nothing else.
+        versionNegotiation: eraToVersionNegotiation(era),
       },
     );
     await client.connect();
@@ -348,6 +382,43 @@ describe("InspectorClient rate-limit recognition (#2442)", () => {
     backend = started.server;
     await expectOverlapCorrelated(
       await connectTo(upstream.url, started.transport),
+    );
+  });
+
+  /**
+   * Against a modern server advertising the tasks extension, a tool call
+   * bypasses the SDK's `Client.request` for the ext-tasks raw-wire channel,
+   * so this is the case that proves the annotation is applied on that path
+   * too, not only on the SDK funnel. (`tools/list` is no use here: it takes
+   * the SDK funnel in both eras, and so does `tools/call` without the
+   * extension.)
+   */
+  async function expectModernThrottled(c: InspectorClient): Promise<void> {
+    expect(c.getProtocolEra()).toBe("modern");
+    const caught = await rejectionOf(
+      c.callTool({ name: "echo", inputSchema: { type: "object" } }, {}),
+    );
+    const data = expectThrottled(caught);
+    expect((caught as Error).message).toMatch(
+      /^Rate limited by the server \(HTTP 429\) on tools\/call\. The server asked to retry after 30s\. /,
+    );
+    expect(data.method).toBe("tools/call");
+    expect(data.retryAfterMs).toBe(30_000);
+  }
+
+  it("annotates a modern-era 429, which takes the raw-wire path", async () => {
+    upstream = await startThrottlingServer();
+    await expectModernThrottled(
+      await connectTo(upstream.url, createTransportNode, "modern"),
+    );
+  });
+
+  it("annotates a modern-era 429 through the web backend", async () => {
+    upstream = await startThrottlingServer();
+    const started = await startRemoteBackend();
+    backend = started.server;
+    await expectModernThrottled(
+      await connectTo(upstream.url, started.transport, "modern"),
     );
   });
 });

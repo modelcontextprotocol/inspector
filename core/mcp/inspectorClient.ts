@@ -536,8 +536,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     transport: () => this.transport,
     defaultTimeoutMs: () => this.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
     resetTimeoutOnProgress: () => this.resetTimeoutOnProgress,
-    annotateTimeout: (error, method) =>
-      annotateRequestTimeout(error, method, this.getConnectionDiagnostics()),
+    annotateError: (error, method) => this.annotateRequestError(error, method),
   });
   private readonly dispatchTaskRequest: RawClientDispatch = (
     request,
@@ -1117,14 +1116,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       try {
         return await sdkRequest(...args);
       } catch (err) {
-        const method = args[0].method;
-        throw annotateRateLimit(
-          annotateRequestTimeout(err, method, this.getConnectionDiagnostics()),
-          method,
-        );
+        throw this.annotateRequestError(err, args[0].method);
       }
     };
     client.request = decorated as SdkRequest;
+  }
+
+  /**
+   * The one place a failed request's error is decorated, shared by the SDK
+   * funnel above and the raw-wire channel that bypasses it (modern-era tool
+   * calls and task operations), so a caller sees the same error whichever
+   * path its request took: a timeout with the connection's state (#2318), a
+   * `429` named as rate limiting (#2442), anything else untouched.
+   */
+  private annotateRequestError(err: unknown, method: string): unknown {
+    return annotateRateLimit(
+      annotateRequestTimeout(err, method, this.getConnectionDiagnostics()),
+      method,
+    );
   }
 
   /**

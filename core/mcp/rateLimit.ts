@@ -134,8 +134,13 @@ export function parseRetryAfter(
   if (/^\d+$/.test(trimmed)) return Number(trimmed) * 1000;
   if (!IMF_FIXDATE.test(trimmed)) return undefined;
   const at = Date.parse(trimmed);
-  // A well-formed shape can still name no real date (`Mon, 99 Foo 2026 …`).
-  if (Number.isNaN(at)) return undefined;
+  // A well-formed shape can still name no real date. `Mon, 99 Foo 2026 …` is
+  // `NaN`, but `Tue, 31 Nov 2026 …` silently rolls over to 1 December, so the
+  // parse is accepted only if it prints back as exactly what was sent —
+  // `toUTCString` emits IMF-fixdate, so a real date always does.
+  if (Number.isNaN(at) || new Date(at).toUTCString() !== trimmed) {
+    return undefined;
+  }
   return Math.max(0, at - now);
 }
 

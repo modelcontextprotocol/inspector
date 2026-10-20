@@ -179,7 +179,14 @@ describe("parseRetryAfter", () => {
     expect(parseRetryAfter("-5", NOW)).toBeUndefined();
     expect(parseRetryAfter("1.5", NOW)).toBeUndefined();
     expect(parseRetryAfter("2026-10-19T12:01:30Z", NOW)).toBeUndefined();
-    // The right shape, but no real date.
+    // The right shape, but no real date: `Date.parse` rolls an impossible
+    // day over (31 Nov → 1 Dec) and ignores a weekday that does not match.
+    expect(parseRetryAfter("Tue, 31 Nov 2026 12:00:00 GMT", NOW)).toBe(
+      undefined,
+    );
+    expect(parseRetryAfter("Tue, 19 Oct 2026 12:01:30 GMT", NOW)).toBe(
+      undefined,
+    );
     expect(parseRetryAfter("Mon, 99 Foo 2026 12:00:00 GMT", NOW)).toBe(
       undefined,
     );
