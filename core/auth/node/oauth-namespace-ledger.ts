@@ -158,25 +158,43 @@ const emptyKeys = (): LedgerKeys => ({
 });
 
 /**
+ * Fold `other`'s owners into `own`'s, for a server `own` has never been
+ * written for only (#2672). Where `own` has, the value its store holds
+ * for a field may be its own write's or one a hand-off filled in, and its
+ * owners alone say which: an owner names the client of a value it wrote,
+ * and a missing one — a vacant field, or a record from before owners were
+ * kept — is ambiguous, so nothing is carried rather than guessed.
+ */
+function foldOwners(
+  own: LedgerKeys | undefined,
+  other: ClientCredentialOwners,
+): ClientCredentialOwners {
+  const owners: ClientCredentialOwners = new Map();
+  for (const [url, fields] of other) {
+    if (!own?.servers.has(url)) owners.set(url, new Map(fields));
+  }
+  mergeOwners(owners, own?.owners ?? new Map());
+  return owners;
+}
+
+/**
  * The owners a run in `location` should trust for one namespace's
- * credentials (#2672): a covered secrets file's, overlaid by its own
- * record's. The file-to-keychain hand-off keeps a value the keychain
- * already holds, so where both record an owner for a field, the value the
- * keychain holds is the keychain record's client's.
+ * credentials (#2672): its own record's, plus a covered secrets file's
+ * for servers its own record was never written for — a value the
+ * file-to-keychain hand-off can only have brought from that file.
  */
 function effectiveOwners(
   location: string,
   byLocation: Map<string, LedgerKeys>,
 ): ClientCredentialOwners {
-  const owners: ClientCredentialOwners = new Map();
+  const fromFiles: ClientCredentialOwners = new Map();
   for (const { location: recorded, keys } of coveredLocations(
     location,
     byLocation,
   )) {
-    if (recorded !== location) mergeOwners(owners, keys.owners);
+    if (recorded !== location) mergeOwners(fromFiles, keys.owners);
   }
-  mergeOwners(owners, byLocation.get(location)?.owners ?? new Map());
-  return owners;
+  return foldOwners(byLocation.get(location), fromFiles);
 }
 
 /** Merge `source` into `target`, the later owner winning; reports a change. */
@@ -622,13 +640,11 @@ export async function purgeSupersededNamespaces(
       // this run is one this run's carry could not find (#2672).
       if (recorded.startsWith(FILE_LOCATION_PREFIX)) {
         const keyring = byLocation.get(KEYRING_LOCATION) ?? emptyKeys();
+        // Before the servers merge, which would make every one look like
+        // the keychain's own.
+        keyring.owners = foldOwners(keyring, keys.owners);
         for (const url of keys.servers) keyring.servers.add(url);
         for (const issuer of keys.idpSessions) keyring.idpSessions.add(issuer);
-        // The keychain's own owner wins, as its value does in the hand-off.
-        const merged: ClientCredentialOwners = new Map();
-        mergeOwners(merged, keys.owners);
-        mergeOwners(merged, keyring.owners);
-        keyring.owners = merged;
         keyring.owedTo ??= keys.owedTo;
         byLocation.set(KEYRING_LOCATION, keyring);
       }

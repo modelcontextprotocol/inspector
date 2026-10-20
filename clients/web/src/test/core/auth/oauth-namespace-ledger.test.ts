@@ -844,6 +844,34 @@ describe("pending carry-over (#2672)", () => {
       });
     });
 
+    it("in a keychain run, carries nothing a secrets file names an owner for when the keychain record's own is unknown", async () => {
+      // Written to the keychain before owners were kept (or for a client
+      // with no secret): the hand-off may have kept that value or filled
+      // the field from the file, and nothing says which.
+      const keyring = new FakeKeyring();
+      const fileStore = new FileSecretStore({
+        filePath: join(tempDir, "secrets.json"),
+        passphrase: "",
+      });
+      await recordNamespaceKeys(stateFile, keyring, NS1, [SERVER], []);
+      await recordNamespaceKeys(
+        stateFile,
+        fileStore,
+        NS1,
+        [SERVER],
+        [],
+        owners("b"),
+      );
+      await markUncarriedNamespaces(stateFile, store, NS2);
+      const [carry] = await pendingCarries(stateFile, keyring, NS2);
+      expect(carry.owners.size).toBe(0);
+
+      // The file run's hand-off does not label the keychain's field either.
+      vi.spyOn(fileStore, "deleteAllForServer").mockResolvedValue(undefined);
+      await purgeSupersededNamespaces(stateFile, fileStore, NS2, owners("b"));
+      expect(readLedger()[NS1].keyring.owners).toBeUndefined();
+    });
+
     it("hands a secrets file's owed record to the keychain, mark and owners included", async () => {
       // Its entries may have been absorbed into the keychain before this
       // file run, which then finds nothing to carry.

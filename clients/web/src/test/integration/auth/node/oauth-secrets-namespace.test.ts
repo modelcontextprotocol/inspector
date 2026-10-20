@@ -1278,12 +1278,29 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
     };
     expect(ledger.namespaces[ns1].keyring.owners?.[SERVER]).toEqual({
       [SECRET_FIELD]: "client-a",
-      [`registration-token:${ISSUER}`]: "client-a",
     });
     expect(ledger.namespaces[ns1].memory.owners?.[SERVER]).toEqual({
       [SECRET_FIELD]: "client-b",
-      [`registration-token:${ISSUER}`]: "client-b",
     });
+  });
+
+  it("records no owner for a client with no secret", async () => {
+    const keyring = new KeyringSecretStore();
+    await writeOAuthSections(
+      fileA,
+      confidentialClient("public-client"),
+      undefined,
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    const ledger = JSON.parse(
+      readFileSync(namespaceLedgerPath(fileA), "utf8"),
+    ) as {
+      namespaces: Record<string, Record<string, { owners?: unknown }>>;
+    };
+    expect(ledger.namespaces[namespaceOf(fileA)].keyring.owners).toBe(
+      undefined,
+    );
   });
 
   it("does not resurrect the tokens, only the client's credentials", async () => {

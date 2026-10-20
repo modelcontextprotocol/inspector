@@ -436,16 +436,26 @@ async function adoptSecretsNamespace(
     );
   }
 
+  // The legacy ids first, then the namespaces this file used to carry for
+  // whatever the legacy ids lack (#2630) — a stripped stamp leaves a
+  // confidential client's secret only there. Read before anything is
+  // written, so the owners recorded below are those of values that exist.
+  const values = await readEntrySecrets(
+    snapshot,
+    secretStore,
+    undefined,
+    await recordedNamespaces(filePath),
+  );
+  const owners = snapshotClientOwners(snapshot);
   // Recorded before the copies, so an interrupted move's copies are still
   // findable if this namespace is later superseded.
-  const owners = snapshotClientOwners(snapshot);
   await recordNamespaceKeys(
     filePath,
     secretStore,
     namespace,
     Object.keys(snapshot.servers),
     Object.keys(snapshot.idpSessions),
-    owners,
+    writtenClientOwners(snapshot, (url) => values.servers.get(url) ?? {}),
   );
   // Before the copies too: what this run's store cannot show it is still
   // owed to the new namespace by a run on the store that holds it. A
@@ -457,15 +467,6 @@ async function adoptSecretsNamespace(
   // under it — which makes "restore" simply "delete what we copied".
   const touched: SecretFieldSnapshot[] = [];
   try {
-    // The legacy ids first, then the namespaces this file used to carry
-    // for whatever the legacy ids lack (#2630) — a stripped stamp leaves a
-    // confidential client's secret only there.
-    const values = await readEntrySecrets(
-      snapshot,
-      secretStore,
-      undefined,
-      await recordedNamespaces(filePath),
-    );
     const copies = [
       ...[...values.servers].map(([url, secrets]) => ({
         scopedId: oauthSecretServerId(url, namespace),
@@ -981,15 +982,18 @@ async function writeOAuthSectionsFrom(
           // Only the entries this save writes: another entry's secret in
           // this store was written for whatever client it was written for,
           // and relabeling it from the file would misattribute it (#2672).
-          snapshotClientOwners({
-            servers: Object.fromEntries(
-              (effective.servers ?? []).flatMap((url) => {
-                const entry = getOwnEntry(merged.servers, url);
-                return entry === undefined ? [] : [[url, entry]];
-              }),
-            ),
-            idpSessions: {},
-          }),
+          writtenClientOwners(
+            {
+              servers: Object.fromEntries(
+                (effective.servers ?? []).flatMap((url) => {
+                  const entry = getOwnEntry(merged.servers, url);
+                  return entry === undefined ? [] : [[url, entry]];
+                }),
+              ),
+              idpSessions: {},
+            },
+            splitSecretsOf,
+          ),
         );
 
         for (const url of effective.servers ?? []) {
@@ -1237,7 +1241,38 @@ function fillMissingSecrets(
   }
 }
 
-/** Per server, the `client_id` each client credential belongs to. */
+/**
+ * Per server, the `client_id` each client credential a write stores
+ * belongs to (#2672) — only for fields that hold a value. A client with
+ * no secret records no owner for it, so a later value in that field from
+ * elsewhere (a hand-off filling a vacant keychain field) is never labeled
+ * as this client's. `secretsOf` gives the values the write stores.
+ */
+function writtenClientOwners(
+  snapshot: OAuthPersistSnapshot,
+  secretsOf: (url: string, state: ServerOAuthState) => OAuthSecretValues,
+): ClientCredentialOwners {
+  const owners: ClientCredentialOwners = new Map();
+  for (const [url, state] of Object.entries(snapshot.servers)) {
+    const secrets = secretsOf(url, state);
+    const fields = new Map(
+      [...clientCredentialOwners(state)].filter(([field]) =>
+        Object.hasOwn(secrets, field),
+      ),
+    );
+    if (fields.size > 0) owners.set(url, fields);
+  }
+  return owners;
+}
+
+/** The store values a joined entry splits into; client secrets ignore the policy. */
+const splitSecretsOf = (_url: string, state: ServerOAuthState) =>
+  splitServerOAuthState(state, "all").secrets;
+
+/**
+ * Per server, the `client_id` each client credential belongs to — what
+ * the state file holds now, for matching a carry against.
+ */
 function snapshotClientOwners(
   snapshot: OAuthPersistSnapshot | null,
 ): ClientCredentialOwners {
@@ -1404,7 +1439,7 @@ async function migratePlaintextSecrets(
       namespace,
       Object.keys(fresh.servers),
       Object.keys(fresh.idpSessions),
-      snapshotClientOwners(fresh),
+      writtenClientOwners(fresh, splitSecretsOf),
     );
   }
   const migrateEntrySecrets = async (
