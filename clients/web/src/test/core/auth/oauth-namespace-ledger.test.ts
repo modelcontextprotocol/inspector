@@ -872,6 +872,44 @@ describe("pending carry-over (#2672)", () => {
       expect(readLedger()[NS1].keyring.owners).toBeUndefined();
     });
 
+    it("in a keychain run, carries before purging a covered file record listed ahead of the owed one", async () => {
+      // An unowed `file:` record ahead of the owed keychain record: its
+      // purge also deletes the server's ids from the keychain, so the
+      // carry has to run first.
+      class MapKeyring extends KeyringSecretStore {
+        readonly inner = new InMemorySecretStore();
+        get = this.inner.get.bind(this.inner);
+        getStrict = this.inner.get.bind(this.inner);
+        set = this.inner.set.bind(this.inner);
+        deleteAllForServer = this.inner.deleteAllForServer.bind(this.inner);
+      }
+      const keyring = new MapKeyring();
+      await recordNamespaceKeys(
+        stateFile,
+        new FileSecretStore({
+          filePath: join(tempDir, "secrets.json"),
+          passphrase: "",
+        }),
+        NS1,
+        [SERVER],
+        [],
+      );
+      await recordNamespaceKeys(
+        stateFile,
+        keyring,
+        NS1,
+        [SERVER],
+        [],
+        owners("c"),
+      );
+      await keyring.set(from, SECRET, "s3cret");
+      await markUncarriedNamespaces(stateFile, store, NS2);
+
+      await purgeSupersededNamespaces(stateFile, keyring, NS2, owners("c"));
+      expect(await keyring.get(to, SECRET)).toBe("s3cret");
+      expect(await keyring.get(from, SECRET)).toBeNull();
+    });
+
     it("hands a secrets file's owed record to the keychain, mark and owners included", async () => {
       // Its entries may have been absorbed into the keychain before this
       // file run, which then finds nothing to carry.

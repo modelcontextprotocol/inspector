@@ -586,32 +586,34 @@ export async function purgeSupersededNamespaces(
     return;
   }
   let changed = false;
-  let carryFailed = false;
   for (const [namespace, byLocation] of [...ledger].reverse()) {
-    if (carryFailed) break;
     if (namespace === current) continue;
-    const trusted = effectiveOwners(location, byLocation);
+    // Carry once per namespace, before purging any location it covers: a
+    // keychain run purges a covered file record's ids from the keychain
+    // too, so purging an unowed record first would delete the very values
+    // an owed one is about to carry.
+    if (
+      current !== undefined &&
+      coveredLocations(location, byLocation).some(
+        ({ keys }) => keys.owedTo === current,
+      ) &&
+      !(await carryOwed(
+        stateFilePath,
+        ledger,
+        location,
+        secretStore,
+        namespace,
+        current,
+        effectiveOwners(location, byLocation),
+        owners,
+      ))
+    ) {
+      break;
+    }
     for (const { location: recorded, keys } of coveredLocations(
       location,
       byLocation,
     )) {
-      if (
-        current !== undefined &&
-        keys.owedTo === current &&
-        !(await carryOwed(
-          stateFilePath,
-          ledger,
-          location,
-          secretStore,
-          namespace,
-          current,
-          trusted,
-          owners,
-        ))
-      ) {
-        carryFailed = true;
-        break;
-      }
       const purges = [
         ...[...keys.servers].map(
           (url) => () => oauthSecretServerId(url, namespace),
