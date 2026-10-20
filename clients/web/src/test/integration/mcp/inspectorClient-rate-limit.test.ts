@@ -27,7 +27,8 @@ import type { AnnotatedRateLimitData } from "@inspector/core/mcp/rateLimit.js";
  * by the web backend on the remote one. Both are driven end to end here.
  *
  * Hand-rolled rather than a composable test server because the SDK's own
- * server cannot be configured to answer one method with a 429.
+ * server cannot be configured to answer one method with a 429, let alone hold
+ * one 429's body back while another overtakes it.
  */
 
 interface ToolsListReply {
@@ -39,8 +40,18 @@ interface ToolsListReply {
 interface ThrottlingServer {
   url: string;
   setToolsListReply: (reply: ToolsListReply) => void;
+  /**
+   * The methods of the overlapping pair (`prompts/list`, `resources/list`), in
+   * the order they arrived. The first is answered `429` + `Retry-After: 30`
+   * with its body held back; the second `429` + `Retry-After: 5` at once.
+   */
+  overlapArrivals: () => string[];
+  /** Finish the held first response of the overlapping pair. */
+  releaseFirstOverlap: () => void;
   stop: () => Promise<void>;
 }
+
+const OVERLAPPING = new Set(["prompts/list", "resources/list"]);
 
 const THROTTLED: ToolsListReply = {
   status: 429,
@@ -50,6 +61,8 @@ const THROTTLED: ToolsListReply = {
 
 function startThrottlingServer(): Promise<ThrottlingServer> {
   let toolsListReply = THROTTLED;
+  const overlapArrivals: string[] = [];
+  let releaseFirstOverlap = () => {};
 
   const handler = async (req: IncomingMessage, res: ServerResponse) => {
     // No standalone notification stream; nothing here needs one.
@@ -79,11 +92,28 @@ function startThrottlingServer(): Promise<ThrottlingServer> {
       res.end(toolsListReply.body);
       return;
     }
+    if (OVERLAPPING.has(body.method)) {
+      overlapArrivals.push(body.method);
+      const first = overlapArrivals.length === 1;
+      res.writeHead(429, {
+        "content-type": "text/plain",
+        "retry-after": first ? "30" : "5",
+      });
+      if (first) {
+        // Headers out now, so the 429 is tracked; the SDK's error waits on
+        // the body, which only the test releases.
+        res.flushHeaders();
+        releaseFirstOverlap = () => res.end("first");
+      } else {
+        res.end("second");
+      }
+      return;
+    }
     const result =
       body.method === "initialize"
         ? {
             protocolVersion: "2025-06-18",
-            capabilities: { tools: {} },
+            capabilities: { tools: {}, prompts: {}, resources: {} },
             serverInfo: { name: "throttling-server", version: "1.0.0" },
           }
         : {};
@@ -105,6 +135,8 @@ function startThrottlingServer(): Promise<ThrottlingServer> {
         setToolsListReply: (reply) => {
           toolsListReply = reply;
         },
+        overlapArrivals: () => [...overlapArrivals],
+        releaseFirstOverlap: () => releaseFirstOverlap(),
         stop: () =>
           new Promise((done) => {
             server.closeAllConnections();
@@ -138,6 +170,21 @@ function startRemoteBackend(): Promise<{
     );
     server.on("error", reject);
   });
+}
+
+/** Poll until `predicate` holds; the failure names what never became true. */
+async function waitUntil(
+  what: string,
+  predicate: () => boolean,
+  timeoutMs = 5000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
@@ -259,5 +306,48 @@ describe("InspectorClient rate-limit recognition (#2442)", () => {
       /^Rate limited by the server \(HTTP 429\) on tools\/list\. The server asked to retry after 30s\. /,
     );
     expect(data.retryAfter).toBe("30");
+  });
+
+  /**
+   * Two requests throttled at once, the first one's response overtaken by
+   * the second's. Each must report its own response's `Retry-After`; picking
+   * "the latest 429" would hand the first request the second's 5s.
+   */
+  async function expectOverlapCorrelated(c: InspectorClient): Promise<void> {
+    const first = rejectionOf(c.listPrompts());
+    await waitUntil(
+      "the first request to arrive",
+      () => upstream!.overlapArrivals().length === 1,
+    );
+    const second = await rejectionOf(c.listResources());
+    upstream!.releaseFirstOverlap();
+    const firstCaught = await first;
+
+    expect(upstream!.overlapArrivals()).toEqual([
+      "prompts/list",
+      "resources/list",
+    ]);
+    expect(expectThrottled(firstCaught).retryAfter).toBe("30");
+    expect((firstCaught as Error).message).toContain(
+      "on prompts/list. The server asked to retry after 30s.",
+    );
+    expect(expectThrottled(second).retryAfter).toBe("5");
+    expect((second as Error).message).toContain(
+      "on resources/list. The server asked to retry after 5s.",
+    );
+  }
+
+  it("gives each of two overlapping 429s its own Retry-After", async () => {
+    upstream = await startThrottlingServer();
+    await expectOverlapCorrelated(await connectTo(upstream.url));
+  });
+
+  it("gives each of two overlapping 429s its own Retry-After through the web backend", async () => {
+    upstream = await startThrottlingServer();
+    const started = await startRemoteBackend();
+    backend = started.server;
+    await expectOverlapCorrelated(
+      await connectTo(upstream.url, started.transport),
+    );
   });
 });

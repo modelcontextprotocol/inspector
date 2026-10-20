@@ -11,14 +11,20 @@
  * `Retry-After` header.
  *
  * The header has to come from the tracker because the SDK's `SdkHttpError`
- * keeps the status and the body but none of the response headers. Where the
- * upstream fetch runs in the web backend, the backend reads the same header
- * off its own tracked fetch and relays it on the send error as `retryAfter`
- * (see `RemoteHttpErrorData`), so the browser does not depend on a fetch
- * event racing the send's HTTP response across two connections.
+ * keeps the status and the body but none of the response headers. It is
+ * matched to its error by JSON-RPC id, not by time: a {@link RateLimitLedger}
+ * files each 429's header under the request id(s) in the tracked request body,
+ * and the code that sees the failed send — which knows the message it was
+ * sending — takes that id's header and stamps it onto the error's data as
+ * `retryAfter` ({@link attachRetryAfter}). Two requests throttled at once
+ * therefore each report their own server's word, whatever order their
+ * responses land in.
  *
- * Everything here is pure. `InspectorClient` owns the bookkeeping, the same
- * split `connectionDiagnostics.ts` makes for request timeouts.
+ * Where the upstream fetch runs in the web backend, the backend does the
+ * stamping from its own ledger and relays `retryAfter` on the send error (see
+ * `RemoteHttpErrorData`), so the browser does not depend on a fetch event
+ * racing the send's HTTP response across two connections. Either way, by the
+ * time {@link annotateRateLimit} sees the error, the header is on it.
  *
  * Deliberately narrow: only a 429 is recognized. A 503 also carries
  * `Retry-After` but means "unavailable", which is exactly the case this exists
@@ -36,40 +42,72 @@ import type { FetchRequestEntryBase } from "./types.js";
 /** `429 Too Many Requests` (RFC 6585). */
 export const HTTP_TOO_MANY_REQUESTS = 429;
 
-/** A rate-limited response the fetch tracker recorded. */
-export interface RateLimitResponse {
-  /** The raw `Retry-After` header, when the server sent one. */
-  retryAfter?: string;
-  /** Epoch ms at which the request that drew it went out. */
-  sentAt: number;
+/**
+ * The JSON-RPC request ids in a tracked request body: one for a single
+ * request, several for a batch, none for a notification, a response, or a
+ * body that is not JSON. The tracker records the body redacted, but redaction
+ * masks only sensitive string fields, so `id` survives it.
+ */
+export function requestIdsOf(body: string | undefined): (string | number)[] {
+  if (body === undefined) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return [];
+  }
+  const messages: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+  const ids: (string | number)[] = [];
+  for (const message of messages) {
+    if (typeof message !== "object" || message === null) continue;
+    if (!("method" in message) || !("id" in message)) continue;
+    const { id } = message;
+    if (typeof id === "string" || typeof id === "number") ids.push(id);
+  }
+  return ids;
 }
 
 /**
- * The rate-limit facts in a tracked fetch, or `undefined` when the response
- * was not a 429 (or the fetch failed before any response arrived).
+ * How many unclaimed 429s a ledger holds before it drops the oldest. A 429 is
+ * normally claimed within the same tick its send fails; one that never is (a
+ * send aborted mid-flight is not reported as a failure) would otherwise stay
+ * for the rest of the session.
  */
-export function rateLimitResponseOf(
-  entry: FetchRequestEntryBase,
-): RateLimitResponse | undefined {
-  if (entry.responseStatus !== HTTP_TOO_MANY_REQUESTS) return undefined;
-  const retryAfter = findHeader(entry.responseHeaders, "retry-after");
-  return {
-    ...(retryAfter !== undefined && { retryAfter }),
-    sentAt: entry.timestamp.getTime(),
-  };
-}
+export const MAX_UNCLAIMED_RATE_LIMITS = 100;
 
 /**
- * The latest recorded 429's `Retry-After`, when that 429 answered a request
- * sent at or after `since`. The bound is what keeps a header from a 429
- * minutes ago from being reported against a request it never answered.
+ * Each tracked 429's `Retry-After`, filed under the JSON-RPC id of the request
+ * that drew it, until the failed send for that id claims it.
  */
-export function retryAfterSince(
-  latest: RateLimitResponse | undefined,
-  since: number,
-): string | undefined {
-  if (!latest || latest.sentAt < since) return undefined;
-  return latest.retryAfter;
+export class RateLimitLedger {
+  // `undefined` is a real value here: a 429 that carried no header.
+  private readonly byRequestId = new Map<string | number, string | undefined>();
+
+  /** File a tracked fetch, if it was a 429. Anything else is ignored. */
+  record(entry: FetchRequestEntryBase): void {
+    if (entry.responseStatus !== HTTP_TOO_MANY_REQUESTS) return;
+    const retryAfter = findHeader(entry.responseHeaders, "retry-after");
+    for (const id of requestIdsOf(entry.requestBody)) {
+      this.byRequestId.delete(id);
+      this.byRequestId.set(id, retryAfter);
+      if (this.byRequestId.size > MAX_UNCLAIMED_RATE_LIMITS) {
+        const [oldest] = this.byRequestId.keys();
+        /* v8 ignore next -- size > 0 was just checked, so a first key exists */
+        if (oldest !== undefined) this.byRequestId.delete(oldest);
+      }
+    }
+  }
+
+  /** The `Retry-After` filed for `id`, removed as it is read. */
+  take(id: string | number): string | undefined {
+    const retryAfter = this.byRequestId.get(id);
+    this.byRequestId.delete(id);
+    return retryAfter;
+  }
+
+  clear(): void {
+    this.byRequestId.clear();
+  }
 }
 
 /**
@@ -121,9 +159,25 @@ export interface AnnotatedRateLimitData extends SdkHttpErrorData {
   retryAfterMs?: number;
 }
 
-function relayedRetryAfter(err: SdkHttpError): string | undefined {
+function retryAfterOn(err: SdkHttpError): string | undefined {
   const value = err.data.retryAfter;
   return typeof value === "string" ? value : undefined;
+}
+
+/**
+ * Stamp a 429's own `Retry-After` onto its error's data, where
+ * {@link annotateRateLimit} reads it. A header already there wins: on the
+ * browser's remote transport the backend relayed it from the upstream
+ * response itself, which nothing on this side can know better. Anything that
+ * is not a 429, or a missing header, leaves the error untouched.
+ */
+export function attachRetryAfter(
+  err: unknown,
+  retryAfter: string | undefined,
+): void {
+  if (!isRateLimitError(err) || retryAfter === undefined) return;
+  if (retryAfterOn(err) !== undefined) return;
+  err.data.retryAfter = retryAfter;
 }
 
 function describeRetry(
@@ -144,9 +198,8 @@ function describeRetry(
  * says which request was throttled, and gives the retry timing when the server
  * sent one.
  *
- * `retryAfter` is the header the caller tracked; a value the backend relayed on
- * the error itself takes precedence, since it was read off the very response
- * that produced this error.
+ * The header is read off the error's own data, where {@link attachRetryAfter}
+ * (or the backend relay) put it.
  *
  * Anything that is not a 429 is returned untouched, so this is safe to apply
  * blindly on the rejection path of every request. The result keeps the
@@ -156,11 +209,10 @@ function describeRetry(
 export function annotateRateLimit(
   err: unknown,
   method: string,
-  retryAfter: string | undefined,
   now: number = Date.now(),
 ): unknown {
   if (!isRateLimitError(err)) return err;
-  const header = relayedRetryAfter(err) ?? retryAfter;
+  const header = retryAfterOn(err);
   const retryAfterMs = parseRetryAfter(header, now);
   const data: AnnotatedRateLimitData = {
     ...err.data,

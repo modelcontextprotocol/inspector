@@ -1046,8 +1046,6 @@ export function createRemoteApp(
     // on this request and everything after it (#1935).
     session.applyProtocolVersion(protocolVersion);
 
-    // Bounds which upstream 429 can be this send's (#2442).
-    const sendStartedAt = Date.now();
     session.beginSend();
     const requestId = requestIdForSendWait(message);
     let responseWait: Promise<void> | undefined;
@@ -1118,9 +1116,15 @@ export function createRemoteApp(
       // browser rebuilds an `SdkHttpError` the era probe can classify (#2660).
       if (err instanceof SdkHttpError) {
         const text = err.data.text;
-        const retryAfter = isRateLimitError(err)
-          ? session.retryAfterSince(sendStartedAt)
-          : undefined;
+        // The 429's own header, by this send's JSON-RPC id (#2442). Read off
+        // the message rather than `requestId`, which is unset for a request
+        // the route deliberately does not wait on (`subscriptions/listen`).
+        const sentId = "id" in message ? message.id : undefined;
+        const retryAfter =
+          isRateLimitError(err) &&
+          (typeof sentId === "string" || typeof sentId === "number")
+            ? session.takeRetryAfter(sentId)
+            : undefined;
         return c.json({
           ok: false,
           kind: "transport_error",

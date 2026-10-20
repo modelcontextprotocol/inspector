@@ -6,10 +6,12 @@ import {
 } from "@modelcontextprotocol/client";
 import {
   annotateRateLimit,
+  attachRetryAfter,
   isRateLimitError,
+  MAX_UNCLAIMED_RATE_LIMITS,
   parseRetryAfter,
-  rateLimitResponseOf,
-  retryAfterSince,
+  RateLimitLedger,
+  requestIdsOf,
   type AnnotatedRateLimitData,
 } from "@inspector/core/mcp/rateLimit.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
@@ -25,6 +27,11 @@ function entry(
     method: "POST",
     url: "http://localhost/mcp",
     requestHeaders: {},
+    requestBody: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/list",
+    }),
     responseStatus: 429,
     responseHeaders: { "Retry-After": "30" },
     ...overrides,
@@ -39,43 +46,115 @@ function throttled(data: Record<string, unknown> = {}): SdkHttpError {
   );
 }
 
-describe("rateLimitResponseOf", () => {
-  it("records a 429's Retry-After, whatever its casing, and when it was sent", () => {
-    expect(rateLimitResponseOf(entry())).toEqual({
-      retryAfter: "30",
-      sentAt: NOW,
-    });
-  });
-
-  it("records a 429 with no Retry-After", () => {
-    expect(rateLimitResponseOf(entry({ responseHeaders: {} }))).toEqual({
-      sentAt: NOW,
-    });
-  });
-
-  it("ignores anything that is not a 429", () => {
-    expect(rateLimitResponseOf(entry({ responseStatus: 503 }))).toBeUndefined();
+describe("requestIdsOf", () => {
+  it("reads a single request's id, string or number", () => {
     expect(
-      rateLimitResponseOf(entry({ responseStatus: undefined })),
-    ).toBeUndefined();
+      requestIdsOf('{"jsonrpc":"2.0","id":7,"method":"tools/list"}'),
+    ).toEqual([7]);
+    expect(requestIdsOf('{"jsonrpc":"2.0","id":"a","method":"x"}')).toEqual([
+      "a",
+    ]);
+  });
+
+  it("reads every request in a batch, skipping notifications and junk", () => {
+    expect(
+      requestIdsOf(
+        JSON.stringify([
+          { jsonrpc: "2.0", id: 1, method: "a" },
+          { jsonrpc: "2.0", method: "notifications/x" },
+          { jsonrpc: "2.0", id: 2, result: {} },
+          { jsonrpc: "2.0", id: null, method: "b" },
+          null,
+          { jsonrpc: "2.0", id: 3, method: "c" },
+        ]),
+      ),
+    ).toEqual([1, 3]);
+  });
+
+  it("finds nothing in a missing or non-JSON body", () => {
+    expect(requestIdsOf(undefined)).toEqual([]);
+    expect(requestIdsOf("not json")).toEqual([]);
+    expect(requestIdsOf("42")).toEqual([]);
   });
 });
 
-describe("retryAfterSince", () => {
-  it("returns the header of a 429 sent at or after the bound", () => {
-    const latest = { retryAfter: "30", sentAt: NOW };
-    expect(retryAfterSince(latest, NOW)).toBe("30");
-    expect(retryAfterSince(latest, NOW - 1)).toBe("30");
+describe("RateLimitLedger", () => {
+  it("files a 429's header, whatever its casing, under its request id, once", () => {
+    const ledger = new RateLimitLedger();
+    ledger.record(entry());
+    expect(ledger.take(7)).toBe("30");
+    expect(ledger.take(7)).toBeUndefined();
   });
 
-  it("drops a 429 that predates the request", () => {
-    expect(retryAfterSince({ retryAfter: "30", sentAt: NOW }, NOW + 1)).toBe(
-      undefined,
+  it("keeps each overlapping request's own header", () => {
+    const ledger = new RateLimitLedger();
+    ledger.record(entry());
+    ledger.record(
+      entry({
+        requestBody: JSON.stringify({ jsonrpc: "2.0", id: 8, method: "x" }),
+        responseHeaders: { "retry-after": "5" },
+      }),
     );
+    expect(ledger.take(7)).toBe("30");
+    expect(ledger.take(8)).toBe("5");
   });
 
-  it("returns nothing when no 429 was recorded", () => {
-    expect(retryAfterSince(undefined, NOW)).toBeUndefined();
+  it("files a 429 with no header as having none", () => {
+    const ledger = new RateLimitLedger();
+    ledger.record(entry({ responseHeaders: {} }));
+    expect(ledger.take(7)).toBeUndefined();
+  });
+
+  it("ignores anything that is not a 429", () => {
+    const ledger = new RateLimitLedger();
+    ledger.record(entry({ responseStatus: 503 }));
+    ledger.record(entry({ responseStatus: undefined }));
+    expect(ledger.take(7)).toBeUndefined();
+  });
+
+  it("drops the oldest unclaimed 429 past its cap", () => {
+    const ledger = new RateLimitLedger();
+    for (let id = 0; id <= MAX_UNCLAIMED_RATE_LIMITS; id++) {
+      ledger.record(
+        entry({
+          requestBody: JSON.stringify({ jsonrpc: "2.0", id, method: "x" }),
+        }),
+      );
+    }
+    expect(ledger.take(0)).toBeUndefined();
+    expect(ledger.take(1)).toBe("30");
+    expect(ledger.take(MAX_UNCLAIMED_RATE_LIMITS)).toBe("30");
+  });
+
+  it("forgets everything on clear", () => {
+    const ledger = new RateLimitLedger();
+    ledger.record(entry());
+    ledger.clear();
+    expect(ledger.take(7)).toBeUndefined();
+  });
+});
+
+describe("attachRetryAfter", () => {
+  it("stamps the header onto a 429's data", () => {
+    const err = throttled();
+    attachRetryAfter(err, "30");
+    expect(err.data.retryAfter).toBe("30");
+  });
+
+  it("keeps a header already relayed on the error", () => {
+    const err = throttled({ retryAfter: "5" });
+    attachRetryAfter(err, "30");
+    expect(err.data.retryAfter).toBe("5");
+  });
+
+  it("leaves a non-429, or a missing header, alone", () => {
+    const unavailable = throttled({ status: 503 });
+    attachRetryAfter(unavailable, "30");
+    expect(unavailable.data.retryAfter).toBeUndefined();
+    const err = throttled();
+    attachRetryAfter(err, undefined);
+    expect(err.data).not.toHaveProperty("retryAfter");
+    expect(() => attachRetryAfter(undefined, "30")).not.toThrow();
   });
 });
 
@@ -123,8 +202,8 @@ describe("isRateLimitError", () => {
 
 describe("annotateRateLimit", () => {
   it("names the method and the retry delay, keeping class, code, status and cause", () => {
-    const original = throttled();
-    const annotated = annotateRateLimit(original, "tools/call", "30", NOW);
+    const original = throttled({ retryAfter: "30" });
+    const annotated = annotateRateLimit(original, "tools/call", NOW);
 
     expect(SdkHttpError.isInstance(annotated)).toBe(true);
     const error = annotated as SdkHttpError;
@@ -143,32 +222,21 @@ describe("annotateRateLimit", () => {
     expect(data.retryAfterMs).toBe(30_000);
   });
 
-  it("prefers a Retry-After the backend relayed on the error", () => {
-    const annotated = annotateRateLimit(
-      throttled({ retryAfter: "5" }),
-      "tools/list",
-      "30",
-      NOW,
-    ) as SdkHttpError;
-    expect(annotated.message).toContain("retry after 5s");
-    expect((annotated.data as AnnotatedRateLimitData).retryAfter).toBe("5");
-  });
-
-  it("ignores a relayed retryAfter that is not a string", () => {
+  it("ignores a retryAfter on the data that is not a string", () => {
     const annotated = annotateRateLimit(
       throttled({ retryAfter: 5 }),
       "tools/list",
-      "30",
       NOW,
     ) as SdkHttpError;
-    expect(annotated.message).toContain("retry after 30s");
+    expect(annotated.message).toContain(
+      "The server sent no Retry-After header.",
+    );
   });
 
   it("says when the server sent no Retry-After", () => {
     const annotated = annotateRateLimit(
       throttled(),
       "tools/list",
-      undefined,
       NOW,
     ) as SdkHttpError;
     expect(annotated.message).toContain(
@@ -181,9 +249,8 @@ describe("annotateRateLimit", () => {
 
   it("reports an unparseable Retry-After verbatim rather than guessing", () => {
     const annotated = annotateRateLimit(
-      throttled(),
+      throttled({ retryAfter: "soon" }),
       "tools/list",
-      "soon",
       NOW,
     ) as SdkHttpError;
     expect(annotated.message).toContain(
@@ -196,19 +263,16 @@ describe("annotateRateLimit", () => {
 
   it("defaults the clock to now", () => {
     const annotated = annotateRateLimit(
-      throttled(),
+      throttled({ retryAfter: "1" }),
       "tools/list",
-      "1",
     ) as SdkHttpError;
     expect(annotated.message).toContain("retry after 1s");
   });
 
   it("returns anything that is not a 429 untouched", () => {
     const unavailable = throttled({ status: 503 });
-    expect(annotateRateLimit(unavailable, "tools/list", "30", NOW)).toBe(
-      unavailable,
-    );
+    expect(annotateRateLimit(unavailable, "tools/list", NOW)).toBe(unavailable);
     const timeout = new SdkError(SdkErrorCode.RequestTimeout, "timed out");
-    expect(annotateRateLimit(timeout, "tools/list", "30", NOW)).toBe(timeout);
+    expect(annotateRateLimit(timeout, "tools/list", NOW)).toBe(timeout);
   });
 });
