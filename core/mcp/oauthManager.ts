@@ -195,6 +195,8 @@ export class OAuthManager {
       // #2068: lets the provider tell an `offline_access` the user asked for
       // from one inherited from a previous grant's persisted scope.
       configuredScope: this.oauthConfig.scope,
+      // #2726: in-flight PKCE verifiers keyed by flow, not by server URL.
+      flowStore: this.oauthConfig.flowStore,
     });
 
     provider.setEventTarget(this.params.getEventTarget());
@@ -395,9 +397,15 @@ export class OAuthManager {
       authorizationUrl.searchParams.get("scope")?.trim() || requestedScope;
   }
 
+  /**
+   * `state` is the OAuth `state` the callback was redirected back with. It
+   * selects the flow whose PKCE verifier the exchange uses (#2726); without it
+   * a provider with a flow store has no verifier to send.
+   */
   async completeOAuthFlow(
     authorizationCode: string,
     iss?: string,
+    state?: string,
   ): Promise<void> {
     try {
       if (this.isEnterpriseManaged()) {
@@ -427,6 +435,9 @@ export class OAuthManager {
 
       const provider = await this.createOAuthProvider();
       const serverUrl = this.getServerUrl();
+      if (state !== undefined) {
+        provider.resumeAuthorizationFlow(state);
+      }
 
       const result = await mcpAuth(provider, {
         serverUrl,
@@ -440,6 +451,8 @@ export class OAuthManager {
           `Expected AUTHORIZED after providing authorization code, got: ${result}`,
         );
       }
+      // The code is single-use, so the verifier that redeemed it is spent.
+      await provider.clearAuthorizationFlow();
 
       const tokens = await provider.tokens();
       if (!tokens) {

@@ -39,6 +39,7 @@ import type {
   RedirectUrlProvider,
 } from "../auth/providers.js";
 import type { OAuthStorage } from "../auth/storage.js";
+import type { PkceFlowStore } from "../auth/pkce-flow-store.js";
 import type { AuthChallenge } from "../auth/challenge.js";
 
 /**
@@ -1265,6 +1266,13 @@ export interface InspectorClientEnvironment {
      * - Browser: from window.location or callback route
      */
     redirectUrlProvider?: RedirectUrlProvider;
+
+    /**
+     * Where in-flight PKCE verifiers live, keyed by the OAuth `state` of their
+     * flow (#2726). Omit to keep the verifier in {@link storage}.
+     * - Browser: `createWebStoragePkceFlowStore()` (the tab's sessionStorage)
+     */
+    flowStore?: PkceFlowStore;
   };
 }
 

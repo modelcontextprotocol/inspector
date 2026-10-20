@@ -108,7 +108,11 @@ const h = vi.hoisted(() => {
   // Captured options from the most recent callbackServer.start(), so a test can
   // drive the onCallback / onError handlers the OAuth flows register.
   interface CallbackOpts {
-    onCallback: (p: { code: string; iss?: string }) => Promise<void> | void;
+    onCallback: (p: {
+      code: string;
+      iss?: string;
+      state?: string;
+    }) => Promise<void> | void;
     onError: (p: { error?: string; error_description?: string }) => void;
   }
   const cb: { opts: CallbackOpts | null } = { opts: null };
@@ -1551,11 +1555,18 @@ describe("App (OAuth flows)", () => {
     const r = await mount(oneHttp());
     await press(r, ["c"]);
     await waitUntil(() => h.cb.opts !== null);
-    await h.cb.opts!.onCallback({ code: "abc", iss: "https://as.example" });
+    // #2726: the redirect's `state` selects the flow's PKCE verifier.
+    const state = "d".repeat(64);
+    await h.cb.opts!.onCallback({
+      code: "abc",
+      iss: "https://as.example",
+      state,
+    });
     await tick();
     expect(h.clientSpies.completeOAuthFlow).toHaveBeenCalledWith(
       "abc",
       "https://as.example",
+      state,
     );
   });
 
