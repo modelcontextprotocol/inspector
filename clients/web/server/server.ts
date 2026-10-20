@@ -9,12 +9,12 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
-import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 import { createSandboxController } from "./sandbox-controller.js";
 import {
   createAppOriginController,
@@ -28,6 +28,7 @@ import {
   webServerConfigToInitialPayload,
   printServerBanner,
   openBrowser,
+  portInUseMessage,
 } from "./web-server-config.js";
 import type { WebServerHandle } from "./types.js";
 
@@ -152,6 +153,11 @@ export async function startHonoServer(
       fetch: app.fetch,
       port: config.port,
       hostname: config.hostname,
+      // https only when both TLS paths were set (#2446); otherwise
+      // @hono/node-server's default plain `http.createServer`.
+      ...(config.tls
+        ? { createServer: createHttpsServer, serverOptions: config.tls }
+        : {}),
     },
     (info) => {
       const sandboxUrl = sandboxController.getUrl();
@@ -172,9 +178,7 @@ export async function startHonoServer(
 
   httpServer.on("error", (err: Error) => {
     if (err.message.includes("EADDRINUSE")) {
-      console.error(
-        `MCP Inspector PORT IS IN USE at http://${formatHostForUrl(config.hostname)}:${config.port}`,
-      );
+      console.error(portInUseMessage(config));
       process.exit(1);
     } else {
       throw err;
