@@ -815,22 +815,35 @@ describe("pending carry-over (#2672)", () => {
       expect(await store.get(from, SECRET)).toBeNull();
     });
 
-    it("keeps the record unpurged, and warns, when the carry fails", async () => {
-      await owed();
-      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-      vi.spyOn(store, "set").mockRejectedValueOnce(
-        new Error("keychain locked"),
-      );
-      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
-      expect(await store.get(from, SECRET)).toBe("s3cret");
-      expect(readLedger()[NS1].memory.owedTo).toBe(NS2);
-      expect(warn.mock.calls[0][0]).toContain("keychain locked");
+    it.each([
+      ["the stamp", 0],
+      ["the value", 1],
+    ])(
+      "keeps the record unpurged, and warns, when writing %s fails, and the retry carries both",
+      async (_label, failing) => {
+        await owed();
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const set = store.set.bind(store);
+        let calls = 0;
+        vi.spyOn(store, "set").mockImplementation(async (...args) => {
+          if (calls++ === failing) throw new Error("keychain locked");
+          await set(...args);
+        });
+        await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+        expect(await store.get(from, SECRET)).toBe("s3cret");
+        expect(await store.get(to, SECRET)).toBeNull();
+        expect(readLedger()[NS1].memory.owedTo).toBe(NS2);
+        expect(warn.mock.calls[0][0]).toContain("keychain locked");
 
-      // The next locked save retries it.
-      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
-      expect(await store.get(to, SECRET)).toBe("s3cret");
-      expect(await store.get(from, SECRET)).toBeNull();
-    });
+        // The next locked save retries it, value and stamp together.
+        await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+        expect(await store.get(to, SECRET)).toBe("s3cret");
+        expect(await store.get(to, STAMP)).toBe(
+          clientCredentialStamp("c", "s3cret"),
+        );
+        expect(await store.get(from, SECRET)).toBeNull();
+      },
+    );
 
     it("ends the pass at a failed carry, so an older record cannot take the newer one's field", async () => {
       await owed("c", "older");

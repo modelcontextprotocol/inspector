@@ -518,8 +518,12 @@ async function carryOwed(
         if (mergeOwners(target.owners, owner) || isNew) {
           await writeLedger(stateFilePath, ledger);
         }
-        await secretStore.set(to, field, value);
+        // Stamp first: a stamp left alone by a failed value write vouches
+        // for nothing, and the retry finds the field vacant and redoes
+        // both. The other order could leave an unstamped value the retry
+        // skips as already held, and no later carry would trust.
         await secretStore.set(to, stampField, stamp);
+        await secretStore.set(to, field, value);
       } catch (error) {
         carried = false;
         warnLedgerFailure(
