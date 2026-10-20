@@ -37,13 +37,14 @@ import {
  * time.
  */
 function fakeClock(
-  options: { lateUntil?: number } = {},
-): LoadClock & { advance: (ms: number) => void } {
+  options: { lateUntil?: number; jitter?: number } = {},
+): LoadClock & { advance: (ms: number) => void; sleeps: () => number } {
   let t = 1000;
   // A stalled event loop: no timer fires before this many ms into the run.
   const earliestWake = 1000 + (options.lateUntil ?? 0);
   const timers: { wakeAt: number; resolve: () => void }[] = [];
   let pumping = false;
+  let sleepCount = 0;
   const pump = (): void => {
     timers.sort((a, b) => a.wakeAt - b.wakeAt);
     const next = timers.shift();
@@ -59,7 +60,11 @@ function fakeClock(
     now: () => t,
     sleep: (ms) =>
       new Promise<void>((resolve) => {
-        timers.push({ wakeAt: Math.max(t + ms, earliestWake), resolve });
+        sleepCount++;
+        timers.push({
+          wakeAt: Math.max(t + ms + (options.jitter ?? 0), earliestWake),
+          resolve,
+        });
         if (!pumping) {
           pumping = true;
           setImmediate(pump);
@@ -68,6 +73,7 @@ function fakeClock(
     advance: (ms) => {
       t += ms;
     },
+    sleeps: () => sleepCount,
   };
 }
 
@@ -283,6 +289,34 @@ describe("load-test engine", () => {
       expect([...starts].sort((a, b) => a - b)).toEqual([
         0, 200, 400, 600, 800, 1000,
       ]);
+    });
+
+    it("holds the average rate when every timer wakes a little late", async () => {
+      const clock = fakeClock({ jitter: 30 });
+      const starts: number[] = [];
+      const call = async (): Promise<LoadCallOutcome> => {
+        starts.push(clock.now() - 1000);
+        return "ok";
+      };
+      await runLoad(
+        call,
+        { concurrency: 1, durationMs: 1000, rate: 10 },
+        clock,
+      );
+      // 30ms late each time, but on the 100ms grid: ten starts, not eight.
+      expect(starts).toEqual([0, 130, 230, 330, 430, 530, 630, 730, 830, 930]);
+    });
+
+    it("arms one timer per slot however many workers are idle", async () => {
+      const clock = fakeClock();
+      const summary = await runLoad(
+        async () => "ok",
+        { concurrency: 100, requests: 100, rate: 1000 },
+        clock,
+      );
+      expect(summary.requests).toBe(100);
+      // Slot 0 starts immediately; each of the other 99 needs one wait.
+      expect(clock.sleeps()).toBe(99);
     });
 
     it("keeps the rate when several workers' timers fire late together", async () => {

@@ -341,10 +341,14 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   sub-millisecond stdio echo.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
-  With `--load-rate`, starts are at least `1/rate` seconds apart, and a slot
-  nobody was free to take is dropped rather than made up later — a stall is
-  never followed by a catch-up burst. A slot that falls past the window is
-  never started.
+  With `--load-rate`, starts follow an even `1/rate` grid; a timer that wakes
+  a little late keeps the grid, so the average rate holds. A slot missed
+  entirely — every worker busy, or a stalled event loop — is dropped rather
+  than made up later, so a stall is never followed by a catch-up burst. A
+  slot that falls past the window is never started. Node's timers resolve to
+  about a millisecond, so a rate in the high hundreds per second or above is
+  reached only approximately (1000/s measured ~700 against a local stdio
+  server); compare `requests` against what you asked for.
 
 **All calls share one connection**, so this measures how a server copes with
 concurrent requests on a single session — not with many sessions. A slow call

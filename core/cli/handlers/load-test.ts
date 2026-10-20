@@ -194,9 +194,8 @@ class ErrorTally {
 /**
  * Run `call` under the given bounds and summarize what happened. Workers pull
  * slots from a shared counter, so `concurrency` is a hard cap on calls in
- * flight and `requests` a hard cap on calls started. With `rate`, starts are
- * at least `1 / rate` seconds apart — an even schedule rather than a burst
- * each second.
+ * flight and `requests` a hard cap on calls started. With `rate`, starts
+ * follow an even `1 / rate` grid rather than a burst each second.
  *
  * The rate limiter keys off the time the last slot was actually taken, not
  * off the run's start: a slot nobody was free to take is dropped rather than
@@ -223,28 +222,46 @@ export async function runLoad(
   // Earliest time the next slot may start.
   let nextStart = start;
 
+  // FIFO turnstile: workers wanting a slot queue on a promise chain, and only
+  // the one at the head waits on the clock. Without it, every idle worker
+  // armed its own timer for the same slot and all but one re-armed on waking
+  // — at concurrency 100 that is 99 wasted timers per call, enough to make
+  // the generator the bottleneck at a high --load-rate.
+  let turnstile: Promise<void> = Promise.resolve();
+
   /**
-   * Wait for a slot and take it, or return false when the run is over. A
-   * slot is claimed only by a worker that is awake at its time — never
-   * reserved before a wait — and every wake re-checks the bounds. So if the
-   * event loop stalls and several workers' timers all fire late at once, the
-   * first to run takes the slot and the rest go back to waiting, rather than
-   * starting together. The claim itself is synchronous, so two workers can
-   * never take the same slot.
+   * Wait for a slot and take it, or return false when the run is over. Only
+   * the worker at the head of the turnstile is ever waiting on the clock, and
+   * it claims a slot only once it is awake at that slot's time, re-checking
+   * the bounds on every wake. So a timer that fires late — a stalled event
+   * loop — starts one call, never a burst of everything that was due.
    */
   const claimSlot = async (): Promise<boolean> => {
-    for (;;) {
-      if (requests !== undefined && started >= requests) return false;
-      const now = clock.now();
-      if (now >= deadline) return false;
-      const scheduled = Math.max(nextStart, now);
-      if (scheduled >= deadline) return false;
-      if (scheduled <= now) {
-        started++;
-        nextStart = now + interval;
-        return true;
+    const ahead = turnstile;
+    let release!: () => void;
+    turnstile = new Promise((resolve) => (release = resolve));
+    await ahead;
+    try {
+      for (;;) {
+        if (requests !== undefined && started >= requests) return false;
+        const now = clock.now();
+        if (now >= deadline) return false;
+        const scheduled = Math.max(nextStart, now);
+        if (scheduled >= deadline) return false;
+        if (scheduled <= now) {
+          started++;
+          // A wake that is merely late — timers always are, by a fraction of
+          // a millisecond — keeps the slot grid, so the average rate holds.
+          // Only a slot missed entirely (a stall longer than one interval)
+          // is dropped, and spacing restarts from now: no catch-up burst.
+          nextStart =
+            now - nextStart < interval ? nextStart + interval : now + interval;
+          return true;
+        }
+        await clock.sleep(scheduled - now);
       }
-      await clock.sleep(scheduled - now);
+    } finally {
+      release();
     }
   };
 
