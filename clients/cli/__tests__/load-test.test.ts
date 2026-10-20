@@ -36,8 +36,12 @@ import {
  * therefore completes instantly while keeping the schedule it would in real
  * time.
  */
-function fakeClock(): LoadClock & { advance: (ms: number) => void } {
+function fakeClock(
+  options: { lateUntil?: number } = {},
+): LoadClock & { advance: (ms: number) => void } {
   let t = 1000;
+  // A stalled event loop: no timer fires before this many ms into the run.
+  const earliestWake = 1000 + (options.lateUntil ?? 0);
   const timers: { wakeAt: number; resolve: () => void }[] = [];
   let pumping = false;
   const pump = (): void => {
@@ -55,7 +59,7 @@ function fakeClock(): LoadClock & { advance: (ms: number) => void } {
     now: () => t,
     sleep: (ms) =>
       new Promise<void>((resolve) => {
-        timers.push({ wakeAt: t + ms, resolve });
+        timers.push({ wakeAt: Math.max(t + ms, earliestWake), resolve });
         if (!pumping) {
           pumping = true;
           setImmediate(pump);
@@ -279,6 +283,22 @@ describe("load-test engine", () => {
       expect([...starts].sort((a, b) => a - b)).toEqual([
         0, 200, 400, 600, 800, 1000,
       ]);
+    });
+
+    it("keeps the rate when several workers' timers fire late together", async () => {
+      const clock = fakeClock({ lateUntil: 1000 });
+      const starts: number[] = [];
+      const call = async (): Promise<LoadCallOutcome> => {
+        starts.push(clock.now() - 1000);
+        return "ok";
+      };
+      await runLoad(
+        call,
+        { concurrency: 3, requests: 3, durationMs: 2000, rate: 5 },
+        clock,
+      );
+      // Workers 2 and 3 both wake at 1000; only one may start then.
+      expect(starts).toEqual([0, 1000, 1200]);
     });
 
     it("does not start a call when its timer wakes past the deadline", async () => {

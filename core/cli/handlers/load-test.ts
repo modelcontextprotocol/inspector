@@ -198,13 +198,11 @@ class ErrorTally {
  * at least `1 / rate` seconds apart — an even schedule rather than a burst
  * each second.
  *
- * The rate limiter keys off the time the last slot was actually handed out,
- * not off the run's start: a slot nobody was free to take is dropped rather
- * than owed, so a stall (one slow call at concurrency 1) is never followed by
- * a catch-up burst against a server that may just be recovering.
- *
- * A slot scheduled past the duration is never started, and the deadline is
- * checked again after the wait, since a timer can wake late under load.
+ * The rate limiter keys off the time the last slot was actually taken, not
+ * off the run's start: a slot nobody was free to take is dropped rather than
+ * owed, so a stall — one slow call at concurrency 1, or timers firing late —
+ * is never followed by a catch-up burst against a server that may just be
+ * recovering. A slot past the duration is never started.
  */
 export async function runLoad(
   call: () => Promise<LoadCallOutcome>,
@@ -222,23 +220,36 @@ export async function runLoad(
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
   const interval = rate === undefined ? 0 : 1000 / rate;
-  // Earliest time the next slot may start. Claimed synchronously, so two
-  // workers can never be handed the same slot.
+  // Earliest time the next slot may start.
   let nextStart = start;
 
-  const worker = async (): Promise<void> => {
+  /**
+   * Wait for a slot and take it, or return false when the run is over. A
+   * slot is claimed only by a worker that is awake at its time — never
+   * reserved before a wait — and every wake re-checks the bounds. So if the
+   * event loop stalls and several workers' timers all fire late at once, the
+   * first to run takes the slot and the rest go back to waiting, rather than
+   * starting together. The claim itself is synchronous, so two workers can
+   * never take the same slot.
+   */
+  const claimSlot = async (): Promise<boolean> => {
     for (;;) {
-      if (requests !== undefined && started >= requests) return;
-      if (clock.now() >= deadline) return;
-      started++;
-      if (rate !== undefined) {
-        const scheduled = Math.max(nextStart, clock.now());
-        nextStart = scheduled + interval;
-        if (scheduled >= deadline) return;
-        const wait = scheduled - clock.now();
-        if (wait > 0) await clock.sleep(wait);
-        if (clock.now() >= deadline) return;
+      if (requests !== undefined && started >= requests) return false;
+      const now = clock.now();
+      if (now >= deadline) return false;
+      const scheduled = Math.max(nextStart, now);
+      if (scheduled >= deadline) return false;
+      if (scheduled <= now) {
+        started++;
+        nextStart = now + interval;
+        return true;
       }
+      await clock.sleep(scheduled - now);
+    }
+  };
+
+  const worker = async (): Promise<void> => {
+    while (await claimSlot()) {
       const t0 = clock.now();
       try {
         const outcome = await call();
