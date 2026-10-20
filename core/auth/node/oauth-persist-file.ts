@@ -385,10 +385,11 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * The carry-over reads through this run's store only, so a superseded
  * namespace's entries in another backend (a keychain this run could not
  * unlock, say) are not carried. Adoption marks those records in the
- * ledger instead, with the `client_id` each client credential belonged to
- * (#2672); a later locked save on that backend carries them into the
- * stamped namespace — where the file still holds the same client — before
- * its purge deletes them, and its reads see them in the meantime.
+ * ledger as owed to the new namespace instead (#2672), and fails if it
+ * cannot; a later locked save on that backend carries their client
+ * credentials into the stamped namespace — where the file still holds the
+ * client each was written for — before its purge deletes them, and its
+ * reads see them in the meantime.
  */
 async function adoptSecretsNamespace(
   filePath: string,
@@ -437,17 +438,20 @@ async function adoptSecretsNamespace(
 
   // Recorded before the copies, so an interrupted move's copies are still
   // findable if this namespace is later superseded.
+  const owners = snapshotClientOwners(snapshot);
   await recordNamespaceKeys(
     filePath,
     secretStore,
     namespace,
     Object.keys(snapshot.servers),
     Object.keys(snapshot.idpSessions),
+    owners,
   );
   // Before the copies too: what this run's store cannot show it is still
-  // owed to the new namespace by a run on the store that holds it.
-  const owners = snapshotClientOwners(snapshot);
-  await markUncarriedNamespaces(filePath, secretStore, namespace, owners);
+  // owed to the new namespace by a run on the store that holds it. A
+  // failure here fails the adoption — committing without the mark would
+  // let that run purge it uncarried.
+  await markUncarriedNamespaces(filePath, secretStore, namespace);
   // Rollback baseline: the scoped ids are vacant before this call — the
   // namespace is a UUID minted moments ago, so nothing can already live
   // under it — which makes "restore" simply "delete what we copied".
@@ -974,6 +978,7 @@ async function writeOAuthSectionsFrom(
           namespace,
           Object.keys(merged.servers),
           Object.keys(merged.idpSessions),
+          snapshotClientOwners(merged),
         );
 
         for (const url of effective.servers ?? []) {
@@ -1247,8 +1252,8 @@ type PendingCarry = Awaited<ReturnType<typeof pendingCarries>>[number];
  *
  * `carries` is non-empty only for a stamped file with records in this
  * store an adoption elsewhere could not read (#2672, `pendingCarries`):
- * each supplies only the client-credential fields it was marked with,
- * and only for a client the file still holds under the same `client_id`.
+ * each supplies only the client-credential fields it recorded an owner
+ * for, and only for a client the file still holds under that `client_id`.
  *
  * Strict: this read hydrates the memory state that later sectioned writes
  * diff against, so a tolerant read during a store outage would present
@@ -1284,9 +1289,9 @@ async function readEntrySecrets(
     }
   }
   const owners = snapshotClientOwners(snapshot);
-  for (const { namespace: from, clients } of carries) {
+  for (const { namespace: from, owners: recorded } of carries) {
     const requests: SecretBulkRequest[] = [];
-    for (const [url, fields] of clients) {
+    for (const [url, fields] of recorded) {
       const target = servers.get(url);
       if (!target) continue;
       const wanted = [...fields]
@@ -1388,6 +1393,7 @@ async function migratePlaintextSecrets(
       namespace,
       Object.keys(fresh.servers),
       Object.keys(fresh.idpSessions),
+      snapshotClientOwners(fresh),
     );
   }
   const migrateEntrySecrets = async (

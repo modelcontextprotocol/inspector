@@ -1186,6 +1186,62 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
     expect(ledgerNamespaces(fileA)).toEqual([ns2]);
   });
 
+  it("does not pair the secret with a client the older version registered before re-adoption", async () => {
+    const keyring = new KeyringSecretStore();
+    await writeOAuthSections(
+      fileA,
+      confidentialClient("dcr-client", "s3cret"),
+      undefined,
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    const ns1 = namespaceOf(fileA);
+    // The ≤ 2.9.x save strips the stamp and re-registered meanwhile, so
+    // the file being adopted names a client the old secret is not for.
+    const parsed = JSON.parse(readFileSync(fileA, "utf8")) as {
+      servers: Record<
+        string,
+        {
+          byIssuer: Record<
+            string,
+            { clientInformation: { client_id: string } }
+          >;
+        }
+      >;
+      [SECRETS_NAMESPACE_KEY]?: string;
+    };
+    delete parsed[SECRETS_NAMESPACE_KEY];
+    parsed.servers[SERVER].byIssuer[ISSUER].clientInformation.client_id =
+      "reregistered";
+    await writeStoreFile(fileA, JSON.stringify(parsed));
+    await flushStoreFileWrites(fileA);
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "x" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      new InMemorySecretStore(),
+    );
+    await flushStoreFileWrites(fileA);
+    const ns2 = namespaceOf(fileA);
+
+    expect(
+      clientOf(await readOAuthStore(fileA, keyring))?.client_secret,
+    ).toBeUndefined();
+    await writeOAuthSections(
+      fileA,
+      { servers: { [OTHER]: { scope: "y" } }, idpSessions: {} },
+      { servers: [OTHER] },
+      keyring,
+    );
+    await flushStoreFileWrites(fileA);
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns2), SECRET_FIELD),
+    ).toBeNull();
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns1), SECRET_FIELD),
+    ).toBeNull();
+  });
+
   it("does not resurrect the tokens, only the client's credentials", async () => {
     const keyring = new KeyringSecretStore();
     const { ns2 } = await readoptElsewhere(keyring, new InMemorySecretStore());
