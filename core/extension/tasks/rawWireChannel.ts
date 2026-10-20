@@ -47,9 +47,9 @@ export interface RawWireChannelHost {
   defaultTimeoutMs(): number;
   /** Whether progress on a request's token re-arms its timeout. */
   resetTimeoutOnProgress(): boolean;
-  /** Decorate a timeout the way an SDK request's timeout is (#2318); any
-   * other error is returned untouched. */
-  annotateTimeout(error: unknown, method: string): unknown;
+  /** Decorate a failed request's error the way an SDK request's is — a
+   * timeout (#2318), a `429` (#2442); any other error is returned untouched. */
+  annotateError(error: unknown, method: string): unknown;
 }
 
 interface PendingRawRequest {
@@ -182,7 +182,7 @@ export class RawWireChannel {
             `Raw MCP request "${message.method}" timed out after ${timeoutMs} ms`,
             false,
             {
-              cause: this.host.annotateTimeout(
+              cause: this.host.annotateError(
                 new SdkError(SdkErrorCode.RequestTimeout, "Request timed out", {
                   timeout: timeoutMs,
                 }),
@@ -232,10 +232,10 @@ export class RawWireChannel {
           pending.cleanup();
           // The browser's remote transport awaits the response inside `send`,
           // so its relay wait can expire here first, as the SDK's timeout
-          // shape; annotate it exactly as the local timer above does (a
-          // non-timeout error passes through untouched).
+          // shape; annotate it exactly as the local timer above does. A `429`
+          // fails the send here too, and is annotated the same way (#2442).
           reject(
-            this.host.annotateTimeout(
+            this.host.annotateError(
               error instanceof Error ? error : new Error(String(error)),
               message.method,
             ),

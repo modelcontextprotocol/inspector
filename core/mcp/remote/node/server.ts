@@ -30,6 +30,7 @@ import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
+import { isRateLimitError } from "../../rateLimit.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -1115,6 +1116,15 @@ export function createRemoteApp(
       // browser rebuilds an `SdkHttpError` the era probe can classify (#2660).
       if (err instanceof SdkHttpError) {
         const text = err.data.text;
+        // The 429's own header, by this send's JSON-RPC id (#2442). Read off
+        // the message rather than `requestId`, which is unset for a request
+        // the route deliberately does not wait on (`subscriptions/listen`).
+        const sentId = "id" in message ? message.id : undefined;
+        const retryAfter =
+          isRateLimitError(err) &&
+          (typeof sentId === "string" || typeof sentId === "number")
+            ? session.takeRetryAfter(sentId)
+            : undefined;
         return c.json({
           ok: false,
           kind: "transport_error",
@@ -1126,6 +1136,7 @@ export function createRemoteApp(
               statusText: err.statusText,
             }),
             ...(typeof text === "string" && { text }),
+            ...(retryAfter !== undefined && { retryAfter }),
           },
         });
       }

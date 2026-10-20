@@ -297,6 +297,11 @@ import {
   type NotificationStreamState,
   type OutstandingRequest,
 } from "./connectionDiagnostics.js";
+import {
+  annotateRateLimit,
+  attachRetryAfter,
+  RateLimitLedger,
+} from "./rateLimit.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 import { RemoteClientTransport } from "./remote/remoteClientTransport.js";
 
@@ -532,8 +537,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     transport: () => this.transport,
     defaultTimeoutMs: () => this.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
     resetTimeoutOnProgress: () => this.resetTimeoutOnProgress,
-    annotateTimeout: (error, method) =>
-      annotateRequestTimeout(error, method, this.getConnectionDiagnostics()),
+    annotateError: (error, method) => this.annotateRequestError(error, method),
   });
   private readonly dispatchTaskRequest: RawClientDispatch = (
     request,
@@ -556,6 +560,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // `GET` on Streamable HTTP). Both per-session, reset with the maps above.
   private lastResponse: LastResponse | undefined;
   private notificationStream: TrackedNotificationStream | undefined;
+  // Each tracked `429`'s `Retry-After`, by the JSON-RPC id that drew it, until
+  // that id's failed send claims it (#2442). Per-session, reset with the
+  // diagnostics above.
+  private readonly rateLimits = new RateLimitLedger();
   /** True when the cached transport was built with an OAuth authProvider attached. */
   private transportHasAuthProvider = false;
   /** Dedupes concurrent ambient auth challenges (reason + scopes). */
@@ -1072,7 +1080,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.clientInfo,
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
-    this.annotateSdkRequestTimeouts(this.client);
+    this.annotateSdkRequestErrors(this.client);
     if (this.tasksCapabilityAdvertised) {
       this.bindReceiverTasks();
     }
@@ -1081,7 +1089,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Decorate the SDK Client's `request` so a per-request timeout rejects with
    * the connection's state at that moment instead of a bare `Request timed
-   * out` (#2318).
+   * out` (#2318), and a `429` rejects as rate limiting with the server's
+   * `Retry-After` instead of a bare `Error POSTing to endpoint` (#2442).
    *
    * `Protocol.request` is the one funnel every SDK verb goes through —
    * `listTools`, `callTool`, `readResource`, the handshake's `initialize`,
@@ -1099,7 +1108,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * implementation signature serves both at runtime; the single cast on the
    * way back is what the overloads cost.
    */
-  private annotateSdkRequestTimeouts(client: Client): void {
+  private annotateSdkRequestErrors(client: Client): void {
     type SdkRequest = Client["request"];
     const sdkRequest: SdkRequest = client.request.bind(client);
     const decorated = async (
@@ -1108,14 +1117,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       try {
         return await sdkRequest(...args);
       } catch (err) {
-        throw annotateRequestTimeout(
-          err,
-          args[0].method,
-          this.getConnectionDiagnostics(),
-        );
+        throw this.annotateRequestError(err, args[0].method);
       }
     };
     client.request = decorated as SdkRequest;
+  }
+
+  /**
+   * The one place a failed request's error is decorated, shared by the SDK
+   * funnel above and the raw-wire channel that bypasses it (modern-era tool
+   * calls and task operations), so a caller sees the same error whichever
+   * path its request took: a timeout with the connection's state (#2318), a
+   * `429` named as rate limiting (#2442), anything else untouched.
+   */
+  private annotateRequestError(err: unknown, method: string): unknown {
+    return annotateRateLimit(
+      annotateRequestTimeout(err, method, this.getConnectionDiagnostics()),
+      method,
+    );
   }
 
   /**
@@ -1179,6 +1198,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         // saw as unanswered, in every timeout message and Connection Info
         // row, until the session resets (#2318).
         if (isRequestTimeoutError(error)) return;
+        // The SDK's 429 error carries no headers; this is the one point that
+        // knows which request it failed, so it is where that request's own
+        // `Retry-After` goes onto it (#2442).
+        attachRetryAfter(error, this.rateLimits.take(message.id));
         if (this.outstandingRequests.delete(message.id)) {
           this.dispatchConnectionDiagnosticsChange();
         }
@@ -1674,6 +1697,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.taskProgress.clear();
     this.lastResponse = undefined;
     this.notificationStream = undefined;
+    this.rateLimits.clear();
     this.dispatchConnectionDiagnosticsChange();
     // Per-session for the same reason: both name entries of the PREVIOUS
     // server's list. Cleared here as well as in `disconnect()` because the
@@ -1814,6 +1838,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           onFetchRequest: (entry: FetchRequestEntryBase) => {
             this.dispatchFetchRequest({ ...entry, category: "transport" });
             this.noteTransportStream(entry);
+            this.rateLimits.record(entry);
           },
           onFetchResponseBody: (id: string, body: string) => {
             this.dispatchFetchRequestBodyUpdate(id, body);
