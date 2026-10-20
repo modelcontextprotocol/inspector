@@ -57,6 +57,13 @@ import {
 import { getStateFilePath } from "@inspector/core/auth/node/storage-node.js";
 import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
+import {
+  positiveIntegerParser,
+  positiveNumberParser,
+  resolveLoadOptions,
+  runToolLoad,
+  type LoadOptions,
+} from "@inspector/core/cli/handlers/load-test.js";
 import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
   isOneShotMethod,
@@ -137,6 +144,7 @@ async function callMethod(
   storedAuthOnly: boolean,
   relogin: boolean,
   revoke: boolean,
+  load?: LoadOptions,
 ): Promise<void> {
   // Clear after parse-time validation so a bad flag combo never deletes store
   // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
@@ -261,6 +269,25 @@ async function callMethod(
       serverSettings,
       { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
+
+    // `--load` (#2439): many calls of one tool, then a single summary, in
+    // place of the one result a plain `tools/call` prints.
+    if (load) {
+      const summary = await withCliAuthRecoveryRetry(
+        inspectorClient,
+        serverConfig,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        serverSettings,
+        () => runToolLoad(inspectorClient, args, load),
+        { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+      );
+      await writeFormattedResult(
+        summary,
+        args.format === "json" ? "json" : "text",
+      );
+      return;
+    }
 
     const outcome = await withCliAuthRecoveryRetry(
       inspectorClient,
@@ -789,6 +816,7 @@ type ParseResult =
       storedAuthOnly?: boolean;
       relogin?: boolean;
       revoke?: boolean;
+      load?: LoadOptions;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
   // output and need no server connection; runCli returns immediately.
@@ -998,6 +1026,30 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       'With --verify: exit 9 when a skill advertises no digests (resources: "dynamic"), instead of reporting it as unverifiable and exiting 0.',
     )
     .option(
+      "--load",
+      "Load-test one tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Use with --method tools/call --tool-name <name>. Bounded by --load-duration (default 10s) and/or --load-requests.",
+    )
+    .option(
+      "--load-concurrency <n>",
+      "With --load: most calls in flight at once (positive integer; default 10).",
+      positiveIntegerParser("--load-concurrency"),
+    )
+    .option(
+      "--load-duration <sec>",
+      "With --load: stop starting calls after this many seconds; in-flight calls still finish (default 10 when --load-requests is not set).",
+      positiveNumberParser("--load-duration"),
+    )
+    .option(
+      "--load-requests <n>",
+      "With --load: stop after starting this many calls (positive integer).",
+      positiveIntegerParser("--load-requests"),
+    )
+    .option(
+      "--load-rate <n>",
+      "With --load: start at most this many calls per second, spread evenly (positive number; default unlimited).",
+      positiveNumberParser("--load-rate"),
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -1185,6 +1237,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     waitForAuth?: number;
     listStoredAuth?: boolean;
     printHandoff?: boolean;
+    load?: boolean;
+    loadConcurrency?: number;
+    loadDuration?: number;
+    loadRequests?: number;
+    loadRate?: number;
   };
 
   if (options.relogin) {
@@ -1270,6 +1327,34 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   }
   if (options.skillCatalogMaxBytes !== undefined && !options.verify) {
     throw new Error("--skill-catalog-max-bytes requires --verify.");
+  }
+
+  // `--load` (#2439) is checked here for the same reason as `--strict`: the
+  // short-circuit returns below would otherwise accept it and do nothing.
+  const loadBounds = [
+    ["--load-concurrency", options.loadConcurrency],
+    ["--load-duration", options.loadDuration],
+    ["--load-requests", options.loadRequests],
+    ["--load-rate", options.loadRate],
+  ] as const;
+  for (const [flag, value] of loadBounds) {
+    if (value !== undefined && !options.load) {
+      throw new Error(`${flag} requires --load.`);
+    }
+  }
+  if (options.load) {
+    if (options.method !== "tools/call") {
+      throw new Error("--load requires --method tools/call.");
+    }
+    // Each of these shapes a single result; a load run prints a summary.
+    if (options.appInfo) {
+      throw new Error("--load cannot be combined with --app-info.");
+    }
+    if (options.output !== undefined || options.outputFormat !== undefined) {
+      throw new Error(
+        "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",
+      );
+    }
   }
 
   // `--advertise-apps` is checked here for the same reason: it shapes the
@@ -1577,6 +1662,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // Commander's `--no-revoke` defaults this to true; only an explicit
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
+    ...(options.load && {
+      load: resolveLoadOptions({
+        concurrency: options.loadConcurrency,
+        durationSec: options.loadDuration,
+        requests: options.loadRequests,
+        rate: options.loadRate,
+      }),
+    }),
   };
 }
 
@@ -1611,6 +1704,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     storedAuthOnly,
     relogin,
     revoke,
+    load,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
@@ -1641,5 +1735,6 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     storedAuthOnly === true,
     relogin === true,
     revoke !== false,
+    load,
   );
 }
