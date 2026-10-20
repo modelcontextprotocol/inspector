@@ -265,7 +265,8 @@ export function openBrowser(url: string): void {
   // Through core's `openUrl`, not a bare `open(url)`: it bounds a stalled
   // opener with a timeout, refuses anything but http(s), and absorbs an
   // `'error'` on the child after launch, which unlistened would crash the
-  // server (#2533). Every one of those failures reaches the `.catch` below.
+  // server (#2533). That late `'error'` is swallowed there; the refusal, a
+  // spawn failure and the timeout all reach the `.catch` below.
   openUrl(url).catch((err: unknown) => {
     // The message only, on one line, matching the CLI's wording
     // (`core/cli/cli-oauth-navigation.ts`). Logging the error object printed

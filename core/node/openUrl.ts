@@ -37,17 +37,30 @@ export const OPEN_URL_TIMEOUT_MS = 5_000;
  */
 const OPENABLE_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:"]);
 
-/** Throw unless `href` parses as an `http:` or `https:` URL. */
-function assertOpenable(href: string): void {
-  let protocol: string;
+/**
+ * Return the serialized form of `href`, or throw unless it parses as an
+ * `http:` or `https:` URL.
+ *
+ * The caller opens the **returned** string, never the input. The WHATWG parser
+ * is lenient — it accepts `" https:/a"`, `"HTTPS:\\a\\b"` or
+ * `"https:/../x"` as https — and the platform opener is not: on WSL, `open`
+ * treats a target as a URL only when it literally starts with `scheme://`, and
+ * otherwise converts it as a file path. Checking one string and opening
+ * another would let such an input pass as https and still reach the opener as
+ * a path. The serialization of an http(s) URL always starts with `http://` or
+ * `https://`, so what is checked is exactly what is opened.
+ */
+function toOpenableHref(href: string): string {
+  let parsed: URL;
   try {
-    protocol = new URL(href).protocol;
+    parsed = new URL(href);
   } catch {
     throw new Error("refusing to open an invalid URL");
   }
-  if (!OPENABLE_PROTOCOLS.has(protocol)) {
-    throw new Error(`refusing to open a non-http(s) URL (${protocol})`);
+  if (!OPENABLE_PROTOCOLS.has(parsed.protocol)) {
+    throw new Error(`refusing to open a non-http(s) URL (${parsed.protocol})`);
   }
+  return parsed.href;
 }
 
 /**
@@ -76,8 +89,7 @@ export async function openUrl(
   url: string | URL,
   timeoutMs: number = OPEN_URL_TIMEOUT_MS,
 ): Promise<void> {
-  const href = typeof url === "string" ? url : url.href;
-  assertOpenable(href);
+  const href = toOpenableHref(typeof url === "string" ? url : url.href);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(

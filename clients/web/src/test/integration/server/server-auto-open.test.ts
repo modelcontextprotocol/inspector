@@ -113,7 +113,8 @@ describe("openBrowser", () => {
     openMock.mockImplementation(async () => fakeChild());
     openBrowser("http://127.0.0.1:6274");
     await settle();
-    expect(openMock).toHaveBeenCalledWith("http://127.0.0.1:6274");
+    // `openUrl` opens the URL's serialized form, which adds the root path.
+    expect(openMock).toHaveBeenCalledWith("http://127.0.0.1:6274/");
     expect(warn).not.toHaveBeenCalled();
   });
 });

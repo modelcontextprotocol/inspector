@@ -47,6 +47,23 @@ describe("openUrl", () => {
   });
 
   it.each([
+    [" https:/a.example", "https://a.example/"],
+    ["\thttps://a.example", "https://a.example/"],
+    ["HTTPS:\\\\a.example\\x", "https://a.example/x"],
+    [
+      "https:/../../mnt/c/Windows/System32/calc.exe",
+      "https://../mnt/c/Windows/System32/calc.exe",
+    ],
+  ])(
+    "opens the normalized form of %j, not the raw input",
+    async (raw, opened) => {
+      const { openUrl } = await import("@inspector/core/node/openUrl.js");
+      await openUrl(raw);
+      expect(openMock).toHaveBeenCalledWith(opened);
+    },
+  );
+
+  it.each([
     ["file:", "file:///C:/Windows/System32/calc.exe"],
     ["javascript:", "javascript:alert(1)"],
     ["ms-settings:", "ms-settings:privacy"],
