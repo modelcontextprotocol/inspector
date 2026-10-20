@@ -28,3 +28,17 @@ adds my `Signed-off-by: cliffhall <cliff@futurescale.com>` to each of them.
 | `9fd5bc177cb9e40e651756c533fed14526043bc6` | #1983 | chore: drop the orphaned root override, and correct the TUI coverage note                |
 | `94a227b9c12451ee7810f1177e4992ac4713742c` | #1983 | fix(tui): widen the root react range so an external ink can't split React                |
 | `b70aed691418a7e2e98c897cba6ab44ad422f648` | #1987 | test(fix): probe a single-source route when waiting for the dead transport               |
+
+## olaservo <olahungerford@gmail.com>
+
+I, Ola Hungerford, am the author of the commits below. I certify that each of
+them was contributed in accordance with the Developer Certificate of Origin,
+version 1.1 (https://developercertificate.org/), and this signed-off commit
+adds my `Signed-off-by: olaservo <olahungerford@gmail.com>` to each of them.
+
+| Commit                                     | PR    | Subject                                                                                                               |
+| ------------------------------------------ | ----- | --------------------------------------------------------------------------------------------------------------------- |
+| `cf834633ba99a569ae766083bde166646fc13ac6` | #1994 | fix: add eol=lf policy to .gitattributes so Windows checkouts stay clean                                              |
+| `9f7895dcd976daca6bbe41efc1b381ec4e82b0c1` | #1995 | fix: invoke the registered SIGINT listener directly in run-method.test instead of emitting a process-wide signal      |
+| `9c6e4aeb4e827937abbef489ac5cd154a8919d6a` | #1996 | fix: settle ink input-handler re-subscription after frame waits in TUI App tests                                      |
+| `e3a026802bc8037afe025ecd8f42ce54c811f26d` | #1997 | fix: resolve node bins via package.json instead of spawning npx .cmd shims so the verify/smoke scripts run on Windows |
