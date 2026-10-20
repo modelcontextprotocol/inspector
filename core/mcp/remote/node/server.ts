@@ -30,6 +30,7 @@ import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
+import { isRateLimitError } from "../../rateLimit.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -1045,6 +1046,8 @@ export function createRemoteApp(
     // on this request and everything after it (#1935).
     session.applyProtocolVersion(protocolVersion);
 
+    // Bounds which upstream 429 can be this send's (#2442).
+    const sendStartedAt = Date.now();
     session.beginSend();
     const requestId = requestIdForSendWait(message);
     let responseWait: Promise<void> | undefined;
@@ -1115,6 +1118,9 @@ export function createRemoteApp(
       // browser rebuilds an `SdkHttpError` the era probe can classify (#2660).
       if (err instanceof SdkHttpError) {
         const text = err.data.text;
+        const retryAfter = isRateLimitError(err)
+          ? session.retryAfterSince(sendStartedAt)
+          : undefined;
         return c.json({
           ok: false,
           kind: "transport_error",
@@ -1126,6 +1132,7 @@ export function createRemoteApp(
               statusText: err.statusText,
             }),
             ...(typeof text === "string" && { text }),
+            ...(retryAfter !== undefined && { retryAfter }),
           },
         });
       }

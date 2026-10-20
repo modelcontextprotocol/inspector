@@ -296,6 +296,12 @@ import {
   type NotificationStreamState,
   type OutstandingRequest,
 } from "./connectionDiagnostics.js";
+import {
+  annotateRateLimit,
+  rateLimitResponseOf,
+  retryAfterSince,
+  type RateLimitResponse,
+} from "./rateLimit.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 import { RemoteClientTransport } from "./remote/remoteClientTransport.js";
 
@@ -555,6 +561,9 @@ export class InspectorClient extends InspectorClientEventTarget {
   // `GET` on Streamable HTTP). Both per-session, reset with the maps above.
   private lastResponse: LastResponse | undefined;
   private notificationStream: TrackedNotificationStream | undefined;
+  // The most recent `429` a transport fetch drew, kept for its `Retry-After`
+  // (#2442). Per-session, reset with the diagnostics above.
+  private lastRateLimitResponse: RateLimitResponse | undefined;
   /** True when the cached transport was built with an OAuth authProvider attached. */
   private transportHasAuthProvider = false;
   /** Dedupes concurrent ambient auth challenges (reason + scopes). */
@@ -1071,7 +1080,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.clientInfo,
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
-    this.annotateSdkRequestTimeouts(this.client);
+    this.annotateSdkRequestErrors(this.client);
     if (this.tasksCapabilityAdvertised) {
       this.bindReceiverTasks();
     }
@@ -1080,7 +1089,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Decorate the SDK Client's `request` so a per-request timeout rejects with
    * the connection's state at that moment instead of a bare `Request timed
-   * out` (#2318).
+   * out` (#2318), and a `429` rejects as rate limiting with the server's
+   * `Retry-After` instead of a bare `Error POSTing to endpoint` (#2442).
    *
    * `Protocol.request` is the one funnel every SDK verb goes through —
    * `listTools`, `callTool`, `readResource`, the handshake's `initialize`,
@@ -1098,19 +1108,23 @@ export class InspectorClient extends InspectorClientEventTarget {
    * implementation signature serves both at runtime; the single cast on the
    * way back is what the overloads cost.
    */
-  private annotateSdkRequestTimeouts(client: Client): void {
+  private annotateSdkRequestErrors(client: Client): void {
     type SdkRequest = Client["request"];
     const sdkRequest: SdkRequest = client.request.bind(client);
     const decorated = async (
       ...args: Parameters<SdkRequest>
     ): Promise<unknown> => {
+      // A 429 is matched to this request by time: only one drawn by a fetch
+      // sent after the request started can be the response that failed it.
+      const sentAt = Date.now();
       try {
         return await sdkRequest(...args);
       } catch (err) {
-        throw annotateRequestTimeout(
-          err,
-          args[0].method,
-          this.getConnectionDiagnostics(),
+        const method = args[0].method;
+        throw annotateRateLimit(
+          annotateRequestTimeout(err, method, this.getConnectionDiagnostics()),
+          method,
+          retryAfterSince(this.lastRateLimitResponse, sentAt),
         );
       }
     };
@@ -1673,6 +1687,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.taskProgress.clear();
     this.lastResponse = undefined;
     this.notificationStream = undefined;
+    this.lastRateLimitResponse = undefined;
     this.dispatchConnectionDiagnosticsChange();
     // Per-session for the same reason: both name entries of the PREVIOUS
     // server's list. Cleared here as well as in `disconnect()` because the
@@ -1813,6 +1828,8 @@ export class InspectorClient extends InspectorClientEventTarget {
           onFetchRequest: (entry: FetchRequestEntryBase) => {
             this.dispatchFetchRequest({ ...entry, category: "transport" });
             this.noteTransportStream(entry);
+            this.lastRateLimitResponse =
+              rateLimitResponseOf(entry) ?? this.lastRateLimitResponse;
           },
           onFetchResponseBody: (id: string, body: string) => {
             this.dispatchFetchRequestBodyUpdate(id, body);

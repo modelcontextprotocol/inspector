@@ -11,6 +11,11 @@ import { AuthChallengeError } from "../../../auth/challenge.js";
 import type { RemoteAuthProviderHandle } from "./tokenAuthProvider.js";
 import type { RemoteAuthState } from "../types.js";
 import { progressTokenOf, waitForProgressToken } from "../progressToken.js";
+import {
+  rateLimitResponseOf,
+  retryAfterSince,
+  type RateLimitResponse,
+} from "../../rateLimit.js";
 
 export interface SessionEvent {
   type: RemoteEvent["type"];
@@ -47,6 +52,8 @@ export class RemoteSession {
   private readonly requestWaits = new Map<string | number, RequestWait>();
   private authProviderHandle: RemoteAuthProviderHandle | null = null;
   private appliedProtocolVersion: string | undefined;
+  /** The most recent `429` an upstream fetch drew, for its `Retry-After` (#2442). */
+  private lastRateLimitResponse: RateLimitResponse | undefined;
   /** A protocol version is a dated token (`2025-11-25`, `2026-07-28`, …). */
   private static readonly PROTOCOL_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -310,6 +317,8 @@ export class RemoteSession {
   }
 
   onFetchRequest(entry: FetchRequestEntryBase): void {
+    this.lastRateLimitResponse =
+      rateLimitResponseOf(entry) ?? this.lastRateLimitResponse;
     this.pushEvent({
       type: "fetch_request",
       data: {
@@ -320,6 +329,15 @@ export class RemoteSession {
             : entry.timestamp,
       },
     });
+  }
+
+  /**
+   * The `Retry-After` of the latest upstream `429` drawn by a fetch sent at or
+   * after `since` — read by the send route, so the header rides back on the
+   * send's own error rather than on a fetch event racing it (#2442).
+   */
+  retryAfterSince(since: number): string | undefined {
+    return retryAfterSince(this.lastRateLimitResponse, since);
   }
 
   onFetchResponseBody(id: string, responseBody: string): void {

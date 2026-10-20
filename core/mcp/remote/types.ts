@@ -118,6 +118,11 @@ export interface RemoteHttpErrorData {
   statusText?: string;
   /** The upstream response body, which the probe parses for a JSON-RPC error. */
   text?: string;
+  /**
+   * The upstream `Retry-After` header on a `429`, which the SDK's error does
+   * not carry; read off the backend's own tracked fetch (#2442).
+   */
+  retryAfter?: string;
 }
 
 export type RemoteSendResponse =
