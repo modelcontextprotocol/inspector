@@ -87,6 +87,7 @@ Each client has its own README with client-specific detail:
 | [Writing a skill](./docs/skill-authoring.md) | How to write a skill description that actually fires, and eval cases that measure it — the case shapes that work, and the tuning loop |
 | [Test servers](./docs/test-servers.md) | The composable test servers and the showcase config for every feature — what to run, what to click, and what the broken build did |
 | [Publishing](./docs/publishing.md) | What ships in the tarball, the packaging invariants, and `pack:verify` |
+| [Serving the web UI over HTTPS](./docs/tls.md) | `INSPECTOR_TLS_KEY_PATH` / `INSPECTOR_TLS_CERT_PATH`, a trusted local mkcert setup, custom hostnames and `ALLOWED_ORIGINS`, and `NODE_EXTRA_CA_CERTS` for outbound private-CA servers |
 | [Docker](./docs/docker.md) | Running the container image — ports, volumes, and making secrets durable in a container |
 | [Where secrets are stored](./docs/secret-storage.md) | How the secret store is chosen on every runtime — OS keychain, `secrets.json` or memory — plus file encryption, locking, and moving back to a keychain |
 | [Migrating from v1 to v2](./docs/v1-to-v2-migration.md) | CLI flag mapping, `--config` vs. `--catalog`, the Node engine bump, env-var renames |

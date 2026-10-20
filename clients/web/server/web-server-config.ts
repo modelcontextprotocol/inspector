@@ -29,8 +29,10 @@ import {
 } from "./public-address.js";
 import {
   canonicalUrlHost,
+  formatHostForUrl,
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
+import { resolveTlsConfig, webScheme, type TlsConfig } from "./tls.js";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -96,6 +98,11 @@ export interface WebServerConfig {
   autoOpen: boolean;
   /** Root directory for static files (index.html, assets). When runner starts server in-process, pass path to dist/. */
   staticRoot?: string;
+  /**
+   * PEM key/certificate the UI listener serves https with, or undefined for
+   * plain http (#2446). Covers the UI listener only — see `tls.ts`.
+   */
+  tls?: TlsConfig;
 }
 
 function defaultEnvironmentFromProcess(
@@ -211,14 +218,14 @@ export function printServerBanner(
   // address); otherwise use the SAME canonical host the allow-list emits, so the
   // advertised URL's origin is always a member of `allowedOrigins`
   // (`banner ⊆ allowedOrigins`) — including the IPv4-mapped case where
-  // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `httpOrigin`
-  // keeps the banner and the list agreeing on the default-port form (both drop
-  // :80). Computing `h` once keeps the predicate and the value reading the same
+  // `canonicalUrlHost` unmaps but `formatHostForUrl` wouldn't. `webOrigin`
+  // keeps the banner and the list agreeing on the scheme and the default-port
+  // form (both drop :80 for http, :443 for https). Computing `h` once keeps the predicate and the value reading the same
   // form; `isAllInterfacesHost` also canonicalizes internally, so this is
   // belt-and-braces, not what makes them agree.
   const h = canonicalUrlHost(config.hostname);
   const bannerHost = isAllInterfacesHost(h) ? "localhost" : h;
-  const baseUrl = httpOrigin(bannerHost, actualPort);
+  const baseUrl = webOrigin(webScheme(config.tls), bannerHost, actualPort);
   const url =
     config.dangerouslyOmitAuth || !resolvedToken
       ? baseUrl
@@ -247,6 +254,14 @@ export function printServerBanner(
   }
 
   return url;
+}
+
+/**
+ * The fatal message when the UI listener's port is taken, in the same scheme
+ * the banner would have printed so the two never name different URLs.
+ */
+export function portInUseMessage(config: WebServerConfig): string {
+  return `MCP Inspector PORT IS IN USE at ${webScheme(config.tls)}://${formatHostForUrl(config.hostname)}:${config.port}`;
 }
 
 /**
@@ -299,20 +314,28 @@ export interface BuildWebServerConfigOptions {
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
- * Build an http origin string. The port is omitted when it's the http scheme
- * default (80): browsers drop the default port from `Origin`, and the guard is
- * an exact string match, so `http://host:80` could never match a real request.
+ * Build an origin string. The port is omitted when it's the scheme's default
+ * (80 for http, 443 for https): browsers drop the default port from `Origin`,
+ * and the guard is an exact string match, so `http://host:80` could never
+ * match a real request.
  */
-function httpOrigin(host: string, port: number): string {
-  return port === 80 ? `http://${host}` : `http://${host}:${port}`;
+function webOrigin(
+  scheme: "http" | "https",
+  host: string,
+  port: number,
+): string {
+  const defaultPort = scheme === "https" ? 443 : 80;
+  return port === defaultPort
+    ? `${scheme}://${host}`
+    : `${scheme}://${host}:${port}`;
 }
 
 /** The three interchangeable loopback origin forms for a port. */
-function loopbackOrigins(port: number): string[] {
+function loopbackOrigins(scheme: "http" | "https", port: number): string[] {
   return [
-    httpOrigin("localhost", port),
-    httpOrigin("127.0.0.1", port),
-    httpOrigin("[::1]", port),
+    webOrigin(scheme, "localhost", port),
+    webOrigin(scheme, "127.0.0.1", port),
+    webOrigin(scheme, "[::1]", port),
   ];
 }
 
@@ -346,27 +369,32 @@ function loopbackOrigins(port: number): string[] {
  * For a specific non-loopback host (a real IP/hostname) we return the single
  * exact origin — canonicalized and, for an IPv6 literal, bracketed, so it
  * matches the `Origin` header the browser actually sends.
+ *
+ * Every origin carries `scheme` — `https` when the UI listener serves TLS
+ * (#2446) — since the browser's `Origin` includes it and an `http://` entry
+ * can never match a page loaded over https.
  */
 export function defaultAllowedOrigins(
   hostname: string,
   port: number,
+  scheme: "http" | "https" = "http",
 ): string[] {
   // The loopback lookup and the emitted origin both read the canonicalized `h`
   // (the wildcard check via `isAllInterfacesHost` canonicalizes internally), so
   // every branch reasons about the same address.
   const h = canonicalUrlHost(hostname);
   if (LOOPBACK_HOSTNAMES.has(h)) {
-    return loopbackOrigins(port);
+    return loopbackOrigins(scheme, port);
   }
   if (isAllInterfacesHost(h)) {
     return [
-      ...loopbackOrigins(port),
-      httpOrigin("0.0.0.0", port),
-      httpOrigin("[::]", port),
+      ...loopbackOrigins(scheme, port),
+      webOrigin(scheme, "0.0.0.0", port),
+      webOrigin(scheme, "[::]", port),
     ];
   }
   // `h` is already the canonical, URL-ready host (bracketed for IPv6).
-  return [httpOrigin(h, port)];
+  return [webOrigin(scheme, h, port)];
 }
 
 /**
@@ -397,6 +425,10 @@ export function buildWebServerConfig(
     );
   }
   const hostname = resolveBindHostname();
+  // Read before the allow-list below, whose default origins take its scheme.
+  // Throws on a half-set pair or an unreadable/unusable file; run-web and the
+  // Vite config both surface that message as a startup error.
+  const tls = resolveTlsConfig();
   // Only an explicit `true`/`1` omits auth — `!!value` read `=false` as "on"
   // and silently disabled the /api/* bearer gate (#2331).
   const dangerouslyOmitAuth = isEnvFlagEnabled(
@@ -494,7 +526,7 @@ export function buildWebServerConfig(
     .filter((o): o is string => o !== null);
   const allowedOrigins = configuredOrigins?.length
     ? configuredOrigins
-    : defaultAllowedOrigins(hostname, port);
+    : defaultAllowedOrigins(hostname, port, webScheme(tls));
 
   // Resolved after the allow-list because both are checked against it: neither
   // listener may share an origin with the Inspector page (#1862). The sandbox
@@ -527,6 +559,7 @@ export function buildWebServerConfig(
     appOriginPublicOrigin,
     logger,
     autoOpen: resolveAutoOpen(),
+    ...(tls ? { tls } : {}),
   };
 }
 

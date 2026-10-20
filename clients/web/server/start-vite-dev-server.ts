@@ -64,6 +64,10 @@ export async function startViteDevServer(
       // `config.port`, so a drifted bind would 403 every connect and CSP-block
       // the MCP Apps iframe while the banner advertises the unusable port.
       strictPort: true,
+      // The same TLS pair the prod listener uses (#2446), matching
+      // `vite.config.ts`. Vite serves it over HTTP/2 with an HTTP/1.1
+      // fallback; the Hono plugin's /api bridge handles both.
+      https: config.tls,
       // Allow Vite to serve source files from the repo root (core/ lives
       // outside clients/web), matching `vite.config.ts`'s `server.fs.allow`.
       fs: {

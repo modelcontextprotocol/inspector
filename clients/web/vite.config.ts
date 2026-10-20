@@ -189,6 +189,10 @@ export default defineConfig(({ command }) => {
       // HOST="" is Node's all-interfaces address, the one value this guards.
       host: devConfig?.hostname ?? (process.env.HOST?.trim() || "localhost"),
       strictPort: true,
+      // https when both INSPECTOR_TLS_* paths are set (#2446) — the pair
+      // `devConfig` already read and validated, so dev and the prod listener
+      // agree. Undefined (plain http) for build/vitest, which never bind.
+      https: devConfig?.tls,
       fs: {
         allow: [path.resolve(dirname, "../..")],
       },
