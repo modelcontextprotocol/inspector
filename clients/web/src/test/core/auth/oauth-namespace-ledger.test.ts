@@ -1,7 +1,8 @@
 /**
  * Unit tests for the secrets-namespace ledger (#2560): its tolerant parse,
  * record-only-when-new writes, per-namespace purge bookkeeping, and the
- * best-effort failure handling that keeps a ledger problem from ever
+ * pending carry-over a record an adoption could not read owes its
+ * successor (#2672), and the best-effort failure handling that keeps a ledger problem from ever
  * failing the OAuth save or removal it rides on. The end-to-end scenarios
  * (a stripped stamp re-adopted, a stripped file removed) live in the
  * integration suite's `oauth-secrets-namespace.test.ts`.
@@ -30,7 +31,9 @@ vi.mock("@inspector/core/storage/store-io.js", async (importOriginal) => {
 
 import { writeStoreFile } from "@inspector/core/storage/store-io.js";
 import {
+  markUncarriedNamespaces,
   namespaceLedgerPath,
+  pendingCarries,
   purgeSupersededNamespaces,
   recordedNamespaces,
   recordNamespaceKeys,
@@ -62,6 +65,7 @@ class FakeKeyring extends KeyringSecretStore {
 import {
   LEGACY_TOKENS_FIELD,
   IDP_SESSION_FIELD,
+  issuerClientSecretField,
   oauthIdpSecretServerId,
   oauthSecretServerId,
 } from "@inspector/core/auth/node/oauth-secrets.js";
@@ -91,7 +95,14 @@ afterEach(() => {
 
 type LedgerJson = Record<
   string,
-  Record<string, { servers: string[]; idpSessions: string[] }>
+  Record<
+    string,
+    {
+      servers: string[];
+      idpSessions: string[];
+      carry?: { into: string; clients: Record<string, Record<string, string>> };
+    }
+  >
 >;
 
 function readLedger(): LedgerJson {
@@ -494,5 +505,201 @@ describe("purgeSupersededNamespaces", () => {
     expect(warn.mock.calls.at(-1)?.[0]).toContain(
       "Could not update the OAuth secrets-namespace ledger",
     );
+  });
+});
+
+describe("pending carry-over (#2672)", () => {
+  const NS3 = "33333333-3333-4333-8333-333333333333";
+  const SECRET = issuerClientSecretField(ISSUER);
+  const owners = (clientId: string) =>
+    new Map([[SERVER, new Map([[SECRET, clientId]])]]);
+  // Another run's store: marking is about the records it could not read.
+  const elsewhere = new KeyringSecretStore();
+
+  /** NS1's record in this run's store, owed to NS2 by a run elsewhere. */
+  async function owed(clientId = "c", secret: string | null = "s3cret") {
+    await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
+    if (secret !== null) {
+      await store.set(oauthSecretServerId(SERVER, NS1), SECRET, secret);
+    }
+    await markUncarriedNamespaces(stateFile, elsewhere, NS2, owners(clientId));
+  }
+
+  describe("markUncarriedNamespaces", () => {
+    it("marks only other locations' records, never the successor's", async () => {
+      await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
+      await recordNamespaceKeys(stateFile, elsewhere, NS1, [SERVER], []);
+      await recordNamespaceKeys(stateFile, store, NS2, [SERVER], []);
+      await markUncarriedNamespaces(stateFile, elsewhere, NS2, owners("c"));
+      const ledger = readLedger();
+      expect(ledger[NS1].memory.carry).toEqual({
+        into: NS2,
+        clients: { [SERVER]: { [SECRET]: "c" } },
+      });
+      expect(ledger[NS1].keyring.carry).toBeUndefined();
+      expect(ledger[NS2].memory.carry).toBeUndefined();
+    });
+
+    it("keeps the client a record was first marked with across a later re-adoption", async () => {
+      await owed("c");
+      await markUncarriedNamespaces(stateFile, elsewhere, NS3, owners("d"));
+      expect(readLedger()[NS1].memory.carry).toEqual({
+        into: NS3,
+        clients: { [SERVER]: { [SECRET]: "c" } },
+      });
+    });
+
+    it("leaves a record unmarked when the file holds no client for it", async () => {
+      await recordNamespaceKeys(stateFile, store, NS1, [SERVER], []);
+      vi.mocked(writeStoreFile).mockClear();
+      await markUncarriedNamespaces(stateFile, elsewhere, NS2, new Map());
+      expect(writeStoreFile).not.toHaveBeenCalled();
+      expect(readLedger()[NS1].memory.carry).toBeUndefined();
+    });
+
+    it("does not rewrite a ledger already marked the same way", async () => {
+      await owed();
+      vi.mocked(writeStoreFile).mockClear();
+      await markUncarriedNamespaces(stateFile, elsewhere, NS2, owners("c"));
+      expect(writeStoreFile).not.toHaveBeenCalled();
+    });
+
+    it("warns instead of throwing when the ledger is unusable", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mkdirSync(ledgerFile);
+      await expect(
+        markUncarriedNamespaces(stateFile, elsewhere, NS2, owners("c")),
+      ).resolves.toBeUndefined();
+      expect(warn.mock.calls[0][0]).toContain(
+        "Could not update the OAuth secrets-namespace ledger",
+      );
+    });
+  });
+
+  describe("pendingCarries", () => {
+    it("lists what this store's records owe the current namespace, newest first", async () => {
+      await owed();
+      await recordNamespaceKeys(stateFile, store, NS3, [SERVER], []);
+      await markUncarriedNamespaces(stateFile, elsewhere, NS2, owners("c"));
+      expect(
+        (await pendingCarries(stateFile, store, NS2)).map((c) => c.namespace),
+      ).toEqual([NS3, NS1]);
+      expect(await pendingCarries(stateFile, store, NS3)).toEqual([]);
+      expect(await pendingCarries(stateFile, elsewhere, NS2)).toEqual([]);
+    });
+
+    it("warns and reads as empty when the ledger cannot be read", async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      mkdirSync(ledgerFile);
+      expect(await pendingCarries(stateFile, store, NS2)).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it("ignores a malformed mark, and malformed clients inside a valid one", async () => {
+      writeFileSync(
+        ledgerFile,
+        JSON.stringify({
+          namespaces: {
+            [NS1]: { memory: { servers: [SERVER], carry: { into: "bad+ns" } } },
+            [NS3]: {
+              memory: {
+                servers: [SERVER],
+                carry: {
+                  into: NS2,
+                  clients: {
+                    [SERVER]: { [SECRET]: 7, ok: "c" },
+                    "https://b.example": "nope",
+                    "https://c.example": { only: 7 },
+                  },
+                },
+              },
+            },
+            "44444444-4444-4444-8444-444444444444": {
+              memory: { servers: [], carry: { into: NS2, clients: "nope" } },
+            },
+          },
+        }),
+      );
+      const carries = await pendingCarries(stateFile, store, NS2);
+      expect(carries.map((c) => [c.namespace, [...c.clients.keys()]])).toEqual([
+        ["44444444-4444-4444-8444-444444444444", []],
+        [NS3, [SERVER]],
+      ]);
+      expect([...carries[1].clients.get(SERVER)!]).toEqual([["ok", "c"]]);
+    });
+  });
+
+  describe("purgeSupersededNamespaces", () => {
+    const from = oauthSecretServerId(SERVER, NS1);
+    const to = oauthSecretServerId(SERVER, NS2);
+
+    it("carries the owed field into the current namespace before purging", async () => {
+      await owed();
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBe("s3cret");
+      expect(await store.get(from, SECRET)).toBeNull();
+      // The carried key is recorded under the current namespace, like
+      // every other write the ledger tracks.
+      expect(readLedger()).toEqual({
+        [NS2]: { memory: { servers: [SERVER], idpSessions: [] } },
+      });
+    });
+
+    it("records nothing new when the current namespace already lists the server", async () => {
+      await recordNamespaceKeys(stateFile, store, NS2, [SERVER], []);
+      await owed();
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBe("s3cret");
+    });
+
+    it.each([
+      ["a different client now", owners("other")],
+      ["no client for that server now", new Map()],
+    ])("does not carry with %s, and still purges", async (_label, now) => {
+      await owed();
+      await purgeSupersededNamespaces(stateFile, store, NS2, now);
+      expect(await store.get(to, SECRET)).toBeNull();
+      expect(await store.get(from, SECRET)).toBeNull();
+      expect(existsSync(ledgerFile)).toBe(false);
+    });
+
+    it("keeps what the current namespace already holds", async () => {
+      await owed();
+      await store.set(to, SECRET, "newer");
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBe("newer");
+      expect(await store.get(from, SECRET)).toBeNull();
+    });
+
+    it("has nothing to carry when the old namespace holds nothing", async () => {
+      await owed("c", null);
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBeNull();
+      expect(existsSync(ledgerFile)).toBe(false);
+    });
+
+    it("does not carry into a namespace the record is not owed to", async () => {
+      await owed();
+      await purgeSupersededNamespaces(stateFile, store, undefined, owners("c"));
+      expect(await store.get(to, SECRET)).toBeNull();
+      expect(await store.get(from, SECRET)).toBeNull();
+    });
+
+    it("keeps the record unpurged, and warns, when the carry fails", async () => {
+      await owed();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.spyOn(store, "set").mockRejectedValueOnce(
+        new Error("keychain locked"),
+      );
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(from, SECRET)).toBe("s3cret");
+      expect(readLedger()[NS1].memory.carry?.into).toBe(NS2);
+      expect(warn.mock.calls[0][0]).toContain("keychain locked");
+
+      // The next locked save retries it.
+      await purgeSupersededNamespaces(stateFile, store, NS2, owners("c"));
+      expect(await store.get(to, SECRET)).toBe("s3cret");
+      expect(await store.get(from, SECRET)).toBeNull();
+    });
   });
 });

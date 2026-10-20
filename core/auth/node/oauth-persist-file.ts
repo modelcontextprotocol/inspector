@@ -35,6 +35,9 @@
  *    Until then, an unstamped file's reads and adoption fall back to those
  *    namespaces for any secret the legacy ids lack (#2630), so what the
  *    older Inspector could not see is carried over rather than purged.
+ *    What an adoption could not read — a namespace's entries in another
+ *    backend than the run's — is marked in the ledger, and carried over by
+ *    a later run on that backend before it purges them (#2672).
  */
 
 import {
@@ -70,13 +73,17 @@ import {
 } from "./secret-store.js";
 import { defaultSecretStore } from "./secret-store-selection.js";
 import {
+  markUncarriedNamespaces,
+  pendingCarries,
   purgeSupersededNamespaces,
   recordedNamespaces,
   recordNamespaceKeys,
+  type ClientCredentialOwners,
 } from "./oauth-namespace-ledger.js";
 import { MAX_WRITE_ATTEMPTS } from "./file-secret-store.js";
 import {
   IDP_SESSION_FIELD,
+  clientCredentialOwners,
   getPersistTokensPolicy,
   isUsableStoredSecret,
   isValidSecretsNamespace,
@@ -374,6 +381,14 @@ function warnNamespaceCleanupFailure(error: unknown): void {
  * Unlocked, the purge is skipped: a concurrent adopter's namespace can be
  * recorded before it is stamped, and purging it would delete live
  * credentials.
+ *
+ * The carry-over reads through this run's store only, so a superseded
+ * namespace's entries in another backend (a keychain this run could not
+ * unlock, say) are not carried. Adoption marks those records in the
+ * ledger instead, with the `client_id` each client credential belonged to
+ * (#2672); a later locked save on that backend carries them into the
+ * stamped namespace — where the file still holds the same client — before
+ * its purge deletes them, and its reads see them in the meantime.
  */
 async function adoptSecretsNamespace(
   filePath: string,
@@ -386,7 +401,12 @@ async function adoptSecretsNamespace(
     // An ordinary save also retries any superseded namespace whose purge
     // failed at adoption — the new stamp means adoption will not run again.
     if (locked) {
-      await purgeSupersededNamespaces(filePath, secretStore, existing);
+      await purgeSupersededNamespaces(
+        filePath,
+        secretStore,
+        existing,
+        snapshotClientOwners(parseOAuthPersistBlob(raw)),
+      );
     }
     return existing;
   }
@@ -424,6 +444,10 @@ async function adoptSecretsNamespace(
     Object.keys(snapshot.servers),
     Object.keys(snapshot.idpSessions),
   );
+  // Before the copies too: what this run's store cannot show it is still
+  // owed to the new namespace by a run on the store that holds it.
+  const owners = snapshotClientOwners(snapshot);
+  await markUncarriedNamespaces(filePath, secretStore, namespace, owners);
   // Rollback baseline: the scoped ids are vacant before this call — the
   // namespace is a UUID minted moments ago, so nothing can already live
   // under it — which makes "restore" simply "delete what we copied".
@@ -462,7 +486,7 @@ async function adoptSecretsNamespace(
   // Only now, with everything the file still indexes copied under the new
   // stamp, is every other recorded namespace safe to purge: purging first
   // would delete the only copy of what the copies above carried over.
-  await purgeSupersededNamespaces(filePath, secretStore, namespace);
+  await purgeSupersededNamespaces(filePath, secretStore, namespace, owners);
   const legacyIds = [
     ...Object.keys(snapshot.servers).map((url) => oauthSecretServerId(url)),
     ...Object.keys(snapshot.idpSessions).map((issuer) =>
@@ -1197,6 +1221,21 @@ function fillMissingSecrets(
   }
 }
 
+/** Per server, the `client_id` each client credential belongs to. */
+function snapshotClientOwners(
+  snapshot: OAuthPersistSnapshot | null,
+): ClientCredentialOwners {
+  const owners: ClientCredentialOwners = new Map();
+  for (const [url, state] of Object.entries(snapshot?.servers ?? {})) {
+    const fields = clientCredentialOwners(state);
+    if (fields.size > 0) owners.set(url, fields);
+  }
+  return owners;
+}
+
+/** A superseded namespace a stamped file is still owed fields from. */
+type PendingCarry = Awaited<ReturnType<typeof pendingCarries>>[number];
+
 /**
  * Read every secret the snapshot's entries could hold, from the ids
  * `namespace` gives them, then from each of `fallbacks` in order for the
@@ -1205,6 +1244,11 @@ function fillMissingSecrets(
  * `recordedNamespaces`): the ids the file names come first, so anything an
  * older Inspector wrote there since the strip wins, and the stripped
  * namespace supplies only what it alone still holds.
+ *
+ * `carries` is non-empty only for a stamped file with records in this
+ * store an adoption elsewhere could not read (#2672, `pendingCarries`):
+ * each supplies only the client-credential fields it was marked with,
+ * and only for a client the file still holds under the same `client_id`.
  *
  * Strict: this read hydrates the memory state that later sectioned writes
  * diff against, so a tolerant read during a store outage would present
@@ -1217,6 +1261,7 @@ async function readEntrySecrets(
   secretStore: SecretStore,
   namespace: string | undefined,
   fallbacks: string[],
+  carries: PendingCarry[] = [],
 ): Promise<EntrySecrets> {
   const servers = new Map<string, OAuthSecretValues>();
   const idpSessions = new Map<string, OAuthSecretValues>();
@@ -1238,6 +1283,32 @@ async function readEntrySecrets(
       );
     }
   }
+  const owners = snapshotClientOwners(snapshot);
+  for (const { namespace: from, clients } of carries) {
+    const requests: SecretBulkRequest[] = [];
+    for (const [url, fields] of clients) {
+      const target = servers.get(url);
+      if (!target) continue;
+      const wanted = [...fields]
+        .filter(
+          ([field, clientId]) =>
+            owners.get(url)?.get(field) === clientId &&
+            !Object.hasOwn(target, field),
+        )
+        .map(([field]) => field);
+      if (wanted.length > 0) {
+        requests.push({
+          serverId: oauthSecretServerId(url, from),
+          fields: wanted,
+        });
+      }
+    }
+    if (requests.length === 0) continue;
+    const values = await secretStoreGetManyStrict(secretStore, requests);
+    for (const [url, target] of servers) {
+      fillMissingSecrets(target, values[oauthSecretServerId(url, from)]);
+    }
+  }
   return { servers, idpSessions };
 }
 
@@ -1247,12 +1318,14 @@ async function joinSnapshot(
   secretStore: SecretStore,
   namespace: string | undefined,
   fallbacks: string[],
+  carries: PendingCarry[] = [],
 ): Promise<OAuthPersistSnapshot> {
   const values = await readEntrySecrets(
     snapshot,
     secretStore,
     namespace,
     fallbacks,
+    carries,
   );
   return {
     servers: Object.fromEntries(
@@ -1420,11 +1493,16 @@ export async function readOAuthStore(
     // until a write mints the namespace and moves them (#2549). An
     // unstamped file also falls back to the namespaces it used to carry,
     // so the state a save starts from still holds what only they have
-    // (#2630).
+    // (#2630). A stamped one reads only the client credentials a record in
+    // this store still owes it, until a locked save carries them (#2672).
     const namespace = parseSecretsNamespace(raw);
     const fallbacks =
       namespace === undefined ? await recordedNamespaces(filePath) : [];
-    return joinSnapshot(snapshot, secretStore, namespace, fallbacks);
+    const carries =
+      namespace === undefined
+        ? []
+        : await pendingCarries(filePath, secretStore, namespace);
+    return joinSnapshot(snapshot, secretStore, namespace, fallbacks, carries);
   });
 }
 

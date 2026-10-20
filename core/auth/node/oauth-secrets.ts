@@ -574,6 +574,35 @@ export function serverSecretFields(
   return [...fields];
 }
 
+/**
+ * The `client_id` each dynamically registered client's credential fields
+ * belong to, keyed by field (#2672). A carried-over `client_secret` or
+ * registration token is only meaningful paired with the client it was
+ * issued to, and the store does not record that pairing, so a carry-over
+ * from a superseded namespace checks it against this. Pre-registered
+ * clients are left out: they are user-entered, and a user can clear one's
+ * secret while keeping its `client_id`, which no carry-over could tell
+ * apart from a secret that was never carried.
+ */
+export function clientCredentialOwners(
+  state: ServerOAuthState,
+): Map<string, string> {
+  const owners = new Map<string, string>();
+  const add = (
+    info: { client_id?: unknown } | undefined,
+    fields: ClientInfoFields,
+  ): void => {
+    if (typeof info?.client_id !== "string") return;
+    owners.set(fields.clientSecret, info.client_id);
+    owners.set(fields.registrationToken, info.client_id);
+  };
+  add(state.clientInformation, LEGACY_CLIENT_INFO_FIELDS);
+  for (const [issuer, slot] of Object.entries(state.byIssuer ?? {})) {
+    add(slot.clientInformation, issuerClientInfoFields(issuer));
+  }
+  return owners;
+}
+
 /** Does this `clientInformation` object still carry a bearer-grade key? */
 function clientInfoHasPlaintext(
   info: ClientInfoSecretKeys | undefined,
