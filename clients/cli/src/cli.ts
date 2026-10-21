@@ -727,6 +727,17 @@ function buildHandoff(
     ? "localhost"
     : canonicalUrlHost(host);
   const clientPort = process.env.CLIENT_PORT || "6274";
+  // The web UI listener serves https only when BOTH TLS paths are set (#2446;
+  // `resolveTlsConfig` in clients/web/server/tls.ts, where a blank value counts
+  // as unset). An http link to that listener cannot load (#2770). A half pair
+  // stays http: the web server refuses to start on one, so there is no https
+  // listener to point at. The sandbox and app-origin ports stay plain http
+  // under TLS by design, so only the deep link's scheme follows this.
+  const scheme =
+    process.env.INSPECTOR_TLS_KEY_PATH?.trim() &&
+    process.env.INSPECTOR_TLS_CERT_PATH?.trim()
+      ? "https"
+      : "http";
   const sandboxPort = process.env.MCP_SANDBOX_PORT || "6275";
   // The dedicated app origin (#2056). Forwarded alongside the other two: an App
   // whose UI resource declares `_meta.ui.domain` is served from this port and
@@ -749,7 +760,7 @@ function buildHandoff(
   if (apiToken) params.set("autoConnect", apiToken);
   return {
     serverUrl: normalizedUrl,
-    deepLink: `http://${linkHost}:${clientPort}/?${params.toString()}`,
+    deepLink: `${scheme}://${linkHost}:${clientPort}/?${params.toString()}`,
     portForwardCmd: `coder port-forward <workspace> --tcp ${clientPort}:${clientPort} --tcp ${sandboxPort}:${sandboxPort} --tcp ${appOriginPort}:${appOriginPort}`,
     oauthStatePath: statePath,
     apiToken: apiToken ?? null,
