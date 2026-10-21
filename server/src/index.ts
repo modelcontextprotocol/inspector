@@ -9,6 +9,14 @@ import {
   createPinnedAgent,
   ProxyTargetError,
 } from "./proxy-security.js";
+import {
+  createOriginValidationMiddleware,
+  isAuthDisabledFlag,
+} from "./request-guards.js";
+import {
+  readCappedBody,
+  ProxyResponseTooLargeError,
+} from "./proxy-response.js";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -33,6 +41,13 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
+import {
+  nextRedirectRequest,
+  normalizeProxyHeaders,
+  type ProxyHopRequest,
+} from "./proxy-redirect.js";
+import { formatHeaderNamesForLog, formatQueryForLog } from "./log-format.js";
+import { isSameOriginApiAllowedFlag } from "./fetch-metadata.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -230,34 +245,19 @@ const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For d
 // Use provided token from environment or generate a new one
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+const authDisabled = isAuthDisabledFlag(process.env.DANGEROUSLY_OMIT_AUTH);
+const allowSameOriginApi = isSameOriginApiAllowedFlag(
+  process.env.DANGEROUSLY_ALLOW_SAME_ORIGIN_API,
+);
 
-// Origin validation middleware to prevent DNS rebinding attacks
-const originValidationMiddleware = (
-  req: express.Request,
-  res: express.Response,
-  next: express.NextFunction,
-) => {
-  const origin = req.headers.origin;
-
-  // Default origins based on CLIENT_PORT or use environment variable
-  const clientPort = process.env.CLIENT_PORT || "6274";
-  const defaultOrigin = `http://localhost:${clientPort}`;
-  const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(",") || [
-    defaultOrigin,
-  ];
-
-  if (origin && !allowedOrigins.includes(origin)) {
-    console.error(`Invalid origin: ${origin}`);
-    res.status(403).json({
-      error: "Forbidden - invalid origin",
-      message:
-        "Request blocked to prevent DNS rebinding attacks. Configure allowed origins via environment variable.",
-    });
-    return;
-  }
-  next();
-};
+// Origin validation middleware to prevent DNS rebinding attacks. When auth is
+// disabled it also rejects requests that carry no Origin header, and unless
+// DANGEROUSLY_ALLOW_SAME_ORIGIN_API is set it rejects same-origin browser
+// requests (see fetch-metadata.ts).
+const originValidationMiddleware = createOriginValidationMiddleware(
+  authDisabled,
+  allowSameOriginApi,
+);
 
 const authMiddleware = (
   req: express.Request,
@@ -435,7 +435,7 @@ const createTransport = async (
   headerHolder?: ProxyHeaderHolder;
 }> => {
   const query = req.query;
-  console.log("Query parameters:", JSON.stringify(query));
+  console.log("Query parameters:", formatQueryForLog(query));
 
   const transportType = query.transportType as string;
 
@@ -466,7 +466,7 @@ const createTransport = async (
     const headerHolder: ProxyHeaderHolder = { headers };
 
     console.log(
-      `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
+      `SSE transport: url=${url}, headers=${formatHeaderNamesForLog(headers)}`,
     );
 
     const transport = new SSEClientTransport(new URL(url), {
@@ -877,13 +877,20 @@ const MAX_PROXY_REDIRECTS = 5;
 // connects to the IP we just validated instead of re-resolving the hostname.
 // This eliminates the TOCTOU window between the block-list check and the
 // actual TCP connection that a DNS-rebinding attack would exploit.
+//
+// What each redirect does to the next hop's request — dropping credentials
+// when the origin changes, and the 301/302/303 method and body rewrite — is
+// nextRedirectRequest in proxy-redirect.ts.
 async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
-  let currentUrl = new URL(initialUrl);
-  let method = init?.method ?? "GET";
-  let body = init?.body as string | undefined;
-  const headers = (init?.headers as Record<string, string>) ?? {};
+  let request: ProxyHopRequest = {
+    url: new URL(initialUrl),
+    method: init?.method ?? "GET",
+    body: init?.body as string | undefined,
+    headers: normalizeProxyHeaders(init?.headers),
+  };
 
   for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
+    const currentUrl = request.url;
     if (!["http:", "https:"].includes(currentUrl.protocol)) {
       throw new ProxyTargetError("Only http/https URLs are allowed");
     }
@@ -896,9 +903,9 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
     const agent = createPinnedAgent(currentUrl.protocol, validatedAddresses);
 
     const response = await fetch(currentUrl.toString(), {
-      method,
-      headers,
-      body,
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
       redirect: "manual",
       agent,
     });
@@ -908,12 +915,7 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
       if (!location) {
         return response;
       }
-      currentUrl = new URL(location, currentUrl);
-      // Mirror browser/fetch semantics: 301/302/303 downgrade to a bodyless GET.
-      if ([301, 302, 303].includes(response.status)) {
-        method = "GET";
-        body = undefined;
-      }
+      request = nextRedirectRequest(request, response.status, location);
       continue;
     }
 
@@ -961,7 +963,19 @@ app.post(
         throw error;
       }
 
-      const responseBody = await response.text();
+      // Read the body through a byte cap rather than response.text(), which
+      // would buffer whatever the upstream sends. An oversize body is an
+      // upstream failure, reported to the client as 502 Bad Gateway.
+      let responseBody: string;
+      try {
+        responseBody = await readCappedBody(response);
+      } catch (error) {
+        if (error instanceof ProxyResponseTooLargeError) {
+          res.status(502).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
       const headers: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         headers[key] = value;
@@ -1038,6 +1052,14 @@ server.on("listening", () => {
   } else {
     console.log(
       `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+    );
+  }
+  if (allowSameOriginApi) {
+    console.log(
+      `⚠️  WARNING: DANGEROUSLY_ALLOW_SAME_ORIGIN_API is set. Same-origin browser ` +
+        `requests to the proxy API are allowed, including from documents the ` +
+        `proxy serves itself (the MCP Apps sandbox). Opening MCP App links with ` +
+        `noopener in the client is the only remaining layer.`,
     );
   }
 });
