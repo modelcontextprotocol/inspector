@@ -24,8 +24,9 @@
  * digest is a finding, not a parse error to swallow. But a settled shape is
  * enforced, because silently normalizing one past the checks would defeat the
  * point: `skills/get` requires its `{ skill }` envelope, and a modern
- * `skills/list` or `skills/get` result requires the caching attributes (see
- * `ModernListSkillsResultSchema` and `ModernGetSkillEnvelopeSchema`).
+ * `skills/list`, `skills/get` or `resources/directory/read` result requires
+ * the caching attributes (see `ModernListSkillsResultSchema`,
+ * `ModernGetSkillEnvelopeSchema` and `ModernDirectoryReadResultSchema`).
  */
 
 import { z } from "zod/v4";
@@ -244,46 +245,55 @@ export type GetSkillResult = SkillEntry;
 export const DirectoryChildSchema = ResourceSchema;
 
 /**
- * `resources/directory/read` result on **either** era: the directory's direct
- * children plus the opaque cursor. On a modern connection this is the shape
- * after the SDK codec has checked and removed `resultType`, which is why no
- * modern variant exists — see the note below (#2373).
+ * `resources/directory/read` result on a **legacy** connection: the directory's
+ * direct children plus the opaque cursor, and nothing required beyond that.
  *
- * `looseObject`, matching every other result schema here: a server that also
- * sends the caching attributes is not wrong for doing so, and a schema is not
- * the place to reject an extra member.
+ * Its modern counterpart is {@link ModernDirectoryReadResultSchema}. The
+ * caching attributes are 2026-era, so the legacy shape stays permissive,
+ * exactly as {@link ListSkillsResultSchema} and {@link GetSkillEnvelopeSchema}
+ * do: `looseObject`, so a legacy server that also sends them is not failed for
+ * doing so.
  */
 export const DirectoryReadResultSchema = z.looseObject({
   resources: z.array(DirectoryChildSchema),
   nextCursor: z.string().optional(),
 });
 
+/**
+ * The result as the SDK decoded it, on either era. Typed from the legacy
+ * schema, whose caching attributes are optional: the modern schema only
+ * narrows them to required, so either era's result fits — the same reason
+ * {@link GetSkillEnvelope} is typed from the legacy envelope.
+ */
 export type DirectoryReadResult = z.infer<typeof DirectoryReadResultSchema>;
 
-/*
- * There is deliberately **no modern variant** of the `resources/directory/read`
- * schema, though `skills/list` and `skills/get` each have one (#2373, #2404).
+/**
+ * `resources/directory/read` result on a **modern** (2026-07-28+) connection:
+ * the page plus `CacheableResult`'s required `ttlMs` / `cacheScope` (#2740).
  *
- * On a modern (2026-07-28+) connection the SDK codec already enforces
- * `resultType` — the base-protocol member SEP-2322 puts on every modern result
- * — and lifts it off before any caller schema runs. What remains is the
- * caching attributes, and only the two `skills/*` results are required to
- * carry those:
+ * SEP-2640 as accepted said nothing about caching attributes on this method,
+ * and its one worked example carried `resultType` alone — so an earlier
+ * revision of this module deliberately had no modern variant here, on the
+ * reading that requiring more than the SEP's own example would fail a
+ * conforming server. The stable ext-skills specification settles it the way
+ * it settled `skills/get` (#2404): *"`ReadResourceDirectoryResult` extends
+ * `CacheableResult`, so `ttlMs` and `cacheScope` are **REQUIRED**, as they
+ * are on `resources/list`, and carry the same semantics. They describe the
+ * freshness of the directory listing, not of the held entry"* (ext-skills#157,
+ * recorded in its `docs/decisions.md`), and its directory-read examples now
+ * carry `"ttlMs": 300000, "cacheScope": "public"`.
  *
- *  - For `skills/list` the SEP states it outright — *"In protocol versions
- *    2026-07-28 and later, the result also carries … `ttlMs` and
- *    `cacheScope`"* — so {@link ModernListSkillsResultSchema} requiring them is
- *    quoting the spec.
- *  - For `skills/get` the stable ext-skills specification states that
- *    `GetSkillResult` extends `CacheableResult`, so
- *    {@link ModernGetSkillEnvelopeSchema} requires them too.
- *  - For `resources/directory/read` it states **nothing of the kind**, and its
- *    one worked example carries `resultType: "complete"` and no caching
- *    attributes at all. Requiring them would fail a server that matched the
- *    SEP's own example, the failure direction this module works hardest to
- *    avoid.
+ * Same field shapes as {@link ModernListSkillsResultSchema}, and the same
+ * reason it exists: this is a consumer-owned method, so the SDK codec checks
+ * and lifts `resultType` (#2373) but checks neither caching attribute, and
+ * without this a modern server omitting them would be reported as clean.
  *
- * So both eras parse that result with one schema. An earlier revision required
- * `resultType` on "modern" variants; since the codec lifts it, they could never
- * pass on a real modern connection.
+ * ⚠️ Picked by `InspectorClient.readResourceDirectory` from the negotiated
+ * era — a schema cannot know it on its own.
  */
+export const ModernDirectoryReadResultSchema = DirectoryReadResultSchema.extend(
+  {
+    ttlMs: z.int().min(0),
+    cacheScope: z.enum(["public", "private"]),
+  },
+);

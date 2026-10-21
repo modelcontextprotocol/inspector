@@ -32,7 +32,33 @@
  * handed to the keychain record rather than dropped, because a
  * file-to-keychain hand-off may already have copied its entries there.
  *
- * Everything here is best-effort and never throws: the ledger is a cleanup
+ * Why a record can carry a pending carry-over (#2672): an adoption reads
+ * the namespaces it supersedes through the run's own store only, so a
+ * record in another location was never carried into its successor — and
+ * the successor's stamp means no read falls back to it again. Purging it
+ * from its own location later would delete what may be the only copy of a
+ * confidential client's secret. So every record also notes, as each save
+ * writes it, which client-credential fields it wrote, and adoption marks
+ * every record it could not read as owed to the namespace that superseded
+ * it. A run in that location then reads, and finally copies, those fields
+ * into the successor before the purge — but only where the state file
+ * still holds the client the value was written for. A field the successor
+ * lacks is otherwise indistinguishable from one deliberately cleared
+ * since, and a different client means the secret would be paired with the
+ * wrong one.
+ *
+ * Which client a value was written for is read from the owner stamp stored
+ * beside it (#2734, `clientCredentialStampField`), never from the ledger.
+ * The ledger records each field's `client_id` too, but only as the writer
+ * saw it in its own location, and a value reaches the keychain without the
+ * ledger seeing it: a file-to-keychain hand-off copies a file's value only
+ * where the keychain has none, keeps an older one otherwise, and may be
+ * absorbing any of several `secrets.json` files. No combination of
+ * per-location records says which value it kept. The stamp moves with the
+ * value instead, so a value with no stamp that vouches for it — written
+ * before stamps existed, or separated from its stamp — is not carried.
+ *
+ * Everything else here is best-effort and never throws: the ledger is a cleanup
  * aid, not part of the credential path, so a failure warns once and the
  * save or removal it rides on carries on. Purging deletes credentials, so
  * the callers in `oauth-persist-file.ts` run it only under the real file
@@ -47,13 +73,19 @@ import {
   writeStoreFile,
 } from "../../storage/store-io.js";
 import { serializeStore } from "../../storage/store-serialize.js";
-import { KeyringSecretStore, type SecretStore } from "./secret-store.js";
+import {
+  KeyringSecretStore,
+  secretStoreGetStrict,
+  type SecretStore,
+} from "./secret-store.js";
 import { FileSecretStore } from "./file-secret-store.js";
 import { resolveConcreteSecretStore } from "./secret-store-selection.js";
 import {
+  clientCredentialStampField,
   isValidSecretsNamespace,
   oauthIdpSecretServerId,
   oauthSecretServerId,
+  stampedOwner,
 } from "./oauth-secrets.js";
 
 /** The ledger's path, derived from the state file it belongs to. */
@@ -110,10 +142,89 @@ function coveredLocations(
     .map(([recorded, keys]) => ({ location: recorded, keys }));
 }
 
-/** The keys one namespace has had store entries written under. */
+/**
+ * Per server URL, the `client_id` each client-credential field belonged to
+ * (see `clientCredentialOwners`). Field names are keyed by issuer and come
+ * from persisted state, so these are maps rather than plain objects.
+ */
+export type ClientCredentialOwners = Map<string, Map<string, string>>;
+
+/** Per server URL, the client-credential fields a carry may copy (#2672). */
+export type CarryFields = Map<string, Set<string>>;
+
+/**
+ * The keys one namespace has had store entries written under, the client
+ * each client credential written there was written for (which fields a
+ * carry should look in — the owner itself is read from the store's stamp,
+ * see the header), and — for a record an adoption could not read (#2672) —
+ * the namespace it is owed to.
+ */
 interface LedgerKeys {
   servers: Set<string>;
   idpSessions: Set<string>;
+  owners: ClientCredentialOwners;
+  owedTo?: string;
+}
+
+const emptyKeys = (): LedgerKeys => ({
+  servers: new Set(),
+  idpSessions: new Set(),
+  owners: new Map(),
+});
+
+/**
+ * The client-credential fields a run in `location` should look in for one
+ * namespace (#2672): every field any record it covers wrote, its own and a
+ * covered secrets file's alike, since a hand-off may have brought either
+ * here. Which of them holds a value worth carrying, and for which client,
+ * is the store's stamp to say (see the header), so a field listed here
+ * that was never written costs one empty read.
+ */
+function candidateFields(
+  location: string,
+  byLocation: Map<string, LedgerKeys>,
+): CarryFields {
+  const fields: CarryFields = new Map();
+  for (const { keys } of coveredLocations(location, byLocation)) {
+    for (const [url, owned] of keys.owners) {
+      const kept = fields.get(url) ?? new Set<string>();
+      for (const field of owned.keys()) kept.add(field);
+      fields.set(url, kept);
+    }
+  }
+  return fields;
+}
+
+/** Add to `target` each of `source`'s owners for a field it does not name. */
+function addMissingOwners(
+  target: ClientCredentialOwners,
+  source: ClientCredentialOwners,
+): void {
+  for (const [url, fields] of source) {
+    const kept = target.get(url) ?? new Map<string, string>();
+    for (const [field, clientId] of fields) {
+      if (!kept.has(field)) kept.set(field, clientId);
+    }
+    if (kept.size > 0) target.set(url, kept);
+  }
+}
+
+/** Merge `source` into `target`, the later owner winning; reports a change. */
+function mergeOwners(
+  target: ClientCredentialOwners,
+  source: ClientCredentialOwners,
+): boolean {
+  let changed = false;
+  for (const [url, fields] of source) {
+    const kept = target.get(url) ?? new Map<string, string>();
+    for (const [field, clientId] of fields) {
+      if (kept.get(field) === clientId) continue;
+      kept.set(field, clientId);
+      changed = true;
+    }
+    if (kept.size > 0) target.set(url, kept);
+  }
+  return changed;
 }
 
 /**
@@ -142,6 +253,20 @@ export function resetNamespaceLedgerWarnings(): void {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseOwners(value: unknown): ClientCredentialOwners {
+  const owners: ClientCredentialOwners = new Map();
+  if (!isRecord(value)) return owners;
+  for (const [url, fields] of Object.entries(value)) {
+    if (!isRecord(fields)) continue;
+    const byField = new Map<string, string>();
+    for (const [field, clientId] of Object.entries(fields)) {
+      if (typeof clientId === "string") byField.set(field, clientId);
+    }
+    if (byField.size > 0) owners.set(url, byField);
+  }
+  return owners;
 }
 
 function stringsOf(value: unknown): string[] {
@@ -177,6 +302,8 @@ function parseLedger(raw: string | null): Ledger {
       byLocation.set(location, {
         servers: new Set(stringsOf(keys.servers)),
         idpSessions: new Set(stringsOf(keys.idpSessions)),
+        owners: parseOwners(keys.owners),
+        ...(isValidSecretsNamespace(keys.owedTo) && { owedTo: keys.owedTo }),
       });
     }
     if (byLocation.size > 0) ledger.set(namespace, byLocation);
@@ -191,7 +318,19 @@ function serializeLedger(ledger: Ledger): string {
       Object.fromEntries(
         [...byLocation].map(([location, keys]) => [
           location,
-          { servers: [...keys.servers], idpSessions: [...keys.idpSessions] },
+          {
+            servers: [...keys.servers],
+            idpSessions: [...keys.idpSessions],
+            ...(keys.owners.size > 0 && {
+              owners: Object.fromEntries(
+                [...keys.owners].map(([url, fields]) => [
+                  url,
+                  Object.fromEntries(fields),
+                ]),
+              ),
+            }),
+            ...(keys.owedTo !== undefined && { owedTo: keys.owedTo }),
+          },
         ]),
       ),
     ]),
@@ -213,7 +352,9 @@ async function writeLedger(
  * `namespace` in `secretStore`. Call it *before* the store writes, so a
  * crash between the two leaves an over-recorded ledger rather than an
  * unrecorded entry. Rewrites the ledger only when a key is new, so a
- * steady-state save costs one small read.
+ * steady-state save costs one small read. `owners` is, per server, the
+ * `client_id` each client credential being written belongs to (#2672);
+ * a later write's owner replaces an earlier one's, as its secret does.
  */
 export async function recordNamespaceKeys(
   stateFilePath: string,
@@ -221,6 +362,7 @@ export async function recordNamespaceKeys(
   namespace: string,
   servers: Iterable<string>,
   idpSessions: Iterable<string>,
+  owners: ClientCredentialOwners = new Map(),
 ): Promise<void> {
   try {
     const ledger = parseLedger(
@@ -235,7 +377,7 @@ export async function recordNamespaceKeys(
     let keys = byLocation.get(location);
     let changed = false;
     if (!keys) {
-      keys = { servers: new Set(), idpSessions: new Set() };
+      keys = emptyKeys();
       byLocation.set(location, keys);
       changed = true;
     }
@@ -249,10 +391,149 @@ export async function recordNamespaceKeys(
       keys.idpSessions.add(issuer);
       changed = true;
     }
+    if (mergeOwners(keys.owners, owners)) changed = true;
     if (changed) await writeLedger(stateFilePath, ledger);
   } catch (error) {
     warnLedgerFailure("update", error);
   }
+}
+
+/**
+ * Mark every record of a namespace other than `into` that lives somewhere
+ * other than `secretStore`, and holds a client credential, as owed to
+ * `into` (#2672): adoption's carry-over reads through this run's store
+ * only, so those records were not carried into it.
+ *
+ * Unlike the rest of the ledger this throws, and adoption fails with it:
+ * call it before the stamp commits, because an adoption that commits
+ * without the mark leaves the record looking disposable, and the first
+ * save on its backend would purge the only copy of its secret.
+ */
+export async function markUncarriedNamespaces(
+  stateFilePath: string,
+  secretStore: SecretStore,
+  into: string,
+): Promise<void> {
+  const ledger = parseLedger(
+    await readStoreFile(namespaceLedgerPath(stateFilePath)),
+  );
+  const location = await secretStoreLocation(secretStore);
+  let changed = false;
+  for (const [namespace, byLocation] of ledger) {
+    if (namespace === into) continue;
+    for (const [recorded, keys] of byLocation) {
+      if (recorded === location || keys.owners.size === 0) continue;
+      if (keys.owedTo === into) continue;
+      keys.owedTo = into;
+      changed = true;
+    }
+  }
+  if (changed) await writeLedger(stateFilePath, ledger);
+}
+
+/**
+ * The records a run in `secretStore`'s location still owes `current` a
+ * carry-over from (#2672), newest first: each one's namespace and, per
+ * server, the client-credential fields it may hold. A stamped file's reads
+ * fall back to these — for those fields only, and only where the value's
+ * stamp names a client the file still holds — so the state a save starts
+ * from does not drop a secret the purge is about to carry.
+ *
+ * Throws on an unreadable ledger, like the strict store reads beside it:
+ * reading as empty would present an owed secret as absent, and the save
+ * that follows would delete it right after the purge carried it.
+ */
+export async function pendingCarries(
+  stateFilePath: string,
+  secretStore: SecretStore,
+  current: string,
+): Promise<Array<{ namespace: string; fields: CarryFields }>> {
+  const ledger = parseLedger(
+    await readStoreFile(namespaceLedgerPath(stateFilePath)),
+  );
+  const location = await secretStoreLocation(secretStore);
+  const carries: Array<{ namespace: string; fields: CarryFields }> = [];
+  for (const [namespace, byLocation] of ledger) {
+    const owed = coveredLocations(location, byLocation).some(
+      ({ keys }) => keys.owedTo === current,
+    );
+    if (owed) {
+      carries.push({
+        namespace,
+        fields: candidateFields(location, byLocation),
+      });
+    }
+  }
+  return carries.reverse();
+}
+
+/**
+ * Copy what an owed record holds into `current` before it is purged
+ * (#2672): each client credential it recorded, into the same server's id
+ * under `current`, only where `current` holds nothing for it and the
+ * value's stamp names the client the state file (`now`) holds for that
+ * field (#2734) — the stamp is copied with it, so it still vouches there.
+ * Records the key and its owner under `current` first, like every other
+ * write the ledger tracks. Returns whether every carry succeeded; a
+ * failure leaves the record for the next locked save.
+ */
+async function carryOwed(
+  stateFilePath: string,
+  ledger: Ledger,
+  location: string,
+  secretStore: SecretStore,
+  namespace: string,
+  current: string,
+  recorded: CarryFields,
+  now: ClientCredentialOwners,
+): Promise<boolean> {
+  let carried = true;
+  for (const [url, fields] of recorded) {
+    for (const field of fields) {
+      const clientId = now.get(url)?.get(field);
+      if (clientId === undefined) continue;
+      try {
+        const from = oauthSecretServerId(url, namespace);
+        const to = oauthSecretServerId(url, current);
+        const stampField = clientCredentialStampField(field);
+        const value = await secretStoreGetStrict(secretStore, from, field);
+        if (value === null) continue;
+        const stamp = await secretStoreGetStrict(secretStore, from, stampField);
+        if (stamp === null || stampedOwner(stamp, value) !== clientId) {
+          continue;
+        }
+        if ((await secretStoreGetStrict(secretStore, to, field)) !== null) {
+          continue;
+        }
+        let byLocation = ledger.get(current);
+        if (!byLocation) {
+          byLocation = new Map();
+          ledger.set(current, byLocation);
+        }
+        const target = byLocation.get(location) ?? emptyKeys();
+        byLocation.set(location, target);
+        const isNew = !target.servers.has(url);
+        target.servers.add(url);
+        const owner = new Map([[url, new Map([[field, clientId]])]]);
+        if (mergeOwners(target.owners, owner) || isNew) {
+          await writeLedger(stateFilePath, ledger);
+        }
+        // Stamp first: a stamp left alone by a failed value write vouches
+        // for nothing, and the retry finds the field vacant and redoes
+        // both. The other order could leave an unstamped value the retry
+        // skips as already held, and no later carry would trust.
+        await secretStore.set(to, stampField, stamp);
+        await secretStore.set(to, field, value);
+      } catch (error) {
+        carried = false;
+        warnLedgerFailure(
+          "carry over a superseded namespace recorded in",
+          error,
+        );
+      }
+    }
+  }
+  return carried;
 }
 
 /**
@@ -296,6 +577,15 @@ export async function recordedNamespaces(
  * locked save or removal retries it. Records for other locations are left
  * for a run that uses them.
  *
+ * A record an adoption could not read and marked as owed to `current` is
+ * carried into it first, for the clients `owners` — what the state file
+ * holds now — still matches (see {@link markUncarriedNamespaces}); a
+ * failed carry leaves the record unpurged, for the same retry. Records are
+ * visited newest first, so where two owe the same field the newer value
+ * is the one carried, as a read would have seen it — and a failed carry
+ * ends the pass, so an older record cannot fill the field the newer one
+ * still owes it.
+ *
  * Only call this under the real file lock: it deletes credentials, and an
  * unlocked caller could be racing an adopter whose namespace is recorded
  * but not yet stamped.
@@ -304,6 +594,7 @@ export async function purgeSupersededNamespaces(
   stateFilePath: string,
   secretStore: SecretStore,
   current: string | undefined,
+  owners: ClientCredentialOwners = new Map(),
 ): Promise<void> {
   let ledger: Ledger;
   let location: string;
@@ -317,8 +608,30 @@ export async function purgeSupersededNamespaces(
     return;
   }
   let changed = false;
-  for (const [namespace, byLocation] of ledger) {
+  for (const [namespace, byLocation] of [...ledger].reverse()) {
     if (namespace === current) continue;
+    // Carry once per namespace, before purging any location it covers: a
+    // keychain run purges a covered file record's ids from the keychain
+    // too, so purging an unowed record first would delete the very values
+    // an owed one is about to carry.
+    if (
+      current !== undefined &&
+      coveredLocations(location, byLocation).some(
+        ({ keys }) => keys.owedTo === current,
+      ) &&
+      !(await carryOwed(
+        stateFilePath,
+        ledger,
+        location,
+        secretStore,
+        namespace,
+        current,
+        candidateFields(location, byLocation),
+        owners,
+      ))
+    ) {
+      break;
+    }
     for (const { location: recorded, keys } of coveredLocations(
       location,
       byLocation,
@@ -346,14 +659,18 @@ export async function purgeSupersededNamespaces(
       if (!purged || recorded !== location) continue;
       byLocation.delete(recorded);
       // A file's entries may also have been copied into the keychain by a
-      // hand-off this ledger never saw; keep tracking them there.
+      // hand-off this ledger never saw; keep tracking them there — the
+      // fields a carry should look in and any carry still owed included,
+      // since a copy absorbed before this run is one this run's carry could
+      // not find (#2672). Where both name a field the keychain's owner is
+      // kept: neither decides a carry (the stamp does), but it is the one
+      // its own location wrote.
       if (recorded.startsWith(FILE_LOCATION_PREFIX)) {
-        const keyring = byLocation.get(KEYRING_LOCATION) ?? {
-          servers: new Set<string>(),
-          idpSessions: new Set<string>(),
-        };
+        const keyring = byLocation.get(KEYRING_LOCATION) ?? emptyKeys();
+        addMissingOwners(keyring.owners, keys.owners);
         for (const url of keys.servers) keyring.servers.add(url);
         for (const issuer of keys.idpSessions) keyring.idpSessions.add(issuer);
+        keyring.owedTo ??= keys.owedTo;
         byLocation.set(KEYRING_LOCATION, keyring);
       }
       changed = true;

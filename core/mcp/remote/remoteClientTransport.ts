@@ -182,6 +182,7 @@ function toSdkHttpError(
     status: http.status,
     ...(http.statusText !== undefined && { statusText: http.statusText }),
     ...(http.text !== undefined && { text: http.text }),
+    ...(http.retryAfter !== undefined && { retryAfter: http.retryAfter }),
   });
 }
 

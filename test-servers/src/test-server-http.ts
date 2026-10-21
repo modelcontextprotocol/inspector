@@ -281,6 +281,30 @@ function createNeverAcknowledgeSubscriptionsInjector(
   };
 }
 
+/**
+ * Refuse every `subscriptions/listen` with a bare HTTP status (#2722) — no
+ * JSON-RPC body and no `WWW-Authenticate`, the shape a gateway or proxy in front
+ * of a server produces. Observed in the v2.11.0 smoke as a bare 403 from a
+ * logging proxy, which the Inspector re-sent until its eight-attempt cap and
+ * never reported.
+ *
+ * The status is the config value, so the same fixture serves both halves of
+ * the classification: a deterministic refusal (403, 400, 404, 405) the
+ * Inspector must not retry, and a transient one (503, 429) it must.
+ */
+function createRefuseSubscriptionsListenInjector(
+  status: number,
+): express.RequestHandler {
+  return (req, res, next) => {
+    const body = req.body as JsonRpcListenBody | undefined;
+    if (body?.method !== "subscriptions/listen") {
+      next();
+      return;
+    }
+    res.sendStatus(status);
+  };
+}
+
 const specErrorInjector: express.RequestHandler = (req, res, next) => {
   const body = req.body as JsonRpcCallBody | undefined;
   const trigger =
@@ -495,6 +519,16 @@ export class TestServerHttp {
     if (neverAck) {
       extraMiddleware.push(
         createNeverAcknowledgeSubscriptionsInjector(neverAck),
+      );
+    }
+
+    // Optional HTTP-refusal injector (#2722): answers `subscriptions/listen`
+    // with a bare HTTP status, so the Inspector's refusal classification has a
+    // server to reproduce it against.
+    const refuseListen = this.config.modern?.refuseSubscriptionsListen;
+    if (refuseListen !== undefined) {
+      extraMiddleware.push(
+        createRefuseSubscriptionsListenInjector(refuseListen),
       );
     }
 

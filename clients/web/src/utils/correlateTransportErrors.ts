@@ -174,7 +174,15 @@ export function enrichProtocolEntries(
     const error = errorsById.get(String(id));
     if (!error) return entry;
     changed = true;
-    return { ...entry, response: error };
+    // A request whose send failed already carries the failure as a
+    // `clientError` (#2721). When the refusal also carried a JSON-RPC error
+    // body, that body is the better record of it — it is the server's own
+    // answer — so it replaces the note rather than sitting beside it, where
+    // a `clientError` on an answered entry would read as the Inspector
+    // rejecting a response.
+    const folded: MessageEntry = { ...entry, response: error };
+    delete folded.clientError;
+    return folded;
   });
   return changed ? enriched : messages;
 }

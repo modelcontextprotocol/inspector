@@ -13,9 +13,12 @@
 //
 // A job counts as credentialed when it
 //
-//   1. can mint an OIDC token or push a package — `id-token: write` or
-//      `packages: write` (or `write-all`), in its own `permissions:` or, absent
-//      one, the workflow's;
+//   1. can mint an OIDC token, push a package or upload code-scanning results
+//      — `id-token: write`, `packages: write` or `security-events: write` (or
+//      `write-all`), in its own `permissions:` or, absent one, the workflow's.
+//      `security-events` joined in #2545: it is the scope a CodeQL job uploads
+//      its findings with, so a moved tag there could quietly drop every alert
+//      — the scan reporting clean is exactly what such a job is trusted for;
 //   2. is handed any secret other than `GITHUB_TOKEN`, its own or through the
 //      workflow-level `env:` — in any spelling of the
 //      expression (`secrets.X`, `secrets['X']`, `secrets[matrix.name]`), or as
@@ -68,12 +71,14 @@ const DEFAULT_TOKEN =
 const EXPRESSION = /\$\{\{([\s\S]*?)\}\}/g;
 const EXACT_VERSION = /^v\d+\.\d+\.\d+$/;
 
-/** Does this `permissions:` value let the job mint a token or push a package? */
+/** Does this `permissions:` value let the job mint a token, push a package or upload scan results? */
 function mints(permissions) {
   if (permissions === "write-all") return true;
   if (permissions === null || typeof permissions !== "object") return false;
   return (
-    permissions["id-token"] === "write" || permissions.packages === "write"
+    permissions["id-token"] === "write" ||
+    permissions.packages === "write" ||
+    permissions["security-events"] === "write"
   );
 }
 
@@ -233,7 +238,7 @@ export function main(root = repoRoot) {
     console.error(
       `verify:action-pins — ${problems.length} action ref(s) in a credentialed job are not SHA-pinned:\n` +
         problems.join("\n") +
-        "\n\nA job holding `id-token`/`packages: write`, a non-default secret, or building an" +
+        "\n\nA job holding `id-token`/`packages`/`security-events: write`, a non-default secret, or building an" +
         "\nartifact such a job consumes runs only immutable refs (#2484). Pin each as" +
         "\n  uses: owner/repo@<40-hex sha> # vX.Y.Z" +
         "\nresolving the SHA and the exact release from the same tag lookup. The comment" +

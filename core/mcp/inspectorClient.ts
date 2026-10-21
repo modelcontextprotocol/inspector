@@ -53,6 +53,7 @@ import type {
   InspectorClientOptions,
   PendingRequestOrigin,
   ResourceSubscriptionStreamState,
+  SubscriptionListenRefusal,
   ExcludedTool,
   RequestMetadata,
   InspectorTask,
@@ -83,6 +84,10 @@ import {
   subscriptionFailureMessage,
   NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE,
 } from "./subscriptionAck.js";
+import {
+  subscriptionListenRefusal,
+  subscriptionListenRefusalMessage,
+} from "./subscriptionRefusal.js";
 // Fallback client identity, used ONLY when a caller doesn't pass
 // `clientIdentity`. Real clients supply their own: the Node clients (CLI, TUI)
 // read the single-source version from the root package.json via
@@ -177,6 +182,7 @@ import {
 import { buildClientExtensions } from "./extensions.js";
 import {
   DirectoryReadResultSchema,
+  ModernDirectoryReadResultSchema,
   GetSkillEnvelopeSchema,
   ModernGetSkillEnvelopeSchema,
   ListSkillsResultSchema,
@@ -265,6 +271,7 @@ import {
   parseAuthChallengeFromError,
   type AuthChallenge,
   type AuthChallengeOutcome,
+  type CheckAuthChallengeSatisfiedOptions,
   type HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
@@ -285,11 +292,17 @@ import {
 import {
   annotateRequestTimeout,
   isRequestTimeoutError,
+  describeSendFailure,
   type ConnectionDiagnostics,
   type LastResponse,
   type NotificationStreamState,
   type OutstandingRequest,
 } from "./connectionDiagnostics.js";
+import {
+  annotateRateLimit,
+  attachRetryAfter,
+  RateLimitLedger,
+} from "./rateLimit.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 import { RemoteClientTransport } from "./remote/remoteClientTransport.js";
 
@@ -525,8 +538,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     transport: () => this.transport,
     defaultTimeoutMs: () => this.requestTimeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
     resetTimeoutOnProgress: () => this.resetTimeoutOnProgress,
-    annotateTimeout: (error, method) =>
-      annotateRequestTimeout(error, method, this.getConnectionDiagnostics()),
+    annotateError: (error, method) => this.annotateRequestError(error, method),
   });
   private readonly dispatchTaskRequest: RawClientDispatch = (
     request,
@@ -549,6 +561,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // `GET` on Streamable HTTP). Both per-session, reset with the maps above.
   private lastResponse: LastResponse | undefined;
   private notificationStream: TrackedNotificationStream | undefined;
+  // Each tracked `429`'s `Retry-After`, by the JSON-RPC id that drew it, until
+  // that id's failed send claims it (#2442). Per-session, reset with the
+  // diagnostics above.
+  private readonly rateLimits = new RateLimitLedger();
   /** True when the cached transport was built with an OAuth authProvider attached. */
   private transportHasAuthProvider = false;
   /** Dedupes concurrent ambient auth challenges (reason + scopes). */
@@ -698,6 +714,10 @@ export class InspectorClient extends InspectorClientEventTarget {
   // site to the two failure handlers. Cleared by any user-initiated refresh (a
   // subscribe/unsubscribe is a fresh attempt, and the server may have changed).
   private modernNeverAcknowledged = false;
+  // Set when the last `listen()` was refused at the HTTP layer with a status a
+  // retry cannot change (#2722) — the sibling of `modernNeverAcknowledged`,
+  // carried and cleared the same way, holding the HTTP answer the UI reports.
+  private modernListenRefusal: SubscriptionListenRefusal | null = null;
   /** Which in-flight task calls own each progress token (#2316). */
   private readonly taskProgress = new TaskProgressRouter();
   // Abort controller for the in-flight ordinary (non-task) tool call. Aborting
@@ -1061,7 +1081,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.clientInfo,
       Object.keys(clientOptions).length > 0 ? clientOptions : undefined,
     );
-    this.annotateSdkRequestTimeouts(this.client);
+    this.annotateSdkRequestErrors(this.client);
     if (this.tasksCapabilityAdvertised) {
       this.bindReceiverTasks();
     }
@@ -1070,7 +1090,8 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Decorate the SDK Client's `request` so a per-request timeout rejects with
    * the connection's state at that moment instead of a bare `Request timed
-   * out` (#2318).
+   * out` (#2318), and a `429` rejects as rate limiting with the server's
+   * `Retry-After` instead of a bare `Error POSTing to endpoint` (#2442).
    *
    * `Protocol.request` is the one funnel every SDK verb goes through —
    * `listTools`, `callTool`, `readResource`, the handshake's `initialize`,
@@ -1088,7 +1109,7 @@ export class InspectorClient extends InspectorClientEventTarget {
    * implementation signature serves both at runtime; the single cast on the
    * way back is what the overloads cost.
    */
-  private annotateSdkRequestTimeouts(client: Client): void {
+  private annotateSdkRequestErrors(client: Client): void {
     type SdkRequest = Client["request"];
     const sdkRequest: SdkRequest = client.request.bind(client);
     const decorated = async (
@@ -1097,14 +1118,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       try {
         return await sdkRequest(...args);
       } catch (err) {
-        throw annotateRequestTimeout(
-          err,
-          args[0].method,
-          this.getConnectionDiagnostics(),
-        );
+        throw this.annotateRequestError(err, args[0].method);
       }
     };
     client.request = decorated as SdkRequest;
+  }
+
+  /**
+   * The one place a failed request's error is decorated, shared by the SDK
+   * funnel above and the raw-wire channel that bypasses it (modern-era tool
+   * calls and task operations), so a caller sees the same error whichever
+   * path its request took: a timeout with the connection's state (#2318), a
+   * `429` named as rate limiting (#2442), anything else untouched.
+   */
+  private annotateRequestError(err: unknown, method: string): unknown {
+    return annotateRateLimit(
+      annotateRequestTimeout(err, method, this.getConnectionDiagnostics()),
+      method,
+    );
   }
 
   /**
@@ -1168,9 +1199,20 @@ export class InspectorClient extends InspectorClientEventTarget {
         // saw as unanswered, in every timeout message and Connection Info
         // row, until the session resets (#2318).
         if (isRequestTimeoutError(error)) return;
+        // The SDK's 429 error carries no headers; this is the one point that
+        // knows which request it failed, so it is where that request's own
+        // `Retry-After` goes onto it (#2442).
+        attachRetryAfter(error, this.rateLimits.take(message.id));
         if (this.outstandingRequests.delete(message.id)) {
           this.dispatchConnectionDiagnosticsChange();
         }
+        // The request's log entry is resolved too: no response frame is
+        // coming for it, so without this it reads "Pending" forever — even
+        // when the server answered with a definitive HTTP refusal (#2721).
+        this.dispatchTypedEvent("requestFailed", {
+          id: message.id,
+          reason: describeSendFailure(error),
+        });
       },
       trackResponse: (
         message: JSONRPCResultResponse | JSONRPCErrorResponse,
@@ -1598,6 +1640,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.clearModernReconnectTimer();
     this.modernReconnectAttempts = 0;
     this.modernNeverAcknowledged = false;
+    this.modernListenRefusal = null;
     this.modernSubscription = null;
     // Announced only once both have moved: a listener that ran between them
     // would see an empty set with an `active` stream — the combination this
@@ -1655,6 +1698,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.taskProgress.clear();
     this.lastResponse = undefined;
     this.notificationStream = undefined;
+    this.rateLimits.clear();
     this.dispatchConnectionDiagnosticsChange();
     // Per-session for the same reason: both name entries of the PREVIOUS
     // server's list. Cleared here as well as in `disconnect()` because the
@@ -1795,6 +1839,7 @@ export class InspectorClient extends InspectorClientEventTarget {
           onFetchRequest: (entry: FetchRequestEntryBase) => {
             this.dispatchFetchRequest({ ...entry, category: "transport" });
             this.noteTransportStream(entry);
+            this.rateLimits.record(entry);
           },
           onFetchResponseBody: (id: string, body: string) => {
             this.dispatchFetchRequestBodyUpdate(id, body);
@@ -5012,16 +5057,22 @@ export class InspectorClient extends InspectorClientEventTarget {
       // for page one.
       ...(cursor !== undefined ? { cursor } : {}),
     };
-    // One schema for both eras (#2373): the SDK codec enforces and lifts
-    // `resultType` on a modern connection, and SEP-2640 requires no caching
-    // attributes of this method — see `skillsSchemas.ts` for why that differs
-    // from `skills/list`.
+    // Era-aware, like `listSkills` and `getSkillResult` (#2740): the stable
+    // ext-skills spec makes `ReadResourceDirectoryResult` a `CacheableResult`,
+    // so a modern result must carry `ttlMs` / `cacheScope`. The SDK codec
+    // checks and lifts `resultType` (#2373) but, for a consumer-owned method,
+    // neither caching attribute — so this schema is the only thing that does.
+    // Legacy stays permissive. The result is returned whole: the CLI prints it
+    // as received, so the attributes reach its output.
+    const resultSchema = this.isModernEra()
+      ? ModernDirectoryReadResultSchema
+      : DirectoryReadResultSchema;
     try {
       return await this.invokeMcpClient(
         () =>
           this.client!.request(
             { method: RESOURCES_DIRECTORY_READ_METHOD, params },
-            DirectoryReadResultSchema,
+            resultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
           ),
         { method: RESOURCES_DIRECTORY_READ_METHOD },
@@ -5610,6 +5661,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.clearModernReconnectTimer();
       this.modernReconnectAttempts = 0;
       this.modernNeverAcknowledged = false;
+      this.modernListenRefusal = null;
     }
     const generation = ++this.modernListenGeneration;
 
@@ -5643,11 +5695,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       // already cleared the flag for its own attempt, and a stale caller writing
       // to it afterwards would make that attempt's *unrelated* failure look
       // deterministic and end a stream that deserved a retry.
-      if (
-        generation === this.modernListenGeneration &&
-        isNeverAcknowledgedSubscriptionClose(error)
-      ) {
-        this.modernNeverAcknowledged = true;
+      if (generation === this.modernListenGeneration) {
+        if (isNeverAcknowledgedSubscriptionClose(error)) {
+          this.modernNeverAcknowledged = true;
+        }
+        // The HTTP-refusal sibling (#2722), recorded under the same gate.
+        this.modernListenRefusal = subscriptionListenRefusal(error) ?? null;
       }
       throw error;
     }
@@ -5760,6 +5813,14 @@ export class InspectorClient extends InspectorClientEventTarget {
    * its error either way — the retry is about the subscriptions, not the call.
    */
   private reconcileModernStreamStateAfterFailedRefresh(): void {
+    // Ahead of the empty-filter test, unlike the never-acknowledged case below:
+    // a refused subscribe is rolled back, and on a server with no list-change
+    // opt-in that rollback empties the filter — reporting it inactive would
+    // swallow the refusal the same way the retry run did (#2722).
+    if (this.modernListenRefusal) {
+      this.endModernStreamRefused(this.modernListenRefusal);
+      return;
+    }
     if (!this.wantsModernStream()) {
       this.setModernStreamState(INACTIVE_SUBSCRIPTION_STREAM_STATE);
       return;
@@ -5794,6 +5855,24 @@ export class InspectorClient extends InspectorClientEventTarget {
       active: this.modernStreamActive(),
       status: "never-acknowledged",
       honoredUris: [],
+    });
+  }
+
+  /**
+   * Settle the stream on an HTTP refusal of the listen (#2722): the
+   * `"refused"` status carrying the HTTP answer, no reconnect, and a log line
+   * with the sentence the UI shows. Reported whatever `active` says — see
+   * `ResourceSubscriptionStreamState`.
+   */
+  private endModernStreamRefused(refusal: SubscriptionListenRefusal): void {
+    this.clearModernReconnectTimer();
+    const message = subscriptionListenRefusalMessage(refusal);
+    this.logger.warn({ message }, "subscriptions/listen refused over HTTP");
+    this.setModernStreamState({
+      active: this.modernStreamActive(),
+      status: "refused",
+      honoredUris: [],
+      refusal,
     });
   }
 
@@ -5843,6 +5922,13 @@ export class InspectorClient extends InspectorClientEventTarget {
       this.wantsModernStream()
     ) {
       this.endModernStreamNeverAcknowledged();
+      return;
+    }
+    // Likewise a re-listen the server refused over HTTP (#2722) — the observed
+    // shape: a stream reconnecting after its URI was rolled back, kept alive by
+    // the list-change opt-ins, re-sent until the cap.
+    if (this.modernListenRefusal && !isTerminalStatus(this.status)) {
+      this.endModernStreamRefused(this.modernListenRefusal);
       return;
     }
     this.modernReconnectAttempts += 1;
@@ -6080,8 +6166,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   async checkAuthChallengeSatisfied(
     challenge: AuthChallenge,
+    options?: CheckAuthChallengeSatisfiedOptions,
   ): Promise<boolean> {
-    return this.ensureOAuthManager().checkAuthChallengeSatisfied(challenge);
+    return this.ensureOAuthManager().checkAuthChallengeSatisfied(
+      challenge,
+      options,
+    );
   }
 
   /**
@@ -6283,8 +6373,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   async completeOAuthFlow(
     authorizationCode: string,
     iss?: string,
+    state?: string,
   ): Promise<void> {
-    await this.ensureOAuthManager().completeOAuthFlow(authorizationCode, iss);
+    await this.ensureOAuthManager().completeOAuthFlow(
+      authorizationCode,
+      iss,
+      state,
+    );
     if (this.usesDirectAuthRecovery()) {
       await this.reconnectAfterAuthRecovery();
     }
@@ -6312,9 +6407,13 @@ export class InspectorClient extends InspectorClientEventTarget {
    */
   async resumeAfterOAuth(
     authorizationCode: string,
-    options?: { remoteSessionId?: string; iss?: string },
+    options?: { remoteSessionId?: string; iss?: string; state?: string },
   ): Promise<void> {
-    await this.completeOAuthFlow(authorizationCode, options?.iss);
+    await this.completeOAuthFlow(
+      authorizationCode,
+      options?.iss,
+      options?.state,
+    );
 
     const remoteSessionId = options?.remoteSessionId;
     const transport = this.baseTransport;

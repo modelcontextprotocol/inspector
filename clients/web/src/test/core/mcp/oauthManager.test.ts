@@ -15,6 +15,7 @@ import {
 } from "@inspector/core/auth/ema/clientConfigError.js";
 import * as emaFlow from "@inspector/core/auth/ema/emaFlow.js";
 import { mcpAuth } from "@inspector/core/auth/mcpAuth.js";
+import type { OAuthTokens } from "@modelcontextprotocol/client";
 
 // Mock mcpAuth so OAuthManager tests do not hit the network.
 vi.mock("@inspector/core/auth/mcpAuth.js", async (importOriginal) => {
@@ -1314,7 +1315,7 @@ describe("OAuthManager", () => {
     it("returns true when stored scope covers step-up union", async () => {
       const params = createMockParams();
       storageOf(params).getTokens.mockResolvedValue({
-        access_token: "tok",
+        access_token: jwtWithExp(Math.floor(Date.now() / 1000) + 3600),
         token_type: "Bearer",
         scope: "mcp tools:read tools:write",
       });
@@ -1381,6 +1382,120 @@ describe("OAuthManager", () => {
           reason: "insufficient_scope",
         }),
       ).toBe(false);
+    });
+
+    // #2724 — some resource servers answer an *expired* token with
+    // `insufficient_scope` rather than `invalid_token`. A scope-only check
+    // then calls the challenge satisfied, the transport replays the same dead
+    // token, and recovery gives up without ever trying the refresh token —
+    // the gap #2051 closed for `token_expired`.
+    describe("expired token behind an insufficient_scope challenge (#2724)", () => {
+      const COVERED = "mcp tools:read tools:write";
+      const challenge = {
+        reason: "insufficient_scope" as const,
+        requiredScopes: ["tools:write"],
+      };
+      const expiredJwt = () => jwtWithExp(Math.floor(Date.now() / 1000) - 60);
+
+      it("is not satisfied by an expired JWT whose scope is covered", async () => {
+        const params = createMockParams();
+        storageOf(params).getTokens.mockResolvedValue({
+          access_token: expiredJwt(),
+          token_type: "Bearer",
+          scope: COVERED,
+        });
+        storageOf(params).getScope.mockResolvedValue(COVERED);
+        const manager = new OAuthManager(params);
+
+        expect(await manager.checkAuthChallengeSatisfied(challenge)).toBe(
+          false,
+        );
+      });
+
+      it("is not satisfied by an opaque token whose scope is covered", async () => {
+        const params = createMockParams();
+        storageOf(params).getTokens.mockResolvedValue({
+          access_token: "opaque-tok",
+          token_type: "Bearer",
+          scope: COVERED,
+        });
+        storageOf(params).getScope.mockResolvedValue(COVERED);
+        const manager = new OAuthManager(params);
+
+        expect(await manager.checkAuthChallengeSatisfied(challenge)).toBe(
+          false,
+        );
+      });
+
+      // A token response may omit `scope` when it equals the request (RFC
+      // 6749 §5.1); coverage then comes from the persisted scope.
+      it.each([
+        ["carries its scope", COVERED],
+        ["omits scope", undefined],
+      ])(
+        "refreshes instead of replaying when the token %s, and accepts the refreshed opaque token",
+        async (_label, tokenScope) => {
+          const params = createMockParams();
+          let stored: OAuthTokens = {
+            access_token: expiredJwt(),
+            refresh_token: "r1",
+            token_type: "Bearer",
+            scope: tokenScope,
+          };
+          storageOf(params).getTokens.mockImplementation(async () => stored);
+          storageOf(params).getScope.mockResolvedValue(COVERED);
+          mockedMcpAuth.mockImplementation(async () => {
+            // A refresh grant that returns an opaque token: no readable `exp`,
+            // so only a scope-only post-grant check can call it satisfied.
+            stored = {
+              access_token: "opaque-refreshed",
+              refresh_token: "r2",
+              token_type: "Bearer",
+              scope: tokenScope,
+            };
+            return "AUTHORIZED";
+          });
+          const manager = new OAuthManager(params);
+
+          const outcome = await manager.handleAuthChallenge(challenge);
+
+          expect(outcome).toEqual({ kind: "satisfied" });
+          expect(mockedMcpAuth).toHaveBeenCalledOnce();
+          // Covered scope: an ordinary refresh, not a forced re-authorization.
+          expect(mockedMcpAuth.mock.calls[0]?.[1]).toEqual(
+            expect.objectContaining({ forceReauthorization: false }),
+          );
+        },
+      );
+
+      it("re-mints an EMA token without a step-up prompt when nothing is broadened", async () => {
+        const params = createMockParams({
+          enterpriseManagedAuth: {
+            idp: {
+              issuer: "https://idp.example.com",
+              clientId: "app-client",
+              clientSecret: "secret",
+            },
+          },
+        });
+        storageOf(params).getTokens.mockResolvedValue({
+          access_token: expiredJwt(),
+          token_type: "Bearer",
+          scope: COVERED,
+        });
+        storageOf(params).getScope.mockResolvedValue(COVERED);
+        const silentSpy = vi
+          .spyOn(emaFlow, "trySilentEmaAuth")
+          .mockResolvedValue({ status: "success" });
+        const manager = new OAuthManager(params);
+        manager.setOAuthConfig({ enterpriseManaged: true });
+
+        const outcome = await manager.handleAuthChallenge(challenge);
+
+        expect(outcome).toEqual({ kind: "satisfied" });
+        expect(silentSpy).toHaveBeenCalledOnce();
+        silentSpy.mockRestore();
+      });
     });
 
     // #2068 round 11 — the callback leg of an *ordinary* authorization.
@@ -1559,7 +1674,7 @@ describe("OAuthManager", () => {
     it("short-circuits handleAuthChallenge when scope already satisfied", async () => {
       const params = createMockParams();
       storageOf(params).getTokens.mockResolvedValue({
-        access_token: "tok",
+        access_token: jwtWithExp(Math.floor(Date.now() / 1000) + 3600),
         token_type: "Bearer",
         scope: "mcp tools:read tools:write",
       });
@@ -2390,7 +2505,7 @@ describe("OAuthManager", () => {
         scope: "mcp tools:read",
       };
       const sufficientTokens = {
-        access_token: "a2",
+        access_token: jwtWithExp(Math.floor(Date.now() / 1000) + 3600),
         token_type: "Bearer",
         scope: "mcp tools:read weather:read",
       };

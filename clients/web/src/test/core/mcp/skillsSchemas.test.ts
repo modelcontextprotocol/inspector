@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   DIRECTORY_MIME_TYPE,
   DirectoryReadResultSchema,
+  ModernDirectoryReadResultSchema,
   RESOURCES_DIRECTORY_READ_METHOD,
   DYNAMIC_RESOURCES,
   GetSkillEnvelopeSchema,
@@ -237,30 +238,98 @@ describe("directory read schemas (#2248)", () => {
       DirectoryReadResultSchema.safeParse({ resources: "nope" }).success,
     ).toBe(false);
   });
+});
 
-  it("does NOT require the caching attributes, unlike a modern skills/list page", () => {
-    // The deliberate asymmetry with `ModernListSkillsResultSchema`: SEP-2640
-    // states `ttlMs`/`cacheScope` for a modern `skills/list` and says nothing
-    // of the kind for this method, whose only worked example omits them.
-    // Requiring them would fail a server that matched the spec's own example.
+describe("resources/directory/read caching attributes (#2740)", () => {
+  const CHILD = {
+    uri: "skill://demo/templates/invoice.md",
+    name: "invoice.md",
+    mimeType: "text/markdown",
+  };
+  const CACHE = { ttlMs: 0, cacheScope: "public" } as const;
+
+  it("the LEGACY schema accepts a result with the caching attributes and one without", () => {
+    // They are 2026-era attributes: a legacy server must not be failed for
+    // their absence, nor for sending them.
     expect(DirectoryReadResultSchema.safeParse({ resources: [] }).success).toBe(
       true,
     );
+    expect(
+      DirectoryReadResultSchema.safeParse({ resources: [], ...CACHE }).success,
+    ).toBe(true);
+  });
+
+  it("the MODERN schema requires ttlMs and cacheScope", () => {
+    // The stable ext-skills spec: `ReadResourceDirectoryResult` extends
+    // `CacheableResult`, so both are REQUIRED, as on `resources/list`.
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({ resources: [] }).success,
+    ).toBe(false);
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({ resources: [], ttlMs: 0 })
+        .success,
+    ).toBe(false);
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({
+        resources: [],
+        cacheScope: "private",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the MODERN schema accepts the spec's directory-read example as the SDK codec delivers it (#2373)", () => {
+    // The stable spec's examples carry `ttlMs: 300000, cacheScope: "public"`.
+    // No `resultType`: the codec lifts it before any caller schema runs.
+    const parsed = ModernDirectoryReadResultSchema.parse({
+      resources: [CHILD],
+      nextCursor: "7",
+      ttlMs: 300_000,
+      cacheScope: "public",
+    });
+    expect(parsed.resources).toEqual([CHILD]);
+    expect(parsed.nextCursor).toBe("7");
+    expect(parsed.ttlMs).toBe(300_000);
+    expect(parsed.cacheScope).toBe("public");
+  });
+
+  it.each([-1, 0.5])(
+    "the MODERN schema rejects ttlMs %s — not a non-negative integer",
+    (ttlMs) => {
+      expect(
+        ModernDirectoryReadResultSchema.safeParse({
+          resources: [],
+          ttlMs,
+          cacheScope: "public",
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it("the MODERN schema rejects a cacheScope outside public/private", () => {
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({
+        resources: [],
+        ttlMs: 0,
+        cacheScope: "shared",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("the MODERN schema still requires the resources page", () => {
+    expect(
+      ModernDirectoryReadResultSchema.safeParse({ ...CACHE }).success,
+    ).toBe(false);
+  });
+
+  it("requires the attributes on every modern skills result alike", () => {
+    // The three modern schemas now agree; the asymmetry the earlier revision
+    // documented is gone.
     expect(ModernListSkillsResultSchema.safeParse({ skills: [] }).success).toBe(
       false,
     );
-  });
-
-  it("still accepts the caching attributes when a server sends them", () => {
-    // Permitted, not mandated — a schema is not the place to reject an extra
-    // member the spec leaves open.
     expect(
-      DirectoryReadResultSchema.safeParse({
-        resources: [],
-        ttlMs: 60,
-        cacheScope: "public",
-      }).success,
-    ).toBe(true);
+      ModernDirectoryReadResultSchema.safeParse({ resources: [] }).success,
+    ).toBe(false);
   });
 });
 

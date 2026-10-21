@@ -207,6 +207,17 @@ const ClientErrorAlert = Alert.withProps({
   title: "Rejected by the Inspector",
 });
 
+// A request whose send failed carries a `clientError` too, but nothing was
+// rejected by the Inspector: the server refused it at the HTTP layer (a bare
+// 403) or it never reached the wire, so there was no response to decode
+// (#2721). The title says that instead.
+const SendFailedAlert = Alert.withProps({
+  variant: "light",
+  color: "red",
+  icon: <RiErrorWarningLine />,
+  title: "Request failed without a response",
+});
+
 // Link (button-styled) that jumps to the correlated HTTP entry in the Network tab.
 const RevealLink = Anchor.withProps({
   component: "button",
@@ -304,6 +315,13 @@ function extractStatus(
   if (!entry.response) return "pending";
   if ("error" in entry.response) return "error";
   return "success";
+}
+
+// A client error on a request that never got a response is a failed send
+// (messageLogState resolves it from the client's `requestFailed`); one on an
+// entry that has a response is a response the Inspector refused (#1953).
+function isSendFailure(entry: MessageEntry): boolean {
+  return entry.direction === "request" && !entry.response;
 }
 
 function statusColor(status: "success" | "error" | "pending"): string {
@@ -566,11 +584,16 @@ export function ProtocolEntry({
         <Collapse in={isExpanded}>
           <Stack gap="sm">
             <Divider />
-            {entry.clientError && (
-              <ClientErrorAlert>
-                <Text size="xs">{entry.clientError}</Text>
-              </ClientErrorAlert>
-            )}
+            {entry.clientError &&
+              (isSendFailure(entry) ? (
+                <SendFailedAlert>
+                  <Text size="xs">{entry.clientError}</Text>
+                </SendFailedAlert>
+              ) : (
+                <ClientErrorAlert>
+                  <Text size="xs">{entry.clientError}</Text>
+                </ClientErrorAlert>
+              ))}
             {specError && (
               <McpSpecErrorAlert
                 error={specError}

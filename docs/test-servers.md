@@ -61,6 +61,7 @@ as a missing capability rather than an error.
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
+| `subscriptions-listen-refused-http.json` **(modern era)** | A `subscriptions/listen` refused with a bare HTTP 403 | [#2722](https://github.com/modelcontextprotocol/inspector/issues/2722) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
 | `skills-http.json` **(either era)** | Skills tab: `skills/list`, `resources/directory/read`, digest verification, the frontmatter cross-check, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) |
@@ -119,16 +120,16 @@ modern leg builds a fresh server per request, so there is no era to branch on
 when the handlers are registered, and on the legacy leg they are three extra
 members no codec inspects.
 
-⚠️ **`resources/directory/read` deliberately carries `resultType` alone.**
-SEP-2640 states the caching attributes for a modern `skills/list` in as many
-words and says nothing of the kind for this method, whose one worked example
-carries `resultType` and nothing else. A fixture sending more than the SEP shows
-would make a client that wrongly *required* them look correct, which is the
-opposite of what a conformance fixture is for — so `readDirectoryPage` stops
-where the spec does. On the client, the SDK's modern codec enforces
-`resultType` and lifts it off before the Inspector's own schema runs, so
-`DirectoryReadResultSchema` serves both eras and requires no caching attributes
-([#2373](https://github.com/modelcontextprotocol/inspector/issues/2373)).
+`resources/directory/read` carries the same full envelope. SEP-2640 as accepted
+showed `resultType` alone for this method, and the fixture once stopped where
+the SEP did; the stable ext-skills spec makes `ReadResourceDirectoryResult` a
+`CacheableResult`, so `ttlMs` / `cacheScope` are required there too
+([#2740](https://github.com/modelcontextprotocol/inspector/issues/2740)). On
+the client, the SDK's modern codec enforces `resultType` and lifts it off
+before the Inspector's own schema runs
+([#2373](https://github.com/modelcontextprotocol/inspector/issues/2373)), and
+`ModernDirectoryReadResultSchema` requires the two caching attributes on a
+modern connection, as the `skills/list` and `skills/get` schemas do.
 
 It works on **either era**: `skills/list`, `skills/get` and
 `resources/directory/read` are consumer-owned extension methods that neither
@@ -731,6 +732,16 @@ Open the Resources tab and **Subscribe** to `resource_1`: an ordinary acknowledg
 On the broken build that second click produced eight `subscriptions/listen` requests with increasing ids over roughly a minute, the badge flickering `Reconnecting…` between them, and a final bare **Stream ended** that said nothing about why ([#2097](https://github.com/modelcontextprotocol/inspector/issues/2097), split out of [#2063](https://github.com/modelcontextprotocol/inspector/issues/2063), where it read as the Inspector "accepting" an invalid response). The condition is deterministic — the server answers the same way every time — so retrying it is noise, not recovery.
 
 The first resource-subscription listen is acknowledged **so the badge is reachable at all**: it is gated on a live subscription, which a server refusing from the outset never lets you hold. That variant — refuse every listen, the literal shape in the report — is what the integration tests drive; it is the same code path, minus the badge. And `never-acknowledged` is a status of its own rather than **Stream ended** on purpose: `ended` covers the two *expected* closes (a server tearing an established stream down, and reconnection abandoned after repeated failures), and reading a deterministic conformance failure as either of them is the silence the issue is about.
+
+## A listen refused over HTTP
+
+`subscriptions-listen-refused-http.json` serves the same three `numbered_resources` on the modern leg, and answers **every** `subscriptions/listen` with a bare HTTP `403 Forbidden` — no JSON-RPC body and no `WWW-Authenticate`, the shape a proxy or gateway in front of a server produces. Every other request is served normally. Connect with **Protocol Era = Modern**.
+
+The connect-time listen the Inspector opens for its list-change opt-ins ([#1920](https://github.com/modelcontextprotocol/inspector/issues/1920)) is refused first, so the Resources tab already shows a red **Refused** badge on `Subscriptions (0)`. Open the section to read why — *"The server refused subscriptions/listen (HTTP 403 Forbidden). Not retrying…"*. **Subscribe** to `resource_1` and it fails, the URI is rolled back, and the badge and notice stay; the Protocol tab shows exactly **one** further `subscriptions/listen`.
+
+On the broken build each refusal was re-sent at the reconnect backoff until the eight-attempt cap, roughly a minute, and settled on a bare **Stream ended** — or, after a rolled-back Subscribe, on nothing at all, since the badge was gated on a live subscription ([#2722](https://github.com/modelcontextprotocol/inspector/issues/2722), found in the v2.11.0 milestone smoke). Unlike the never-acknowledged case this one has no way to hold a subscription first, which is why the refusal is shown whatever the subscription count.
+
+The refusal statuses are 403 (with no `insufficient_scope` challenge, which would run step-up auth instead), 400, 404 and 405; set `transport.modern.refuseSubscriptionsListen` to any of them. A transient status — 5xx, 408 or 429 — is still retried, so the same option set to `503` exercises the other half.
 
 ## Tasks, both eras
 

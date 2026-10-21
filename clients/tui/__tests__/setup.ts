@@ -10,3 +10,26 @@
 // rather than per-file.
 process.stdout.setMaxListeners(100);
 process.stdin.setMaxListeners(100);
+
+import { afterAll } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+// Keeps the suite off the developer's real `~/.mcp-inspector/auth.log` (#2723).
+// `getTuiLogger()` resolves `MCP_INSPECTOR_LOG_DIR ?? HOME/.mcp-inspector` on
+// first use, and any test that mounts `App` reaches it — so with no override a
+// test run appended "TUI started" lines to the real log, and concurrent
+// worktree gates interleaved into the same file. The #2677 shape, one
+// directory over: set unconditionally (a value inherited from the shell may
+// well be the real directory), one directory per test file since a setup file
+// runs once per file. `logger.test.ts` saves, deletes and restores the
+// variable around each case, which this does not constrain.
+const isolatedLogDir = fs.mkdtempSync(
+  path.join(os.tmpdir(), "mcp-inspector-tui-log-"),
+);
+process.env.MCP_INSPECTOR_LOG_DIR = isolatedLogDir;
+
+afterAll(() => {
+  fs.rmSync(isolatedLogDir, { recursive: true, force: true });
+});

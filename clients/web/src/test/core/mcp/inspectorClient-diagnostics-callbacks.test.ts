@@ -67,6 +67,42 @@ describe("InspectorClient diagnostics tracking callbacks", () => {
     expect(outstandingIds(client)).toEqual([1]);
   });
 
+  it("reports a failed send so the request's log entry resolves (#2721)", () => {
+    const { client, callbacks } = makeClient();
+    const failed: { id: string | number; reason: string }[] = [];
+    client.addEventListener("requestFailed", (e) => failed.push(e.detail));
+    callbacks.trackRequest!(request(3), "client");
+    callbacks.trackSendFailure!(
+      request(3),
+      Object.assign(new Error("Error POSTing to endpoint: Forbidden"), {
+        status: 403,
+        statusText: "Forbidden",
+      }),
+    );
+    expect(failed).toEqual([
+      {
+        id: 3,
+        reason: "HTTP 403 Forbidden: Error POSTing to endpoint: Forbidden",
+      },
+    ]);
+  });
+
+  it("does not report a request timeout as a failed send", () => {
+    const { client, callbacks } = makeClient();
+    let failed = 0;
+    client.addEventListener("requestFailed", () => {
+      failed += 1;
+    });
+    callbacks.trackRequest!(request(4), "client");
+    callbacks.trackSendFailure!(
+      request(4),
+      new SdkError(SdkErrorCode.RequestTimeout, "Request timed out", {
+        timeout: 60_000,
+      }),
+    );
+    expect(failed).toBe(0);
+  });
+
   it("only tracks client-originated requests, and ignores a rollback for an unknown id", () => {
     const { client, callbacks } = makeClient();
     callbacks.trackRequest!(request(7), "server");

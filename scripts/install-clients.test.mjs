@@ -181,9 +181,9 @@ for (const nodeArgs of [[], ["--preserve-symlinks-main"]]) {
 /**
  * A stand-in `npm` on PATH that fails, as npm 11.19+ does, when
  * allow-scripts reaches it through the environment. It pins the spawn wiring
- * whatever npm the runner has: CI's Node 22 bundles npm 10, which predates
- * the gate, so against the real npm there the cascade passes with or without
- * the strip.
+ * whatever npm the runner has: Node 22 bundles npm 10, which predates the
+ * gate, so against the real npm there the cascade passes with or without the
+ * strip.
  */
 function stubNpm() {
   const dir = mkdtempSync(join(tmpdir(), "install-clients-npm-"));

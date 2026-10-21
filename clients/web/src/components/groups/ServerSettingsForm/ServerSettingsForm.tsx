@@ -548,6 +548,11 @@ export function ServerSettingsForm({
   const resourceAsDescription = enterpriseManaged
     ? "The resource authorization server's registered client credential (EMA leg 3) — not the app client id/secret, which belong in Client Settings."
     : undefined;
+  // A resource AS that registers public clients issues no secret, and leg 3
+  // redeems without one (#2725) — so say the field may stay empty.
+  const resourceAsSecretDescription = enterpriseManaged
+    ? `${resourceAsDescription} Leave it empty for a public client (token_endpoint_auth_method "none").`
+    : undefined;
   // The modern per-request "Log Level per Request" control is meaningless on a
   // legacy connection (#1629). Hide it when legacy is pinned, or when an `auto`
   // server negotiated legacy at connect time. A pinned `modern` server, and an
@@ -1008,7 +1013,7 @@ export function ServerSettingsForm({
               />
               <ClearableTextInput
                 label={clientSecretLabel}
-                description={resourceAsDescription}
+                description={resourceAsSecretDescription}
                 value={settings.oauthClientSecret ?? ""}
                 type="password"
                 onChange={(e) =>

@@ -326,6 +326,18 @@ describe("Skills extension over a real transport (#2234)", () => {
         ]);
       });
 
+      it("carries the caching attributes on resources/directory/read (#2740)", async () => {
+        const started = await startSkillsServer(modern);
+        const connected = await connect(started.url, modern);
+        // On the modern leg `readResourceDirectory` selects
+        // `ModernDirectoryReadResultSchema`, so this resolving is itself the
+        // requirement; the fixture stamps both eras alike.
+        const page = await connected.readResourceDirectory(
+          "skill://data-analysis",
+        );
+        expect(page).toMatchObject({ ttlMs: 0, cacheScope: "public" });
+      });
+
       it("lists a dynamic skill's files, which is what the method is for", async () => {
         // `dynamic-report` advertises no manifest, so a directory read is the
         // only way its files are discoverable at all — the case SEP-2640 says

@@ -5,8 +5,9 @@
 // in the installing project's `package.json`, but in 11.x a package that is
 // neither allowed nor denied still RUNS its script, with only a warning — only
 // an explicit `false` blocks it. npm 12 blocks unreviewed scripts by default,
-// but this repo installs with npm 10 (CI's Node 22 bundle) and 11.x, so here a
-// new dependency that brings a `postinstall` still runs it on every install,
+// but this repo installs with 11.x (CI pins it, #2715) or with Node 22's
+// bundled npm 10, which ignores `allowScripts` entirely, so here a new
+// dependency that brings a `postinstall` still runs it on every install,
 // silently.
 // This guard turns each one into a decision made in review: every package with
 // an install script must carry an explicit `true` or `false` in the
@@ -19,9 +20,10 @@
 //
 // It reads the LOCKFILE's `hasInstallScript` rather than shelling out to
 // `npm install-scripts ls`, which is what the issue first proposed: that
-// subcommand only exists from npm 11.19, and CI's `build` job runs Node 22's
-// bundled npm 10.x, where it is absent — so the guard would either fail in CI
-// for an unrelated reason or skip there and enforce nothing. The lockfile flag
+// subcommand only exists from npm 11.19, and Node 22's bundled npm 10.x —
+// which a contributor on the supported Node floor may well be running, and
+// which CI ran until #2715 pinned 11.x — has no such subcommand, so the guard
+// would either fail there for an unrelated reason or skip and enforce nothing. The lockfile flag
 // is what npm itself records for exactly this question (preinstall, install,
 // postinstall, or an implicit `node-gyp rebuild` from a `binding.gyp`), and
 // reading it keeps the guard offline and independent of the npm on PATH. The

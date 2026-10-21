@@ -1381,6 +1381,8 @@ export function useOAuthRecovery({
         await client.resumeAfterOAuth(params.code, {
           remoteSessionId: resumeSnapshot?.remoteSessionId,
           iss: params.iss,
+          // #2726: selects this flow's PKCE verifier from the tab's store.
+          state: stateParam ?? undefined,
         });
       } catch (err) {
         connectStartRef.current = undefined;
@@ -1478,7 +1480,10 @@ export function useOAuthRecovery({
             : undefined;
         const stepUpScopesGranted =
           !stepUpChallenge ||
-          (await client.checkAuthChallengeSatisfied(stepUpChallenge));
+          // The callback just completed the grant, so only scope is in question.
+          (await client.checkAuthChallengeSatisfied(stepUpChallenge, {
+            scopeOnly: true,
+          }));
 
         if (stepUpChallenge && !stepUpScopesGranted) {
           notifications.show({

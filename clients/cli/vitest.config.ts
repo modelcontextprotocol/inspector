@@ -17,7 +17,11 @@ export default defineConfig({
     globals: false,
     environment: "node",
     include: ["__tests__/**/*.test.ts"],
-    setupFiles: ["__tests__/helpers/mock-open-url.ts", NO_RETRY_SETUP],
+    setupFiles: [
+      "__tests__/helpers/mock-open-url.ts",
+      "__tests__/helpers/oauth-state-isolation.ts",
+      NO_RETRY_SETUP,
+    ],
     // OAuth tokens/client secrets are split into the selected secret store by
     // the file persistence backend the CLI shares with the web server. Pin the
     // in-memory store so stored-auth tests never probe or write the real OS

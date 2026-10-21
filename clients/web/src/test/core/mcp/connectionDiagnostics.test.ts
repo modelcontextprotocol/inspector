@@ -1,8 +1,13 @@
 import { describe, it, expect } from "vitest";
-import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
+import {
+  SdkError,
+  SdkErrorCode,
+  SdkHttpError,
+} from "@modelcontextprotocol/client";
 import {
   annotateRequestTimeout,
   describeConnectionDiagnostics,
+  describeSendFailure,
   describeStreamEndpoint,
   formatDuration,
   isRequestTimeoutError,
@@ -160,6 +165,51 @@ describe("describeConnectionDiagnostics", () => {
       "1 request is unanswered: tools/list (sent 5s ago). " +
         "No response has been received this session.",
     );
+  });
+});
+
+describe("describeSendFailure", () => {
+  it("leads with the HTTP status of a bare refusal (#2721)", () => {
+    const err = new SdkHttpError(
+      SdkErrorCode.ClientHttpNotImplemented,
+      "Error POSTing to endpoint: Forbidden",
+      { status: 403, statusText: "Forbidden", text: "Forbidden" },
+    );
+    expect(describeSendFailure(err)).toBe(
+      "HTTP 403 Forbidden: Error POSTing to endpoint: Forbidden",
+    );
+  });
+
+  it("states a status with no status text on its own", () => {
+    const err = Object.assign(new Error("Remote send failed (502): bad"), {
+      status: 502,
+    });
+    expect(describeSendFailure(err)).toBe(
+      "HTTP 502: Remote send failed (502): bad",
+    );
+  });
+
+  it("does not repeat a status the message already states", () => {
+    const err = Object.assign(
+      new Error("Error POSTing to endpoint (HTTP 403): Forbidden"),
+      { status: 403, statusText: "Forbidden" },
+    );
+    expect(describeSendFailure(err)).toBe(
+      "Error POSTing to endpoint (HTTP 403): Forbidden",
+    );
+  });
+
+  it("falls back to the message, or the value itself, with no status", () => {
+    expect(describeSendFailure(new Error("Connection closed"))).toBe(
+      "Connection closed",
+    );
+    expect(
+      describeSendFailure(
+        Object.assign(new Error("odd"), { status: "403", statusText: 1 }),
+      ),
+    ).toBe("odd");
+    expect(describeSendFailure("boom")).toBe("boom");
+    expect(describeSendFailure(null)).toBe("null");
   });
 });
 

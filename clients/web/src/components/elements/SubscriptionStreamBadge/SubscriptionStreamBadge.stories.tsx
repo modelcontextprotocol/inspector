@@ -33,3 +33,11 @@ export const Ended: Story = {
 export const NeverAcknowledged: Story = {
   args: { status: "never-acknowledged" },
 };
+
+/**
+ * The server refused `subscriptions/listen` at the HTTP layer — a bare 403, or a
+ * 400/404/405 — so the stream never opened (#2722). Not retried.
+ */
+export const Refused: Story = {
+  args: { status: "refused" },
+};

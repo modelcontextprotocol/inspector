@@ -11,6 +11,7 @@ import { AuthChallengeError } from "../../../auth/challenge.js";
 import type { RemoteAuthProviderHandle } from "./tokenAuthProvider.js";
 import type { RemoteAuthState } from "../types.js";
 import { progressTokenOf, waitForProgressToken } from "../progressToken.js";
+import { RateLimitLedger } from "../../rateLimit.js";
 
 export interface SessionEvent {
   type: RemoteEvent["type"];
@@ -47,6 +48,8 @@ export class RemoteSession {
   private readonly requestWaits = new Map<string | number, RequestWait>();
   private authProviderHandle: RemoteAuthProviderHandle | null = null;
   private appliedProtocolVersion: string | undefined;
+  /** Each upstream `429`'s `Retry-After`, by the JSON-RPC id that drew it (#2442). */
+  private readonly rateLimits = new RateLimitLedger();
   /** A protocol version is a dated token (`2025-11-25`, `2026-07-28`, …). */
   private static readonly PROTOCOL_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
@@ -310,6 +313,7 @@ export class RemoteSession {
   }
 
   onFetchRequest(entry: FetchRequestEntryBase): void {
+    this.rateLimits.record(entry);
     this.pushEvent({
       type: "fetch_request",
       data: {
@@ -320,6 +324,15 @@ export class RemoteSession {
             : entry.timestamp,
       },
     });
+  }
+
+  /**
+   * The `Retry-After` of the upstream `429` that answered request `id` — read
+   * by the send route, so the header rides back on the send's own error rather
+   * than on a fetch event racing it (#2442).
+   */
+  takeRetryAfter(id: string | number): string | undefined {
+    return this.rateLimits.take(id);
   }
 
   onFetchResponseBody(id: string, responseBody: string): void {

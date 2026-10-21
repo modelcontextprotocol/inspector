@@ -208,7 +208,7 @@ Read-only check against **current storage** (and token expiry helpers). Used bef
 
 - **`token_expired`:** a **provably** unexpired access token in storage — a JWT whose `exp` is still in the future (60s skew). Storage records no absolute expiry for an opaque token (`expires_in` is relative to an issuance instant that is never persisted), so "expiry unknown" returns **false**: the resource server has said the credential is dead, and no local evidence contradicts it. Otherwise an opaque token would be replayed forever ([#2051](https://github.com/modelcontextprotocol/inspector/issues/2051)).
 - **`invalid_token` / `unauthorized`:** always **false** — the resource server explicitly rejected the credential.
-- **`insufficient_scope`:** stored/token scope is a superset of required / union scopes. Empty scope on an `insufficient_scope` challenge returns **false** (do not short-circuit).
+- **`insufficient_scope`:** a **provably** unexpired access token in storage (the same JWT `exp` test as `token_expired`) **and** stored/token scope that is a superset of required / union scopes. Some resource servers answer an _expired_ token with `insufficient_scope`; a scope-only check would call that challenge satisfied and replay the dead token instead of refreshing it ([#2724](https://github.com/modelcontextprotocol/inspector/issues/2724)). Empty scope on an `insufficient_scope` challenge returns **false** (do not short-circuit). A caller that has just completed a grant — the refresh, re-mint and forced re-authorization legs inside `handleAuthChallenge()`, the runner (CLI/TUI) after its callback, and the web client on OAuth resume — passes **`{ scopeOnly: true }`** to test scope only: the grant is the liveness evidence, and a freshly issued opaque token has no readable `exp`.
 
 ### Strategy by protocol
 
@@ -217,7 +217,7 @@ Read-only check against **current storage** (and token expiry helpers). Used bef
 | Reason                                           | Silent                                     | Interactive                                                                                                                                                                                        |
 | ------------------------------------------------ | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `token_expired`, `invalid_token`, `unauthorized` | Refresh via `refresh_token` when supported | Authorization code flow (`authenticate()`)                                                                                                                                                         |
-| `insufficient_scope`                             | N/A                                        | Authorize with **`authorizationScopes`** = union(previous, challenge) via `mcpAuth({ forceReauthorization: true })`; navigation **deferred** until UI confirms (web modal / TUI Auth / CLI prompt) |
+| `insufficient_scope`                             | Refresh via `refresh_token` when stored scope already covers the challenge (an expired token mislabelled as a scope failure, #2724) | Authorize with **`authorizationScopes`** = union(previous, challenge) via `mcpAuth({ forceReauthorization: true })`; navigation **deferred** until UI confirms (web modal / TUI Auth / CLI prompt) |
 
 Union scope is held in `pendingAuthorizationScope` until `completeOAuthFlow()` succeeds; cleared on failure. On success, `saveScope()` stores the AS-granted scope (explicit `scope` on the token response, or the requested union when `scope` is omitted per RFC 6749 §5.1).
 
@@ -229,7 +229,7 @@ Per [v2_auth_ema.md](v2_auth_ema.md): **no** fallback to standard resource-OAuth
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------- |
 | Resource token expired / unauthorized | Legs 2–3 re-mint                                                                                       | —                                      |
 | IdP session missing                   | —                                                                                                      | Leg 1 IdP OIDC redirect, then legs 2–3 |
-| `insufficient_scope`                  | After user confirms (web modal / TUI / CLI), re-mint legs 2–3 with union scopes when IdP session valid | IdP redirect if IdP session invalid    |
+| `insufficient_scope`                  | After user confirms (web modal / TUI / CLI), re-mint legs 2–3 with union scopes when IdP session valid; no confirm when stored scope already covers the challenge (nothing is broadened, #2724) | IdP redirect if IdP session invalid    |
 
 On **web**, `handleAuthChallenge()` returns **`step_up_confirm`** for EMA `insufficient_scope` until the user clicks **Authorize** in `StepUpAuthModal`; it does **not** call `trySilentEmaAuth()` before that. After confirm, silent re-mint runs in-process when possible; otherwise IdP redirect + callback (same as before).
 

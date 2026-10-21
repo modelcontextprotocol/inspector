@@ -6,6 +6,7 @@ import {
 } from "@inspector/core/mcp/remote/index.js";
 import { BrowserNavigation } from "@inspector/core/auth/browser/index.js";
 import type { RedirectUrlProvider } from "@inspector/core/auth/index.js";
+import { createWebStoragePkceFlowStore } from "@inspector/core/auth/pkce-flow-store.js";
 import { getWebRemoteOAuthStorage } from "./remoteOAuthStorage.js";
 
 export interface WebEnvironmentResult {
@@ -20,6 +21,10 @@ export interface WebEnvironmentResult {
  *     dev-backend wires this in `/api/*`).
  *   - OAuth storage uses `RemoteOAuthStorage` (shared `oauth.json` via
  *     `/api/storage/oauth`); navigation uses `BrowserNavigation`.
+ *   - In-flight PKCE verifiers stay in this tab's `sessionStorage`, keyed by
+ *     the flow's OAuth `state`, so overlapping flows for one server — two tabs,
+ *     or two people on one deployed Inspector — cannot overwrite each other's
+ *     in the shared store (#2726).
  *
  * Returns both the assembled environment and the logger so callers can share
  * the same pino instance for any direct logging they need to do, instead of
@@ -69,6 +74,7 @@ export function createWebEnvironment(
       storage: getWebRemoteOAuthStorage(authToken),
       navigation: new BrowserNavigation(undefined, onBeforeOAuthRedirect),
       redirectUrlProvider,
+      flowStore: createWebStoragePkceFlowStore(),
     },
   };
 

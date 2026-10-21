@@ -299,4 +299,58 @@ describe("MessageLogState", () => {
       expect(state.getMessages()[0]?.clientError).toBeUndefined();
     });
   });
+
+  // A request whose send failed — refused with a bare HTTP 403, or never
+  // delivered — gets no response frame, so without this it stays "Pending"
+  // in the Protocol tab for good (#2721).
+  describe("requestFailed", () => {
+    const REASON = "HTTP 403 Forbidden: Error POSTing to endpoint: Forbidden";
+
+    it("resolves the pending request entry as a client-side error", () => {
+      client.dispatchTypedEvent("message", requestEntry(1, "tools/call"));
+
+      const seen: MessageEntry[] = [];
+      state.addEventListener("message", (e) => seen.push(e.detail));
+      client.dispatchTypedEvent("requestFailed", { id: 1, reason: REASON });
+
+      const [entry] = state.getMessages();
+      expect(entry?.clientError).toBe(REASON);
+      expect(entry?.response).toBeUndefined();
+      expect(entry?.duration).toBeGreaterThanOrEqual(0);
+      expect(seen).toEqual([entry]);
+    });
+
+    it("stops matching a late response against the failed request", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("requestFailed", { id: 1, reason: REASON });
+      client.dispatchTypedEvent("message", responseEntry(1));
+
+      const [failed, stray] = state.getMessages();
+      expect(failed?.response).toBeUndefined();
+      expect(stray?.direction).toBe("response");
+    });
+
+    it("leaves an already-answered request alone", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", responseEntry(1));
+
+      let fired = 0;
+      state.addEventListener("messagesChange", () => {
+        fired++;
+      });
+      client.dispatchTypedEvent("requestFailed", { id: 1, reason: REASON });
+
+      expect(fired).toBe(0);
+      expect(state.getMessages()[0]?.clientError).toBeUndefined();
+    });
+
+    it("stops listening once destroyed", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      const [entry] = state.getMessages();
+      state.destroy();
+      client.dispatchTypedEvent("requestFailed", { id: 1, reason: REASON });
+
+      expect(entry?.clientError).toBeUndefined();
+    });
+  });
 });

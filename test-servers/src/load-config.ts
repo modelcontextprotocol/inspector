@@ -166,6 +166,7 @@ export interface ConfigFile {
           legacy?: "stateless" | "reject";
           injectSpecErrors?: boolean;
           neverAcknowledgeSubscriptions?: boolean | "after-first";
+          refuseSubscriptionsListen?: number;
         };
   };
 }

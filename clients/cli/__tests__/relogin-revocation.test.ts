@@ -13,7 +13,7 @@
  * the connect, so the assertions are about the requests made and the warnings
  * printed, not about the exit code.
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -26,6 +26,13 @@ const REVOKE_URL = `${AS_ISSUER}/revoke`;
 
 let dir: string | undefined;
 let prevPath: string | undefined;
+
+// Capture before every test, not only the ones that point the store at a
+// fixture: restoring an uncaptured `undefined` deletes the suite's isolated
+// path and sends later tests to the real ~/.mcp-inspector store (#2719).
+beforeEach(() => {
+  prevPath = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+});
 
 afterEach(() => {
   if (prevPath === undefined) delete process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;

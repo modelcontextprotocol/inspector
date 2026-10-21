@@ -1,0 +1,77 @@
+# CodeQL code scanning, as an advanced-setup workflow (#2545).
+#
+# Replaces CodeQL DEFAULT setup, which analyzes only the default branch
+# (`main`) and PRs into it. We develop on `v2/main` and reach `main` only by
+# milestone merge, so under default setup no v2 work was scanned until the
+# release PR: the v2.9.0 ReDoS (#2540) surfaced on the milestone-merge PR and
+# held the release, when it should have landed on the PR that introduced it.
+#
+# Same languages (`actions`, `javascript-typescript`) and the same default
+# query suite as default setup had; what changes is only which refs run.
+#
+#   - `push` to `main` and `v2/main` — the baseline each branch's alerts are
+#     tracked against.
+#   - `pull_request` into `main` and `v2/main` — a finding lands on the PR
+#     that introduced it. Runs from the PR's own ref, so this file is live the
+#     moment it is on `v2/main`, as `dco.yml` is.
+#   - the weekly `schedule`, which GitHub runs from the DEFAULT branch only —
+#     so it starts once a milestone merge carries this file to `main`.
+#
+# ⚠️ Default setup must be OFF (a repository setting — Settings → Code
+# security → CodeQL analysis — not a file). GitHub refuses an advanced-setup
+# upload while it is on, and with both on the two would double-report.
+#
+# `security-events: write` is the scope that uploads results — and therefore
+# the scope that could suppress them — so `verify:action-pins` counts this job
+# as credentialed and every action it runs is SHA-pinned (#2484). Pins are
+# resolved with `npm run action:resolve-pin`.
+name: CodeQL
+
+on:
+  push:
+    branches: [main, v2/main]
+  pull_request:
+    branches: [main, v2/main]
+  schedule:
+    - cron: "23 16 * * 6" # 16:23 UTC Saturday, default setup's old slot
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    # A newer push to the same PR or branch supersedes the analysis.
+    concurrency:
+      group: codeql-${{ github.ref }}-${{ matrix.language }}
+      cancel-in-progress: true
+    # Observed under default setup over 30 runs (2026-09-02 – 2026-10-17):
+    # `actions` ~40s, `javascript-typescript` 1.5–4.7 min. Twice the slowest,
+    # rounded up to the next five minutes (#2333).
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, javascript-typescript]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          languages: ${{ matrix.language }}
+          # Neither language needs a build; this is what default setup used.
+          build-mode: none
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          category: "/language:${{ matrix.language }}"

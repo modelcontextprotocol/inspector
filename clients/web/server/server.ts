@@ -9,12 +9,12 @@ import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
+import { createServer as createHttpsServer } from "node:https";
 import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { createRemoteApp } from "../../../core/mcp/remote/node/server.ts";
-import { formatHostForUrl } from "../../../core/node/hostUrl.ts";
 import { createSandboxController } from "./sandbox-controller.js";
 import {
   createAppOriginController,
@@ -22,12 +22,14 @@ import {
 } from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import { HEALTH_PATH, healthResponse } from "./health.js";
+import { hostAllowListMiddleware } from "./host-allow-list.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
   webServerConfigToInitialPayload,
   printServerBanner,
   openBrowser,
+  portInUseMessage,
 } from "./web-server-config.js";
 import type { WebServerHandle } from "./types.js";
 
@@ -101,6 +103,20 @@ export async function startHonoServer(
   // what it does and does not disclose. Hono serves HEAD from this GET route.
   app.get(HEALTH_PATH, (c) => healthResponse(c.req.method));
 
+  // Refuse a request addressed to a `Host` that is not ours before anything
+  // below can answer it — `/`, the SPA fallback (both carry the API token),
+  // static assets and `/api/*` alike. Registered after the health route, which
+  // returns without calling `next()` and so stays reachable to a probe under
+  // any name; it discloses nothing. See host-allow-list.ts for the rules.
+  app.use(
+    "*",
+    hostAllowListMiddleware({
+      bindHost: config.hostname,
+      allowedOrigins: config.allowedOrigins,
+      extraHosts: config.allowedHosts,
+    }),
+  );
+
   app.use("/api/*", async (c) => {
     return apiApp.fetch(c.req.raw);
   });
@@ -152,6 +168,11 @@ export async function startHonoServer(
       fetch: app.fetch,
       port: config.port,
       hostname: config.hostname,
+      // https only when both TLS paths were set (#2446); otherwise
+      // @hono/node-server's default plain `http.createServer`.
+      ...(config.tls
+        ? { createServer: createHttpsServer, serverOptions: config.tls }
+        : {}),
     },
     (info) => {
       const sandboxUrl = sandboxController.getUrl();
@@ -172,9 +193,7 @@ export async function startHonoServer(
 
   httpServer.on("error", (err: Error) => {
     if (err.message.includes("EADDRINUSE")) {
-      console.error(
-        `MCP Inspector PORT IS IN USE at http://${formatHostForUrl(config.hostname)}:${config.port}`,
-      );
+      console.error(portInUseMessage(config));
       process.exit(1);
     } else {
       throw err;

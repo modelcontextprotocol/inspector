@@ -28,8 +28,10 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
+import { declaresOversizeBody, readCappedText } from "./cappedBody.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
+import { isRateLimitError } from "../../rateLimit.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -355,6 +357,24 @@ const MAX_APP_CSP_CHARS = 8 * 1024;
  * server URLs and their residues still measure in the hundreds of KB.
  */
 const MAX_STORAGE_BODY_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Upper bound on a response body `POST /api/fetch` will buffer, in bytes.
+ *
+ * The route reads the upstream body in full before answering, because it hands
+ * it back inside a JSON envelope, so without a bound the size of that buffer is
+ * whatever the upstream chooses to send. Enforced while reading (see
+ * `readCappedText`), and early from `Content-Length` when one is declared.
+ *
+ * Sized for what actually travels this route on the web client: OAuth work —
+ * authorization-server and protected-resource metadata, token and revocation
+ * responses, Dynamic Client Registration and client ID metadata documents.
+ * Those measure in kilobytes. MCP traffic does not come through here; it rides
+ * `/api/mcp/*`, whose transport ignores `environment.fetch`. 4 MiB leaves three
+ * orders of magnitude of headroom over a real OAuth document while keeping one
+ * request's buffer small, and matches {@link MAX_STORAGE_BODY_BYTES}.
+ */
+export const MAX_PROXIED_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Whether a string is safe to emit as an HTTP header VALUE.
@@ -1115,6 +1135,15 @@ export function createRemoteApp(
       // browser rebuilds an `SdkHttpError` the era probe can classify (#2660).
       if (err instanceof SdkHttpError) {
         const text = err.data.text;
+        // The 429's own header, by this send's JSON-RPC id (#2442). Read off
+        // the message rather than `requestId`, which is unset for a request
+        // the route deliberately does not wait on (`subscriptions/listen`).
+        const sentId = "id" in message ? message.id : undefined;
+        const retryAfter =
+          isRateLimitError(err) &&
+          (typeof sentId === "string" || typeof sentId === "number")
+            ? session.takeRetryAfter(sentId)
+            : undefined;
         return c.json({
           ok: false,
           kind: "transport_error",
@@ -1126,6 +1155,7 @@ export function createRemoteApp(
               statusText: err.statusText,
             }),
             ...(typeof text === "string" && { text }),
+            ...(retryAfter !== undefined && { retryAfter }),
           },
         });
       }
@@ -1297,13 +1327,15 @@ export function createRemoteApp(
     // hands a live stream to its caller, so there is nothing left for the timer
     // to protect and nothing it could sever.
     // ⚠️ Only the caller decides whether this request is bounded, and by how
-    // much. This route is the browser's way out to the network for MCP traffic
-    // as well as OAuth work, so an unconditional timer here would abort a
-    // Streamable HTTP tool call that legitimately withholds its response
-    // headers for longer than the budget — reintroducing on the backend exactly
-    // the regression `exemptMcpEndpoint` exists to prevent on the client, and
-    // reporting it as an OAuth timeout besides (Copilot). No deadline in the
-    // envelope means no timer at all.
+    // much. On the web client today this route carries OAuth work only — MCP
+    // transport traffic rides `/api/mcp/*`, since `createRemoteTransport`
+    // ignores the fetch it is handed (see `MAX_PROXIED_RESPONSE_BYTES`).
+    // But `createRemoteFetch` is a general-purpose fetch and the route proxies
+    // whatever it is sent, so an unconditional timer here would also bound a
+    // caller that legitimately waits longer than the OAuth budget — a request
+    // withholding its response headers, say — and report it as an OAuth
+    // timeout besides (Copilot). No deadline in the envelope means no timer at
+    // all.
     // Clamped to what `setTimeout` can schedule: past 2**31-1 the delay
     // overflows and Node falls back to 1ms, turning an over-large budget into
     // an immediate timeout. Non-finite is ignored outright rather than
@@ -1357,7 +1389,49 @@ export function createRemoteApp(
         contentType?.includes("application/x-ndjson");
       let resBody: string | undefined;
       if (!isStream && res.body) {
-        resBody = await res.text();
+        // An oversize body is never relayed. What replaces it depends on the
+        // upstream status:
+        //
+        // - A success becomes a 502: the upstream answered, and what it
+        //   answered is more than this gateway will buffer, so there is no
+        //   faithful way to hand it on. Distinct from the 500 an outbound
+        //   failure gets and the 504 a deadline gets; the browser surfaces it
+        //   through `createRemoteFetch` as a failed fetch carrying this message.
+        // - An error status is relayed as itself, with its headers and no body.
+        //   The status is what an OAuth client acts on there — a 404 from a
+        //   path-aware protected-resource metadata URL is what sends SDK
+        //   discovery on to the root well-known URL — and a 502 in its place
+        //   would end discovery instead of letting it fall back.
+        const refuseOversize = () =>
+          res.ok
+            ? c.json(
+                {
+                  error: `response from ${safeUrl} exceeds the ${MAX_PROXIED_RESPONSE_BYTES}-byte limit for a proxied response`,
+                },
+                502,
+              )
+            : c.json({
+                ok: res.ok,
+                status: res.status,
+                statusText: res.statusText,
+                headers: resHeaders,
+              });
+        if (
+          declaresOversizeBody(
+            res.headers.get("content-length"),
+            MAX_PROXIED_RESPONSE_BYTES,
+          )
+        ) {
+          // Refused before a byte is read, so nothing else will release the
+          // body. Not awaited, for the same reason as the stream branch below;
+          // the callee owns its failure through the `catch`.
+          void res.body.cancel().catch(() => {});
+          return refuseOversize();
+        }
+        // Cancels its own reader on overflow.
+        const read = await readCappedText(res.body, MAX_PROXIED_RESPONSE_BYTES);
+        if (read.kind === "overflow") return refuseOversize();
+        resBody = read.text;
       } else if (isStream) {
         // This route does not return the stream — it answers with JSON and no
         // body — so nobody downstream owns it and nothing will ever read it.

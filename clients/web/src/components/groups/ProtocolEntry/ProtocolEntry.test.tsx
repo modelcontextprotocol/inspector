@@ -910,6 +910,46 @@ describe("ProtocolEntry — client-rejected response", () => {
     expect(screen.queryByText("Pending")).not.toBeInTheDocument();
   });
 
+  // A request whose send failed — a bare HTTP 403, a closed connection — has
+  // a clientError and no response; it was never "Pending" for anything (#2721).
+  const sendFailedEntry: MessageEntry = {
+    id: "send-failed",
+    timestamp: new Date("2026-07-28T10:00:00Z"),
+    direction: "request",
+    origin: "client",
+    message: {
+      jsonrpc: "2.0",
+      id: 12,
+      method: "tools/call",
+      params: { name: "echo", arguments: { message: "hi" } },
+    },
+    duration: 40,
+    clientError: "HTTP 403 Forbidden: Error POSTing to endpoint: Forbidden",
+  };
+
+  it("renders a failed send as Error, not Pending", () => {
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={sendFailedEntry} />);
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+  });
+
+  it("titles a failed send as a request failure, not an Inspector rejection", () => {
+    renderWithMantine(
+      <ProtocolEntry {...baseProps} entry={sendFailedEntry} isListExpanded />,
+    );
+    expect(
+      screen.getByText("Request failed without a response"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "HTTP 403 Forbidden: Error POSTing to endpoint: Forbidden",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Rejected by the Inspector"),
+    ).not.toBeInTheDocument();
+  });
+
   it("shows no rejection alert on an ordinary success", () => {
     renderWithMantine(
       <ProtocolEntry {...baseProps} entry={successEntry} isListExpanded />,
