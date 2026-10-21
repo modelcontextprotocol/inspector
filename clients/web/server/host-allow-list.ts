@@ -18,8 +18,10 @@
  *
  * - `localhost` and any `*.localhost` name (RFC 6761: they always resolve to
  *   loopback, so no attacker can own one);
- * - any IPv4 literal and any bracketed IPv6 literal — a rebinding attack needs
- *   a DNS name, so an address in `Host` cannot be one;
+ * - any dotted-quad IPv4 literal and any bracketed IPv6 literal — a
+ *   rebinding attack needs a DNS name, so an address in `Host` cannot be one.
+ *   Shorthand IPv4 (`127.1`, `2130706433`) is treated as a name and refused;
+ *   browsers always send the dotted-quad form;
  * - the bind host (`HOST`), when it is a specific name rather than a wildcard;
  * - the host of every `allowedOrigins` entry, since an origin the API accepts
  *   is by definition a name the browser is meant to reach us at;
@@ -141,7 +143,7 @@ export interface HostAllowListOptions {
 
 /**
  * The configured (non-implicit) hostnames a server accepts in `Host`, beyond
- * the always-allowed loopback names and IP literals. Exported for tests and
+ * the always-allowed loopback names and IP addresses. Exported for tests and
  * for anyone who needs to explain a rejection.
  */
 export function configuredAllowedHosts(
