@@ -377,6 +377,26 @@ const MAX_STORAGE_BODY_BYTES = 4 * 1024 * 1024;
 export const MAX_PROXIED_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
+ * Headers that describe a response body's framing rather than the response.
+ * An oversize error is relayed with its status and headers but no body, and
+ * the browser rebuilds it as a `Response` with a null body, so these would
+ * claim a length or an encoding for a body that is not there (#2771).
+ */
+const BODY_FRAMING_HEADERS = new Set([
+  "content-length",
+  "transfer-encoding",
+  "content-encoding",
+]);
+
+function withoutBodyFraming(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(([k]) => !BODY_FRAMING_HEADERS.has(k)),
+  );
+}
+
+/**
  * Whether a string is safe to emit as an HTTP header VALUE.
  *
  * The published `csp` is handed to `res.writeHead()` verbatim by the app-origin
@@ -1397,7 +1417,8 @@ export function createRemoteApp(
         //   faithful way to hand it on. Distinct from the 500 an outbound
         //   failure gets and the 504 a deadline gets; the browser surfaces it
         //   through `createRemoteFetch` as a failed fetch carrying this message.
-        // - An error status is relayed as itself, with its headers and no body.
+        // - An error status is relayed as itself, with its headers and no body
+        //   (less the dropped body's framing headers, #2771).
         //   The status is what an OAuth client acts on there — a 404 from a
         //   path-aware protected-resource metadata URL is what sends SDK
         //   discovery on to the root well-known URL — and a 502 in its place
@@ -1414,7 +1435,7 @@ export function createRemoteApp(
                 ok: res.ok,
                 status: res.status,
                 statusText: res.statusText,
-                headers: resHeaders,
+                headers: withoutBodyFraming(resHeaders),
               });
         if (
           declaresOversizeBody(
