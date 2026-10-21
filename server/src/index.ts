@@ -28,6 +28,7 @@ import {
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { formatHeaderNamesForLog, formatQueryForLog } from "./log-format.js";
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import express from "express";
 import rateLimit from "express-rate-limit";
@@ -435,7 +436,7 @@ const createTransport = async (
   headerHolder?: ProxyHeaderHolder;
 }> => {
   const query = req.query;
-  console.log("Query parameters:", JSON.stringify(query));
+  console.log("Query parameters:", formatQueryForLog(query));
 
   const transportType = query.transportType as string;
 
@@ -466,7 +467,7 @@ const createTransport = async (
     const headerHolder: ProxyHeaderHolder = { headers };
 
     console.log(
-      `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
+      `SSE transport: url=${url}, headers=${formatHeaderNamesForLog(headers)}`,
     );
 
     const transport = new SSEClientTransport(new URL(url), {
