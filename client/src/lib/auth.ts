@@ -12,6 +12,11 @@ import { discoverAuthorizationServerMetadata } from "@modelcontextprotocol/sdk/c
 import { SESSION_KEYS, getServerSpecificKey } from "./constants";
 import { generateOAuthState } from "@/utils/oauthUtils";
 import { validateRedirectUrl } from "@/utils/urlValidation";
+import {
+  OAuthConnectionSnapshot,
+  clearOAuthConnectionSnapshot,
+  saveOAuthConnectionSnapshot,
+} from "./oauthConnectionSnapshot";
 
 /**
  * Discovers OAuth scopes from server metadata, with preference for resource metadata scopes
@@ -130,7 +135,15 @@ export const clearScopeFromSessionStorage = (serverUrl: string) => {
 };
 
 export class InspectorOAuthClientProvider implements OAuthClientProvider {
-  constructor(protected serverUrl: string) {
+  /**
+   * @param connection The connection this authorization is for. It is saved
+   * per tab just before redirecting, and is the only thing the callback will
+   * reconnect with; omit it and the callback will not reconnect.
+   */
+  constructor(
+    protected serverUrl: string,
+    private connection?: Omit<OAuthConnectionSnapshot, "serverUrl">,
+  ) {
     // Save the server URL to session storage
     sessionStorage.setItem(SESSION_KEYS.SERVER_URL, serverUrl);
   }
@@ -227,6 +240,14 @@ export class InspectorOAuthClientProvider implements OAuthClientProvider {
   redirectToAuthorization(authorizationUrl: URL) {
     // Validate the URL using the shared utility
     validateRedirectUrl(authorizationUrl.href);
+    if (this.connection) {
+      saveOAuthConnectionSnapshot({
+        ...this.connection,
+        serverUrl: this.serverUrl,
+      });
+    } else {
+      clearOAuthConnectionSnapshot();
+    }
     window.location.href = authorizationUrl.href;
   }
 
