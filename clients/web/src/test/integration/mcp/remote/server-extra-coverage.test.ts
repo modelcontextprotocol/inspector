@@ -879,6 +879,9 @@ describe("server.ts supplemental coverage", () => {
       expect(body.ok).toBe(false);
       expect(body.status).toBe(404);
       expect(body.headers["x-probe"]).toBe("relayed");
+      expect(body.headers["content-type"]).toBe("text/html");
+      // The chunked framing described the dropped body, not this one (#2771).
+      expect(body.headers["transfer-encoding"]).toBeUndefined();
       expect(body.body).toBeUndefined();
     });
 
@@ -889,8 +892,16 @@ describe("server.ts supplemental coverage", () => {
         body: JSON.stringify({ url: `${targetUrl}/not-found-declared` }),
       });
       expect(res.status).toBe(200);
-      const body = (await res.json()) as { status: number; body?: string };
+      const body = (await res.json()) as {
+        status: number;
+        headers: Record<string, string>;
+        body?: string;
+      };
       expect(body.status).toBe(404);
+      expect(body.headers["content-type"]).toBe("text/html");
+      // A declared length for a body that is not relayed would misdescribe the
+      // rebuilt Response (#2771).
+      expect(body.headers["content-length"]).toBeUndefined();
       expect(body.body).toBeUndefined();
     });
 
