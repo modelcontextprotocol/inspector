@@ -5,6 +5,7 @@
  * Tests cover:
  *  - every redirect status (301/302/303/307/308): method/body semantics
  *  - same-origin hops keep credentials; scheme, host and port changes drop them
+ *  - a cross-origin hop that would still carry a body is refused
  *  - header names are matched case-insensitively
  *  - a dropped header does not come back on a later hop
  *  - the caller's headers object is never mutated
@@ -17,6 +18,7 @@ import {
   normalizeProxyHeaders,
   type ProxyHopRequest,
 } from "../proxy-redirect.js";
+import { ProxyTargetError } from "../proxy-security.js";
 
 const CREDENTIALS = {
   Authorization: "Bearer secret-token",
@@ -136,19 +138,26 @@ describe("nextRedirectRequest", () => {
   });
 
   describe("cross-origin hops", () => {
+    // A bodyless GET, as for a metadata or discovery request: every status
+    // is followed, so each one's credential handling is observable.
+    const bodylessGet = () =>
+      request({
+        method: "GET",
+        body: undefined,
+        headers: { ...CREDENTIALS, Accept: "application/json" },
+      });
+
     it.each(REDIRECT_STATUSES)(
       "%i to another host drops every credential header",
       (status) => {
         const next = nextRedirectRequest(
-          request(),
+          bodylessGet(),
           status,
           "https://attacker.example.net/collect",
         );
         expect(next.url.href).toBe("https://attacker.example.net/collect");
-        for (const name of Object.keys(CREDENTIALS)) {
-          expect(next.headers).not.toHaveProperty(name);
-        }
-        expect(next.headers.Accept).toBe("application/json");
+        expect(next.method).toBe("GET");
+        expect(next.headers).toEqual({ Accept: "application/json" });
       },
     );
 
@@ -159,16 +168,17 @@ describe("nextRedirectRequest", () => {
       ["an https→http downgrade", "http://auth.example.com/token"],
       ["a protocol-relative URL", "//other.example.org/token"],
     ])("drops credentials on a hop to %s", (_label, location) => {
-      const next = nextRedirectRequest(request(), 307, location);
-      expect(Object.keys(next.headers).map((n) => n.toLowerCase())).toEqual([
-        "content-type",
-        "accept",
-      ]);
+      const next = nextRedirectRequest(bodylessGet(), 307, location);
+      expect(next.headers).toEqual({ Accept: "application/json" });
     });
 
     it("drops credentials on an http→https upgrade (still another origin)", () => {
       const next = nextRedirectRequest(
-        request({ url: new URL("http://auth.example.com/token") }),
+        request({
+          url: new URL("http://auth.example.com/token"),
+          method: "GET",
+          body: undefined,
+        }),
         308,
         "https://auth.example.com/token",
       );
@@ -196,7 +206,7 @@ describe("nextRedirectRequest", () => {
 
     it("does not restore a dropped header on a later same-origin hop", () => {
       const first = nextRedirectRequest(
-        request(),
+        bodylessGet(),
         307,
         "https://other.example.org/a",
       );
@@ -210,6 +220,103 @@ describe("nextRedirectRequest", () => {
         expect(hop.headers).not.toHaveProperty("Authorization");
         expect(hop.headers).not.toHaveProperty("Cookie");
       }
+    });
+  });
+
+  describe("cross-origin hops of a request with a body", () => {
+    it.each([307, 308])("%i is refused", (status) => {
+      expect(() =>
+        nextRedirectRequest(
+          request(),
+          status,
+          "https://attacker.example.net/collect",
+        ),
+      ).toThrow(
+        new ProxyTargetError(
+          "Refusing to follow a cross-origin redirect for a request with a body",
+        ),
+      );
+    });
+
+    it.each([
+      ["another port", "https://auth.example.com:8443/token"],
+      ["an https→http downgrade", "http://auth.example.com/token"],
+      ["a PUT", "https://other.example.org/", "PUT"],
+    ])("307 to %s is refused", (_label, location, method = "POST") => {
+      expect(() =>
+        nextRedirectRequest(request({ method }), 307, location),
+      ).toThrow(ProxyTargetError);
+    });
+
+    it("an empty-string body still counts as a body", () => {
+      expect(() =>
+        nextRedirectRequest(
+          request({ body: "" }),
+          308,
+          "https://other.example.org/",
+        ),
+      ).toThrow(ProxyTargetError);
+    });
+
+    it.each([301, 302])(
+      "%i of a POST is followed as a bodyless GET without credentials",
+      (status) => {
+        const next = nextRedirectRequest(
+          request(),
+          status,
+          "https://other.example.org/",
+        );
+        expect(next.method).toBe("GET");
+        expect(next.body).toBeUndefined();
+        expect(next.headers).toEqual({ Accept: "application/json" });
+      },
+    );
+
+    it("303 is followed as a bodyless GET without credentials", () => {
+      const next = nextRedirectRequest(
+        request(),
+        303,
+        "https://other.example.org/",
+      );
+      expect(next.method).toBe("GET");
+      expect(next.body).toBeUndefined();
+      expect(next.headers).toEqual({ Accept: "application/json" });
+    });
+
+    it.each([301, 302])(
+      "%i of a PUT keeps its body, so it is refused",
+      (status) => {
+        expect(() =>
+          nextRedirectRequest(
+            request({ method: "PUT" }),
+            status,
+            "https://other.example.org/",
+          ),
+        ).toThrow(ProxyTargetError);
+      },
+    );
+
+    it.each([undefined, null])("a 307 with a %s body is followed", (body) => {
+      const next = nextRedirectRequest(
+        // null is what a JSON caller can send for "no body"
+        request({ body: body as string | undefined }),
+        307,
+        "https://other.example.org/",
+      );
+      expect(next.method).toBe("POST");
+      expect(next.url.href).toBe("https://other.example.org/");
+      expect(next.headers).not.toHaveProperty("Authorization");
+    });
+
+    it.each([307, 308])("same-origin %i keeps the body", (status) => {
+      const next = nextRedirectRequest(
+        request(),
+        status,
+        "https://auth.example.com/token2",
+      );
+      expect(next.method).toBe("POST");
+      expect(next.body).toBe("grant_type=refresh_token&refresh_token=r1");
+      expect(next.headers).toMatchObject(CREDENTIALS);
     });
   });
 
@@ -232,7 +339,11 @@ describe("nextRedirectRequest", () => {
   it("drops credentials on a hop to a non-http scheme", () => {
     // The loop rejects the scheme before fetching; the rewrite still treats
     // the opaque origin as a different one.
-    const next = nextRedirectRequest(request(), 302, "file:///etc/passwd");
+    const next = nextRedirectRequest(
+      request({ method: "GET", body: undefined }),
+      302,
+      "file:///etc/passwd",
+    );
     expect(next.url.protocol).toBe("file:");
     expect(next.headers).not.toHaveProperty("Authorization");
   });

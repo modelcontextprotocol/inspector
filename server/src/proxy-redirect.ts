@@ -18,9 +18,18 @@
  *    GET; 307/308 keep both. When the body is dropped, the headers describing
  *    it go with it.
  *
+ *  - **A body never crosses an origin boundary.** A cross-origin hop that
+ *    would still carry a body after that rewrite — a 307/308 of a POST, say —
+ *    is refused rather than followed, since a proxied body is typically an
+ *    OAuth form holding a refresh token or client secret. A 301/302/303 that
+ *    rewrites to a bodyless GET is followed (with credentials dropped), and a
+ *    same-origin 307/308 keeps its body as the standard says.
+ *
  * Every hop gets a fresh headers object, so the caller's input is never
  * mutated and a header dropped on one hop cannot reappear on a later one.
  */
+
+import { ProxyTargetError } from "./proxy-security.js";
 
 /** Headers that carry credentials and must not cross an origin boundary. */
 const CREDENTIAL_HEADERS = new Set([
@@ -105,6 +114,9 @@ function rewritesToGet(status: number, method: string): boolean {
  * @param location the redirect response's `Location` header value
  * @returns the next hop's request; the SSRF guard still has to validate its
  *          URL before it is fetched
+ * @throws ProxyTargetError when the hop changes origin and would still carry
+ *         a body — the same refusal (403) the route returns for a blocked
+ *         target
  */
 export function nextRedirectRequest(
   current: ProxyHopRequest,
@@ -114,8 +126,9 @@ export function nextRedirectRequest(
   const url = new URL(location, current.url);
   let { method, body } = current;
   let headers = { ...current.headers };
+  const crossOrigin = url.origin !== current.url.origin;
 
-  if (url.origin !== current.url.origin) {
+  if (crossOrigin) {
     headers = withoutHeaders(headers, CREDENTIAL_HEADERS);
   }
 
@@ -123,6 +136,14 @@ export function nextRedirectRequest(
     method = "GET";
     body = undefined;
     headers = withoutHeaders(headers, BODY_HEADERS);
+  }
+
+  // `!= null`: the body arrives as JSON, so "no body" can be null as well as
+  // undefined. An empty string is still a body the caller chose to send.
+  if (crossOrigin && body != null) {
+    throw new ProxyTargetError(
+      "Refusing to follow a cross-origin redirect for a request with a body",
+    );
   }
 
   return { url, method, body, headers };
