@@ -4,7 +4,20 @@ import {
   DEFAULT_INSPECTOR_CONFIG,
 } from "@/lib/constants";
 
+// The OAuth callback routes are reached by a redirect from the authorization
+// server, so their query string is not under the user's control. Connection
+// settings must never be taken from it: on those routes the connection that
+// was in effect before the redirect (persisted in local/session storage) is
+// restored instead. Only `code`/`state`/`error` are read there, separately.
+export const isOAuthCallbackPath = (): boolean => {
+  const { pathname } = window.location;
+  return (
+    pathname === "/oauth/callback" || pathname.startsWith("/oauth/callback/")
+  );
+};
+
 const getSearchParam = (key: string): string | null => {
+  if (isOAuthCallbackPath()) return null;
   try {
     const url = new URL(window.location.href);
     return url.searchParams.get(key);
@@ -92,8 +105,9 @@ export const getInitialArgs = (): string => {
 export const getConfigOverridesFromQueryParams = (
   defaultConfig: InspectorConfig,
 ): Partial<InspectorConfig> => {
-  const url = new URL(window.location.href);
   const overrides: Partial<InspectorConfig> = {};
+  if (isOAuthCallbackPath()) return overrides;
+  const url = new URL(window.location.href);
   for (const key of Object.keys(defaultConfig)) {
     const param = url.searchParams.get(key);
     if (param !== null) {
