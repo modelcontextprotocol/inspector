@@ -1380,6 +1380,25 @@ function registerRpcCommands(program: CommandType): void {
           });
         });
         break;
+      case "resources/directory/read":
+        // The handler requires a URI and pages by cursor, so without these the
+        // command could never succeed (#2767). One page per call, as in the
+        // one-shot CLI: the caller descends and pages itself.
+        cmd
+          .argument("[uri]", "Directory resource URI")
+          .option("--uri <uri>", "Directory resource URI")
+          .option(
+            "--cursor <cursor>",
+            "Opaque pagination cursor (pass back the nextCursor from the previous page)",
+          );
+        cmd.action(async (uriPos: string | undefined, o) => {
+          await runRpc(program, method, {
+            uri: (o.uri as string | undefined) ?? uriPos,
+            cursor: o.cursor as string | undefined,
+            metadata: o.metadata,
+          });
+        });
+        break;
       case "skills/list":
         cmd.option(
           "--verify",
