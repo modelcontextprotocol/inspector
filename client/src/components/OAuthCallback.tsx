@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { InspectorOAuthClientProvider } from "../lib/auth";
 import { SESSION_KEYS } from "../lib/constants";
+import { clearOAuthConnectionSnapshot } from "../lib/oauthConnectionSnapshot";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
 import { useToast } from "@/lib/hooks/useToast";
 import {
@@ -75,6 +76,8 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
     };
 
     handleCallback().finally(() => {
+      // The snapshot belongs to this one redirect; drop it whatever the outcome.
+      clearOAuthConnectionSnapshot();
       window.history.replaceState({}, document.title, "/");
     });
   }, [toast, onConnect]);
