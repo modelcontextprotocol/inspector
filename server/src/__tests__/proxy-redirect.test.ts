@@ -7,7 +7,8 @@
  *  - same-origin hops keep credentials; scheme, host and port changes drop them
  *  - a cross-origin hop that would still carry a body is refused
  *  - header names are matched case-insensitively
- *  - a dropped header does not come back on a later hop
+ *  (that a dropped header stays dropped later in the chain is a property of
+ *  the loop, so fetch-redirect-route.test.ts covers it)
  *  - the caller's headers object is never mutated
  *  - normalizeProxyHeaders: the JSON-supplied headers shape
  */
@@ -202,24 +203,6 @@ describe("nextRedirectRequest", () => {
         "https://other.example.org/",
       );
       expect(next.headers).toEqual({ "X-Custom": "kept" });
-    });
-
-    it("does not restore a dropped header on a later same-origin hop", () => {
-      const first = nextRedirectRequest(
-        bodylessGet(),
-        307,
-        "https://other.example.org/a",
-      );
-      const second = nextRedirectRequest(first, 307, "/b");
-      const back = nextRedirectRequest(
-        second,
-        307,
-        "https://auth.example.com/token",
-      );
-      for (const hop of [first, second, back]) {
-        expect(hop.headers).not.toHaveProperty("Authorization");
-        expect(hop.headers).not.toHaveProperty("Cookie");
-      }
     });
   });
 
