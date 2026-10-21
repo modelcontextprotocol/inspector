@@ -25,7 +25,11 @@ import {
   ElicitRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
-import { discoverScopes } from "../../auth";
+import { InspectorOAuthClientProvider, discoverScopes } from "../../auth";
+import {
+  clearOAuthConnectionSnapshot,
+  readOAuthConnectionSnapshot,
+} from "../../oauthConnectionSnapshot";
 import { CustomHeaders } from "../../types/customHeaders";
 
 // Mock fetch
@@ -1581,6 +1585,65 @@ describe("useConnection", () => {
           scope: undefined,
         }),
       );
+    });
+
+    it("saves the connection for the callback when redirecting to authorization", async () => {
+      // Use the real provider so the redirect writes the per-tab snapshot the
+      // OAuth callback reconnects from.
+      const { InspectorOAuthClientProvider: RealProvider } =
+        jest.requireActual<typeof import("../../auth")>("../../auth");
+      const MockProvider = jest.mocked(InspectorOAuthClientProvider);
+      const defaultImpl = MockProvider.getMockImplementation();
+      MockProvider.mockImplementation(
+        (...ctorArgs) => new RealProvider(...ctorArgs),
+      );
+      mockAuth.mockImplementation(async (provider) => {
+        await provider.redirectToAuthorization(
+          new URL("https://auth.example/authorize"),
+        );
+        return "REDIRECT";
+      });
+      // jsdom reports the cross-origin navigation as "not implemented".
+      const consoleError = jest
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      clearOAuthConnectionSnapshot();
+      MockProvider.mockClear();
+
+      try {
+        setup401Error();
+        await attemptConnection({
+          ...defaultProps,
+          transportType: "streamable-http",
+          connectionType: "proxy",
+        });
+
+        expect(readOAuthConnectionSnapshot()).toEqual({
+          serverUrl: defaultProps.sseUrl,
+          transportType: "streamable-http",
+          connectionType: "proxy",
+          command: defaultProps.command,
+          args: defaultProps.args,
+          proxyAddress: "http://localhost:6277",
+        });
+        // The transports' own auth provider can also start a redirect, so
+        // every provider the connection builds carries the connection.
+        expect(MockProvider.mock.calls.length).toBeGreaterThanOrEqual(2);
+        for (const [, connection] of MockProvider.mock.calls) {
+          expect(connection).toEqual({
+            transportType: "streamable-http",
+            connectionType: "proxy",
+            command: defaultProps.command,
+            args: defaultProps.args,
+            proxyAddress: "http://localhost:6277",
+          });
+        }
+      } finally {
+        consoleError.mockRestore();
+        MockProvider.mockImplementation(defaultImpl);
+        mockAuth.mockResolvedValue("AUTHORIZED");
+        clearOAuthConnectionSnapshot();
+      }
     });
 
     it("passes undefined fetchFn when connectionType is direct", async () => {
