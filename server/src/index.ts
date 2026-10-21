@@ -9,6 +9,10 @@ import {
   createPinnedAgent,
   ProxyTargetError,
 } from "./proxy-security.js";
+import {
+  readCappedBody,
+  ProxyResponseTooLargeError,
+} from "./proxy-response.js";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -961,7 +965,19 @@ app.post(
         throw error;
       }
 
-      const responseBody = await response.text();
+      // Read the body through a byte cap rather than response.text(), which
+      // would buffer whatever the upstream sends. An oversize body is an
+      // upstream failure, reported to the client as 502 Bad Gateway.
+      let responseBody: string;
+      try {
+        responseBody = await readCappedBody(response);
+      } catch (error) {
+        if (error instanceof ProxyResponseTooLargeError) {
+          res.status(502).json({ error: error.message });
+          return;
+        }
+        throw error;
+      }
       const headers: Record<string, string> = {};
       response.headers.forEach((value, key) => {
         headers[key] = value;
