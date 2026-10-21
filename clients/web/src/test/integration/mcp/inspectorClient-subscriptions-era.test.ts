@@ -1275,6 +1275,9 @@ describe("resource subscriptions era fork (#1630)", () => {
           refusal: { status: 403, statusText: "Forbidden" },
         });
         expect(internals(connected).modernReconnectAttempts).toBe(0);
+        // The Node transport reports the refused POST through `onerror` too;
+        // a refused request is not a failed connection (#2776).
+        expect(connected.getStatus()).toBe("connected");
       });
 
       it("reports the refusal even when the rollback empties the filter", async () => {
@@ -1307,6 +1310,13 @@ describe("resource subscriptions era fork (#1630)", () => {
           status: "refused",
           refusal: { status: 403 },
         });
+        // This is the TUI's path to its refusal line: on the Node transport
+        // the session must survive the refused connect-time listen (#2776).
+        expect(connected.getStatus()).toBe("connected");
+        expect(connected.getResourceSubscriptionStreamState().refusal).toEqual({
+          status: 403,
+          statusText: "Forbidden",
+        });
       });
 
       it.each([400, 404, 405])(
@@ -1333,10 +1343,11 @@ describe("resource subscriptions era fork (#1630)", () => {
 
       /*
        * The tests above drive the Node transport, which reports a failed POST
-       * through `onerror` as well as rejecting it — so the client is already
-       * `error` by the time the reconnect timer would fire, and the timer bails
-       * on the terminal status either way. The web client's remote transport
-       * rejects without `onerror`, which is the path the smoke observed the
+       * through `onerror` as well as rejecting it. Since #2776 that report no
+       * longer errors the client for a refusal, so the session stays connected
+       * there too; before it, the client was already `error` by the time the
+       * reconnect timer would fire. The web client's remote transport rejects
+       * without `onerror`, which is the path the smoke observed the
        * eight-attempt run on. These stub `listen()` with the error that
        * transport rebuilds (#2660) to model it: the session stays connected,
        * and only the classification stands between the refusal and the retry.
