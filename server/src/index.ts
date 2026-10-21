@@ -41,6 +41,11 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
+import {
+  nextRedirectRequest,
+  normalizeProxyHeaders,
+  type ProxyHopRequest,
+} from "./proxy-redirect.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -863,13 +868,20 @@ const MAX_PROXY_REDIRECTS = 5;
 // connects to the IP we just validated instead of re-resolving the hostname.
 // This eliminates the TOCTOU window between the block-list check and the
 // actual TCP connection that a DNS-rebinding attack would exploit.
+//
+// What each redirect does to the next hop's request — dropping credentials
+// when the origin changes, and the 301/302/303 method and body rewrite — is
+// nextRedirectRequest in proxy-redirect.ts.
 async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
-  let currentUrl = new URL(initialUrl);
-  let method = init?.method ?? "GET";
-  let body = init?.body as string | undefined;
-  const headers = (init?.headers as Record<string, string>) ?? {};
+  let request: ProxyHopRequest = {
+    url: new URL(initialUrl),
+    method: init?.method ?? "GET",
+    body: init?.body as string | undefined,
+    headers: normalizeProxyHeaders(init?.headers),
+  };
 
   for (let hop = 0; hop <= MAX_PROXY_REDIRECTS; hop++) {
+    const currentUrl = request.url;
     if (!["http:", "https:"].includes(currentUrl.protocol)) {
       throw new ProxyTargetError("Only http/https URLs are allowed");
     }
@@ -882,9 +894,9 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
     const agent = createPinnedAgent(currentUrl.protocol, validatedAddresses);
 
     const response = await fetch(currentUrl.toString(), {
-      method,
-      headers,
-      body,
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
       redirect: "manual",
       agent,
     });
@@ -894,12 +906,7 @@ async function safeProxyFetch(initialUrl: string, init?: RequestInit) {
       if (!location) {
         return response;
       }
-      currentUrl = new URL(location, currentUrl);
-      // Mirror browser/fetch semantics: 301/302/303 downgrade to a bodyless GET.
-      if ([301, 302, 303].includes(response.status)) {
-        method = "GET";
-        body = undefined;
-      }
+      request = nextRedirectRequest(request, response.status, location);
       continue;
     }
 
