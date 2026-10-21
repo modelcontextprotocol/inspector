@@ -36,6 +36,23 @@ concurrency:
   group: ${{ github.event_name == 'release' && 'release-npm' || format('run-{0}', github.run_id) }}
   cancel-in-progress: false
 
+# The npm the jobs below install before running npm, pinned EXACTLY and
+# stated once (#2715). Node 22's bundled npm is 10.x, and two things here
+# need 11.x: `publish`'s OIDC
+# trusted publishing (>= 11.5.1, #2483) and the `allowScripts` denials in each
+# install's package.json (>= 11.19, #2712) — npm 10 ignores that field, so on
+# the bundled npm CI would still run the `esbuild` and `fsevents` install
+# scripts the review decided against. (`verify:install-scripts` reads the
+# lockfiles, so it enforces the DECISION on any npm; only npm >= 11.19 does
+# the BLOCKING.) Exact rather than a range for the reason `publish` gives: a
+# range would let whatever 11.x is current into `package`, which builds what
+# the credentialed job ships (#2484). Every job that installs dependencies
+# installs this npm first, with `--ignore-scripts` so even npm's own lifecycle
+# scripts stay out. Bump deliberately, here and in dependency-refresh.yml
+# together; stay on 11.x until 12's Node floor is checked against Node 22.
+env:
+  CI_NPM_VERSION: '11.20.0'
+
 # The `package`, `publish` and `publish-github-container-registry` jobs pin
 # every action to a commit SHA with a `# vX.Y.Z` comment; `build` and
 # `coverage` stay on moving major tags (#2235). A job holding a credential — or
@@ -69,6 +86,10 @@ jobs:
         with:
           node-version: '22.x'
           cache: 'npm'
+
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # See CI_NPM_VERSION at the top of this file (#2715).
+        run: npm install -g --ignore-scripts "npm@$CI_NPM_VERSION"
 
       - name: Install dependencies (root + all clients)
         # The root postinstall (scripts/install-clients.mjs) cascades
@@ -203,6 +224,10 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # See CI_NPM_VERSION at the top of this file (#2715).
+        run: npm install -g --ignore-scripts "npm@$CI_NPM_VERSION"
+
       - name: Install dependencies (root + all clients)
         run: npm install
 
@@ -259,6 +284,10 @@ jobs:
         with:
           node-version: '22.x'
           cache: 'npm'
+
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # See CI_NPM_VERSION at the top of this file (#2715).
+        run: npm install -g --ignore-scripts "npm@$CI_NPM_VERSION"
 
       - name: Assert release tag matches package version
         # `npm publish` ships whatever `version` is in the root package.json,
@@ -355,9 +384,10 @@ jobs:
       # holds `id-token: write`, so it is the one package this job trusts, and
       # a range would let whatever 11.x is current at release time into it.
       # `--ignore-scripts` keeps even that package's lifecycle scripts out.
-      # Bump deliberately; stay on 11.x until 12's Node floor is checked.
+      # The version is CI_NPM_VERSION at the top of this file, shared with
+      # every job that installs dependencies (#2715) — bump it there.
       - name: Install the pinned npm CLI (OIDC trusted publishing)
-        run: npm install -g --ignore-scripts npm@11.20.0
+        run: npm install -g --ignore-scripts "npm@$CI_NPM_VERSION"
 
       - name: Download the tarball built by the package job
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

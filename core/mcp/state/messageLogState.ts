@@ -123,6 +123,24 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
       }
     };
 
+    // A request whose send failed gets no response frame, ever — the server
+    // either never saw it or refused it at the HTTP layer (a bare 403). Close
+    // its entry as a client-side error so it stops rendering as "Pending"
+    // (#2721). Only a still-pending entry is resolved: one already answered,
+    // or evicted from the log, is left as it is.
+    const onRequestFailed = (
+      event: TypedEventGeneric<InspectorClientEventMap, "requestFailed">,
+    ): void => {
+      const { id, reason } = event.detail;
+      const requestEntry = this.pendingRequestEntries.get(id);
+      if (!requestEntry) return;
+      this.pendingRequestEntries.delete(id);
+      requestEntry.clientError = reason;
+      requestEntry.duration = Date.now() - requestEntry.timestamp.getTime();
+      this.dispatchTypedEvent("message", requestEntry);
+      this.dispatchTypedEvent("messagesChange", this.getMessages());
+    };
+
     const onStatusChange = (): void => {
       if (isTerminalStatus(this.client?.getStatus())) {
         this.messages = [];
@@ -132,11 +150,13 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
     };
     this.client.addEventListener("message", onMessage);
     this.client.addEventListener("responseRejected", onResponseRejected);
+    this.client.addEventListener("requestFailed", onRequestFailed);
     this.client.addEventListener("statusChange", onStatusChange);
     this.unsubscribe = () => {
       if (this.client) {
         this.client.removeEventListener("message", onMessage);
         this.client.removeEventListener("responseRejected", onResponseRejected);
+        this.client.removeEventListener("requestFailed", onRequestFailed);
         this.client.removeEventListener("statusChange", onStatusChange);
       }
       this.client = null;

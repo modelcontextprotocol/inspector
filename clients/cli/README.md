@@ -153,6 +153,11 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `-q`, `--quiet`               | Print only the result payload on stdout, or the error envelope on stderr on failure. Drops status lines, warnings, advisory summaries and a stdio server's own stderr; OAuth prompts a human must answer still print. See [Quiet output](#quiet-output---quiet). |
 | `--output <path>`             | Write the result to a file **instead of** stdout. The parent directory must exist; an existing file is replaced. See [Saving a result to a file](#saving-a-result-to-a-file---output). |
 | `--output-format <raw\|json>` | Encoding of the `--output` file. `json` (default) is the whole result, pretty-printed. `raw` is the result's text, or the decoded bytes of its single image/audio/blob block; `tools/call` and `resources/read` only. |
+| `--load`                      | Load-test one tool: call it repeatedly and concurrently, then print a latency / error-rate summary in place of a result. Requires `--method tools/call --tool-name <name>`. See [Load testing a tool](#load-testing-a-tool---load). |
+| `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
+| `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
+| `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
+| `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -285,7 +290,81 @@ The flag is `--output-format` rather than a new `--format` value because `--form
 
 Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
 
-`--output` is rejected where there is no single result to write — `--app-info`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
+`--output` is rejected where there is no single result to write — `--app-info`, `--load`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
+
+#### Load testing a tool (`--load`)
+
+`--load` points the Inspector's own connection — transport, headers, OAuth and
+all — at one tool and keeps calling it, so seeing how a server behaves under
+concurrent or sustained traffic does not mean rewriting that setup in a
+separate script ([#2439](https://github.com/modelcontextprotocol/inspector/issues/2439)).
+
+```bash
+# 20 calls in flight for 30 seconds
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-concurrency 20 --load-duration 30
+
+# exactly 500 calls, started at no more than 50 per second
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-requests 500 --load-rate 50
+```
+
+Every call sends the same arguments and `_meta`. When the run ends, one summary
+is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
+
+```json
+{
+  "tool": "search",
+  "concurrency": 20,
+  "durationMs": 30000,
+  "requests": 41210,
+  "ok": 41187,
+  "toolErrors": 0,
+  "errors": 23,
+  "errorRate": 0.0006,
+  "elapsedMs": 30012.4,
+  "throughput": 1373.12,
+  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p99": 61.3, "max": 30004.8 },
+  "errorMessages": [{ "message": "Request timed out", "count": 23 }]
+}
+```
+
+- **`toolErrors`** counts results carrying `isError: true` — the tool ran and
+  reported a failure. **`errors`** counts calls that never produced a result:
+  protocol errors, request timeouts, a dropped connection. `errorRate` is both
+  together over `requests`, rounded to four places.
+- **`errorMessages`** groups the thrown messages by frequency. The first ten
+  distinct messages are kept; any further ones are counted under `(other)`.
+- **Latency** is per call, client-side, in milliseconds, with nearest-rank
+  percentiles. It includes everything the Inspector does around the request,
+  which is negligible next to a network round trip but not next to a
+  sub-millisecond stdio echo.
+- **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
+  allowed to finish, so `elapsedMs` can exceed the window by up to one call.
+  With `--load-rate`, starts follow an even `1/rate` grid; a timer that wakes
+  a little late keeps the grid, so the average rate holds. A slot missed
+  entirely — every worker busy, or a stalled event loop — is dropped rather
+  than made up later, so a stall is never followed by a catch-up burst. A
+  slot that falls past the window is never started. Node's timers resolve to
+  about a millisecond, so a rate in the high hundreds per second or above is
+  reached only approximately (1000/s measured ~700 against a local stdio
+  server); compare `requests` against what you asked for.
+
+**All calls share one connection**, so this measures how a server copes with
+concurrent requests on a single session — not with many sessions. A slow call
+is bounded by the server's request timeout (`requestTimeout` in the
+catalog/config file).
+
+A load run does not prompt for OAuth step-up: a tool that needs scopes the
+session lacks fails every call, and the challenge shows in `errorMessages`.
+Run one plain `tools/call` of the tool first to grant them, then load it.
+
+The tool is looked up once before the clock starts, so a missing tool fails
+the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
+rate. Otherwise a completed run exits `0` whatever its error rate — the summary
+is the result. `--load` is rejected with any other method and with `--app-info`,
+`--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
+rejected without `--load`.
 
 #### Schema portability (`--strict`)
 
@@ -428,7 +507,7 @@ For the common case where OAuth was already completed in the **web inspector on 
 | `--use-stored-auth`     | Read the stored auth for `--server-url` and inject `Authorization: Bearer`. When a `refresh_token` is stored, the CLI runs the OAuth refresh grant first and injects the **fresh** access token (persisting the rotation); otherwise it injects the stored access token. Exits `3` (`no_stored_token`) — listing the stored keys — when nothing matches. Requires `--server-url`.                                                   |
 | `--wait-for-auth <sec>` | Poll the OAuth state file (500 ms interval) until an access token for `--server-url` appears, then inject it. Times out at `<sec>` with exit `3` (`auth_wait_timeout`). Use after handing off to a human to complete OAuth in a browser. Unlike `--use-stored-auth`, this injects the freshly-landed access token directly (a token that just completed the browser flow is not expired), so it does **not** run the refresh grant. |
 | `--list-stored-auth`    | Print `{ oauthStatePath, storedServerUrls }` (the server keys that currently have a token) and exit. No server connection is made.                                                                                                                                                                                                                                                                                                  |
-| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. Requires `--server-url`.                                                                                                                                                                                                           |
+| `--print-handoff`       | Print a JSON handoff block (`deepLink`, `portForwardCmd`, `oauthStatePath`, `apiToken`) for `--server-url` and exit — everything a script/remote VM needs to drive the browser-side OAuth dance. The `deepLink` is `https` when both `INSPECTOR_TLS_KEY_PATH` and `INSPECTOR_TLS_CERT_PATH` are set, matching a web UI served over TLS. Requires `--server-url`.                                                                                                                                                                                                           |
 
 **State-file resolution** follows `MCP_INSPECTOR_OAUTH_STATE_PATH` → `<MCP_STORAGE_DIR>/oauth.json` → `~/.mcp-inspector/storage/oauth.json` — the same precedence the rest of the Inspector uses, so the CLI and web backend agree on the file. Server keys are canonicalised with `new URL().href` (the scheme the web store writes), so a trailing-slash or case mismatch between the URL a human opened and the one the agent passed still resolves.
 

@@ -50,6 +50,13 @@ jobs:
           node-version: '22.x'
           cache: 'npm'
 
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # Node 22's bundled npm 10.x ignores each install's `allowScripts`, so
+        # the install below would still run the denied esbuild/fsevents
+        # scripts (#2715). Keep this version equal to CI_NPM_VERSION in
+        # main.yml, which states the full reasoning.
+        run: npm install -g --ignore-scripts npm@11.20.0
+
       - name: Install dependencies (root + all clients)
         run: npm install
 

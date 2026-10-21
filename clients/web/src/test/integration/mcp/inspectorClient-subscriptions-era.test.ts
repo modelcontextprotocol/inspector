@@ -5,7 +5,11 @@ import {
   eraToVersionNegotiation,
   MODERN_PROTOCOL_VERSION,
 } from "@inspector/core/mcp/types.js";
-import type { McpSubscription } from "@modelcontextprotocol/client";
+import {
+  SdkErrorCode,
+  SdkHttpError,
+  type McpSubscription,
+} from "@modelcontextprotocol/client";
 import {
   createTestServerHttp,
   type TestServerHttp,
@@ -1228,6 +1232,246 @@ describe("resource subscriptions era fork (#1630)", () => {
         // Reset at the start of the second attempt and set again by its own
         // rejection — i.e. the second listen really went out.
         expect(internals(connected).modernNeverAcknowledged).toBe(true);
+      });
+    });
+
+    /**
+     * A server (or a proxy in front of it) that refuses `subscriptions/listen`
+     * with a bare HTTP status (#2722). A 403 with no `WWW-Authenticate`, or a
+     * 400/404/405, is a deterministic answer: the Inspector must settle on the
+     * first one and say what it was, not re-send the listen until the
+     * eight-attempt cap. Transient statuses keep the retry.
+     *
+     * Against the real test server for the same reason as the #2097 block: the
+     * classification reads the SDK's error code and HTTP status, so an SDK that
+     * surfaces the refusal differently fails here rather than silently
+     * reverting to the retry loop.
+     */
+    describe("server refuses the listen over HTTP (#2722)", () => {
+      /** Give a reconnect timer room to fire had one been armed (base 500ms). */
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 1_200));
+      const listensSent = (messages: MessageEntry[]) =>
+        methodsSent(messages).filter((m) => m === "subscriptions/listen");
+
+      it("settles a bare 403 on the first answer, with the status, after the rollback", async () => {
+        // List-change opt-ins left on (the default), so the filter stays
+        // non-empty after the refused URI is rolled back — the shape the smoke
+        // observed, where that is what kept the retry loop alive.
+        const started = await startServer({ refuseSubscriptionsListen: 403 });
+        const { connected, messages } = await connect(started.url, "modern");
+        messages.length = 0;
+
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow(/Forbidden/);
+        await settle();
+
+        expect(listensSent(messages)).toHaveLength(1);
+        expect(connected.getSubscribedResources()).toEqual([]);
+        expect(connected.getResourceSubscriptionStreamState()).toEqual({
+          active: false,
+          status: "refused",
+          honoredUris: [],
+          refusal: { status: 403, statusText: "Forbidden" },
+        });
+        expect(internals(connected).modernReconnectAttempts).toBe(0);
+        // The Node transport reports the refused POST through `onerror` too;
+        // a refused request is not a failed connection (#2776).
+        expect(connected.getStatus()).toBe("connected");
+      });
+
+      it("reports the refusal even when the rollback empties the filter", async () => {
+        // No list-change opt-in, so nothing would be retried anyway — but the
+        // refusal must still be reported rather than collapsing to inactive.
+        const started = await startServer({ refuseSubscriptionsListen: 403 });
+        const { connected } = await connect(
+          started.url,
+          "modern",
+          NO_LIST_CHANGED,
+        );
+
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow();
+        expect(connected.getResourceSubscriptionStreamState()).toMatchObject({
+          active: false,
+          status: "refused",
+          refusal: { status: 403 },
+        });
+      });
+
+      it("settles the connect-time listen without retrying", async () => {
+        const started = await startServer({ refuseSubscriptionsListen: 403 });
+        const { connected, messages } = await connect(started.url, "modern");
+        await settle();
+
+        expect(listensSent(messages)).toHaveLength(1);
+        expect(connected.getResourceSubscriptionStreamState()).toMatchObject({
+          status: "refused",
+          refusal: { status: 403 },
+        });
+        // This is the TUI's path to its refusal line: on the Node transport
+        // the session must survive the refused connect-time listen (#2776).
+        expect(connected.getStatus()).toBe("connected");
+        expect(connected.getResourceSubscriptionStreamState().refusal).toEqual({
+          status: 403,
+          statusText: "Forbidden",
+        });
+      });
+
+      it.each([400, 404, 405])(
+        "treats HTTP %i as a refusal too",
+        async (status) => {
+          const started = await startServer({
+            refuseSubscriptionsListen: status,
+          });
+          const { connected, messages } = await connect(started.url, "modern");
+          messages.length = 0;
+
+          await expect(
+            connected.subscribeToResource(RESOURCE_URI),
+          ).rejects.toThrow();
+          await settle();
+
+          expect(listensSent(messages)).toHaveLength(1);
+          expect(connected.getResourceSubscriptionStreamState()).toMatchObject({
+            status: "refused",
+            refusal: { status },
+          });
+        },
+      );
+
+      /*
+       * The tests above drive the Node transport, which reports a failed POST
+       * through `onerror` as well as rejecting it. Since #2776 that report no
+       * longer errors the client for a refusal, so the session stays connected
+       * there too; before it, the client was already `error` by the time the
+       * reconnect timer would fire. The web client's remote transport rejects
+       * without `onerror`, which is the path the smoke observed the
+       * eight-attempt run on. These stub `listen()` with the error that
+       * transport rebuilds (#2660) to model it: the session stays connected,
+       * and only the classification stands between the refusal and the retry.
+       */
+      function httpError(status: number, statusText: string): SdkHttpError {
+        return new SdkHttpError(
+          SdkErrorCode.ClientHttpNotImplemented,
+          `Error POSTing to endpoint: ${statusText}`,
+          { status, statusText },
+        );
+      }
+
+      function stubListen(int: StreamInternals, error: SdkHttpError) {
+        let calls = 0;
+        int.client.listen = () => {
+          calls += 1;
+          return Promise.reject(error);
+        };
+        return () => calls;
+      }
+
+      it("does not retry a refusal while the session stays connected", async () => {
+        const started = await startServer({});
+        const { connected } = await connect(started.url, "modern");
+        const calls = stubListen(
+          internals(connected),
+          httpError(403, "Forbidden"),
+        );
+
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow(/Forbidden/);
+        await settle();
+
+        expect(calls()).toBe(1);
+        expect(connected.getStatus()).toBe("connected");
+        expect(connected.getResourceSubscriptionStreamState()).toEqual({
+          active: false,
+          status: "refused",
+          honoredUris: [],
+          refusal: { status: 403, statusText: "Forbidden" },
+        });
+      });
+
+      it("keeps retrying a transient status", async () => {
+        // 503 is "try again later": the reconnect run proceeds, so a second
+        // listen goes out at the base delay.
+        const started = await startServer({});
+        const { connected } = await connect(started.url, "modern");
+        const calls = stubListen(
+          internals(connected),
+          httpError(503, "Service Unavailable"),
+        );
+
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow();
+        await vi.waitFor(
+          () => {
+            expect(calls()).toBeGreaterThanOrEqual(2);
+          },
+          { timeout: 5_000 },
+        );
+        const state = connected.getResourceSubscriptionStreamState();
+        expect(state.status).toBe("reconnecting");
+        expect(state.refusal).toBeUndefined();
+      });
+
+      it("ends a reconnect run at the first refusal", async () => {
+        // An acknowledged stream that dropped and now re-lists against a server
+        // refusing it: the run stops there rather than counting to the cap.
+        const started = await startServer({});
+        const { connected } = await connect(
+          started.url,
+          "modern",
+          NO_LIST_CHANGED,
+        );
+        await connected.subscribeToResource(RESOURCE_URI);
+        const int = internals(connected);
+        const fake = await installFakeSubscription(int);
+        const calls = stubListen(int, httpError(403, "Forbidden"));
+
+        int.onModernSubscriptionClosed(
+          fake.sub,
+          "remote",
+          int.modernListenGeneration,
+        );
+        await vi.waitFor(
+          () => {
+            expect(
+              connected.getResourceSubscriptionStreamState(),
+            ).toMatchObject({
+              active: true,
+              status: "refused",
+              refusal: { status: 403 },
+            });
+          },
+          { timeout: 5_000 },
+        );
+        await settle();
+        expect(calls()).toBe(1);
+        expect(int.modernReconnectAttempts).toBe(0);
+      });
+
+      it("tries again when the user re-subscribes, and clears on disconnect", async () => {
+        const started = await startServer({ refuseSubscriptionsListen: 403 });
+        const { connected, messages } = await connect(started.url, "modern");
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow();
+
+        messages.length = 0;
+        await expect(
+          connected.subscribeToResource(RESOURCE_URI),
+        ).rejects.toThrow();
+        // The refusal is a fact about the last attempt, not a latch.
+        expect(listensSent(messages)).toHaveLength(1);
+
+        await connected.disconnect();
+        expect(connected.getResourceSubscriptionStreamState()).toEqual({
+          active: false,
+          status: "ended",
+          honoredUris: [],
+        });
       });
     });
 

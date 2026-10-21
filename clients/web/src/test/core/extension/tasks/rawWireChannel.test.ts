@@ -23,7 +23,7 @@ function setup(overrides: Partial<RawWireChannelHost> = {}) {
     transport: () => transport,
     defaultTimeoutMs: () => 1_000,
     resetTimeoutOnProgress: () => true,
-    annotateTimeout: (error) => error,
+    annotateError: (error) => error,
     ...overrides,
   });
   return { channel, sent, transport };
@@ -100,8 +100,8 @@ describe("RawWireChannel", () => {
 
   it("times out with the annotated timeout as its cause, re-armed by progress", async () => {
     vi.useFakeTimers();
-    const annotateTimeout = vi.fn((error: unknown) => error);
-    const { channel, sent } = setup({ annotateTimeout });
+    const annotateError = vi.fn((error: unknown) => error);
+    const { channel, sent } = setup({ annotateError });
     const promise = channel.dispatch({
       method: "tools/call",
       params: { _meta: { progressToken: "p" } },
@@ -121,10 +121,7 @@ describe("RawWireChannel", () => {
         error instanceof DispatchError &&
         (error.cause as { code?: unknown }).code !== undefined,
     );
-    expect(annotateTimeout).toHaveBeenCalledWith(
-      expect.anything(),
-      "tools/call",
-    );
+    expect(annotateError).toHaveBeenCalledWith(expect.anything(), "tools/call");
     // stdio-style transport: the timeout reaches the server as a cancel.
     expect(sent[1]).toMatchObject({ method: "notifications/cancelled" });
   });
@@ -166,8 +163,8 @@ describe("RawWireChannel", () => {
 
   it("annotates a send failure and rejects everything on rejectAll", async () => {
     const boom = new Error("closed");
-    const annotateTimeout = vi.fn(() => boom);
-    const failing = setup({ annotateTimeout });
+    const annotateError = vi.fn(() => boom);
+    const failing = setup({ annotateError });
     failing.transport.send.mockRejectedValueOnce("raw failure");
     await expect(
       failing.channel.dispatch({ method: "tasks/get" }),

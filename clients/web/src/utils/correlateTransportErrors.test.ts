@@ -74,6 +74,21 @@ describe("enrichProtocolEntries", () => {
     ).toBe(-32601);
   });
 
+  it("replaces a failed send's clientError with the server's error body (#2721)", () => {
+    const failed: MessageEntry = {
+      ...requestEntry(1),
+      clientError: "HTTP 404 Not Found: Error POSTing to endpoint",
+    };
+    const fetches = [transportFetch(1, errorBody(-32601))];
+    const [out] = enrichProtocolEntries([failed], fetches);
+    expect(
+      out.response && "error" in out.response && out.response.error.code,
+    ).toBe(-32601);
+    expect(out).not.toHaveProperty("clientError");
+    // The log's own entry is not mutated.
+    expect(failed.clientError).toBeDefined();
+  });
+
   it("returns the SAME array reference when nothing matches", () => {
     const messages = [requestEntry(1)];
     // A fetch for a different id, and one with no error body.

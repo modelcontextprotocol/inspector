@@ -113,6 +113,40 @@ export function isRequestTimeoutError(
 }
 
 /**
+ * The reason a request's send failed, as the Protocol log shows it (#2721).
+ *
+ * A server that refuses a request at the HTTP layer — a bare `403` with no
+ * `WWW-Authenticate` — never sends a JSON-RPC response, so the log has no
+ * frame to show; this text is the entry's only record of how it ended. The
+ * HTTP status is the fact a reader needs first, so it leads whenever the
+ * error carries one (the SDK's `SdkHttpError`, or the remote transport's own
+ * `Remote send failed` error) and the message does not already state it.
+ */
+export function describeSendFailure(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  const status = httpStatusOf(err);
+  if (status === undefined || message.includes(`HTTP ${status}`)) {
+    return message;
+  }
+  const statusText = httpStatusTextOf(err);
+  return `HTTP ${status}${statusText ? ` ${statusText}` : ""}: ${message}`;
+}
+
+function httpStatusOf(err: unknown): number | undefined {
+  if (typeof err !== "object" || err === null || !("status" in err)) {
+    return undefined;
+  }
+  return typeof err.status === "number" ? err.status : undefined;
+}
+
+function httpStatusTextOf(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null || !("statusText" in err)) {
+    return undefined;
+  }
+  return typeof err.statusText === "string" ? err.statusText : undefined;
+}
+
+/**
  * A compact human duration: `850ms`, `12s`, `4m12s`, `1h02m`. Sub-second
  * values are shown in ms so a very short timeout still reads as a number
  * rather than as `0s`.

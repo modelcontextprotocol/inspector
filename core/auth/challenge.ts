@@ -67,6 +67,16 @@ export interface HandleAuthChallengeOptions {
   confirmedStepUp?: boolean;
 }
 
+export interface CheckAuthChallengeSatisfiedOptions {
+  /**
+   * `insufficient_scope` only: test scope coverage and skip the liveness test.
+   * For a caller that has just completed a grant — the grant is the evidence
+   * the token is live, and a freshly issued *opaque* token has no readable
+   * `exp` to prove it (#2724).
+   */
+  scopeOnly?: boolean;
+}
+
 export interface ParseAuthChallengeContext {
   method?: string;
   toolName?: string;

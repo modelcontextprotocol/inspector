@@ -85,6 +85,7 @@
   "overrides": {
     "@types/node": "^24.12.4",
     "esbuild": "^0.28.2",
+    "open": "^11.0.4",
     "vitest": "4.1.11"
   }
 }

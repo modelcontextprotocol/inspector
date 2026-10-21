@@ -12,6 +12,10 @@ import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
 import type { OAuthPersistBackend } from "@inspector/core/auth/oauth-persist.js";
 import { ensureCimdClientRegistration } from "@inspector/core/auth/cimd.js";
 import {
+  createWebStoragePkceFlowStore,
+  type PkceFlowStore,
+} from "@inspector/core/auth/pkce-flow-store.js";
+import {
   BrowserNavigation,
   BrowserOAuthClientProvider,
 } from "@inspector/core/auth/browser/providers.js";
@@ -1106,6 +1110,119 @@ describe("OAuthNavigation", () => {
         expect(storage.clearTokens).toHaveBeenCalledWith(SERVER);
         expect(storage.clearCodeVerifier).toHaveBeenCalledWith(SERVER);
         expect(storage.clearDiscoveryState).toHaveBeenCalledWith(SERVER);
+      });
+    });
+
+    describe("per-flow PKCE verifier (#2726)", () => {
+      function makeFlowStore(): PkceFlowStore {
+        const store = new Map<string, string>();
+        return createWebStoragePkceFlowStore(() => ({
+          getItem: (key) => store.get(key) ?? null,
+          setItem: (key, value) => void store.set(key, value),
+          removeItem: (key) => void store.delete(key),
+        }));
+      }
+
+      it("keys the verifier by the state it generated, not the shared slot", async () => {
+        const storage = makeStorage();
+        const flowStore = makeFlowStore();
+        const provider = makeProvider(storage, vi.fn(), { flowStore });
+
+        const state = await provider.state();
+        await provider.saveCodeVerifier("cv-a");
+
+        expect(storage.saveCodeVerifier).not.toHaveBeenCalled();
+        expect(await flowStore.getCodeVerifier(state, SERVER)).toBe("cv-a");
+        expect(await provider.codeVerifier()).toBe("cv-a");
+      });
+
+      it("gives two overlapping flows for one server their own verifiers", async () => {
+        const storage = makeStorage();
+        const flowStore = makeFlowStore();
+        const providerA = makeProvider(storage, vi.fn(), { flowStore });
+        const providerB = makeProvider(storage, vi.fn(), { flowStore });
+
+        const stateA = await providerA.state();
+        await providerA.saveCodeVerifier("cv-a");
+        const stateB = await providerB.state();
+        await providerB.saveCodeVerifier("cv-b");
+
+        // The callback legs run on fresh providers, as after a page reload.
+        const callbackB = makeProvider(storage, vi.fn(), { flowStore });
+        callbackB.resumeAuthorizationFlow(stateB);
+        expect(await callbackB.codeVerifier()).toBe("cv-b");
+        await callbackB.clearAuthorizationFlow();
+
+        const callbackA = makeProvider(storage, vi.fn(), { flowStore });
+        callbackA.resumeAuthorizationFlow(stateA);
+        expect(await callbackA.codeVerifier()).toBe("cv-a");
+      });
+
+      it("fails clearly for a state with no stored verifier instead of using another flow's", async () => {
+        const storage = makeStorage();
+        vi.mocked(storage.getCodeVerifier).mockResolvedValue("someone-elses");
+        const flowStore = makeFlowStore();
+        const other = makeProvider(storage, vi.fn(), { flowStore });
+        await other.state();
+        await other.saveCodeVerifier("cv-other");
+
+        const provider = makeProvider(storage, vi.fn(), { flowStore });
+        provider.resumeAuthorizationFlow("a".repeat(64));
+
+        await expect(provider.codeVerifier()).rejects.toThrow(
+          /No code verifier saved for this authorization flow/,
+        );
+        expect(storage.getCodeVerifier).not.toHaveBeenCalled();
+      });
+
+      it("binds no flow for a state that is not one of ours", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage, vi.fn(), {
+          flowStore: makeFlowStore(),
+        });
+
+        provider.resumeAuthorizationFlow("not-our-state");
+
+        await expect(provider.codeVerifier()).rejects.toThrow(
+          /No code verifier saved for this authorization flow/,
+        );
+      });
+
+      it("invalidateCredentials('verifier') clears only the bound flow", async () => {
+        const storage = makeStorage();
+        const flowStore = makeFlowStore();
+        const provider = makeProvider(storage, vi.fn(), { flowStore });
+        const state = await provider.state();
+        await provider.saveCodeVerifier("cv");
+
+        await provider.invalidateCredentials("verifier");
+
+        expect(await flowStore.getCodeVerifier(state, SERVER)).toBeUndefined();
+        expect(storage.clearCodeVerifier).not.toHaveBeenCalled();
+      });
+
+      it("clearAuthorizationFlow() is a no-op without a flow store or a bound flow", async () => {
+        const storage = makeStorage();
+        await makeProvider(storage).clearAuthorizationFlow();
+
+        const flowStore = makeFlowStore();
+        const clear = vi.spyOn(flowStore, "clearCodeVerifier");
+        await makeProvider(storage, vi.fn(), {
+          flowStore,
+        }).clearAuthorizationFlow();
+
+        expect(clear).not.toHaveBeenCalled();
+        expect(storage.clearCodeVerifier).not.toHaveBeenCalled();
+      });
+
+      it("keeps the shared slot when no flow store is configured", async () => {
+        const storage = makeStorage();
+        const provider = makeProvider(storage);
+
+        await provider.state();
+        await provider.saveCodeVerifier("cv");
+
+        expect(storage.saveCodeVerifier).toHaveBeenCalledWith(SERVER, "cv");
       });
     });
   });

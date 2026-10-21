@@ -22,6 +22,12 @@ import {
 } from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import { handleNodeHealthRequest } from "./health.js";
+import {
+  fetchHeadersFromNode,
+  fetchUrlForNodeRequest,
+  isResponseHeaderAllowed,
+} from "./node-request-bridge.js";
+import { webScheme } from "./tls.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
@@ -179,18 +185,14 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           if (!pathname.startsWith("/api")) {
             return next();
           }
-          const url = `http://${req.headers.host}${pathname}`;
-          const headers = new Headers();
-          Object.entries(req.headers).forEach(
-            ([key, value]: [string, string | string[] | undefined]) => {
-              if (value) {
-                headers.set(
-                  key,
-                  Array.isArray(value) ? value.join(", ") : value,
-                );
-              }
-            },
+          // Over TLS Vite serves HTTP/2, whose requests carry pseudo-headers
+          // and no `host` — see node-request-bridge.ts.
+          const url = fetchUrlForNodeRequest(
+            req.headers,
+            pathname,
+            webScheme(config.tls),
           );
+          const headers = fetchHeadersFromNode(req.headers);
           const init: RequestInit = { method: req.method, headers };
           if (req.method !== "GET" && req.method !== "HEAD") {
             const chunks: Buffer[] = [];
@@ -213,7 +215,9 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           const response = await honoApp.fetch(new Request(url, init));
           res.statusCode = response.status;
           response.headers.forEach((value, key) => {
-            res.setHeader(key, value);
+            if (isResponseHeaderAllowed(key, req.httpVersionMajor)) {
+              res.setHeader(key, value);
+            }
           });
           const isSSE = response.headers
             .get("content-type")
@@ -221,7 +225,10 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
           if (isSSE) {
             res.setHeader("X-Accel-Buffering", "no");
             res.setHeader("Cache-Control", "no-cache");
-            res.setHeader("Connection", "keep-alive");
+            // HTTP/2 streams have no per-connection keep-alive to request.
+            if (isResponseHeaderAllowed("connection", req.httpVersionMajor)) {
+              res.setHeader("Connection", "keep-alive");
+            }
           }
           if (response.body) {
             res.flushHeaders?.();

@@ -45,6 +45,11 @@ const PRESENTATION: Record<
     label: "Not acknowledged",
     tooltip: `${STREAM_INTRO} ${NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE} Re-subscribe to try again.`,
   },
+  refused: {
+    color: "red",
+    label: "Refused",
+    tooltip: `${STREAM_INTRO} The server refused the subscriptions/listen request over HTTP, so the stream never opened. Not retrying — the server would answer the same way again. The HTTP status is in the Subscriptions panel. Re-subscribe to try again.`,
+  },
 };
 
 /**

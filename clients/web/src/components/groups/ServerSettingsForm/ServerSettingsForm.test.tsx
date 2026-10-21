@@ -1550,6 +1550,11 @@ describe("ServerSettingsForm", () => {
         /resource authorization server's registered client credential/i,
       ).length,
     ).toBeGreaterThan(0);
+    // The secret is optional for a public resource-AS client (#2725), and the
+    // hint sits on the secret field only.
+    expect(
+      screen.getAllByText(/Leave it empty for a public client/i),
+    ).toHaveLength(1);
   });
 
   it("documents the space-separated Scopes delimiter (#1692)", () => {

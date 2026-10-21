@@ -547,7 +547,9 @@ describe("--use-stored-auth", () => {
         "--method",
         "tools/list",
       ],
-      { env: { MCP_STORAGE_DIR: dir } },
+      // Blank out the suite-wide isolated path (oauth-state-isolation.ts) so
+      // resolution falls through to MCP_STORAGE_DIR, as the title says.
+      { env: { MCP_STORAGE_DIR: dir, MCP_INSPECTOR_OAUTH_STATE_PATH: "" } },
     );
     expectCliSuccess(result);
     const last = server.getRecordedRequests().at(-1)!;
@@ -779,6 +781,57 @@ describe("--print-handoff", () => {
     const out = JSON.parse(result.stdout) as { deepLink: string };
     expect(out.deepLink.startsWith("http://localhost:16274/?")).toBe(true);
   });
+
+  // The web listener serves https only when both TLS paths are set (#2446), so
+  // a handoff for it must link https or the page cannot load (#2770).
+  it.each([
+    [
+      "both TLS paths set",
+      { INSPECTOR_TLS_KEY_PATH: "/k.pem", INSPECTOR_TLS_CERT_PATH: "/c.pem" },
+      "https",
+    ],
+    [
+      "only the key path set",
+      { INSPECTOR_TLS_KEY_PATH: "/k.pem", INSPECTOR_TLS_CERT_PATH: "" },
+      "http",
+    ],
+    [
+      "only the cert path set",
+      { INSPECTOR_TLS_KEY_PATH: "", INSPECTOR_TLS_CERT_PATH: "/c.pem" },
+      "http",
+    ],
+    [
+      "a blank key path",
+      { INSPECTOR_TLS_KEY_PATH: "  ", INSPECTOR_TLS_CERT_PATH: "/c.pem" },
+      "http",
+    ],
+  ])(
+    "links the web UI's scheme in the deep link with %s",
+    async (_case, tlsEnv, scheme) => {
+      const result = await runCli(
+        ["--print-handoff", "--server-url", "https://x.example/mcp"],
+        {
+          env: {
+            MCP_INSPECTOR_API_TOKEN: "tok123",
+            HOST: "127.0.0.1",
+            CLIENT_PORT: "16274",
+            ...tlsEnv,
+          },
+        },
+      );
+      expectCliSuccess(result);
+      const out = JSON.parse(result.stdout) as {
+        deepLink: string;
+        portForwardCmd: string;
+      };
+      expect(out.deepLink.startsWith(`${scheme}://127.0.0.1:16274/?`)).toBe(
+        true,
+      );
+      // The sandbox and app-origin ports stay plain http under TLS, and the
+      // port-forward command forwards ports, not schemes, so it is unchanged.
+      expect(out.portForwardCmd).toContain("--tcp 16274:16274");
+    },
+  );
 
   it("classifies a bad --callback-url as a usage error, not auth_required", async () => {
     // The guard's message contains "OAuth"; without the explicit exit-code pin

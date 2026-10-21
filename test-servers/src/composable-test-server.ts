@@ -877,6 +877,14 @@ export interface ServerConfig {
      * included — the literal shape in the report.
      */
     neverAcknowledgeSubscriptions?: boolean | "after-first";
+    /**
+     * When set, the modern HTTP leg answers every `subscriptions/listen` with
+     * this bare HTTP status — no JSON-RPC body, no `WWW-Authenticate` — the
+     * shape a proxy or gateway produces (#2722). Used by the
+     * `subscriptions-listen-refused-http` showcase (403). A transient status
+     * (503, 429) exercises the other half: the Inspector keeps retrying those.
+     */
+    refuseSubscriptionsListen?: number;
   };
   /**
    * Optional server control for orderly shutdown (test HTTP server).

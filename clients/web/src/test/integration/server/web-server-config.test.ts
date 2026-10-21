@@ -1,13 +1,29 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  afterAll,
+  beforeEach,
+  afterEach,
+  vi,
+} from "vitest";
+import { readFileSync } from "node:fs";
 import {
   buildWebServerConfig,
   buildWebServerConfigFromEnv,
   defaultAllowedOrigins,
+  portInUseMessage,
   printServerBanner,
   webServerConfigToInitialPayload,
   type WebServerConfig,
 } from "../../../../server/web-server-config.js";
 import { DEFAULT_SANDBOX_PORT } from "../../../../server/sandbox-controller.js";
+import { TLS_CERT_PATH_ENV, TLS_KEY_PATH_ENV } from "../../../../server/tls.js";
+import {
+  createSelfSignedTls,
+  type SelfSignedTlsFixture,
+} from "../../fixtures/selfSignedTls.js";
 import {
   API_SERVER_ENV_VARS,
   LEGACY_AUTH_TOKEN_ENV,
@@ -17,6 +33,7 @@ import {
 // beforeEach and restores it in afterEach so neither the test runner nor
 // sibling tests see leaked state.
 const MUTATED_ENV_KEYS = [
+  "MCP_INSPECTOR_ALLOWED_HOSTS",
   API_SERVER_ENV_VARS.AUTH_TOKEN,
   LEGACY_AUTH_TOKEN_ENV,
   "CLIENT_PORT",
@@ -32,7 +49,24 @@ const MUTATED_ENV_KEYS = [
   "SERVER_PORT",
   "MCP_LOG_FILE",
   "MCP_AUTO_OPEN_ENABLED",
+  TLS_KEY_PATH_ENV,
+  TLS_CERT_PATH_ENV,
 ] as const;
+
+let tlsFixture: SelfSignedTlsFixture;
+
+beforeAll(() => {
+  tlsFixture = createSelfSignedTls();
+});
+
+afterAll(() => {
+  tlsFixture.cleanup();
+});
+
+const tlsPair = () => ({
+  key: readFileSync(tlsFixture.keyPath, "utf-8"),
+  cert: readFileSync(tlsFixture.certPath, "utf-8"),
+});
 
 const baseConfig = (): WebServerConfig => ({
   port: 6274,
@@ -195,6 +229,18 @@ describe("buildWebServerConfigFromEnv", () => {
     process.env[LEGACY_AUTH_TOKEN_ENV] = "legacy";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.authToken).toBe("primary");
+  });
+
+  it("has no extra allowed hosts by default", () => {
+    expect(buildWebServerConfigFromEnv().allowedHosts).toEqual([]);
+  });
+
+  it("parses MCP_INSPECTOR_ALLOWED_HOSTS into allowedHosts", () => {
+    process.env.MCP_INSPECTOR_ALLOWED_HOSTS = " Inspector , .corp.example ";
+    expect(buildWebServerConfigFromEnv().allowedHosts).toEqual([
+      "inspector",
+      ".corp.example",
+    ]);
   });
 
   it("parses ALLOWED_ORIGINS, trimming entries and filtering empties", () => {
@@ -554,6 +600,44 @@ describe("defaultAllowedOrigins", () => {
       "http://[fe80::1]:6274",
     ]);
   });
+
+  describe("with the https scheme (TLS, #2446)", () => {
+    it("emits https loopback origins for a loopback bind", () => {
+      expect(defaultAllowedOrigins("localhost", 6274, "https")).toEqual([
+        "https://localhost:6274",
+        "https://127.0.0.1:6274",
+        "https://[::1]:6274",
+      ]);
+    });
+
+    it("emits https loopback and wildcard origins for an all-interfaces bind", () => {
+      expect(defaultAllowedOrigins("0.0.0.0", 6274, "https")).toEqual([
+        "https://localhost:6274",
+        "https://127.0.0.1:6274",
+        "https://[::1]:6274",
+        "https://0.0.0.0:6274",
+        "https://[::]:6274",
+      ]);
+    });
+
+    it("emits the single https origin for an explicit host", () => {
+      expect(defaultAllowedOrigins("inspector.test", 6274, "https")).toEqual([
+        "https://inspector.test:6274",
+      ]);
+    });
+
+    it("drops https's default port 443, but not 80", () => {
+      expect(defaultAllowedOrigins("inspector.test", 443, "https")).toEqual([
+        "https://inspector.test",
+      ]);
+      expect(defaultAllowedOrigins("inspector.test", 80, "https")).toEqual([
+        "https://inspector.test:80",
+      ]);
+      expect(defaultAllowedOrigins("inspector.test", 443)).toEqual([
+        "http://inspector.test:443",
+      ]);
+    });
+  });
 });
 
 describe("buildWebServerConfig", () => {
@@ -604,6 +688,41 @@ describe("buildWebServerConfig", () => {
       "http://127.0.0.1:7000",
       "http://[::1]:7000",
     ]);
+  });
+
+  it("leaves TLS off and the origins http when neither TLS variable is set", () => {
+    const cfg = buildWebServerConfig();
+    expect(cfg.tls).toBeUndefined();
+    expect("tls" in cfg).toBe(false);
+    expect(cfg.allowedOrigins.every((o) => o.startsWith("http://"))).toBe(true);
+  });
+
+  it("reads the TLS pair and derives https origins when both are set", () => {
+    process.env[TLS_KEY_PATH_ENV] = tlsFixture.keyPath;
+    process.env[TLS_CERT_PATH_ENV] = tlsFixture.certPath;
+    const cfg = buildWebServerConfig();
+    expect(cfg.tls).toEqual(tlsPair());
+    expect(cfg.allowedOrigins).toEqual([
+      "https://localhost:6274",
+      "https://127.0.0.1:6274",
+      "https://[::1]:6274",
+    ]);
+  });
+
+  it("keeps an explicit ALLOWED_ORIGINS as-is under TLS", () => {
+    process.env[TLS_KEY_PATH_ENV] = tlsFixture.keyPath;
+    process.env[TLS_CERT_PATH_ENV] = tlsFixture.certPath;
+    process.env.ALLOWED_ORIGINS = "https://inspector.test:6274";
+    expect(buildWebServerConfig().allowedOrigins).toEqual([
+      "https://inspector.test:6274",
+    ]);
+  });
+
+  it("fails startup on a half-configured TLS pair rather than serving http", () => {
+    process.env[TLS_KEY_PATH_ENV] = tlsFixture.keyPath;
+    expect(() => buildWebServerConfig()).toThrow(
+      `TLS needs both ${TLS_KEY_PATH_ENV} and ${TLS_CERT_PATH_ENV}`,
+    );
   });
 
   it("preserves remote transport initialMcpConfig", () => {
@@ -779,6 +898,19 @@ describe("printServerBanner", () => {
     expect(defaultAllowedOrigins(cfg.hostname, 6274)).toContain(url);
   });
 
+  it("prints an https URL when TLS is configured", () => {
+    const cfg = { ...baseConfig(), tls: { key: "k", cert: "c" } };
+    const url = printServerBanner(cfg, 6274, "secret", undefined);
+    expect(url).toBe(
+      `https://127.0.0.1:6274?${API_SERVER_ENV_VARS.AUTH_TOKEN}=secret`,
+    );
+    expect(
+      defaultAllowedOrigins(cfg.hostname, 6274, "https").some((o) =>
+        url.startsWith(`${o}?`),
+      ),
+    ).toBe(true);
+  });
+
   it("prints the sandbox URL when provided", () => {
     printServerBanner(baseConfig(), 6274, "tok", "http://sandbox:9999/sandbox");
     expect(
@@ -830,6 +962,25 @@ describe("printServerBanner", () => {
   it("prints no secrets line when no store was resolved", () => {
     printServerBanner(baseConfig(), 6274, "tok", undefined);
     expect(logSpy.lines.some((l) => l.includes("Secrets:"))).toBe(false);
+  });
+});
+
+describe("portInUseMessage", () => {
+  it("names the http URL without TLS", () => {
+    expect(portInUseMessage(baseConfig())).toBe(
+      "MCP Inspector PORT IS IN USE at http://127.0.0.1:6274",
+    );
+  });
+
+  it("names the https URL with TLS, bracketing an IPv6 host", () => {
+    const cfg = {
+      ...baseConfig(),
+      hostname: "::1",
+      tls: { key: "k", cert: "c" },
+    };
+    expect(portInUseMessage(cfg)).toBe(
+      "MCP Inspector PORT IS IN USE at https://[::1]:6274",
+    );
   });
 });
 

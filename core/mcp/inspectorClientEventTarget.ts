@@ -90,6 +90,17 @@ export interface InspectorClientEventMap {
    * JSON-RPC id of the rejected response.
    */
   responseRejected: { id: string | number; reason: string };
+  /**
+   * A request this client sent that ended without any response: its send
+   * failed, so the server's answer — if it gave one — was not a JSON-RPC
+   * frame (a bare HTTP `403`, a failed fetch, a closed connection). Without
+   * this the request's Protocol entry would wait for a response that can
+   * never arrive and stay "Pending" for good (#2721). `id` is the JSON-RPC id
+   * of the failed request; `reason` is the failure as the log shows it. Not
+   * fired for a request timeout, which is a request the server did receive
+   * and has not answered.
+   */
+  requestFailed: { id: string | number; reason: string };
   stderrLog: StderrLogEntry;
   fetchRequest: FetchRequestEntry;
   /** Fired when an in-flight fetch's response body is read asynchronously. */
