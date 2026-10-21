@@ -21,6 +21,7 @@
  */
 
 import type { IncomingHttpHeaders } from "node:http";
+import { isExplicitTruthyFlag } from "./env-flags.js";
 
 export function isSameOriginBrowserRequest(
   headers: IncomingHttpHeaders,
@@ -30,21 +31,18 @@ export function isSameOriginBrowserRequest(
   return headers["sec-fetch-site"]?.trim().toLowerCase() === "same-origin";
 }
 
-const TRUTHY_FLAG_VALUES = new Set(["true", "1", "yes"]);
-
 /**
  * Parses the value of `DANGEROUSLY_ALLOW_SAME_ORIGIN_API`.
  *
  * Only an explicit truthy value (`true`, `1` or `yes`, case-insensitive,
  * surrounding whitespace ignored) disables the same-origin check. Anything
  * else (unset, empty, `false`, `0`, or an unrecognized value) keeps it
- * enforcing. This deliberately mirrors the accepted set of the strict
- * `DANGEROUSLY_OMIT_AUTH` parse introduced by a companion change; the two
- * should be unified into one helper once both have landed.
+ * enforcing. It shares its parser with `DANGEROUSLY_OMIT_AUTH`
+ * (`isAuthDisabledFlag` in request-guards.ts) through env-flags.ts, so the two
+ * flags accept exactly the same values.
  */
 export function isSameOriginApiAllowedFlag(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  return TRUTHY_FLAG_VALUES.has(value.trim().toLowerCase());
+  return isExplicitTruthyFlag(value);
 }
 
 /**
