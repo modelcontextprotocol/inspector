@@ -21,6 +21,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { useToast } from "@/lib/hooks/useToast";
+import { parseHttpUrl } from "@/utils/urlValidation";
 
 interface AppRendererProps {
   sandboxPath: string;
@@ -72,12 +73,14 @@ const AppRenderer = ({
   );
 
   const handleOpenLink = async ({ url }: { url: string }) => {
-    let isError = true;
-    if (url.startsWith("https://") || url.startsWith("http://")) {
-      window.open(url, "_blank");
-      isError = false;
+    const target = parseHttpUrl(url);
+    if (!target) {
+      return { isError: true };
     }
-    return { isError };
+    // noopener puts the new tab in its own browsing context group, so it does
+    // not inherit this window's sessionStorage or get a handle back to it.
+    window.open(target, "_blank", "noopener,noreferrer");
+    return { isError: false };
   };
 
   const handleMessage = async (

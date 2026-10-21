@@ -1,4 +1,4 @@
-import { validateRedirectUrl } from "../urlValidation";
+import { parseHttpUrl, validateRedirectUrl } from "../urlValidation";
 
 describe("validateRedirectUrl", () => {
   describe("valid URLs", () => {
@@ -131,5 +131,26 @@ describe("validateRedirectUrl", () => {
         "Authorization URL must be HTTP or HTTPS",
       );
     });
+  });
+});
+
+describe("parseHttpUrl", () => {
+  it("returns the normalized href for http and https URLs", () => {
+    expect(parseHttpUrl("http://localhost:3000/a?b=1")).toBe(
+      "http://localhost:3000/a?b=1",
+    );
+    expect(parseHttpUrl("HTTPS://Example.com")).toBe("https://example.com/");
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<p>hi</p>",
+    "file:///etc/passwd",
+    "ftp://example.com",
+    "/relative/path",
+    "http//example.com",
+    "",
+  ])("returns null for %p", (url) => {
+    expect(parseHttpUrl(url)).toBeNull();
   });
 });

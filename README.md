@@ -213,6 +213,10 @@ If you need to disable authentication (NOT RECOMMENDED), you can set the `DANGER
 DANGEROUSLY_OMIT_AUTH=true npm start
 ```
 
+Only `true`, `1` or `yes` (case-insensitive) disable authentication. Any other value, including `false`, `0` or an empty string, leaves it enabled.
+
+While authentication is disabled, the proxy accepts only requests that carry an `Origin` header from an allowed origin (see `ALLOWED_ORIGINS` below), which the Inspector web client sends in its default setup, where it and the proxy run on different ports. Non-browser clients that send no `Origin` header need authentication enabled and the session token.
+
 ---
 
 **🚨 WARNING 🚨**
@@ -246,6 +250,18 @@ To prevent DNS rebinding attacks, the MCP Inspector validates the `Origin` heade
 ```bash
 ALLOWED_ORIGINS=http://localhost:6274,http://localhost:8000 npm start
 ```
+
+#### Same-origin API Requests
+
+The proxy also serves the MCP Apps sandbox, so app content runs on the proxy's own origin. Because a same-origin request carries no `Origin` header, the proxy additionally rejects any API request whose `Sec-Fetch-Site` header is `same-origin`. The Inspector client always runs on a different port than the proxy, so its requests are never same-origin; non-browser clients (the CLI, curl) send no such header and are unaffected.
+
+If you serve the client and the proxy from a single origin, for example behind one reverse proxy that routes by path, the client's own API requests become same-origin and are rejected. In that setup you can disable the check (NOT RECOMMENDED) by setting the `DANGEROUSLY_ALLOW_SAME_ORIGIN_API` environment variable:
+
+```bash
+DANGEROUSLY_ALLOW_SAME_ORIGIN_API=true npm start
+```
+
+Only `true`, `1` or `yes` (case-insensitive) disable the check. Any other value, including `false`, `0` or an empty string, leaves it enabled. While it is disabled, documents served by the proxy, including MCP App content in the sandbox, can call the proxy API, and the proxy prints a warning at startup.
 
 ### Configuration
 

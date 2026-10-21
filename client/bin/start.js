@@ -9,6 +9,15 @@ import { randomBytes } from "crypto";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
+// Only an explicit truthy value disables auth; unset, empty, "false", "0" and
+// anything unrecognized leave it enabled. Identical to isAuthDisabledFlag in
+// server/src/request-guards.ts (whose parser lives in server/src/env-flags.ts)
+// so the launcher and the proxy always agree; keep the two in sync.
+function isAuthDisabledFlag(value) {
+  if (value === undefined) return false;
+  return ["true", "1", "yes"].includes(value.trim().toLowerCase());
+}
+
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms, true));
 }
@@ -292,7 +301,7 @@ async function main() {
   // Use provided token from environment or generate a new one
   const sessionToken =
     process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
-  const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+  const authDisabled = isAuthDisabledFlag(process.env.DANGEROUSLY_OMIT_AUTH);
 
   const abort = new AbortController();
 
