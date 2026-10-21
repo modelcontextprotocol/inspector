@@ -1,14 +1,15 @@
 /**
  * Request guards for the proxy server: the auth-disable flag parser and the
- * Origin validation middleware.
+ * Origin validation middleware (which also applies the same-origin
+ * fetch-metadata check from fetch-metadata.ts).
  *
  * Extracted from index.ts so they can be unit-tested independently (index.ts
  * starts listening on import).
  */
 
 import type express from "express";
-
-const TRUTHY_FLAG_VALUES = new Set(["true", "1", "yes"]);
+import { isExplicitTruthyFlag } from "./env-flags.js";
+import { shouldRejectSameOriginRequest } from "./fetch-metadata.js";
 
 /**
  * Parses the value of `DANGEROUSLY_OMIT_AUTH`.
@@ -22,8 +23,7 @@ const TRUTHY_FLAG_VALUES = new Set(["true", "1", "yes"]);
  * two in sync.
  */
 export function isAuthDisabledFlag(value: string | undefined): boolean {
-  if (value === undefined) return false;
-  return TRUTHY_FLAG_VALUES.has(value.trim().toLowerCase());
+  return isExplicitTruthyFlag(value);
 }
 
 /**
@@ -50,13 +50,35 @@ export function getAllowedOrigins(env: NodeJS.ProcessEnv = process.env) {
  * - auth disabled: it is rejected with the same 403. With no token to check,
  *   the `Origin` header is the only thing tying a request to the Inspector web
  *   client, whose requests to the proxy are cross-origin and always carry one.
+ *
+ * Before either of those, a same-origin browser request
+ * (`Sec-Fetch-Site: same-origin`) is rejected with 403 unless
+ * `allowSameOriginApi` is true (`DANGEROUSLY_ALLOW_SAME_ORIGIN_API`). Such a
+ * request carries no `Origin` header, so the allow-list cannot see it; see
+ * fetch-metadata.ts.
  */
-export function createOriginValidationMiddleware(authDisabled: boolean) {
+export function createOriginValidationMiddleware(
+  authDisabled: boolean,
+  allowSameOriginApi = false,
+) {
   return (
     req: express.Request,
     res: express.Response,
     next: express.NextFunction,
   ) => {
+    // A same-origin request carries no Origin header, so the allow-list below
+    // cannot see it. The client never shares the proxy's origin; only documents
+    // the proxy serves itself (the MCP Apps sandbox) do. See fetch-metadata.ts.
+    if (shouldRejectSameOriginRequest(req.headers, allowSameOriginApi)) {
+      console.error("Rejected same-origin request to an API route");
+      res.status(403).json({
+        error: "Forbidden - same-origin request",
+        message:
+          "API routes cannot be called from documents served by the proxy.",
+      });
+      return;
+    }
+
     const origin = req.headers.origin;
     const allowedOrigins = getAllowedOrigins();
 

@@ -5,7 +5,8 @@
  *  - isAuthDisabledFlag: only explicit truthy values disable auth
  *  - createOriginValidationMiddleware: missing / allowed / disallowed / "null"
  *    Origin and HEAD requests, with auth enabled and disabled, exercised
- *    through a real express server
+ *    through a real express server, plus the same-origin fetch-metadata
+ *    check and its opt-out
  */
 
 import http from "node:http";
@@ -56,11 +57,14 @@ const DISALLOWED = "http://evil.example";
 
 let server: http.Server | undefined;
 
-async function startApp(authDisabled: boolean): Promise<number> {
+async function startApp(
+  authDisabled: boolean,
+  allowSameOriginApi?: boolean,
+): Promise<number> {
   const app = express();
   app.get(
     "/stdio",
-    createOriginValidationMiddleware(authDisabled),
+    createOriginValidationMiddleware(authDisabled, allowSameOriginApi),
     (_req, res) => {
       res.status(200).json({ passed: true });
     },
@@ -74,6 +78,7 @@ function get(
   port: number,
   origin?: string,
   method: "GET" | "HEAD" = "GET",
+  extraHeaders: Record<string, string> = {},
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const req = http.request(
@@ -82,7 +87,7 @@ function get(
         port,
         path: "/stdio",
         method,
-        headers: origin ? { Origin: origin } : {},
+        headers: { ...(origin ? { Origin: origin } : {}), ...extraHeaders },
       },
       (res) => {
         res.resume();
@@ -161,6 +166,39 @@ describe("createOriginValidationMiddleware", () => {
     it("rejects a request with a disallowed Origin", async () => {
       const port = await startApp(false);
       expect(await get(port, DISALLOWED)).toBe(403);
+    });
+  });
+
+  describe("same-origin requests", () => {
+    const SAME_ORIGIN = { "Sec-Fetch-Site": "same-origin" };
+
+    it("rejects Sec-Fetch-Site: same-origin by default", async () => {
+      const port = await startApp(false);
+      expect(await get(port, undefined, "GET", SAME_ORIGIN)).toBe(403);
+    });
+
+    it("rejects it even when the Origin is allowed", async () => {
+      const port = await startApp(false);
+      expect(await get(port, ALLOWED, "GET", SAME_ORIGIN)).toBe(403);
+    });
+
+    it("passes Sec-Fetch-Site: same-site (the real client)", async () => {
+      const port = await startApp(false);
+      expect(
+        await get(port, ALLOWED, "GET", { "Sec-Fetch-Site": "same-site" }),
+      ).toBe(200);
+    });
+
+    it("passes a same-origin request when the opt-out is set", async () => {
+      const port = await startApp(false, true);
+      expect(await get(port, undefined, "GET", SAME_ORIGIN)).toBe(200);
+    });
+
+    it("still applies the Origin checks when the opt-out is set", async () => {
+      const port = await startApp(true, true);
+      expect(await get(port, undefined, "GET", SAME_ORIGIN)).toBe(403);
+      expect(await get(port, DISALLOWED, "GET", SAME_ORIGIN)).toBe(403);
+      expect(await get(port, ALLOWED, "GET", SAME_ORIGIN)).toBe(200);
     });
   });
 });

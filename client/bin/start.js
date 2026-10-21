@@ -11,8 +11,8 @@ const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
 // Only an explicit truthy value disables auth; unset, empty, "false", "0" and
 // anything unrecognized leave it enabled. Identical to isAuthDisabledFlag in
-// server/src/request-guards.ts so the launcher and the proxy always agree;
-// keep the two in sync.
+// server/src/request-guards.ts (whose parser lives in server/src/env-flags.ts)
+// so the launcher and the proxy always agree; keep the two in sync.
 function isAuthDisabledFlag(value) {
   if (value === undefined) return false;
   return ["true", "1", "yes"].includes(value.trim().toLowerCase());

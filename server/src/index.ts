@@ -47,6 +47,7 @@ import {
   type ProxyHopRequest,
 } from "./proxy-redirect.js";
 import { formatHeaderNamesForLog, formatQueryForLog } from "./log-format.js";
+import { isSameOriginApiAllowedFlag } from "./fetch-metadata.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -245,11 +246,18 @@ const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For d
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = isAuthDisabledFlag(process.env.DANGEROUSLY_OMIT_AUTH);
+const allowSameOriginApi = isSameOriginApiAllowedFlag(
+  process.env.DANGEROUSLY_ALLOW_SAME_ORIGIN_API,
+);
 
 // Origin validation middleware to prevent DNS rebinding attacks. When auth is
-// disabled it also rejects requests that carry no Origin header.
-const originValidationMiddleware =
-  createOriginValidationMiddleware(authDisabled);
+// disabled it also rejects requests that carry no Origin header, and unless
+// DANGEROUSLY_ALLOW_SAME_ORIGIN_API is set it rejects same-origin browser
+// requests (see fetch-metadata.ts).
+const originValidationMiddleware = createOriginValidationMiddleware(
+  authDisabled,
+  allowSameOriginApi,
+);
 
 const authMiddleware = (
   req: express.Request,
@@ -1044,6 +1052,14 @@ server.on("listening", () => {
   } else {
     console.log(
       `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+    );
+  }
+  if (allowSameOriginApi) {
+    console.log(
+      `⚠️  WARNING: DANGEROUSLY_ALLOW_SAME_ORIGIN_API is set. Same-origin browser ` +
+        `requests to the proxy API are allowed, including from documents the ` +
+        `proxy serves itself (the MCP Apps sandbox). Opening MCP App links with ` +
+        `noopener in the client is the only remaining layer.`,
     );
   }
 });
