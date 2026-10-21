@@ -39,8 +39,8 @@ const TRUTHY_FLAG_VALUES = new Set(["true", "1", "yes"]);
  * surrounding whitespace ignored) disables the same-origin check. Anything
  * else (unset, empty, `false`, `0`, or an unrecognized value) keeps it
  * enforcing. This deliberately mirrors the accepted set of the strict
- * `DANGEROUSLY_OMIT_AUTH` parse (`isAuthDisabledFlag`); the two are separate
- * copies until they can share one helper, so keep them in sync.
+ * `DANGEROUSLY_OMIT_AUTH` parse introduced by a companion change; the two
+ * should be unified into one helper once both have landed.
  */
 export function isSameOriginApiAllowedFlag(value: string | undefined): boolean {
   if (value === undefined) return false;
