@@ -5,7 +5,7 @@
  *  - readCappedBody: bodies under and exactly at the cap are returned intact
  *  - a streamed body that passes the cap is rejected and its stream destroyed
  *  - a Content-Length above the cap is rejected before any chunk is read
- *  - a real node-fetch response from a server that never stops sending is
+ *  - a real node-fetch response from a server that is still sending is
  *    torn down (the server observes the connection close)
  */
 
@@ -202,7 +202,8 @@ describe("readCappedBody", () => {
     ).rejects.toThrow("socket hang up");
   });
 
-  it("cancels a real node-fetch stream from a server that never stops sending", async () => {
+  it("cancels a real node-fetch stream from a server that is still sending", async () => {
+    const cap = 64 * 1024;
     let serverSawClose!: () => void;
     const closed = new Promise<void>((resolve) => {
       serverSawClose = resolve;
@@ -212,7 +213,18 @@ describe("readCappedBody", () => {
     const server = http.createServer((_req, res) => {
       res.writeHead(200, { "content-type": "text/plain" });
       const chunk = Buffer.alloc(16 * 1024, "y");
-      timer = setInterval(() => res.write(chunk), 1);
+      // Bounded at four times the cap, and the response is left open rather
+      // than ended: a regression then fails the assertions below (the read
+      // would hang until the test timeout) instead of exhausting the worker.
+      let written = 0;
+      timer = setInterval(() => {
+        if (written >= cap * 4) {
+          clearInterval(timer);
+          return;
+        }
+        written += chunk.length;
+        res.write(chunk);
+      }, 1);
       res.on("close", () => {
         clearInterval(timer);
         serverSawClose();
@@ -226,7 +238,7 @@ describe("readCappedBody", () => {
       const { port } = server.address() as AddressInfo;
       const response = await nodeFetch(`http://127.0.0.1:${port}/`);
 
-      await expect(readCappedBody(response, 64 * 1024)).rejects.toBeInstanceOf(
+      await expect(readCappedBody(response, cap)).rejects.toBeInstanceOf(
         ProxyResponseTooLargeError,
       );
       // The upstream connection is torn down rather than left streaming.
