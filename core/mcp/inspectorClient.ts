@@ -1345,6 +1345,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       // from any non-"connecting" state captures the reason regardless of
       // ordering.
       if (this.status === "connecting") return;
+      // A deterministic HTTP refusal of a POST is a refused REQUEST, not a
+      // failed connection (#2776). The SDK's StreamableHTTP `_send` reports it
+      // here and then rethrows it to the sender, so the request's rejection
+      // already surfaces it, and #2722's listen refusal settles its own stream
+      // status from that rejection. Flipping the client to "error" here made
+      // that status unreachable on the Node transport. The classifier matches
+      // only the code the SDK throws from its POST path, so a failure with no
+      // other surface (an SSE GET stream, a dropped connection, a 5xx) and
+      // every auth failure still land below.
+      if (subscriptionListenRefusal(error) !== undefined) return;
       this.status = "error";
       this.dispatchTypedEvent("statusChange", this.status);
       this.dispatchTypedEvent("error", error);

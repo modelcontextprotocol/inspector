@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
+import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
 import type {
   JSONRPCMessage,
   Root,
@@ -1239,5 +1240,65 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
     // Still stored locally — only the announcement is withheld.
     expect(silent.getRoots()).toEqual([{ uri: "file:///a" }]);
     await silent.disconnect();
+  });
+
+  /*
+   * The SDK's StreamableHTTP `_send` reports a failed POST through `onerror`
+   * and then rethrows it to the sender. A deterministic HTTP refusal is a
+   * refused request, which its rejection already surfaces, so it must not
+   * error the whole connection (#2776). Anything else reported here still does.
+   */
+  describe("transport onerror (#2776)", () => {
+    async function connectedClient() {
+      const transport = new SampleAfterConnectTransport();
+      const client = new InspectorClient(
+        { type: "stdio", command: "noop", args: [] },
+        { environment: { transport: () => ({ transport }) } },
+      );
+      await client.connect();
+      const errors: unknown[] = [];
+      client.addEventListener("error", (e) => errors.push(e.detail));
+      return { client, transport, errors };
+    }
+
+    const postFailure = (status: number, statusText: string) =>
+      new SdkHttpError(
+        SdkErrorCode.ClientHttpNotImplemented,
+        `Error POSTing to endpoint: ${statusText}`,
+        { status, statusText },
+      );
+
+    it.each([
+      [400, "Bad Request"],
+      [403, "Forbidden"],
+      [404, "Not Found"],
+      [405, "Method Not Allowed"],
+    ])(
+      "keeps the connection up for a POST refused with HTTP %i",
+      async (status, statusText) => {
+        const { client, transport, errors } = await connectedClient();
+        transport.onerror?.(postFailure(status, statusText));
+        expect(client.getStatus()).toBe("connected");
+        expect(errors).toEqual([]);
+        await client.disconnect();
+      },
+    );
+
+    it.each([
+      ["a transient POST failure (HTTP 503)", postFailure(503, "Unavailable")],
+      [
+        "an auth failure",
+        new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, "Forbidden", {
+          status: 403,
+        }),
+      ],
+      ["a non-HTTP transport error", new Error("stream broke")],
+    ])("still errors the connection for %s", async (_label, error) => {
+      const { client, transport, errors } = await connectedClient();
+      transport.onerror?.(error);
+      expect(client.getStatus()).toBe("error");
+      expect(errors).toEqual([error]);
+      await client.disconnect();
+    });
   });
 });
