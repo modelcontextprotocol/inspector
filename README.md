@@ -383,6 +383,8 @@ http://localhost:6274/?MCP_SERVER_REQUEST_TIMEOUT=60000&MCP_REQUEST_TIMEOUT_RESE
 
 Note that if both the query param and the corresponding localStorage item are set, the query param will take precedence.
 
+An `MCP_PROXY_FULL_ADDRESS` supplied this way applies to that page load only and is not saved. If it differs from the saved proxy address, the saved proxy session token is not sent to it: include `MCP_PROXY_AUTH_TOKEN` in the same URL, or enter the token in the Configuration panel.
+
 ### From this repository
 
 If you're working on the inspector itself:

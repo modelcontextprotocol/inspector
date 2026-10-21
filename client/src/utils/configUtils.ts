@@ -114,9 +114,19 @@ export const getConfigOverridesFromQueryParams = (
   return overrides;
 };
 
+const normalizeProxyAddress = (address: unknown): string =>
+  typeof address === "string" ? address.trim().replace(/\/+$/, "") : "";
+
+// The proxy address supplied by the current page's query string, if it
+// differs from the one already saved. It applies to this page load only: it is
+// never written to localStorage, so a link cannot change the address that a
+// later session (e.g. one opened by the launcher with a fresh token) uses.
+let queryOnlyProxyAddress: string | null = null;
+
 export const initializeInspectorConfig = (
   localStorageKey: string,
 ): InspectorConfig => {
+  queryOnlyProxyAddress = null;
   // Read persistent config from localStorage
   const savedPersistentConfig = localStorage.getItem(localStorageKey);
   // Read ephemeral config from sessionStorage
@@ -153,7 +163,28 @@ export const initializeInspectorConfig = (
 
   // Apply query param overrides
   const overrides = getConfigOverridesFromQueryParams(DEFAULT_INSPECTOR_CONFIG);
-  return { ...baseConfig, ...overrides };
+  const config = { ...baseConfig, ...overrides };
+
+  // The proxy session token is only sent to a proxy address the user already
+  // has saved, or to one supplied together with the token in the same URL
+  // (e.g. `?MCP_PROXY_FULL_ADDRESS=...&MCP_PROXY_AUTH_TOKEN=...`). When the
+  // query sets a different address without a token, drop the saved token so
+  // it is not sent there; the user can enter one in the configuration panel.
+  const queryAddressItem = overrides.MCP_PROXY_FULL_ADDRESS;
+  const queryAddress = normalizeProxyAddress(queryAddressItem?.value);
+  const savedAddress = normalizeProxyAddress(
+    baseConfig.MCP_PROXY_FULL_ADDRESS.value,
+  );
+  if (queryAddressItem && queryAddress && queryAddress !== savedAddress) {
+    queryOnlyProxyAddress = queryAddressItem.value as string;
+    if (!overrides.MCP_PROXY_AUTH_TOKEN) {
+      config.MCP_PROXY_AUTH_TOKEN = {
+        ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
+      };
+    }
+  }
+
+  return config;
 };
 
 export const saveInspectorConfig = (
@@ -169,6 +200,28 @@ export const saveInspectorConfig = (
       ephemeralConfig[key as keyof InspectorConfig] = value;
     } else {
       persistentConfig[key as keyof InspectorConfig] = value;
+    }
+  }
+
+  // Don't persist a proxy address that only came from this page's query
+  // string; keep whatever was saved before instead.
+  if (
+    queryOnlyProxyAddress !== null &&
+    config.MCP_PROXY_FULL_ADDRESS?.value === queryOnlyProxyAddress
+  ) {
+    const saved = localStorage.getItem(localStorageKey);
+    let savedAddress: InspectorConfig["MCP_PROXY_FULL_ADDRESS"] | undefined;
+    try {
+      savedAddress = saved
+        ? JSON.parse(saved).MCP_PROXY_FULL_ADDRESS
+        : undefined;
+    } catch {
+      savedAddress = undefined;
+    }
+    if (savedAddress) {
+      persistentConfig.MCP_PROXY_FULL_ADDRESS = savedAddress;
+    } else {
+      delete persistentConfig.MCP_PROXY_FULL_ADDRESS;
     }
   }
 
