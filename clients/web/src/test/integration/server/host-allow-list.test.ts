@@ -49,6 +49,9 @@ describe("parseHostHeader", () => {
     "host:123456",
     "host:80:80",
     "::1",
+    "evil.example, x.localhost",
+    "evil.example x.localhost",
+    "bücher.example",
   ])("rejects %j as malformed", (value) => {
     expect(parseHostHeader(value)).toBeNull();
   });
@@ -71,6 +74,13 @@ describe("parseAllowedHostsEnv", () => {
     ).toEqual(["inspector.example.com", ".corp.example", "proxy"]);
   });
 
+  it("converts an internationalized entry to punycode", () => {
+    expect(parseAllowedHostsEnv("Bücher.example,.bücher.example")).toEqual([
+      "xn--bcher-kva.example",
+      ".xn--bcher-kva.example",
+    ]);
+  });
+
   it.each([
     "https://inspector.example.com",
     "inspector.example.com:6274",
@@ -80,6 +90,8 @@ describe("parseAllowedHostsEnv", () => {
     "user@host",
     "two words",
     ".",
+    "..",
+    "a!b.example",
   ])("warns about and drops %j", (entry) => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     expect(parseAllowedHostsEnv(`good.example,${entry}`)).toEqual([

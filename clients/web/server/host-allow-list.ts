@@ -39,6 +39,7 @@
  */
 
 import { isIPv4, isIPv6 } from "node:net";
+import { domainToASCII } from "node:url";
 import type { Context, MiddlewareHandler, Next } from "hono";
 import {
   canonicalUrlHost,
@@ -47,6 +48,13 @@ import {
 
 /** Comma-separated extra hostnames the web server accepts in `Host`. */
 export const ALLOWED_HOSTS_ENV = "MCP_INSPECTOR_ALLOWED_HOSTS";
+
+/**
+ * The characters a hostname a browser sends can contain: it punycodes an IDN
+ * and refuses the rest, so anything else is not a browser's `Host` (a comma
+ * in particular is what two `Host` headers joined together look like).
+ */
+const HOSTNAME_RE = /^[a-z0-9._-]+$/;
 
 /**
  * Normalize a hostname for comparison: trim, lowercase, and drop one trailing
@@ -85,16 +93,16 @@ export function parseHostHeader(value: string): string | null {
   if (port !== undefined) {
     if (!/^\d{1,5}$/.test(port) || Number(port) > 65535) return null;
   }
-  const name = hostname.startsWith("[")
-    ? hostname
-    : normalizeHostname(hostname);
-  return name === "" ? null : name;
+  if (hostname.startsWith("[")) return hostname;
+  const name = normalizeHostname(hostname);
+  return HOSTNAME_RE.test(name) ? name : null;
 }
 
 /**
  * Parse {@link ALLOWED_HOSTS_ENV}: comma-separated hostnames, each optionally
  * prefixed with `.` to admit a whole domain. Entries are lowercased and lose a
- * trailing dot. An entry that is not a bare hostname — it carries a scheme, a
+ * trailing dot; an internationalized name is converted to punycode. An entry
+ * that is not a bare hostname — it carries a scheme, a
  * port, a path, a wildcard or whitespace — is warned about and dropped, since
  * it could never equal the hostname parsed out of a `Host` header and keeping
  * it would leave the user believing a proxy name was admitted when it is not.
@@ -105,13 +113,19 @@ export function parseAllowedHostsEnv(value: string | undefined): string[] {
   for (const entry of value.split(",")) {
     const trimmed = entry.trim();
     if (trimmed === "") continue;
-    if (/[\s/:*@]/.test(trimmed) || trimmed === ".") {
+    // An IDN entry is converted to the punycode form a browser sends, so
+    // `bücher.example` matches rather than silently never matching.
+    const domain = trimmed.startsWith(".") ? "." : "";
+    const ascii = /[\s/:*@]/.test(trimmed)
+      ? ""
+      : domainToASCII(normalizeHostname(trimmed.slice(domain.length)));
+    if (!HOSTNAME_RE.test(ascii)) {
       console.warn(
         `Ignoring invalid ${ALLOWED_HOSTS_ENV} entry: ${trimmed} (list bare hostnames, e.g. inspector.example.com or .example.com)`,
       );
       continue;
     }
-    out.push(normalizeHostname(trimmed));
+    out.push(domain + ascii);
   }
   return out;
 }
