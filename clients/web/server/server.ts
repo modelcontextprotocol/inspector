@@ -22,6 +22,7 @@ import {
 } from "./app-origin-controller.js";
 import { injectAuthToken } from "./inject-auth-token.js";
 import { HEALTH_PATH, healthResponse } from "./health.js";
+import { hostAllowListMiddleware } from "./host-allow-list.js";
 import type { WebServerConfig } from "./web-server-config.js";
 import { getSecretStorageInfo } from "../../../core/auth/node/secret-store-selection.ts";
 import {
@@ -101,6 +102,20 @@ export async function startHonoServer(
   // fallbacks below so it is not answered with index.html. See health.ts for
   // what it does and does not disclose. Hono serves HEAD from this GET route.
   app.get(HEALTH_PATH, (c) => healthResponse(c.req.method));
+
+  // Refuse a request addressed to a `Host` that is not ours before anything
+  // below can answer it — `/`, the SPA fallback (both carry the API token),
+  // static assets and `/api/*` alike. Registered after the health route, which
+  // returns without calling `next()` and so stays reachable to a probe under
+  // any name; it discloses nothing. See host-allow-list.ts for the rules.
+  app.use(
+    "*",
+    hostAllowListMiddleware({
+      bindHost: config.hostname,
+      allowedOrigins: config.allowedOrigins,
+      extraHosts: config.allowedHosts,
+    }),
+  );
 
   app.use("/api/*", async (c) => {
     return apiApp.fetch(c.req.raw);

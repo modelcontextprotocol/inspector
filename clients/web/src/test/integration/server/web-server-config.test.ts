@@ -33,6 +33,7 @@ import {
 // beforeEach and restores it in afterEach so neither the test runner nor
 // sibling tests see leaked state.
 const MUTATED_ENV_KEYS = [
+  "MCP_INSPECTOR_ALLOWED_HOSTS",
   API_SERVER_ENV_VARS.AUTH_TOKEN,
   LEGACY_AUTH_TOKEN_ENV,
   "CLIENT_PORT",
@@ -228,6 +229,18 @@ describe("buildWebServerConfigFromEnv", () => {
     process.env[LEGACY_AUTH_TOKEN_ENV] = "legacy";
     const cfg = buildWebServerConfigFromEnv();
     expect(cfg.authToken).toBe("primary");
+  });
+
+  it("has no extra allowed hosts by default", () => {
+    expect(buildWebServerConfigFromEnv().allowedHosts).toEqual([]);
+  });
+
+  it("parses MCP_INSPECTOR_ALLOWED_HOSTS into allowedHosts", () => {
+    process.env.MCP_INSPECTOR_ALLOWED_HOSTS = " Inspector , .corp.example ";
+    expect(buildWebServerConfigFromEnv().allowedHosts).toEqual([
+      "inspector",
+      ".corp.example",
+    ]);
   });
 
   it("parses ALLOWED_ORIGINS, trimming entries and filtering empties", () => {
