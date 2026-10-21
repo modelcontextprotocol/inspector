@@ -46,6 +46,7 @@ import {
   normalizeProxyHeaders,
   type ProxyHopRequest,
 } from "./proxy-redirect.js";
+import { formatHeaderNamesForLog, formatQueryForLog } from "./log-format.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -426,7 +427,7 @@ const createTransport = async (
   headerHolder?: ProxyHeaderHolder;
 }> => {
   const query = req.query;
-  console.log("Query parameters:", JSON.stringify(query));
+  console.log("Query parameters:", formatQueryForLog(query));
 
   const transportType = query.transportType as string;
 
@@ -457,7 +458,7 @@ const createTransport = async (
     const headerHolder: ProxyHeaderHolder = { headers };
 
     console.log(
-      `SSE transport: url=${url}, headers=${JSON.stringify(headers)}`,
+      `SSE transport: url=${url}, headers=${formatHeaderNamesForLog(headers)}`,
     );
 
     const transport = new SSEClientTransport(new URL(url), {
