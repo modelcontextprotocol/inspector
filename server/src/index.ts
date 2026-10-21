@@ -33,7 +33,10 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
-import { isSameOriginBrowserRequest } from "./fetch-metadata.js";
+import {
+  isSameOriginApiAllowedFlag,
+  shouldRejectSameOriginRequest,
+} from "./fetch-metadata.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -232,6 +235,9 @@ const sessionHeaderHolders: Map<string, ProxyHeaderHolder> = new Map(); // For d
 const sessionToken =
   process.env.MCP_PROXY_AUTH_TOKEN || randomBytes(32).toString("hex");
 const authDisabled = !!process.env.DANGEROUSLY_OMIT_AUTH;
+const allowSameOriginApi = isSameOriginApiAllowedFlag(
+  process.env.DANGEROUSLY_ALLOW_SAME_ORIGIN_API,
+);
 
 // Origin validation middleware to prevent DNS rebinding attacks
 const originValidationMiddleware = (
@@ -242,7 +248,7 @@ const originValidationMiddleware = (
   // A same-origin request carries no Origin header, so the allow-list below
   // cannot see it. The client never shares the proxy's origin; only documents
   // the proxy serves itself (the MCP Apps sandbox) do. See fetch-metadata.ts.
-  if (isSameOriginBrowserRequest(req.headers)) {
+  if (shouldRejectSameOriginRequest(req.headers, allowSameOriginApi)) {
     console.error("Rejected same-origin request to an API route");
     res.status(403).json({
       error: "Forbidden - same-origin request",
@@ -1052,6 +1058,14 @@ server.on("listening", () => {
   } else {
     console.log(
       `⚠️  WARNING: Authentication is disabled. This is not recommended.`,
+    );
+  }
+  if (allowSameOriginApi) {
+    console.log(
+      `⚠️  WARNING: DANGEROUSLY_ALLOW_SAME_ORIGIN_API is set. Same-origin browser ` +
+        `requests to the proxy API are allowed, including from documents the ` +
+        `proxy serves itself (the MCP Apps sandbox). Opening MCP App links with ` +
+        `noopener in the client is the only remaining layer.`,
     );
   }
 });
