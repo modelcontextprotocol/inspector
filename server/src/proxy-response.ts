@@ -97,5 +97,8 @@ export async function readCappedBody(
     chunks.push(chunk);
   }
 
-  return Buffer.concat(chunks).toString("utf8");
+  // Decode the way node-fetch's response.text() does (a default TextDecoder),
+  // so a leading UTF-8 BOM is still stripped; Buffer#toString would keep it
+  // and break JSON.parse on BOM-prefixed documents downstream.
+  return new TextDecoder().decode(Buffer.concat(chunks));
 }

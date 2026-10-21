@@ -72,6 +72,14 @@ describe("readCappedBody", () => {
     await expect(readCappedBody(response, 100)).resolves.toBe("€");
   });
 
+  it("strips a leading UTF-8 BOM, as response.text() does", async () => {
+    const { response } = responseOf([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("{}"),
+    ]);
+    await expect(readCappedBody(response, 100)).resolves.toBe("{}");
+  });
+
   it("returns an empty string for a null body", async () => {
     await expect(
       readCappedBody({ headers: headersOf(), body: null }, 10),
