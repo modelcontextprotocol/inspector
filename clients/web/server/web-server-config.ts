@@ -33,6 +33,7 @@ import {
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 import { resolveTlsConfig, webScheme, type TlsConfig } from "./tls.js";
+import { ALLOWED_HOSTS_ENV, parseAllowedHostsEnv } from "./host-allow-list.js";
 
 // The single-source Inspector version (root package.json), read once at load.
 // The browser can't read the filesystem the way the CLI/TUI do, so the backend
@@ -72,6 +73,12 @@ export interface WebServerConfig {
   initialServers: MCPConfig | null;
   storageDir: string | undefined;
   allowedOrigins: string[];
+  /**
+   * Extra hostnames the prod server accepts in the `Host` header
+   * (`MCP_INSPECTOR_ALLOWED_HOSTS`), beyond loopback names, IP literals, the
+   * bind host and the hosts of {@link allowedOrigins}. See `host-allow-list.ts`.
+   */
+  allowedHosts?: string[];
   /** Sandbox port (0 = dynamic). */
   sandboxPort: number;
   sandboxHost: string;
@@ -552,6 +559,7 @@ export function buildWebServerConfig(
     initialServers,
     storageDir: process.env.MCP_STORAGE_DIR,
     allowedOrigins,
+    allowedHosts: parseAllowedHostsEnv(process.env[ALLOWED_HOSTS_ENV]),
     sandboxPort,
     sandboxHost: hostname,
     appOriginPort,
