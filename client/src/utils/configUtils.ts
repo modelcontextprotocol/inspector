@@ -20,9 +20,13 @@ export const getMCPProxyAddress = (config: InspectorConfig): string => {
     return proxyFullAddress;
   }
 
-  // Check for proxy port from query params, fallback to default
+  // Check for proxy port from query params, fallback to default. Only a
+  // plain port number is accepted, so the param cannot change the host.
+  const portParam = getSearchParam("MCP_PROXY_PORT");
   const proxyPort =
-    getSearchParam("MCP_PROXY_PORT") || DEFAULT_MCP_PROXY_LISTEN_PORT;
+    portParam && /^\d{1,5}$/.test(portParam)
+      ? portParam
+      : DEFAULT_MCP_PROXY_LISTEN_PORT;
 
   return `${window.location.protocol}//${window.location.hostname}:${proxyPort}`;
 };
@@ -117,11 +121,15 @@ export const getConfigOverridesFromQueryParams = (
 const normalizeProxyAddress = (address: unknown): string =>
   typeof address === "string" ? address.trim().replace(/\/+$/, "") : "";
 
-// The proxy address supplied by the current page's query string, if it
-// differs from the one already saved. It applies to this page load only: it is
-// never written to localStorage, so a link cannot change the address that a
-// later session (e.g. one opened by the launcher with a fresh token) uses.
+// The proxy address supplied by a query string in this tab, if it differs
+// from the one saved in localStorage. It is kept in sessionStorage only (so it
+// survives a same-tab navigation such as the OAuth redirect) and is never
+// written to localStorage, so a link cannot change the address that a later
+// session (e.g. one opened by the launcher with a fresh token) uses.
 let queryOnlyProxyAddress: string | null = null;
+
+const sessionProxyAddressKey = (localStorageKey: string) =>
+  `${localStorageKey}_session_proxy_address`;
 
 export const initializeInspectorConfig = (
   localStorageKey: string,
@@ -182,6 +190,24 @@ export const initializeInspectorConfig = (
         ...DEFAULT_INSPECTOR_CONFIG.MCP_PROXY_AUTH_TOKEN,
       };
     }
+  } else if (!queryAddressItem && !overrides.MCP_PROXY_AUTH_TOKEN) {
+    // No proxy settings in this URL (e.g. the OAuth callback): keep using the
+    // address this tab was given earlier, together with the token stored for
+    // it. A URL carrying only a token (the launcher's shape) is meant for the
+    // saved/default proxy, so it does not pick up the tab's address.
+    const sessionAddress = sessionStorage.getItem(
+      sessionProxyAddressKey(localStorageKey),
+    );
+    if (
+      sessionAddress &&
+      normalizeProxyAddress(sessionAddress) !== savedAddress
+    ) {
+      queryOnlyProxyAddress = sessionAddress;
+      config.MCP_PROXY_FULL_ADDRESS = {
+        ...config.MCP_PROXY_FULL_ADDRESS,
+        value: sessionAddress,
+      };
+    }
   }
 
   return config;
@@ -203,12 +229,17 @@ export const saveInspectorConfig = (
     }
   }
 
-  // Don't persist a proxy address that only came from this page's query
-  // string; keep whatever was saved before instead.
+  // Don't persist a proxy address that only came from a query string; keep
+  // it for this tab in sessionStorage and keep whatever was saved before in
+  // localStorage.
   if (
     queryOnlyProxyAddress !== null &&
     config.MCP_PROXY_FULL_ADDRESS?.value === queryOnlyProxyAddress
   ) {
+    sessionStorage.setItem(
+      sessionProxyAddressKey(localStorageKey),
+      queryOnlyProxyAddress,
+    );
     const saved = localStorage.getItem(localStorageKey);
     let savedAddress: InspectorConfig["MCP_PROXY_FULL_ADDRESS"] | undefined;
     try {
@@ -223,6 +254,8 @@ export const saveInspectorConfig = (
     } else {
       delete persistentConfig.MCP_PROXY_FULL_ADDRESS;
     }
+  } else {
+    sessionStorage.removeItem(sessionProxyAddressKey(localStorageKey));
   }
 
   // Save persistent config to localStorage
