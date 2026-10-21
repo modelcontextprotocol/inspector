@@ -31,6 +31,7 @@ import type pinoType from "pino";
 import {
   closeAbortedStream,
   createRemoteApp,
+  MAX_PROXIED_RESPONSE_BYTES,
   requestIdForSendWait,
   mcpParamHeadersOnly,
 } from "@inspector/core/mcp/remote/node/server.js";
@@ -306,6 +307,10 @@ describe("server.ts supplemental coverage", () => {
     let upstreamHits: string[];
     /** Resolves when the never-ending `/stream-open` response is closed. */
     let openStreamClosed: Promise<void>;
+    /** Resolves when the never-ending `/oversize-endless` response is closed. */
+    let oversizeClosed: Promise<void>;
+    /** Resolves when the `/oversize-declared` response is closed. */
+    let declaredClosed: Promise<void>;
 
     // Isolate the WHOLE suite from the developer's (or CI's) proxy environment.
     // Setting only uppercase HTTP_PROXY in the one proxy test would not be
@@ -351,8 +356,60 @@ describe("server.ts supplemental coverage", () => {
       openStreamClosed = new Promise<void>((resolve) => {
         markStreamClosed = resolve;
       });
+      let markOversizeClosed: () => void = () => {};
+      oversizeClosed = new Promise<void>((resolve) => {
+        markOversizeClosed = resolve;
+      });
+      let markDeclaredClosed: () => void = () => {};
+      declaredClosed = new Promise<void>((resolve) => {
+        markDeclaredClosed = resolve;
+      });
       const srv = createServer((req, res) => {
         upstreamHits.push(req.url ?? "");
+        if (req.url === "/at-cap") {
+          // Exactly the budget, declared and sent.
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Content-Length": String(MAX_PROXIED_RESPONSE_BYTES),
+          });
+          res.end(Buffer.alloc(MAX_PROXIED_RESPONSE_BYTES, "a"));
+          return;
+        }
+        if (req.url?.startsWith("/over-cap-chunked")) {
+          // One byte past the budget, chunked, so no Content-Length warns of it
+          // and only the streamed count can catch it.
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.write(Buffer.alloc(MAX_PROXIED_RESPONSE_BYTES, "a"));
+          res.end("a");
+          return;
+        }
+        if (req.url === "/oversize-endless") {
+          // A body that never ends. Without a bound the route buffers it until
+          // memory runs out; with one it must stop and drop the connection.
+          res.writeHead(200, { "Content-Type": "application/json" });
+          const chunk = Buffer.alloc(64 * 1024, "a");
+          const pump = () => {
+            while (res.write(chunk)) {
+              /* fill until backpressure */
+            }
+          };
+          res.on("drain", pump);
+          res.on("close", () => markOversizeClosed());
+          pump();
+          return;
+        }
+        if (req.url === "/oversize-declared") {
+          // Declares more than the budget and sends only a sliver, then holds
+          // the connection: the route must refuse on the header alone, without
+          // waiting for a body that is not coming, and release the socket.
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Content-Length": String(MAX_PROXIED_RESPONSE_BYTES + 1),
+          });
+          res.write("{");
+          res.on("close", () => markDeclaredClosed());
+          return;
+        }
         if (req.url === "/stream-hostile") {
           // Headers, one frame, and a connection whose teardown the route must
           // not wait on: `ReadableStream.cancel()` adopts the source's cancel
@@ -707,6 +764,60 @@ describe("server.ts supplemental coverage", () => {
       const body = (await res.json()) as { body?: string; status: number };
       expect(body.status).toBe(200);
       expect(body.body).toBeUndefined();
+    });
+
+    it("relays a body of exactly the response cap", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/at-cap` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: number; body?: string };
+      expect(body.status).toBe(200);
+      expect(body.body).toHaveLength(MAX_PROXIED_RESPONSE_BYTES);
+    });
+
+    it("answers 502 for a streamed body one byte past the response cap", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/over-cap-chunked?code=x` }),
+      });
+      expect(res.status).toBe(502);
+      const body = (await res.json()) as { error: string; body?: string };
+      expect(body.body).toBeUndefined();
+      expect(body.error).toContain(`${MAX_PROXIED_RESPONSE_BYTES}-byte limit`);
+      // The URL in the message is redacted like every other one this route
+      // hands back, since an OAuth query string can carry a code or a token.
+      expect(body.error).toContain(`${targetUrl}/over-cap-chunked`);
+      expect(body.error).not.toContain("code=x");
+    });
+
+    it("stops reading a body that never ends and releases the upstream", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/oversize-endless` }),
+      });
+      expect(res.status).toBe(502);
+      // The cancel on overflow drops the connection. Without it the upstream
+      // keeps writing into a socket nobody reads and this never resolves.
+      await oversizeClosed;
+    });
+
+    it("answers 502 on an oversize Content-Length without waiting for the body", async () => {
+      // The upstream sends one byte of the length it declared and then
+      // stalls, so a route that read before checking would hang here.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/oversize-declared` }),
+      });
+      expect(res.status).toBe(502);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain(`${MAX_PROXIED_RESPONSE_BYTES}-byte limit`);
+      await declaredClosed;
     });
 
     it("returns 400 when url is missing", async () => {

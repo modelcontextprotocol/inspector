@@ -28,6 +28,7 @@ import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
 import { createProxyFetch } from "../../node/proxyFetch.js";
+import { declaresOversizeBody, readCappedText } from "./cappedBody.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
@@ -356,6 +357,24 @@ const MAX_APP_CSP_CHARS = 8 * 1024;
  * server URLs and their residues still measure in the hundreds of KB.
  */
 const MAX_STORAGE_BODY_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Upper bound on a response body `POST /api/fetch` will buffer, in bytes.
+ *
+ * The route reads the upstream body in full before answering, because it hands
+ * it back inside a JSON envelope, so without a bound the size of that buffer is
+ * whatever the upstream chooses to send. Enforced while reading (see
+ * `readCappedText`), and early from `Content-Length` when one is declared.
+ *
+ * Sized for what actually travels this route on the web client: OAuth work —
+ * authorization-server and protected-resource metadata, token and revocation
+ * responses, Dynamic Client Registration and client ID metadata documents.
+ * Those measure in kilobytes. MCP traffic does not come through here; it rides
+ * `/api/mcp/*`, whose transport ignores `environment.fetch`. 4 MiB leaves three
+ * orders of magnitude of headroom over a real OAuth document while keeping one
+ * request's buffer small, and matches {@link MAX_STORAGE_BODY_BYTES}.
+ */
+export const MAX_PROXIED_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 /**
  * Whether a string is safe to emit as an HTTP header VALUE.
@@ -1368,7 +1387,33 @@ export function createRemoteApp(
         contentType?.includes("application/x-ndjson");
       let resBody: string | undefined;
       if (!isStream && res.body) {
-        resBody = await res.text();
+        // 502: the upstream answered, and what it answered is more than this
+        // gateway will buffer. Distinct from the 500 an outbound failure gets
+        // and the 504 a deadline gets; the browser surfaces it through
+        // `createRemoteFetch` as a failed fetch carrying this message.
+        const refuseOversize = () =>
+          c.json(
+            {
+              error: `response from ${safeUrl} exceeds the ${MAX_PROXIED_RESPONSE_BYTES}-byte limit for a proxied response`,
+            },
+            502,
+          );
+        if (
+          declaresOversizeBody(
+            res.headers.get("content-length"),
+            MAX_PROXIED_RESPONSE_BYTES,
+          )
+        ) {
+          // Refused before a byte is read, so nothing else will release the
+          // body. Not awaited, for the same reason as the stream branch below;
+          // the callee owns its failure through the `catch`.
+          void res.body.cancel().catch(() => {});
+          return refuseOversize();
+        }
+        // Cancels its own reader on overflow.
+        const read = await readCappedText(res.body, MAX_PROXIED_RESPONSE_BYTES);
+        if (read.kind === "overflow") return refuseOversize();
+        resBody = read.text;
       } else if (isStream) {
         // This route does not return the stream — it answers with JSON and no
         // body — so nobody downstream owns it and nothing will ever read it.
