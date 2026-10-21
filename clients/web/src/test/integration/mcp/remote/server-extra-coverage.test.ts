@@ -25,6 +25,7 @@ import {
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { gzipSync } from "node:zlib";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import type pinoType from "pino";
@@ -366,6 +367,45 @@ describe("server.ts supplemental coverage", () => {
       });
       const srv = createServer((req, res) => {
         upstreamHits.push(req.url ?? "");
+        if (req.url === "/not-found-oversize") {
+          // An error status with a body past the budget, chunked so only the
+          // streamed count can catch it.
+          res.writeHead(404, {
+            "Content-Type": "text/html",
+            "X-Probe": "relayed",
+          });
+          res.write(Buffer.alloc(MAX_PROXIED_RESPONSE_BYTES, "a"));
+          res.end("a");
+          return;
+        }
+        if (req.url === "/not-found-declared") {
+          // An error status declaring more than the budget, then stalling.
+          res.writeHead(404, {
+            "Content-Type": "text/html",
+            "Content-Length": String(MAX_PROXIED_RESPONSE_BYTES + 1),
+          });
+          res.write("<");
+          return;
+        }
+        if (req.url === "/gzip-over-cap" || req.url === "/gzip-under-cap") {
+          // A few KiB on the wire, so neither the declared length nor the
+          // encoded byte count comes near the budget; only the decoded size
+          // can exceed it.
+          const decoded = Buffer.alloc(
+            req.url === "/gzip-over-cap"
+              ? MAX_PROXIED_RESPONSE_BYTES + 1
+              : 1024,
+            "a",
+          );
+          const encoded = gzipSync(decoded);
+          res.writeHead(200, {
+            "Content-Type": "application/json",
+            "Content-Encoding": "gzip",
+            "Content-Length": String(encoded.byteLength),
+          });
+          res.end(encoded);
+          return;
+        }
         if (req.url === "/at-cap") {
           // Exactly the budget, declared and sent.
           res.writeHead(200, {
@@ -818,6 +858,65 @@ describe("server.ts supplemental coverage", () => {
       const body = (await res.json()) as { error: string };
       expect(body.error).toContain(`${MAX_PROXIED_RESPONSE_BYTES}-byte limit`);
       await declaredClosed;
+    });
+
+    it("relays an error status whose body overflows, with its headers and no body", async () => {
+      // The status is what an OAuth client acts on for an error: a 404 from a
+      // path-aware metadata URL is what lets discovery fall back to the root
+      // well-known URL, which a 502 in its place would stop.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/not-found-oversize` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        ok: boolean;
+        status: number;
+        headers: Record<string, string>;
+        body?: string;
+      };
+      expect(body.ok).toBe(false);
+      expect(body.status).toBe(404);
+      expect(body.headers["x-probe"]).toBe("relayed");
+      expect(body.body).toBeUndefined();
+    });
+
+    it("relays an error status that declares an oversize body, without waiting for it", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/not-found-declared` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: number; body?: string };
+      expect(body.status).toBe(404);
+      expect(body.body).toBeUndefined();
+    });
+
+    it("counts decoded bytes, so a small gzip body that expands past the cap is refused", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/gzip-over-cap` }),
+      });
+      expect(res.status).toBe(502);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain(`${MAX_PROXIED_RESPONSE_BYTES}-byte limit`);
+    });
+
+    it("relays a gzip body under the cap decoded", async () => {
+      // The control for the case above: the same encoding, under the budget,
+      // passes — so the refusal there is the decoded size, not the encoding.
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/gzip-under-cap` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: number; body?: string };
+      expect(body.status).toBe(200);
+      expect(body.body).toBe("a".repeat(1024));
     });
 
     it("returns 400 when url is missing", async () => {

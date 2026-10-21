@@ -1327,13 +1327,15 @@ export function createRemoteApp(
     // hands a live stream to its caller, so there is nothing left for the timer
     // to protect and nothing it could sever.
     // ⚠️ Only the caller decides whether this request is bounded, and by how
-    // much. This route is the browser's way out to the network for MCP traffic
-    // as well as OAuth work, so an unconditional timer here would abort a
-    // Streamable HTTP tool call that legitimately withholds its response
-    // headers for longer than the budget — reintroducing on the backend exactly
-    // the regression `exemptMcpEndpoint` exists to prevent on the client, and
-    // reporting it as an OAuth timeout besides (Copilot). No deadline in the
-    // envelope means no timer at all.
+    // much. On the web client today this route carries OAuth work only — MCP
+    // transport traffic rides `/api/mcp/*`, since `createRemoteTransport`
+    // ignores the fetch it is handed (see `MAX_PROXIED_RESPONSE_BYTES`).
+    // But `createRemoteFetch` is a general-purpose fetch and the route proxies
+    // whatever it is sent, so an unconditional timer here would also bound a
+    // caller that legitimately waits longer than the OAuth budget — a request
+    // withholding its response headers, say — and report it as an OAuth
+    // timeout besides (Copilot). No deadline in the envelope means no timer at
+    // all.
     // Clamped to what `setTimeout` can schedule: past 2**31-1 the delay
     // overflows and Node falls back to 1ms, turning an over-large budget into
     // an immediate timeout. Non-finite is ignored outright rather than
@@ -1387,17 +1389,33 @@ export function createRemoteApp(
         contentType?.includes("application/x-ndjson");
       let resBody: string | undefined;
       if (!isStream && res.body) {
-        // 502: the upstream answered, and what it answered is more than this
-        // gateway will buffer. Distinct from the 500 an outbound failure gets
-        // and the 504 a deadline gets; the browser surfaces it through
-        // `createRemoteFetch` as a failed fetch carrying this message.
+        // An oversize body is never relayed. What replaces it depends on the
+        // upstream status:
+        //
+        // - A success becomes a 502: the upstream answered, and what it
+        //   answered is more than this gateway will buffer, so there is no
+        //   faithful way to hand it on. Distinct from the 500 an outbound
+        //   failure gets and the 504 a deadline gets; the browser surfaces it
+        //   through `createRemoteFetch` as a failed fetch carrying this message.
+        // - An error status is relayed as itself, with its headers and no body.
+        //   The status is what an OAuth client acts on there — a 404 from a
+        //   path-aware protected-resource metadata URL is what sends SDK
+        //   discovery on to the root well-known URL — and a 502 in its place
+        //   would end discovery instead of letting it fall back.
         const refuseOversize = () =>
-          c.json(
-            {
-              error: `response from ${safeUrl} exceeds the ${MAX_PROXIED_RESPONSE_BYTES}-byte limit for a proxied response`,
-            },
-            502,
-          );
+          res.ok
+            ? c.json(
+                {
+                  error: `response from ${safeUrl} exceeds the ${MAX_PROXIED_RESPONSE_BYTES}-byte limit for a proxied response`,
+                },
+                502,
+              )
+            : c.json({
+                ok: res.ok,
+                status: res.status,
+                statusText: res.statusText,
+                headers: resHeaders,
+              });
         if (
           declaresOversizeBody(
             res.headers.get("content-length"),

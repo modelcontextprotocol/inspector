@@ -65,9 +65,16 @@ export async function readCappedText(
  *
  * Lets the route refuse before reading a byte. Only ever a shortcut: an absent,
  * malformed or understated length says nothing, and the streamed count in
- * {@link readCappedText} is what actually enforces the budget. A compressed
- * body's length is its encoded size, which the decoded body can only match or
- * exceed, so an oversize declaration is a safe refusal either way.
+ * {@link readCappedText} is what actually enforces the budget, and it counts
+ * decoded bytes.
+ *
+ * A compressed body's declared length is its encoded size, which is not a
+ * bound on the decoded size in either direction: decoding usually grows it,
+ * but gzip of incompressible data is a few bytes larger than the data itself.
+ * So a body declared just over the budget might decode to just under it. That
+ * edge is accepted rather than read through: the budget is three orders of
+ * magnitude above any real OAuth document, so a body that close to it is not
+ * one worth relaying, and refusing on the header avoids reading it at all.
  */
 export function declaresOversizeBody(
   contentLength: string | null,
