@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { describe, it, jest, beforeEach } from "@jest/globals";
+import { describe, it, jest, beforeEach, afterEach } from "@jest/globals";
 import AppRenderer from "../AppRenderer";
 import {
   Tool,
@@ -24,7 +24,10 @@ type MockMcpUiRendererProps = {
     params: { role: "user"; content: { type: "text"; text: string }[] },
     extra: RequestHandlerExtra,
   ) => Promise<McpUiMessageResult>;
+  onOpenLink?: (params: { url: string }) => Promise<{ isError: boolean }>;
 };
+
+let capturedOnOpenLink: MockMcpUiRendererProps["onOpenLink"];
 
 const mockBridgeEvents: BridgeEvent[] = [];
 
@@ -55,7 +58,9 @@ jest.mock("@mcp-ui/client", () => {
       toolInput,
       toolResult,
       onMessage,
+      onOpenLink,
     }: MockMcpUiRendererProps) => {
+      capturedOnOpenLink = onOpenLink;
       const [isInitialized, setIsInitialized] = React.useState(false);
 
       React.useEffect(() => {
@@ -259,6 +264,50 @@ describe("AppRenderer", () => {
       );
       expect(resultEvent).toBeTruthy();
       expect(resultEvent?.payload).toEqual(wrappedResult.toolResult);
+    });
+  });
+
+  describe("open link requests", () => {
+    let openSpy: jest.SpiedFunction<typeof window.open>;
+
+    beforeEach(() => {
+      openSpy = jest.spyOn(window, "open").mockImplementation(() => null);
+    });
+
+    afterEach(() => {
+      openSpy.mockRestore();
+    });
+
+    it("opens http(s) links in a new tab with noopener and noreferrer", async () => {
+      render(<AppRenderer {...defaultProps} />);
+
+      const result = await capturedOnOpenLink?.({
+        url: "https://example.com/path?q=1",
+      });
+
+      expect(result).toEqual({ isError: false });
+      expect(openSpy).toHaveBeenCalledTimes(1);
+      expect(openSpy).toHaveBeenCalledWith(
+        "https://example.com/path?q=1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+
+    it.each([
+      "javascript:alert(1)",
+      "data:text/html,<p>hi</p>",
+      "file:///etc/passwd",
+      "/relative/path",
+      "not a url",
+      "",
+    ])("refuses to open %p", async (url) => {
+      render(<AppRenderer {...defaultProps} />);
+
+      const result = await capturedOnOpenLink?.({ url });
+
+      expect(result).toEqual({ isError: true });
+      expect(openSpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -22,3 +22,22 @@ export function validateRedirectUrl(url: string | URL): void {
     throw new Error(`Invalid URL: ${url}`);
   }
 }
+
+/**
+ * Parses an absolute HTTP(S) URL, returning its normalized href, or null for
+ * anything else (javascript:, data:, file:, relative paths, unparseable input).
+ *
+ * @param url - The URL string to parse
+ */
+export function parseHttpUrl(url: string): string | null {
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    return null;
+  }
+  return parsedUrl.href;
+}

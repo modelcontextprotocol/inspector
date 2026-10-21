@@ -33,6 +33,7 @@ import express from "express";
 import rateLimit from "express-rate-limit";
 import { findActualExecutable } from "spawn-rx";
 import mcpProxy, { type ProxyHeaderHolder } from "./mcpProxy.js";
+import { isSameOriginBrowserRequest } from "./fetch-metadata.js";
 import { randomUUID, randomBytes, timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -238,6 +239,19 @@ const originValidationMiddleware = (
   res: express.Response,
   next: express.NextFunction,
 ) => {
+  // A same-origin request carries no Origin header, so the allow-list below
+  // cannot see it. The client never shares the proxy's origin; only documents
+  // the proxy serves itself (the MCP Apps sandbox) do. See fetch-metadata.ts.
+  if (isSameOriginBrowserRequest(req.headers)) {
+    console.error("Rejected same-origin request to an API route");
+    res.status(403).json({
+      error: "Forbidden - same-origin request",
+      message:
+        "API routes cannot be called from documents served by the proxy.",
+    });
+    return;
+  }
+
   const origin = req.headers.origin;
 
   // Default origins based on CLIENT_PORT or use environment variable
