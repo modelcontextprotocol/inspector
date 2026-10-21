@@ -9,7 +9,8 @@ import {
 } from "@/utils/oauthUtils.ts";
 
 interface OAuthCallbackProps {
-  onConnect: (serverUrl: string) => void;
+  /** Reconnects, or returns why it will not. */
+  onConnect: (serverUrl: string) => string | undefined;
 }
 
 const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
@@ -67,7 +68,10 @@ const OAuthCallback = ({ onConnect }: OAuthCallbackProps) => {
         description: "Successfully authenticated with OAuth",
         variant: "default",
       });
-      onConnect(serverUrl);
+      const refusal = onConnect(serverUrl);
+      if (refusal) {
+        notifyError(refusal);
+      }
     };
 
     handleCallback().finally(() => {

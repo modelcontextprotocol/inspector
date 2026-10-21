@@ -26,6 +26,14 @@ import type {
 } from "@modelcontextprotocol/sdk/server/zod-compat.js";
 import { SESSION_KEYS, getServerSpecificKey } from "./lib/constants";
 import {
+  OAUTH_CALLBACK_PATH,
+  OAUTH_DEBUG_CALLBACK_PATH,
+  clearOAuthConnectionSnapshot,
+  getOAuthCallbackSnapshot,
+  getOAuthReconnectRefusal,
+  readOAuthConnectionSnapshot,
+} from "./lib/oauthConnectionSnapshot";
+import {
   hasValidMetaName,
   hasValidMetaPrefix,
   isReservedMetaKey,
@@ -172,18 +180,30 @@ const App = () => {
     tools: null,
     tasks: null,
   });
-  const [command, setCommand] = useState<string>(getInitialCommand);
-  const [args, setArgs] = useState<string>(getInitialArgs);
+  // On an OAuth callback route the connection is restored from the per-tab
+  // snapshot taken before the redirect, never from the URL or localStorage.
+  const [command, setCommand] = useState<string>(
+    () => getOAuthCallbackSnapshot()?.command ?? getInitialCommand(),
+  );
+  const [args, setArgs] = useState<string>(
+    () => getOAuthCallbackSnapshot()?.args ?? getInitialArgs(),
+  );
 
-  const [sseUrl, setSseUrl] = useState<string>(getInitialSseUrl);
+  const [sseUrl, setSseUrl] = useState<string>(
+    () => getOAuthCallbackSnapshot()?.serverUrl ?? getInitialSseUrl(),
+  );
   const [transportType, setTransportType] = useState<
     "stdio" | "sse" | "streamable-http"
-  >(getInitialTransportType);
+  >(
+    () =>
+      getOAuthCallbackSnapshot()?.transportType ?? getInitialTransportType(),
+  );
   const [connectionType, setConnectionType] = useState<"direct" | "proxy">(
     () => {
       return (
-        (localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
-        "proxy"
+        getOAuthCallbackSnapshot()?.connectionType ??
+        ((localStorage.getItem("lastConnectionType") as "direct" | "proxy") ||
+          "proxy")
       );
     },
   );
@@ -601,12 +621,22 @@ const App = () => {
   }, [config]);
 
   const onOAuthConnect = useCallback(
-    (serverUrl: string) => {
+    (serverUrl: string): string | undefined => {
+      const refusal = getOAuthReconnectRefusal(readOAuthConnectionSnapshot(), {
+        authorizedServerUrl: serverUrl,
+        sseUrl,
+        transportType,
+        connectionType,
+        proxyAddress: getMCPProxyAddress(config),
+      });
+      clearOAuthConnectionSnapshot();
+      if (refusal) return refusal;
       setSseUrl(serverUrl);
       setIsAuthDebuggerVisible(false);
       void connectMcpServer();
+      return undefined;
     },
-    [connectMcpServer],
+    [connectMcpServer, sseUrl, transportType, connectionType, config],
   );
 
   const onOAuthDebugConnect = useCallback(
@@ -1345,7 +1375,7 @@ const App = () => {
     </TabsContent>
   );
 
-  if (window.location.pathname === "/oauth/callback") {
+  if (window.location.pathname === OAUTH_CALLBACK_PATH) {
     const OAuthCallback = React.lazy(
       () => import("./components/OAuthCallback"),
     );
@@ -1356,7 +1386,7 @@ const App = () => {
     );
   }
 
-  if (window.location.pathname === "/oauth/callback/debug") {
+  if (window.location.pathname === OAUTH_DEBUG_CALLBACK_PATH) {
     const OAuthDebugCallback = React.lazy(
       () => import("./components/OAuthDebugCallback"),
     );

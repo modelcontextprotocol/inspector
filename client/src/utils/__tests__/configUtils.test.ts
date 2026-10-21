@@ -7,8 +7,8 @@ import {
   getMCPProxyAddress,
   getMCPProxyAuthToken,
   initializeInspectorConfig,
-  isOAuthCallbackPath,
 } from "../configUtils";
+import { isOAuthCallbackPath } from "../../lib/oauthConnectionSnapshot";
 import { DEFAULT_INSPECTOR_CONFIG } from "../../lib/constants";
 import { InspectorConfig } from "../../lib/configurationTypes";
 

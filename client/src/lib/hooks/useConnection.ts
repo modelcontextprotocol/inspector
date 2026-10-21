@@ -387,6 +387,16 @@ export function useConnection({
     );
   };
 
+  // What an OAuth redirect saves so its callback can reconnect to this
+  // connection, and only this one.
+  const getOAuthConnection = () => ({
+    transportType,
+    connectionType,
+    command,
+    args,
+    proxyAddress: getMCPProxyAddress(config),
+  });
+
   const handleAuthError = async (error: unknown) => {
     if (isConnectionAuthError(error)) {
       let scope = oauthScope?.trim();
@@ -409,7 +419,10 @@ export function useConnection({
       }
 
       saveScopeToSessionStorage(sseUrl, scope);
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        sseUrl,
+        getOAuthConnection(),
+      );
 
       try {
         const result = await auth(serverAuthProvider, {
@@ -496,7 +509,10 @@ export function useConnection({
       const headers: HeadersInit = {};
 
       // Create an auth provider with the current server URL
-      const serverAuthProvider = new InspectorOAuthClientProvider(sseUrl);
+      const serverAuthProvider = new InspectorOAuthClientProvider(
+        sseUrl,
+        getOAuthConnection(),
+      );
 
       // Use custom headers (migration is handled in App.tsx)
       let finalHeaders: CustomHeaders = customHeaders || [];

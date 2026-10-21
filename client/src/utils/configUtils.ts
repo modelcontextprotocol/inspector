@@ -3,18 +3,12 @@ import {
   DEFAULT_MCP_PROXY_LISTEN_PORT,
   DEFAULT_INSPECTOR_CONFIG,
 } from "@/lib/constants";
+import { isOAuthCallbackPath } from "@/lib/oauthConnectionSnapshot";
 
 // The OAuth callback routes are reached by a redirect from the authorization
-// server, so their query string is not under the user's control. Connection
-// settings must never be taken from it: on those routes the connection that
-// was in effect before the redirect (persisted in local/session storage) is
-// restored instead. Only `code`/`state`/`error` are read there, separately.
-export const isOAuthCallbackPath = (): boolean => {
-  const { pathname } = window.location;
-  return (
-    pathname === "/oauth/callback" || pathname.startsWith("/oauth/callback/")
-  );
-};
+// server, so their query string is not under the user's control and no
+// connection setting is taken from it (see lib/oauthConnectionSnapshot.ts).
+// Only `code`/`state`/`error` are read there, separately.
 
 const getSearchParam = (key: string): string | null => {
   if (isOAuthCallbackPath()) return null;

@@ -2,6 +2,11 @@ import { render, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import App from "../App";
 import { useConnection } from "../lib/hooks/useConnection";
+import {
+  OAuthConnectionSnapshot,
+  readOAuthConnectionSnapshot,
+  saveOAuthConnectionSnapshot,
+} from "../lib/oauthConnectionSnapshot";
 
 // The OAuth callback route is reached by a redirect from the authorization
 // server, so its query string must not define the connection that the
@@ -24,16 +29,18 @@ jest.mock("../lib/auth", () => ({
   DebugInspectorOAuthClientProvider: jest.fn(),
 }));
 
-// Stand in for a successful code exchange: report back immediately.
+// Stand in for a successful code exchange: report back immediately and
+// record whether App agreed to reconnect.
+const mockConnectRefusals: (string | undefined)[] = [];
 jest.mock("../components/OAuthCallback", () => ({
   __esModule: true,
   default: function MockOAuthCallback({
     onConnect,
   }: {
-    onConnect: (serverUrl: string) => void;
+    onConnect: (serverUrl: string) => string | undefined;
   }) {
     useEffect(() => {
-      onConnect("https://remote.example/mcp");
+      mockConnectRefusals.push(onConnect("https://remote.example/mcp"));
     }, [onConnect]);
     return <div>OAuth callback</div>;
   },
@@ -73,6 +80,7 @@ describe("App - OAuth callback connection settings", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockConnectRefusals.length = 0;
     localStorage.clear();
     sessionStorage.clear();
     localStorage.setItem("lastTransportType", "streamable-http");
@@ -101,17 +109,27 @@ describe("App - OAuth callback connection settings", () => {
     sessionStorage.clear();
   });
 
-  test("reconnects with the saved connection, not the callback URL's", async () => {
+  const SNAPSHOT: OAuthConnectionSnapshot = {
+    serverUrl: "https://remote.example/mcp",
+    transportType: "streamable-http",
+    connectionType: "proxy",
+    command: "snapshot-cmd",
+    args: "--snapshot",
+    // getMCPProxyAddress with the default config under jsdom
+    proxyAddress: "http://localhost:6277",
+  };
+
+  const renderCallback = async () => {
     window.history.replaceState({}, "", `/oauth/callback${INJECTED_QUERY}`);
+    const view = render(<App />);
+    await waitFor(() => expect(mockConnectRefusals).toHaveLength(1));
+    return view;
+  };
 
-    render(<App />);
-
-    await waitFor(() => expect(connect).toHaveBeenCalled());
-
+  const expectNeverStdio = () => {
     for (const [options] of mockUseConnection.mock.calls) {
-      expect(options.transportType).toBe("streamable-http");
-      expect(options.command).toBe("saved-cmd");
-      expect(options.args).toBe("--saved");
+      expect(options.transportType).not.toBe("stdio");
+      expect(options.command).not.toBe("injected-cmd");
       expect(options.config.MCP_PROXY_FULL_ADDRESS.value).not.toBe(
         "http://injected.example",
       );
@@ -119,6 +137,95 @@ describe("App - OAuth callback connection settings", () => {
         "injected-token",
       );
     }
+  };
+
+  test("reconnects with the snapshot on a normal streamable-http round trip", async () => {
+    saveOAuthConnectionSnapshot(SNAPSHOT);
+
+    await renderCallback();
+
+    expect(mockConnectRefusals).toEqual([undefined]);
+    expect(connect).toHaveBeenCalledTimes(1);
+    const [options] = mockUseConnection.mock.calls[0];
+    expect(options.transportType).toBe("streamable-http");
+    expect(options.sseUrl).toBe("https://remote.example/mcp");
+    expect(options.command).toBe("snapshot-cmd");
+    expect(options.args).toBe("--snapshot");
+    expectNeverStdio();
+    expect(readOAuthConnectionSnapshot()).toBeNull();
+  });
+
+  test("reconnects with the snapshot on an sse round trip", async () => {
+    saveOAuthConnectionSnapshot({ ...SNAPSHOT, transportType: "sse" });
+
+    await renderCallback();
+
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(mockUseConnection.mock.calls[0][0].transportType).toBe("sse");
+  });
+
+  test("ignores stdio settings another tab wrote to localStorage", async () => {
+    saveOAuthConnectionSnapshot(SNAPSHOT);
+
+    // Another tab opens the entry route with a connection in its query; it
+    // saves those settings to origin-wide localStorage on mount.
+    window.history.replaceState(
+      {},
+      "",
+      "/?transport=stdio&serverCommand=other-tab-cmd&serverArgs=--other",
+    );
+    render(<App />).unmount();
+    expect(localStorage.getItem("lastTransportType")).toBe("stdio");
+    expect(localStorage.getItem("lastCommand")).toBe("other-tab-cmd");
+    mockUseConnection.mockClear();
+
+    await renderCallback();
+
+    expect(connect).toHaveBeenCalledTimes(1);
+    for (const [options] of mockUseConnection.mock.calls) {
+      expect(options.transportType).toBe("streamable-http");
+      expect(options.command).toBe("snapshot-cmd");
+      expect(options.args).toBe("--snapshot");
+    }
+  });
+
+  test("does not reconnect without a snapshot", async () => {
+    localStorage.setItem("lastTransportType", "stdio");
+
+    await renderCallback();
+
+    expect(mockConnectRefusals[0]).toMatch(/No saved connection/);
+    expect(connect).not.toHaveBeenCalled();
+  });
+
+  test("does not reconnect for a stdio snapshot", async () => {
+    saveOAuthConnectionSnapshot({ ...SNAPSHOT, transportType: "stdio" });
+
+    await renderCallback();
+
+    expect(mockConnectRefusals[0]).toMatch(/only to SSE and Streamable HTTP/);
+    expect(connect).not.toHaveBeenCalled();
+    expect(readOAuthConnectionSnapshot()).toBeNull();
+  });
+
+  test("does not reconnect when the proxy address differs from the snapshot", async () => {
+    saveOAuthConnectionSnapshot(SNAPSHOT);
+    localStorage.setItem(
+      "inspectorConfig_v1",
+      JSON.stringify({
+        MCP_PROXY_FULL_ADDRESS: {
+          label: "",
+          description: "",
+          value: "http://other-proxy.example",
+          is_session_item: false,
+        },
+      }),
+    );
+
+    await renderCallback();
+
+    expect(mockConnectRefusals[0]).toMatch(/changed during authorization/);
+    expect(connect).not.toHaveBeenCalled();
   });
 
   test("still takes connection settings from the query on the entry route", () => {
