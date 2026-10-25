@@ -1174,6 +1174,7 @@ export function InspectorView({
                 writable={serverListWritable}
                 activeServer={dimCardsAgainst}
                 erroredServerId={erroredServerId}
+                connectErrorMessage={connectErrorMessage}
                 connectedServerId={connectedServerId}
                 onAddManually={onServerAdd}
                 onImportConfig={onServerImportConfig}

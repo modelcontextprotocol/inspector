@@ -46,6 +46,12 @@ export interface ServerCardProps extends ServerEntry {
    */
   errored?: boolean;
   /**
+   * Why the last connection attempt failed, shown under the header while
+   * `errored` is set (#2783). The failure toast auto-closes after a few
+   * seconds, which left a bare "Failed" with no reason once it had gone.
+   */
+  errorMessage?: string;
+  /**
    * When true, this server just connected successfully: the card draws the green
    * highlight border and scrolls itself into view once the monitoring sidebar
    * has opened — the success mirror of `errored` (#1682). The parent clears this
@@ -106,6 +112,11 @@ const ProtocolText = Text.withProps({
   size: "sm",
   c: "dimmed",
   ml: "auto",
+});
+
+const ConnectErrorText = Text.withProps({
+  variant: "connectError",
+  role: "alert",
 });
 
 const SubtleButton = Button.withProps({
@@ -173,6 +184,7 @@ export function ServerCard({
   dragHandle,
   highlighted = false,
   errored = false,
+  errorMessage,
   justConnected = false,
   scrollOnHighlight = true,
   onClearHighlight,
@@ -268,6 +280,12 @@ export function ServerCard({
             />
           </HeaderRight>
         </HeaderRow>
+
+        {/* Shown in compact mode too: the reason is the one thing a failed card
+            has to say, and compact hides everything else below the header. */}
+        {errored && errorMessage && (
+          <ConnectErrorText>{errorMessage}</ConnectErrorText>
+        )}
 
         {!compact && (
           <>
