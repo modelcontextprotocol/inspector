@@ -4,6 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { DaemonServer } from "../src/daemon/server.js";
 import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
+import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
+import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import type {
   LoadOptions,
   LoadSummary,
@@ -18,14 +20,22 @@ import type { RpcParams } from "../src/daemon/protocol.js";
  * is stubbed so each test controls when the run settles.
  */
 
-const loadMock = vi.hoisted(() => ({
-  impl: undefined as unknown as (
-    client: unknown,
-    args: Record<string, unknown>,
-    options: LoadOptions,
-    run: { signal?: AbortSignal },
-  ) => Promise<LoadSummary>,
-}));
+type LoadImpl = (
+  client: unknown,
+  args: Record<string, unknown>,
+  options: LoadOptions,
+  run: { signal?: AbortSignal },
+) => Promise<LoadSummary>;
+
+const loadMock = vi.hoisted(() => {
+  const state: { impl: LoadImpl } = {
+    // A test that forgets to set `impl` fails here, by name.
+    impl: async () => {
+      throw new Error("runToolLoad mock not configured");
+    },
+  };
+  return state;
+});
 vi.mock(
   "@inspector/core/cli/handlers/load-test.js",
   async (importOriginal) => ({
@@ -62,28 +72,53 @@ const SUMMARY: LoadSummary = {
 
 const LOAD: LoadOptions = { concurrency: 2, requests: 4 };
 
-function fakeClient(status = "connected") {
-  const target = new EventTarget();
-  let ambient: AbortSignal | undefined;
-  const client = {
-    addEventListener: (type: string, listener: EventListener) =>
-      target.addEventListener(type, listener),
-    removeEventListener: (type: string, listener: EventListener) =>
-      target.removeEventListener(type, listener),
-    getStatus: () => status,
-    cancelToolCall: () => false,
-    setAmbientRequestSignal: (signal: AbortSignal | undefined) => {
-      ambient = signal;
-      return () => {
-        ambient = undefined;
-      };
-    },
-  } as unknown as InspectorClient;
+/**
+ * The slice of `InspectorClient` the load path touches, on the real event
+ * target so `statusChange` is dispatched exactly as the client does it.
+ * `implements` checks each method against the client's own signature.
+ */
+class FakeLoadClient
+  extends InspectorClientEventTarget
+  implements
+    Pick<
+      InspectorClient,
+      "getStatus" | "cancelToolCall" | "setAmbientRequestSignal"
+    >
+{
+  ambient: AbortSignal | undefined;
+
+  constructor(private readonly status: ConnectionStatus) {
+    super();
+  }
+
+  getStatus(): ConnectionStatus {
+    return this.status;
+  }
+
+  cancelToolCall(): boolean {
+    return false;
+  }
+
+  setAmbientRequestSignal(signal: AbortSignal | undefined): () => void {
+    this.ambient = signal;
+    return () => {
+      this.ambient = undefined;
+    };
+  }
+}
+
+function fakeClient(status: ConnectionStatus = "connected") {
+  const fake = new FakeLoadClient(status);
   return {
-    client,
-    ambient: () => ambient,
-    emitStatus: (detail: string) =>
-      target.dispatchEvent(new CustomEvent("statusChange", { detail })),
+    // The daemon is typed against the concrete `InspectorClient` class, whose
+    // private members no test double can supply, so no single cast relates
+    // the two. The double is sufficient because the load path calls only the
+    // methods `FakeLoadClient` implements (checked above) plus the event
+    // target it inherits; `runToolLoad`, which needs the rest, is mocked.
+    client: fake as unknown as InspectorClient,
+    ambient: () => fake.ambient,
+    emitStatus: (detail: ConnectionStatus) =>
+      fake.dispatchTypedEvent("statusChange", detail),
   };
 }
 
@@ -92,11 +127,12 @@ describe("daemon rpc with --load", () => {
   let server: DaemonServer;
   let fake: ReturnType<typeof fakeClient>;
 
-  function useClient(status?: string) {
+  // Only `liveClientFor` needs replacing: a load run never parks, and the
+  // ordinary call below sends no `interactive`, so neither path resolves a
+  // connection name through `connectionFor`.
+  function useClient(status?: ConnectionStatus) {
     fake = fakeClient(status);
-    const registry = server.registry as unknown as Record<string, unknown>;
-    registry.connectionFor = () => ({ name: "srv", client: fake.client });
-    registry.liveClientFor = async () => fake.client;
+    vi.spyOn(server.registry, "liveClientFor").mockResolvedValue(fake.client);
   }
 
   beforeEach(() => {
