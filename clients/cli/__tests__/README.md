@@ -12,6 +12,11 @@ Tests live under `__tests__/` and run via Vitest.
   the real `~/.mcp-inspector` OAuth store, and fails any test whose state path
   resolves outside `os.tmpdir()`. A test that overrides the variable must
   restore the previous value, not delete it (#2719).
+- Suite-wide `helpers/home-isolation.ts` (vitest `setupFiles`) points `HOME`
+  at a per-file temp dir so no test seeds the real default catalog
+  (`~/.mcp-inspector/mcp.json`), and fails any test whose default catalog path
+  resolves outside `os.tmpdir()`. It redirects `HOME` rather than setting
+  `MCP_CATALOG_PATH`, which would outrank every test's `--config` (#2765).
 - `e2e.test.ts` (and root `scripts/smoke-cli.mjs`) spawn the built binary for
   shebang / `process.exit` paths — `pretest` builds `test-servers` + the CLI
   bundle first.
@@ -66,6 +71,7 @@ npm run validate          # format:check && lint && typecheck && test
 | `helpers/cli-runner.ts`            | In-process `runCli` with stdout/stderr capture                 |
 | `helpers/mock-open-url.ts`         | Suite-wide `openUrl` mock (vitest `setupFiles`)                |
 | `helpers/oauth-state-isolation.ts` | Suite-wide temp OAuth state path + guard (vitest `setupFiles`) |
+| `helpers/home-isolation.ts`        | Suite-wide temp `HOME` + catalog guard (vitest `setupFiles`)   |
 | `helpers/assertions.ts`            | `expectCliSuccess` / `expectCliFailure` / output matchers      |
 | `helpers/fixtures.ts`              | Temp config / client.json factories                            |
 
