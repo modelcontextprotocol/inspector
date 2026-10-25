@@ -79,8 +79,8 @@ import nodeFs, { statSync, rmdirSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 // CJS-only package. A default import is the shape that survives every
-// bundler this repo runs core/ through (tsdown for cli, tsup for tui/mcpdo,
-// vite's SSR/node graph for the web runner); named imports off a CJS module
+// bundler this repo runs core/ through (tsdown for the cli, tui, mcpdo and
+// web runner bundles, vite's SSR/node graph for `vite dev`); named imports off a CJS module
 // depend on lexer detection that esbuild and rollup disagree about.
 import properLockfile from "proper-lockfile";
 import { SecretFileLockHeldError } from "./secret-store.js";

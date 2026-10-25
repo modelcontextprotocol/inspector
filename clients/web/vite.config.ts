@@ -63,7 +63,7 @@ const integrationGlob = "clients/web/src/test/integration/**/*.test.{ts,tsx}";
 // projects), and `applyToEnvironment` narrows it to the **browser** (`client`)
 // environment so a future SSR/node environment built from this config isn't
 // failed for a legitimate `node:*` import — the browser-only intent is
-// structural, not incidental. (The Node runner build is a separate tsup config.)
+// structural, not incidental. (The Node runner build is a separate tsdown config.)
 //
 // `buildStart` resets the gate so a `vite build --watch` rebuild doesn't inherit
 // a prior build's recorded warnings (the plugin instance is reused across

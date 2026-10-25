@@ -34,10 +34,10 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
  * Clients that ship a bundle, with the config to read `external` from and
- * the build directory to inspect. Most are tsup builds; `cli` is tsdown (#1492),
- * which emits the same `// <path>` module banners. `entry` names the file whose
- * presence proves a build actually ran; it defaults to `index.js` (what
- * web/cli/tui each name their single entry) and is overridden only when a
+ * the build directory to inspect. All four are tsdown builds (#1492, #2797),
+ * whose Rolldown module banners `findInlinedExternals` reads. `entry` names the
+ * file whose presence proves a build actually ran; it defaults to `index.js`
+ * (what web/cli/tui each name their single entry) and is overridden only when a
  * client's config uses a different entry name, like mcpdo's multi-entry `mcp-bin`.
  * `clients/launcher` is plain `tsc` — it emits no bundle and inlines nothing —
  * so it has nothing to check.
@@ -45,7 +45,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const BUNDLED_CLIENTS = [
   {
     name: "web",
-    config: "clients/web/tsup.runner.config.ts",
+    config: "clients/web/tsdown.runner.config.ts",
     build: "clients/web/build",
   },
   {
@@ -55,12 +55,12 @@ export const BUNDLED_CLIENTS = [
   },
   {
     name: "tui",
-    config: "clients/tui/tsup.config.ts",
+    config: "clients/tui/tsdown.config.ts",
     build: "clients/tui/build",
   },
   {
     name: "mcpdo",
-    config: "clients/mcpdo/tsup.config.ts",
+    config: "clients/mcpdo/tsdown.config.ts",
     build: "clients/mcpdo/build",
     entry: "mcp-bin.js",
   },

@@ -140,7 +140,7 @@ const TOLERATED_SKEW = new Map();
 // client on purpose (`AGENTS.md`, so a client's renderer and the React it calls
 // into come from one install) — but "two copies by design" is not "two versions
 // by design", and the rule that survives is still one version everywhere. The
-// same holds for `vite` and `tsup`, declared by several clients each.
+// same holds for `vite` and `tsdown`, declared by several clients each.
 const TOLERATED_DECLARED_SKEW = new Map();
 
 /**

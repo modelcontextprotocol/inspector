@@ -56,7 +56,7 @@ inspector/
 │   ├── cli/          CLI client (tsdown bundle, @inspector/core alias)
 │   ├── mcpdo/   Experimental connection CLI (`mcpdo` bin) — bundled into the
 │   │                 published package; see clients/mcpdo/README.md
-│   ├── tui/          TUI client (Ink + React, tsup bundle)
+│   ├── tui/          TUI client (Ink + React, tsdown bundle)
 │   └── launcher/     Shared launcher — provides the `mcp-inspector` bin, dispatches to web/cli/tui
 ├── core/             Shared code consumed via the `@inspector/core` alias (no package.json)
 ├── test-servers/     Composable MCP test servers + fixtures used by integration and smoke tests
@@ -87,7 +87,7 @@ Each client has its own README with client-specific detail:
 | [Writing a skill](./docs/skill-authoring.md) | How to write a skill description that actually fires, and eval cases that measure it — the case shapes that work, and the tuning loop |
 | [Test servers](./docs/test-servers.md) | The composable test servers and the showcase config for every feature — what to run, what to click, and what the broken build did |
 | [Publishing](./docs/publishing.md) | What ships in the tarball, the packaging invariants, and `pack:verify` |
-| [Migrating from tsup to tsdown](./docs/tsdown-migration.md) | Why the client bundles are moving to tsdown, the option mapping, the gotchas that don't fail a build, and the order for the remaining clients |
+| [Migrating from tsup to tsdown](./docs/tsdown-migration.md) | Why the client bundles moved to tsdown, the option mapping, the gotchas that don't fail a build, and what each client's migration measured |
 | [Serving the web UI over HTTPS](./docs/tls.md) | `INSPECTOR_TLS_KEY_PATH` / `INSPECTOR_TLS_CERT_PATH`, a trusted local mkcert setup, custom hostnames and `ALLOWED_ORIGINS`, and `NODE_EXTRA_CA_CERTS` for outbound private-CA servers |
 | [Docker](./docs/docker.md) | Running the container image — ports, volumes, and making secrets durable in a container |
 | [Where secrets are stored](./docs/secret-storage.md) | How the secret store is chosen on every runtime — OS keychain, `secrets.json` or memory — plus file encryption, locking, and moving back to a keychain |

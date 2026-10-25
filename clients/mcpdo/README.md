@@ -42,7 +42,7 @@ visible as `mcpdod` in `ps`/`pgrep` and killable with `pkill mcpdod`.
 
 Use `npm run build:dev` instead of `npm run build` while iterating: it runs
 `mcpdo daemon stop` first (harmless/no-op if no daemon is running — it treats
-"daemon not running" as success) and then `tsup`, so the next daemon-backed
+"daemon not running" as success) and then `tsdown`, so the next daemon-backed
 command (`connect`, `tools/list`, …) spawns a fresh daemon from the code you
 just built. Commands that never touch the daemon (`servers/list`,
 `servers/show`, `--help`) don't need this — a plain `npm run build` is enough
