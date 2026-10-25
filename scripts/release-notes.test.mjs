@@ -20,6 +20,7 @@ import {
   main,
   parseAdvisoryArg,
   parseNotesArgs,
+  patchedRangeAdmits,
   previousStableTag,
   pullNumbersFrom,
   withSecurityFixes,
@@ -639,7 +640,12 @@ test("--advisory lists the fix and merges its reporters with issue reporters", (
 
 test("an advisory that does not list this release as patched aborts", (t) => {
   quiet(t);
-  for (const vulnerabilities of [patched("2.9.0", "2.10.1"), [], undefined]) {
+  for (const vulnerabilities of [
+    patched("2.9.0", "2.10.1", ">= 2.9.0, < 2.10.0"),
+    [{ patched_versions: null }],
+    [],
+    undefined,
+  ]) {
     const spawn = world({
       advisories: { [ADVISORY]: { state: "published", vulnerabilities } },
     });
@@ -650,6 +656,22 @@ test("an advisory that does not list this release as patched aborts", (t) => {
     assert.equal(
       spawn.calls.some((c) => c.args[0] === "release"),
       false,
+    );
+  }
+});
+
+test("patchedRangeAdmits honors every bound, exclusive ones included", () => {
+  assert.equal(patchedRangeAdmits("2.12.0", "2.12.0"), true);
+  assert.equal(patchedRangeAdmits("2.12.0", "2.12.1"), false);
+  assert.equal(patchedRangeAdmits(">= 2.12.0", "2.13.0"), true);
+  assert.equal(patchedRangeAdmits("> 2.12.0", "2.12.0"), false);
+  assert.equal(patchedRangeAdmits(">= 2.9.0, < 2.12.0", "2.12.0"), false);
+  assert.equal(patchedRangeAdmits(">= 2.9.0, <= 2.12.0", "2.12.0"), true);
+  assert.equal(patchedRangeAdmits("= 2.12.0", "2.12.0"), true);
+  for (const bad of ["^2.12.0", "2.12", "2.12.0-rc.1", ">= 2.12.0 || 1.0.3"]) {
+    assert.throws(
+      () => patchedRangeAdmits(bad, "2.12.0"),
+      /unsupported patched_versions/,
     );
   }
 });

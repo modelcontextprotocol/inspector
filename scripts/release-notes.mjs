@@ -281,22 +281,45 @@ export function isMaintainer(spawn, login) {
   throw new Error(`unexpected permission "${permission}" for @${login}`);
 }
 
+const COMPARE = {
+  "=": (c) => c === 0,
+  ">=": (c) => c >= 0,
+  ">": (c) => c > 0,
+  "<=": (c) => c <= 0,
+  "<": (c) => c < 0,
+};
+
 /**
- * The advisory `id`, checked against the release: it must name `version`
- * among its patched versions. A draft only warns — its link 404s until it is
+ * Whether one `patched_versions` string admits `version`. It is a
+ * comma-joined AND of `[op] x.y.z` constraints, a bare version meaning that
+ * version exactly. Anything else throws rather than being guessed at, since
+ * reading every numeric token as a match lets an exclusive bound through.
+ */
+export function patchedRangeAdmits(range, version) {
+  return range.split(",").every((part) => {
+    const match = part.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) {
+      throw new Error(`unsupported patched_versions "${range}"`);
+    }
+    return COMPARE[match[1] ?? "="](compareVersions(version, match[2]));
+  });
+}
+
+/**
+ * The advisory `id`, checked against the release: one of its patched ranges
+ * must admit `version`. A draft only warns — its link 404s until it is
  * published, and the intended order is the Release first, then the advisory.
  */
 export function fetchAdvisory(spawn, id, version) {
   const advisory = JSON.parse(
     run(spawn, "gh", ["api", `repos/${REPO}/security-advisories/${id}`]),
   );
-  const patched = (advisory.vulnerabilities ?? []).flatMap(
-    (v) =>
-      v.patched_versions?.match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/g) ?? [],
-  );
-  if (!patched.includes(version)) {
+  const ranges = (advisory.vulnerabilities ?? [])
+    .map((v) => v.patched_versions)
+    .filter(Boolean);
+  if (!ranges.some((range) => patchedRangeAdmits(range, version))) {
     throw new Error(
-      `${id} does not list ${version} as patched (patched: ${patched.join(", ") || "none"})`,
+      `${id} does not list ${version} as patched (patched: ${ranges.join("; ") || "none"})`,
     );
   }
   if (advisory.state === "draft") {
