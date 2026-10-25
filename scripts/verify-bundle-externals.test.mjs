@@ -54,6 +54,19 @@ describe("parseExternals", () => {
     );
   });
 
+  test("reads a tsdown config's hoisted EXTERNALS array", () => {
+    // tsdown's `neverBundle` matches a bare string on the exact specifier only,
+    // so the cli config keeps the names in a constant and maps each to a
+    // subpath pattern. The names are what the guard needs; the mapping is not.
+    const src = `const EXTERNALS = [
+      // "ghost" is prose.
+      "undici",
+      "zod",
+    ];
+    export default { deps: { neverBundle: EXTERNALS.flatMap(withSubpaths) } }`;
+    assert.deepEqual(parseExternals(src), ["undici", "zod"]);
+  });
+
   test("returns an empty list when there is no external array", () => {
     assert.deepEqual(parseExternals(`export default { entry: ["x.ts"] }`), []);
   });
@@ -134,6 +147,26 @@ describe("findInlinedExternals", () => {
     assert.deepEqual(violations, []);
   });
 
+  test("reads Rolldown's #region banners as well as the plain form", () => {
+    // Rolldown 1.2.13 — what the cli's tsdown build runs on — writes
+    // `//#region <path>`; 1.2.15 writes `// <path>` like esbuild. Missing
+    // either form would read that bundle as banner-less rather than check it.
+    const { noBanners, violations } = findInlinedExternals({
+      externals: ["zod"],
+      files: [
+        {
+          name: "index.js",
+          source:
+            "//#region ../../core/mcp/index.ts\nvar a = 1;\n//#endregion\n" +
+            "//#region ../../node_modules/zod/v4/index.js\nvar b = 2;\n//#endregion\n",
+        },
+      ],
+    });
+    assert.equal(noBanners, false);
+    assert.equal(violations.length, 1);
+    assert.equal(violations[0].pkg, "zod");
+  });
+
   test("matches a scoped package on its full name", () => {
     const { violations } = findInlinedExternals({
       externals: ["@napi-rs/keyring"],
@@ -168,7 +201,7 @@ describe("evaluateClient", () => {
   ];
 
   test("fails closed when no externals could be parsed", () => {
-    // A tsup refactor — `external: EXTERNALS`, or a line break after the colon —
+    // A config refactor — `external: EXTERNALS`, or a line break after the colon —
     // makes parseExternals return nothing. Checking zero packages and reporting
     // success would silently disable the guard on a change that looks harmless.
     const failures = evaluateClient({
@@ -189,7 +222,7 @@ describe("evaluateClient", () => {
       files: [{ name: "index.js", source: "var a=1;" }],
     });
     assert.equal(failures.length, 1);
-    assert.match(failures[0], /no esbuild module banners/);
+    assert.match(failures[0], /no module banners/);
   });
 
   test("reports one failure per inlined package", () => {
@@ -298,24 +331,24 @@ describe("evaluateClient", () => {
 describe("BUNDLED_CLIENTS", () => {
   test("is enrolled from what is actually on disk, not from itself", () => {
     // Asserting the hard-coded list equals a hard-coded copy of itself proves
-    // nothing — adding `clients/foo` with a tsup build would leave it green
-    // while the new bundle went unchecked. So the expected set is DISCOVERED:
-    // a client is tsup-bundled iff it ships a tsup config. `clients/launcher`
-    // is plain tsc, emits no bundle, and is correctly absent.
+    // nothing — adding `clients/foo` with a tsup or tsdown build would leave it
+    // green while the new bundle went unchecked. So the expected set is
+    // DISCOVERED: a client is bundled iff it ships a tsup or tsdown config.
+    // `clients/launcher` is plain tsc, emits no bundle, and is correctly absent.
     const clientsDir = path.join(repoRoot, "clients");
     const discovered = readdirSync(clientsDir)
       .filter((name) =>
         readdirSync(path.join(clientsDir, name)).some((f) =>
-          /^tsup(\..+)?\.config\.ts$/.test(f),
+          /^ts(up|down)(\..+)?\.config\.ts$/.test(f),
         ),
       )
       .sort();
 
-    assert.ok(discovered.length > 0, "no tsup-bundled clients discovered");
+    assert.ok(discovered.length > 0, "no bundled clients discovered");
     assert.deepEqual(
       BUNDLED_CLIENTS.map((c) => c.name).sort(),
       discovered,
-      "BUNDLED_CLIENTS is out of sync with the clients that ship a tsup config",
+      "BUNDLED_CLIENTS is out of sync with the clients that ship a tsup or tsdown config",
     );
   });
 

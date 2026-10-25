@@ -73,9 +73,13 @@ To run the CLI or TUI: `node clients/launcher/build/index.js --cli …` /
 `package.json`** — it is not published on its own. Each client bundles it via a
 build-time alias:
 
-- **CLI / TUI** — `esbuildOptions.alias` in `tsup.config.ts` maps
+- **TUI / mcpdo** — `esbuildOptions.alias` in `tsup.config.ts` maps
   `@inspector/core` → the repo `core/` directory, with
   `noExternal: [/^@inspector\/core/]` inlining it.
+- **CLI** — the same two settings under their tsdown names in
+  `tsdown.config.ts`: a top-level `alias`, and `deps.alwaysBundle` (#1492).
+  Its externals are `deps.neverBundle`, where a bare string matches the exact
+  specifier only — the config expands each name to cover its subpaths.
 - **Web** — **two** configs, because the client is two builds:
   `clients/web/vite.config.ts` for the browser app, and
   `clients/web/tsup.runner.config.ts` for the Node backend runner, which
@@ -178,7 +182,7 @@ toolchain". `tsx`, `playwright`, `storybook`, `happy-dom`, `ink-testing-library`
 `vite-node` and each client's own `@types/*` are toolchain too and stay where
 they are — hoisting them would make every client install the union of all five.
 So do the ones **more than one** client declares without all of them doing so:
-`tsup` sits in web, cli and tui, and `vite` in web and tui on top of the root
+`tsup` sits in web, mcpdo and tui, and `vite` in web and tui on top of the root
 _runtime_ `dependency` that `--web --dev` needs. Neither is in scope here;
 whether to consolidate them is a separate call with a separate rationale (`vite`
 especially, since its root declaration is a `dependency`, not a
@@ -270,7 +274,7 @@ Two live examples worth knowing:
 
 ### Why a root dependency must also be externalised
 
-tsup and Vite externalise what the **client's** `package.json` declares, and a
+tsup, tsdown and Vite externalise what the **client's** `package.json` declares, and a
 root-only dependency is in none of them — so it is **bundled**, silently. For a
 CJS package inlined into an ESM bundle that is fatal: esbuild leaves a
 `Dynamic require of "path" is not supported` shim that throws at _import_ time,
