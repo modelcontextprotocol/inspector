@@ -23,7 +23,7 @@ import {
 } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
-import { toolRowKey } from "../../../utils/toolUtils";
+import { compareToolsByLabel, toolRowKey } from "../../../utils/toolUtils";
 import { formatCountedLabel, listCountOf } from "../../../utils/listCount";
 
 export interface ToolControlsProps {
@@ -151,22 +151,24 @@ export function ToolControls({
 }: ToolControlsProps) {
   const viewportRef = useScrollMemory("tools-sidebar");
   const query = searchText.toLowerCase();
-  // Stamp each row's source position before filtering, so the key survives the
-  // list narrowing (#1957).
+  // Stamp each row's source position before filtering and sorting, so the key
+  // survives the list narrowing (#1957) and the reordering (#2782).
   const filteredTools = tools
     .map((tool, sourceIndex) => ({
       tool,
       key: toolRowKey(tool.name, sourceIndex),
     }))
-    .filter(({ tool }) => !searchText || matchesQuery(tool, query));
+    .filter(({ tool }) => !searchText || matchesQuery(tool, query))
+    .sort((a, b) => compareToolsByLabel(a.tool, b.tool));
   // Excluded tools are searchable too, matching name AND title like the main
-  // list above, so a filtered view stays consistent.
+  // list above, and sorted the same way, so a filtered view stays consistent.
   const filteredExcluded = excludedTools
     .map((excluded, sourceIndex) => ({
       ...excluded,
       key: excludedRowKey(excluded.tool.name, sourceIndex),
     }))
-    .filter(({ tool }) => !searchText || matchesQuery(tool, query));
+    .filter(({ tool }) => !searchText || matchesQuery(tool, query))
+    .sort((a, b) => compareToolsByLabel(a.tool, b.tool));
 
   // The server's total, not the search-filtered view: the header answers "how
   // many tools does this server expose" (#2607). Omitted until the first load

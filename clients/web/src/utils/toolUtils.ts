@@ -16,6 +16,28 @@ export function resolveDisplayLabel(name: string, title?: string): string {
   return title ?? name;
 }
 
+// Case-insensitive, with digit runs compared numerically, so `tool_2` sorts
+// before `tool_10` and `Git` beside `git` — the order a person scanning the
+// list expects, rather than raw code-unit order.
+const toolLabelCollator = new Intl.Collator(undefined, {
+  sensitivity: "base",
+  numeric: true,
+});
+
+/**
+ * Orders tools by the label their row shows ({@link resolveDisplayLabel}: the
+ * `title` when present, else the `name`), so the Tools sidebar reads
+ * alphabetically however the server ordered `tools/list` (#2782). Ties return
+ * 0, and `Array.prototype.sort` is stable, so duplicates keep their source
+ * order.
+ */
+export function compareToolsByLabel(a: Tool, b: Tool): number {
+  return toolLabelCollator.compare(
+    resolveDisplayLabel(a.name, a.title),
+    resolveDisplayLabel(b.name, b.title),
+  );
+}
+
 /**
  * True when the tool's input schema declares at least one property — used by
  * App-flow callers to decide whether to render a form or auto-launch. Kept in
