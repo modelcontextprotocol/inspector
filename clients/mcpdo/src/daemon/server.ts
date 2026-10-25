@@ -88,6 +88,15 @@ const autoCancelElicitationChannel: ElicitationChannel = {
   },
 };
 
+/**
+ * Opens one extra `--load-connections` session (#2800) sharing `primary`'s
+ * OAuth storage; aborting `signal` cancels the dial.
+ */
+type LoadClientOpener = (
+  primary: InspectorClient,
+  signal: AbortSignal,
+) => Promise<InspectorClient>;
+
 export type DaemonServerOptions = {
   dir?: string;
   idleMs?: number;
@@ -731,9 +740,7 @@ export class DaemonServer {
     requestId: string,
     params: RpcParams,
     load: LoadOptions,
-    openLoadClient:
-      | ((signal: AbortSignal) => Promise<InspectorClient>)
-      | undefined,
+    openLoadClient: LoadClientOpener | undefined,
     signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
@@ -778,7 +785,7 @@ export class DaemonServer {
           openConnection: async () => {
             // The run's signal reaches the dial too, so a stalled handshake
             // does not hold the queue past Ctrl-C or a dropped primary.
-            const extra = await openLoadClient(stop.signal);
+            const extra = await openLoadClient(client, stop.signal);
             // The same treatment as the primary: the caller hanging up
             // aborts the extras' in-flight calls too, and their elicitations
             // are cancelled rather than left pending with nobody to answer.
@@ -821,7 +828,7 @@ export class DaemonServer {
   private loadConnectionOpener(
     params: RpcParams,
     load: LoadOptions,
-  ): ((signal: AbortSignal) => Promise<InspectorClient>) | undefined {
+  ): LoadClientOpener | undefined {
     if (load.connections === undefined || load.connections <= 1) {
       return undefined;
     }
@@ -842,7 +849,8 @@ export class DaemonServer {
         serverSettings: connection.serverSettings,
       }),
     };
-    return (signal) => this.registry.openLoadClient(target, signal);
+    return (primary, signal) =>
+      this.registry.openLoadClient(target, primary, signal);
   }
 
   /**

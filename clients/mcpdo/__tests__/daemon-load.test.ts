@@ -57,6 +57,36 @@ vi.mock(
   }),
 );
 
+/**
+ * Observes the daemon's OAuth storage handling (#2800) without changing it:
+ * the real reset runs behind a spy, and the real class is counted.
+ */
+const oauthStorageMock = vi.hoisted(() => ({
+  constructed: 0,
+  reset: vi.fn(),
+}));
+vi.mock("@inspector/core/auth/node/storage-node.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("@inspector/core/auth/node/storage-node.js")
+    >();
+  oauthStorageMock.reset.mockImplementation(actual.resetNodeOAuthStorageCache);
+  return { ...actual, resetNodeOAuthStorageCache: oauthStorageMock.reset };
+});
+vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/auth/node/index.js")>();
+  class CountedNodeOAuthStorage extends actual.NodeOAuthStorage {
+    constructor(
+      ...args: ConstructorParameters<typeof actual.NodeOAuthStorage>
+    ) {
+      super(...args);
+      oauthStorageMock.constructed++;
+    }
+  }
+  return { ...actual, NodeOAuthStorage: CountedNodeOAuthStorage };
+});
+
 const runMethodMock = vi.hoisted(() => ({ calls: 0 }));
 vi.mock("@inspector/core/cli/handlers/run-method.js", () => ({
   runMethod: async () => {
@@ -314,6 +344,7 @@ describe("daemon rpc with --load", () => {
             url: "http://localhost:1/mcp",
           },
         },
+        fake.client,
         expect.any(AbortSignal),
       );
       expect(release).toHaveBeenCalledWith(extra.client);
@@ -332,7 +363,7 @@ describe("daemon rpc with --load", () => {
         return SUMMARY;
       };
       expect((await rpc({ load: MULTI })).ok).toBe(true);
-      expect(open.mock.calls[0]![1]).toBe(runSignal);
+      expect(open.mock.calls[0]![2]).toBe(runSignal);
     });
 
     it("dials the server the primary was resolved on, even if the default moves while queued", async () => {
@@ -369,6 +400,7 @@ describe("daemon rpc with --load", () => {
             url: "http://a.example/mcp",
           },
         },
+        fake.client,
         expect.any(AbortSignal),
       );
     });
@@ -431,11 +463,11 @@ describe("ConnectionRegistry load sessions", () => {
   const target = () => ({
     serverConfig: { type: "streamable-http" as const, url: httpServer.url },
   });
+  const primary = () => registry.resolve("remote", true).client;
 
   it("dials a separate, unlisted session that shutdown closes", async () => {
-    const primary = registry.resolve("remote", true).client;
-    const extra = await registry.openLoadClient(target());
-    expect(extra).not.toBe(primary);
+    const extra = await registry.openLoadClient(target(), primary());
+    expect(extra).not.toBe(primary());
     expect(extra.getStatus()).toBe("connected");
     expect(registry.list().map((c) => c.name)).toEqual(["remote"]);
     expect(registry.connectionCount()).toBe(1);
@@ -445,8 +477,19 @@ describe("ConnectionRegistry load sessions", () => {
     expect(disconnect).toHaveBeenCalledOnce();
   });
 
+  it("shares the primary's OAuth storage instead of a fresh token snapshot", async () => {
+    oauthStorageMock.reset.mockClear();
+    const constructedBefore = oauthStorageMock.constructed;
+    await registry.openLoadClient(target(), primary());
+    // A reset would orphan the primary's in-memory tokens, and a new storage
+    // would hold its own copy: either way a refresh-token rotation in one
+    // session would leave the others with an invalidated token.
+    expect(oauthStorageMock.reset).not.toHaveBeenCalled();
+    expect(oauthStorageMock.constructed).toBe(constructedBefore);
+  });
+
   it("leaves a released session to its run", async () => {
-    const extra = await registry.openLoadClient(target());
+    const extra = await registry.openLoadClient(target(), primary());
     await extra.disconnect();
     registry.releaseLoadClient(extra);
     const disconnect = vi.spyOn(extra, "disconnect");
@@ -455,7 +498,7 @@ describe("ConnectionRegistry load sessions", () => {
   });
 
   it("closes a session whose dial finished after shutdown began", async () => {
-    const opening = registry.openLoadClient(target());
+    const opening = registry.openLoadClient(target(), primary());
     const outcome = opening.catch((err: unknown) => err);
     await registry.disconnectAll();
     expect(await outcome).toMatchObject({
@@ -464,15 +507,18 @@ describe("ConnectionRegistry load sessions", () => {
   });
 
   it("refuses to open a session once the daemon is stopping", async () => {
+    const client = primary();
     await registry.disconnectAll();
-    await expect(registry.openLoadClient(target())).rejects.toMatchObject({
+    await expect(
+      registry.openLoadClient(target(), client),
+    ).rejects.toMatchObject({
       envelope: { code: "daemon_stopping" },
     });
   });
 
   it("cancels a dial when the run's signal aborts", async () => {
     const stop = new AbortController();
-    const opening = registry.openLoadClient(target(), stop.signal);
+    const opening = registry.openLoadClient(target(), primary(), stop.signal);
     stop.abort();
     await expect(opening).rejects.toThrow();
   });
