@@ -495,7 +495,7 @@ try {
     fail(
       `${unresolved.length} bare import(s) in the installed mcpdo bundle do not ` +
         `resolve — check the root package.json "dependencies" and mcpdo's ` +
-        `tsup "external" list:\n  ` +
+        `tsdown "EXTERNALS" list:\n  ` +
         unresolved.map((u) => `${u.specifier}: ${u.error}`).join("\n  "),
     );
   }

@@ -39,7 +39,7 @@ const NODE_ONLY_OPTIMIZE_DEPS_EXCLUDE = [
   // `/api/servers` handlers pull in via `core/auth/node/file-secret-store.ts`.
   // Same node-only import chain as `atomically` above, and the same reason:
   // it is CJS with a `graceful-fs`/`signal-exit`/`retry` graph that Vite's
-  // dev scanner has no business walking. Note the tsup `external` lists do
+  // dev scanner has no business walking. Note the tsdown `EXTERNALS` lists do
   // **not** cover this — they configure the production bundles, not `vite dev`.
   "proper-lockfile",
 ] as const;

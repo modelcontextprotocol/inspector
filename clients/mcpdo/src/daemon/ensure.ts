@@ -33,8 +33,9 @@ const READY_POLL_MS = 50;
  */
 export function resolveDaemonScriptPath(): string {
   // ensure.ts lives at src/daemon/ensure.ts → ../../build/mcpdod.js
-  // In the bundle, import.meta.url is build/mcpdod-*.js or similar; tsup emits
-  // ensure into the daemon entry chunk. Prefer an explicit sibling mcpdod.js.
+  // In the bundle, import.meta.url is whichever build/*.js chunk tsdown emitted
+  // ensure into (a hashed shared chunk or an entry); every chunk is written
+  // flat into build/, so prefer an explicit sibling mcpdod.js.
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
     path.resolve(here, "mcpdod.js"),

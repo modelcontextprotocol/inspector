@@ -42,7 +42,7 @@ npm run build      # tsc -b  →  vite build  →  build:runner
 Two artifacts come out, both of which ship in the published package:
 
 - **`dist/`** — the browser SPA (`vite build`). Served statically by the prod backend.
-- **`build/`** — the Node prod-server runner (`build:runner` = `tsup --config tsup.runner.config.ts`), which bundles `server/` + `@inspector/core` into one ESM file and externalizes npm deps.
+- **`build/`** — the Node prod-server runner (`build:runner` = `tsdown --config tsdown.runner.config.ts`), which bundles `server/` + `@inspector/core` into one ESM file and externalizes npm deps.
 
 `build:client` runs only the `vite build` half when you just need fresh `dist/`.
 

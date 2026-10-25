@@ -61,5 +61,5 @@
       "open": ["../../node_modules/open"]
     }
   },
-  "include": ["vite.config.ts", "tsup.runner.config.ts", "server/**/*.ts"]
+  "include": ["vite.config.ts", "tsdown.runner.config.ts", "server/**/*.ts"]
 }

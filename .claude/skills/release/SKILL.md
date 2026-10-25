@@ -85,7 +85,7 @@ Anything it reports is fixed **deliberately** — a direct bump, or an
 [Dependency placement](../../../AGENTS.md#dependency-placement) rules it out,
 and the reason is not `--force`: plain `audit fix` resolves an advisory that has
 no *upward* escape inside a declared range by silently **downgrading**. That is
-not hypothetical here — `tsup@8.5.1` declares `esbuild: ^0.27.0` against an
+not hypothetical here — `tsup@8.5.1` declared `esbuild: ^0.27.0` against an
 advisory covering `0.27.3 - 0.28.0`, and `audit fix` walked three installs back
 to `0.27.2` (~700 lines of lockfile churn for a low-severity dev-only advisory;
 tried and reverted in #2058, written up in the `local-dev` skill). `local:gate`

@@ -24,8 +24,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Options } from "tsup";
-import tsupConfig from "../tsup.config.js";
+import type { DepsConfig, UserConfig, UserConfigExport } from "tsdown";
+import tsdownConfig from "../tsdown.config.js";
 
 const clientDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -33,23 +33,41 @@ const clientDir = path.resolve(
 );
 
 /**
- * `defineConfig()` is typed as a union — a single options object, an array of
- * them, or a function returning either. The TUI config is the first form, so
- * narrow to it at runtime rather than assuming: a future config that grows a
- * second build should fail loudly here instead of silently checking nothing.
+ * tsdown's config export is a union — a single options object, an array of
+ * them, a function returning either, or a promise of any of those. The TUI
+ * config is the first form, so narrow to it at runtime rather than assuming: a
+ * future config that grows a second build should fail loudly here instead of
+ * silently checking nothing.
  */
-function singleConfig(config: typeof tsupConfig): Options {
-  if (typeof config !== "object" || Array.isArray(config)) {
+function singleConfig(config: UserConfigExport): UserConfig {
+  if (
+    typeof config !== "object" ||
+    Array.isArray(config) ||
+    config instanceof Promise
+  ) {
     throw new Error(
-      "clients/tui/tsup.config.ts is expected to export one options object",
+      "clients/tui/tsdown.config.ts is expected to export one options object",
     );
   }
   return config;
 }
 
-/** The string entries of an `external` / `noExternal` list (ours are all strings but the type allows RegExp). */
-function stringEntries(list: (string | RegExp)[] | undefined): string[] {
-  return (list ?? []).filter((entry) => typeof entry === "string");
+/**
+ * The string entries of a `deps.alwaysBundle` / `deps.neverBundle` option.
+ * Both also accept a lone entry, and `neverBundle` a function or `true`; a
+ * function or `true` has no names to read, so it fails loudly rather than
+ * letting every assertion below pass against an empty list.
+ */
+function stringEntries(
+  list: DepsConfig["alwaysBundle"] | DepsConfig["neverBundle"],
+): string[] {
+  if (typeof list === "function" || typeof list === "boolean") {
+    throw new Error(
+      "clients/tui/tsdown.config.ts deps lists are expected to be literal arrays",
+    );
+  }
+  const entries = list === undefined ? [] : Array.isArray(list) ? list : [list];
+  return entries.filter((entry) => typeof entry === "string");
 }
 
 /**
@@ -89,11 +107,11 @@ function reactRenderingDependencies(): string[] {
   );
 }
 
-const config = singleConfig(tsupConfig);
-const noExternal = stringEntries(config.noExternal);
-const external = stringEntries(config.external);
+const config = singleConfig(tsdownConfig);
+const noExternal = stringEntries(config.deps?.alwaysBundle);
+const external = stringEntries(config.deps?.neverBundle);
 
-describe("tui tsup config", () => {
+describe("tui tsdown config", () => {
   it("finds the React-rendering dependencies to check", () => {
     // A guard on the guard: if this resolves to nothing (a rename, a moved
     // node_modules), every assertion below would pass vacuously.
