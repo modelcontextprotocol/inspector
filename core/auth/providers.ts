@@ -1,6 +1,7 @@
 import type {
   OAuthClientProvider,
   OAuthClientInformationContext,
+  StoredOAuthClientInformation,
 } from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
@@ -311,11 +312,21 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   ): Promise<OAuthClientInformation | undefined> {
     // Try preregistered (static, issuer-independent) first, then the per-issuer
     // dynamic registration (SEP-2352 — keyed by `ctx.issuer`).
-    const preregistered = await this.storage.getClientInformation(
-      this.serverUrl,
-      true,
-    );
+    const preregistered: StoredOAuthClientInformation | undefined =
+      await this.storage.getClientInformation(this.serverUrl, true);
     if (preregistered) {
+      // The static client keeps the stamp the SDK gave it (#2751), but it is
+      // configured per server, not per AS — a stamp naming another issuer must
+      // not make the SDK discard it. Handed back unstamped, the SDK uses it and
+      // re-binds it to `ctx.issuer`, as it did before the stamp persisted. The
+      // comparison is exact: a false mismatch costs one warning and a re-stamp.
+      if (
+        ctx?.issuer !== undefined &&
+        preregistered.issuer !== undefined &&
+        preregistered.issuer !== ctx.issuer
+      ) {
+        return { ...preregistered, issuer: undefined };
+      }
       return preregistered;
     }
     return await this.storage.getClientInformation(
@@ -326,7 +337,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   }
 
   async saveClientInformation(
-    clientInformation: OAuthClientInformation,
+    clientInformation: StoredOAuthClientInformation,
     // SDK v2's `OAuthClientProvider.saveClientInformation` passes an
     // `OAuthClientInformationContext` ({ issuer }); our own DCR/CIMD callers
     // pass `SaveClientInformationOptions` ({ registrationKind }). Accept either
@@ -339,6 +350,13 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     options?: SaveClientInformationOptions | OAuthClientInformationContext,
   ): Promise<void> {
     const issuer = options && "issuer" in options ? options.issuer : undefined;
+    if (
+      issuer !== undefined &&
+      !(options && "registrationKind" in options) &&
+      (await this.backStampPreregistered(clientInformation, issuer))
+    ) {
+      return;
+    }
     const registrationKind =
       options && "registrationKind" in options
         ? options.registrationKind
@@ -351,6 +369,32 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
         issuer,
       },
     );
+  }
+
+  /**
+   * Write the SDK's issuer back-stamp of the static client onto the
+   * preregistered slot, where {@link clientInformation} reads it (#2751).
+   * `clientInformation()` answers from that slot first, so when the SDK
+   * stamps the `client_id` it was just handed, it is stamping the static
+   * client. Routed through `resolveSdkRegistrationKind` instead, the stamp
+   * landed in a per-issuer dynamic slot the preregistered read never looks at,
+   * so it was lost and the SDK warned again on every run. Returns whether the
+   * save was a back-stamp of the static client.
+   */
+  private async backStampPreregistered(
+    clientInformation: OAuthClientInformation,
+    issuer: string,
+  ): Promise<boolean> {
+    const preregistered = await this.storage.getClientInformation(
+      this.serverUrl,
+      true,
+    );
+    if (preregistered?.client_id !== clientInformation.client_id) return false;
+    await this.storage.savePreregisteredClientInformation(this.serverUrl, {
+      ...preregistered,
+      issuer,
+    });
+    return true;
   }
 
   /**
@@ -442,9 +486,21 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   async savePreregisteredClientInformation(
     clientInformation: OAuthClientInformation,
   ): Promise<void> {
+    // Called with the configured client on every startup. Carry the SDK's
+    // issuer stamp over while that client is unchanged, so re-seeding does not
+    // drop it (#2751); a changed client starts unstamped.
+    const existing: StoredOAuthClientInformation | undefined =
+      await this.storage.getClientInformation(this.serverUrl, true);
+    const stamp =
+      existing?.client_id === clientInformation.client_id &&
+      existing.client_secret === clientInformation.client_secret
+        ? existing.issuer
+        : undefined;
     await this.storage.savePreregisteredClientInformation(
       this.serverUrl,
-      clientInformation,
+      stamp === undefined
+        ? clientInformation
+        : { ...clientInformation, issuer: stamp },
     );
   }
 
