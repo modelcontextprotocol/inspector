@@ -293,6 +293,13 @@ test("withSecurityFixes puts the fixes first and the PRs under Other changes", (
       "**Full Changelog**: c",
     ].join("\n"),
   );
+  // A CRLF heading is still found, not duplicated.
+  const crlf = withSecurityFixes(
+    "## What's Changed\r\n* pr\r\n",
+    advisories.slice(0, 1),
+  );
+  assert.equal(crlf.match(/## What's Changed/g).length, 1);
+  assert.match(crlf, /### Other changes\n\n\* pr\r\n$/);
   // No PRs means no What's Changed heading to insert under: add one.
   assert.equal(
     withSecurityFixes("**Full Changelog**: c", advisories.slice(0, 1)),

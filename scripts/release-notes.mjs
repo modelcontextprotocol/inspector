@@ -394,7 +394,8 @@ export function formatSecurityFixes(advisories) {
 export function withSecurityFixes(generated, advisories) {
   if (advisories.length === 0) return generated;
   const security = `### Security fixes\n\n${formatSecurityFixes(advisories)}`;
-  const heading = /^## What's Changed[ \t]*\n/m;
+  // `\r?`: a body edited in the Releases UI comes back CRLF.
+  const heading = /^## What's Changed[ \t]*\r?\n/m;
   if (!heading.test(generated)) {
     return `## What's Changed\n\n${security}\n\n${generated}`;
   }
