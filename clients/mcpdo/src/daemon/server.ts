@@ -618,6 +618,14 @@ export class DaemonServer {
     const connectionName = park
       ? this.registry.connectionFor(params.name, params.requireExplicit).name
       : undefined;
+    // Resolved in the same synchronous step as the primary client below
+    // (`liveClientFor` resolves before its first await), so the extra
+    // sessions dial the server the primary is on even if the default
+    // connection changes while this run waits in the queue (#2800).
+    const openLoadClient =
+      params.load !== undefined
+        ? this.loadConnectionOpener(params, params.load)
+        : undefined;
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
@@ -640,6 +648,7 @@ export class DaemonServer {
           requestId,
           params,
           params.load,
+          openLoadClient,
           signal,
         );
       }
@@ -722,6 +731,9 @@ export class DaemonServer {
     requestId: string,
     params: RpcParams,
     load: LoadOptions,
+    openLoadClient:
+      | ((signal: AbortSignal) => Promise<InspectorClient>)
+      | undefined,
     signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
@@ -733,7 +745,6 @@ export class DaemonServer {
         { code: "connection_stale" },
       );
     }
-    const openConnection = this.loadConnectionOpener(params, load);
     // Many calls share one bridge subscriber, so an elicitation could not be
     // routed back to the call that raised it, and nobody is at the stream to
     // answer one mid-run anyway: cancel each, as the in-process default does.
@@ -763,9 +774,11 @@ export class DaemonServer {
     try {
       const summary = await runToolLoad(client, methodArgs, load, {
         signal: stop.signal,
-        ...(openConnection && {
+        ...(openLoadClient && {
           openConnection: async () => {
-            const extra = await openConnection();
+            // The run's signal reaches the dial too, so a stalled handshake
+            // does not hold the queue past Ctrl-C or a dropped primary.
+            const extra = await openLoadClient(stop.signal);
             // The same treatment as the primary: the caller hanging up
             // aborts the extras' in-flight calls too, and their elicitations
             // are cancelled rather than left pending with nobody to answer.
@@ -798,16 +811,17 @@ export class DaemonServer {
   }
 
   /**
-   * The `openConnection` for a `--load-connections` run (#2800), or
-   * `undefined` for a single-session run. Checked before the run starts:
-   * over stdio every session would spawn its own server process, testing N
-   * isolated servers rather than one server under N sessions, so it is
-   * refused exactly as the one-shot CLI refuses it (#2746).
+   * The extra-session opener for a `--load-connections` run (#2800), bound
+   * to the connection's server config as resolved now, or `undefined` for a
+   * single-session run. Checked before the run is queued: over stdio every
+   * session would spawn its own server process, testing N isolated servers
+   * rather than one server under N sessions, so it is refused exactly as the
+   * one-shot CLI refuses it (#2746).
    */
   private loadConnectionOpener(
     params: RpcParams,
     load: LoadOptions,
-  ): (() => Promise<InspectorClient>) | undefined {
+  ): ((signal: AbortSignal) => Promise<InspectorClient>) | undefined {
     if (load.connections === undefined || load.connections <= 1) {
       return undefined;
     }
@@ -822,8 +836,13 @@ export class DaemonServer {
         { code: "load_flag_conflict" },
       );
     }
-    const name = connection.name;
-    return () => this.registry.openLoadClient(name);
+    const target = {
+      serverConfig: connection.serverConfig,
+      ...(connection.serverSettings && {
+        serverSettings: connection.serverSettings,
+      }),
+    };
+    return (signal) => this.registry.openLoadClient(target, signal);
   }
 
   /**

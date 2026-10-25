@@ -307,9 +307,70 @@ describe("daemon rpc with --load", () => {
       const response = await rpc({ load: MULTI });
       expect(response.ok).toBe(true);
       expect(opened).toBe(extra.client);
-      expect(open).toHaveBeenCalledWith("srv");
+      expect(open).toHaveBeenCalledWith(
+        {
+          serverConfig: {
+            type: "streamable-http",
+            url: "http://localhost:1/mcp",
+          },
+        },
+        expect.any(AbortSignal),
+      );
       expect(release).toHaveBeenCalledWith(extra.client);
       expect(extra.ambient()).toBeUndefined();
+    });
+
+    it("hands the run's signal to the dial, so a stalled handshake cancels", async () => {
+      const { open } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      let runSignal: AbortSignal | undefined;
+      loadMock.impl = async (_client, _args, _options, run) => {
+        runSignal = run.signal;
+        await run.openConnection!();
+        return SUMMARY;
+      };
+      expect((await rpc({ load: MULTI })).ok).toBe(true);
+      expect(open.mock.calls[0]![1]).toBe(runSignal);
+    });
+
+    it("dials the server the primary was resolved on, even if the default moves while queued", async () => {
+      const { open } = useConnection({
+        type: "streamable-http",
+        url: "http://a.example/mcp",
+      });
+      // A first run holds the connection's queue until its signal aborts.
+      const firstStarted = runUntilAborted();
+      const blocker = new AbortController();
+      const first = rpc({ load: LOAD }, blocker.signal);
+      await firstStarted;
+      // The second run resolves its connection now, then waits in the queue.
+      const second = rpc({ load: MULTI });
+      await vi.waitFor(() =>
+        expect(server.registry.liveClientFor).toHaveBeenCalledTimes(2),
+      );
+      // While it waits, the default connection changes to another server.
+      vi.mocked(server.registry.connectionFor).mockReturnValue({
+        name: "other",
+        serverConfig: { type: "streamable-http", url: "http://b.example/mcp" },
+      } as ReturnType<typeof server.registry.connectionFor>);
+      loadMock.impl = async (_client, _args, _options, run) => {
+        await run.openConnection!();
+        return SUMMARY;
+      };
+      blocker.abort();
+      await first;
+      expect((await second).ok).toBe(true);
+      expect(open).toHaveBeenCalledWith(
+        {
+          serverConfig: {
+            type: "streamable-http",
+            url: "http://a.example/mcp",
+          },
+        },
+        expect.any(AbortSignal),
+      );
     });
 
     it("gives a single-session run no way to open more", async () => {
@@ -367,9 +428,13 @@ describe("ConnectionRegistry load sessions", () => {
     await httpServer.stop();
   });
 
+  const target = () => ({
+    serverConfig: { type: "streamable-http" as const, url: httpServer.url },
+  });
+
   it("dials a separate, unlisted session that shutdown closes", async () => {
     const primary = registry.resolve("remote", true).client;
-    const extra = await registry.openLoadClient("remote");
+    const extra = await registry.openLoadClient(target());
     expect(extra).not.toBe(primary);
     expect(extra.getStatus()).toBe("connected");
     expect(registry.list().map((c) => c.name)).toEqual(["remote"]);
@@ -381,7 +446,7 @@ describe("ConnectionRegistry load sessions", () => {
   });
 
   it("leaves a released session to its run", async () => {
-    const extra = await registry.openLoadClient("remote");
+    const extra = await registry.openLoadClient(target());
     await extra.disconnect();
     registry.releaseLoadClient(extra);
     const disconnect = vi.spyOn(extra, "disconnect");
@@ -390,7 +455,7 @@ describe("ConnectionRegistry load sessions", () => {
   });
 
   it("closes a session whose dial finished after shutdown began", async () => {
-    const opening = registry.openLoadClient("remote");
+    const opening = registry.openLoadClient(target());
     const outcome = opening.catch((err: unknown) => err);
     await registry.disconnectAll();
     expect(await outcome).toMatchObject({
@@ -400,8 +465,15 @@ describe("ConnectionRegistry load sessions", () => {
 
   it("refuses to open a session once the daemon is stopping", async () => {
     await registry.disconnectAll();
-    await expect(registry.openLoadClient("remote")).rejects.toMatchObject({
+    await expect(registry.openLoadClient(target())).rejects.toMatchObject({
       envelope: { code: "daemon_stopping" },
     });
+  });
+
+  it("cancels a dial when the run's signal aborts", async () => {
+    const stop = new AbortController();
+    const opening = registry.openLoadClient(target(), stop.signal);
+    stop.abort();
+    await expect(opening).rejects.toThrow();
   });
 });

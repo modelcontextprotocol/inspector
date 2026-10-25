@@ -475,17 +475,24 @@ export class ConnectionRegistry {
   }
 
   /**
-   * Open one extra session to `name`'s server for a `--load-connections` run
-   * (#2800): a fresh client built from the connection's stored server config
-   * and settings, dialed the way a revive dials — stored credentials only, so
-   * an extra never starts an interactive sign-in mid-run. The caller owns the
-   * returned client and must hand it to {@link releaseLoadClient} once it has
-   * disconnected it. A failed dial leaves nothing behind.
+   * Open one extra session for a `--load-connections` run (#2800): a fresh
+   * client built from a connection's stored server config and settings
+   * (captured by the caller when it resolved the primary), dialed the way a
+   * revive dials — stored credentials only, so an extra never starts an
+   * interactive sign-in mid-run. Aborting `signal` cancels a dial still in
+   * progress. The caller owns the returned client and must hand it to
+   * {@link releaseLoadClient} once it has disconnected it. A failed dial
+   * leaves nothing behind.
    */
-  async openLoadClient(name: string): Promise<InspectorClient> {
+  async openLoadClient(
+    target: {
+      serverConfig: MCPServerConfig;
+      serverSettings?: InspectorServerSettings;
+    },
+    signal?: AbortSignal,
+  ): Promise<InspectorClient> {
     this.assertOpen();
-    const connection = this.resolve(name, true);
-    const client = await this.dial(connection);
+    const client = await this.dial(target, signal);
     if (this.closed) {
       // Shutdown ran while dialing, past the point where it closes these.
       await safeDisconnect(client);
