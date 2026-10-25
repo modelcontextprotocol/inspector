@@ -304,6 +304,14 @@ describe("InspectorClient OAuth fetchFn", () => {
       );
       expect(oauthFetch).toHaveBeenCalledTimes(1);
       expect(plain).toHaveBeenCalledTimes(1);
+
+      // Same-origin discovery is OAuth too, despite the origin-wide exemption
+      // (Copilot, #2796).
+      await transportFetch(
+        "http://localhost:3000/.well-known/oauth-protected-resource",
+      );
+      expect(oauthFetch).toHaveBeenCalledTimes(2);
+      expect(plain).toHaveBeenCalledTimes(1);
     });
   });
 });

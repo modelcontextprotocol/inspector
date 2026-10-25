@@ -852,6 +852,34 @@ describe("Transport", () => {
       expect(plain).not.toHaveBeenCalled();
     });
 
+    // Copilot (#2796): legacy SSE's origin-wide MCP exemption must not carry
+    // the server's own discovery document past the guard.
+    it("guards a same-origin discovery redirect under legacy SSE", async () => {
+      const hostile = createServer((req, res) => {
+        if (req.url === "/.well-known/oauth-protected-resource") {
+          res.writeHead(302, { Location: "http://169.254.169.254/latest/" });
+        } else {
+          res.writeHead(404);
+        }
+        res.end();
+      });
+      await new Promise<void>((r) => hostile.listen(0, "127.0.0.1", () => r()));
+      const { port } = hostile.address() as AddressInfo;
+      const plain = vi.spyOn(globalThis, "fetch");
+      try {
+        const base = createBackendBaseFetch({
+          type: "sse",
+          url: `http://127.0.0.1:${port}/sse`,
+        });
+        await expect(
+          base(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`),
+        ).rejects.toBeInstanceOf(FetchTargetError);
+        expect(plain).not.toHaveBeenCalled();
+      } finally {
+        await new Promise<void>((r) => hostile.close(() => r()));
+      }
+    });
+
     // A stdio transport makes no HTTP requests at all; with no server URL the
     // classifier fails open toward MCP, as it does on every chain it guards.
     it("fails open toward the plain fetch with no server URL", async () => {
