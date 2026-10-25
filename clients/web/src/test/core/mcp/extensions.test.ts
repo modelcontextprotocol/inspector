@@ -8,7 +8,7 @@ import {
   isAdvertisedByDefault,
 } from "@inspector/core/mcp/extensions.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
-import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
+import { SKILLS_EXTENSION_KEY } from "@inspector/core/extension/skills/schemas.js";
 
 // The `ui` extension carries a non-empty advertisement value; the others are
 // declared with `{}`. Spelled out here so the map assertions stay readable.

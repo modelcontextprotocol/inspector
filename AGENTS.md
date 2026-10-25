@@ -53,6 +53,8 @@ inspector/
 │   │                 exit codes, interactive OAuth flow, output styling); tested + gated by clients/cli
 │   ├── client/       Install-level client config (`client.json`)
 │   ├── extension/    Host-side adapters for MCP extensions whose protocol an upstream SDK owns
+│   │   ├── skills/   What the SDK's Skills client leaves to an inspector: permissive entry schemas, the
+│   │   │             per-check conformance + verification report, SKILL.md frontmatter parsing
 │   │   └── tasks/    The Inspector's glue around `@modelcontextprotocol/ext-tasks` (raw dispatch, progress routing)
 │   ├── json/         JSON/schema utilities shared by all three form builders
 │   ├── logging/      Silent pino logger singleton

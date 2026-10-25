@@ -3,7 +3,7 @@ import {
   createTestServerHttp,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
+import type { SkillVerifyReport } from "@inspector/core/extension/skills/verification.js";
 import { runCli } from "../src/cli.js";
 import { consumeMethodOutcome } from "../src/handlers/consume-outcome.js";
 import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";

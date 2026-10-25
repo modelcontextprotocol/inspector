@@ -28,7 +28,7 @@ import {
 import { useTickingClock } from "../../../hooks/useTickingClock";
 import type { ListCount } from "../../../utils/listCount";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
-import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
+import { getSkillsExtension } from "@inspector/core/extension/skills/conformance.js";
 import type { OAuthClientRegistrationKind } from "@inspector/core/auth/types.js";
 import {
   CapabilityItem,

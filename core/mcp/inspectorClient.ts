@@ -194,8 +194,11 @@ import {
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   type SkillEntry,
-} from "./skillsSchemas.js";
-import { getSkillsExtension, type SkillsExtensionSupport } from "./skills.js";
+} from "../extension/skills/schemas.js";
+import {
+  getSkillsExtension,
+  type SkillsExtensionSupport,
+} from "../extension/skills/conformance.js";
 import {
   getElicitationUiResourceUri,
   isFormElicitation,

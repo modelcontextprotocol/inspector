@@ -47,7 +47,7 @@ import {
 import {
   isSkillCatalogLimit,
   resolveSkillCatalogBudget,
-} from "@inspector/core/mcp/skills.js";
+} from "@inspector/core/extension/skills/conformance.js";
 import type { Root } from "@modelcontextprotocol/client";
 
 /**
