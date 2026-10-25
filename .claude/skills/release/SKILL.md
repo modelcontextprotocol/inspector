@@ -440,9 +440,13 @@ uncontrolled dependency update (seen on 1.0.2, #2080). The edits are:
 Then prove the edit is complete and touched nothing else:
 
 ```sh
-npm run check-version          # every version field agrees
-npm ci && git status --short   # must print nothing: npm ci left the lockfile alone
+npm run check-version                       # every version field agrees
+cp package-lock.json /tmp/lock-before.json
+npm ci && cmp package-lock.json /tmp/lock-before.json   # silent: npm ci left the lockfile alone
 ```
+
+Compare the lockfile against itself, not against `git status`: the bump is
+still uncommitted here, so the worktree is dirty by design.
 
 ### v1-2. Merge order: the bump merges last
 
@@ -499,8 +503,11 @@ before concluding anything failed. Confirm the release still shows
 `isLatest: false`:
 
 ```sh
-gh release view X.Y.Z --repo modelcontextprotocol/inspector --json isLatest
+gh release list --repo modelcontextprotocol/inspector --limit 100 \
+  --json tagName,isLatest --jq '.[] | select(.tagName == "X.Y.Z")'
 ```
+
+(`gh release view` has no `isLatest` field; `gh release list` does.)
 
 ### v1-6. Release notes for unpublished advisories
 
