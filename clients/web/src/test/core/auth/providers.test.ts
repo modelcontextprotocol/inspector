@@ -702,6 +702,40 @@ describe("OAuthNavigation", () => {
           }),
         ).toBe("mcp");
       });
+
+      // Copilot on #2809: the #2068 helper re-adds a configured
+      // `offline_access`. After the configuration gained it, that token is not
+      // in the recorded grant, and asking a refresh for it fails with
+      // `invalid_scope` — so the fallback must stay within the record.
+      it("never adds a scope the recorded grant lacks", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp",
+          configuredScope: "mcp offline_access",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+
+      it("returns undefined when the filter removes the whole recorded scope", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "offline_access",
+          configuredScope: "mcp",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBeUndefined();
+      });
     });
 
     describe("SEP-2352 issuer threading", () => {

@@ -275,7 +275,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
    *    storage. A token response may omit `scope` when it equals the requested
    *    one (RFC 6749 §5.1), so this is what was granted in that case. It is the
    *    same value {@link scope} requests with, so it gets the same #2068
-   *    `offline_access` filter — see {@link scopeForDeclinedRefreshGrant}.
+   *    `offline_access` filter — see {@link scopeForDeclinedRefreshGrant} —
+   *    applied only to remove tokens, never to add one the record lacks.
    * 3. **The configured scope**, for a store that recorded no request scope.
    *
    * A step-up that would *widen* the grant never reaches here: the SDK skips
@@ -292,10 +293,19 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
       (await this.storage.getScope(this.serverUrl))?.trim() ||
       this.configuredScope?.trim() ||
       undefined;
-    if (!this.requestRefreshToken) {
-      return scopeForDeclinedRefreshGrant(requested, this.configuredScope);
-    }
-    return requested;
+    if (!requested || this.requestRefreshToken) return requested;
+    // The #2068 filter may only *remove* here. It can also add a configured
+    // `offline_access` back, which is right for an authorization request but
+    // not for a refresh: after a configuration change that token may not be
+    // in the recorded grant, and asking for it fails an ordinary refresh with
+    // `invalid_scope`. So keep only what both the filter and the record allow.
+    const allowed = new Set(
+      scopeForDeclinedRefreshGrant(requested, this.configuredScope)?.split(
+        /\s+/,
+      ),
+    );
+    const kept = requested.split(/\s+/).filter((token) => allowed.has(token));
+    return kept.length > 0 ? kept.join(" ") : undefined;
   }
 
   get redirectUrl(): string {
