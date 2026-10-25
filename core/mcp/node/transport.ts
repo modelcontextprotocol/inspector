@@ -17,6 +17,9 @@ import {
   createAuthChallengeObserverFetch,
 } from "./authChallengeFetch.js";
 import { createProxyFetch } from "./proxyFetch.js";
+import { createGuardedFetch } from "./fetchGuard.js";
+import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
+import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 
@@ -35,6 +38,26 @@ function headersFromSettings(
     out[key] = value;
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * The base fetch for a transport whose caller supplies none — the web backend.
+ *
+ * MCP-endpoint requests go out on the proxy-aware plain fetch. Everything else
+ * on the chain is the OAuth work the SDK runs from inside the transport on a
+ * 401 or a refresh, with the tokens the browser handed the backend and on URLs
+ * the server under test chose, so it goes through the destination guard
+ * (#2749), as the browser's own OAuth does via `/api/fetch`.
+ */
+export function createBackendBaseFetch(config: MCPServerConfig): typeof fetch {
+  return routeOAuthRequests(
+    createProxyFetch() ?? globalThis.fetch,
+    createGuardedFetch(),
+    exemptMcpEndpoint(
+      () => ("url" in config ? config.url : undefined),
+      () => getServerType(config) === "sse",
+    ),
+  );
 }
 
 /**
@@ -68,8 +91,9 @@ export function createTransportNode(
   // a proxy-aware base when one is needed — the Node clients install
   // `createProxyFetch()` as `environment.fetch`, and `InspectorClient` wraps
   // that. The fallback is for the one caller that supplies nothing: the web
-  // backend (`core/mcp/remote/node/server.ts`), which calls this directly.
-  const baseFetch = optionsFetchFn ?? createProxyFetch() ?? globalThis.fetch;
+  // backend (`core/mcp/remote/node/server.ts`), which calls this directly,
+  // and it routes OAuth through the destination guard (#2749).
+  const baseFetch = optionsFetchFn ?? createBackendBaseFetch(config);
   // Purely passive, so — unlike proxying and interception — it is safe to
   // apply to any fetch, including a caller's explicit one.
   const withChallengeObserver = (inner: typeof fetch): typeof fetch =>

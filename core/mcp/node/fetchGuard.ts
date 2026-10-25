@@ -1,12 +1,11 @@
 /**
- * Destination guard for the web backend's `POST /api/fetch` route (#2749).
+ * Destination guard for the OAuth requests every Node client makes (#2749).
  *
- * The route is the browser's only way out to the network, and it carries the
- * web client's OAuth traffic — discovery, protected-resource metadata, token,
- * DCR/CIMD, revocation — some of whose URLs come from the server under test.
- * Without a guard, a hostile server can point that traffic at the host's
- * cloud instance-metadata endpoint and read the answer back through the
- * Network log. This is v1's `/fetch` guard (`server/src/proxy-security.ts`
+ * OAuth discovery, protected-resource metadata, token, DCR/CIMD and revocation
+ * URLs come partly from the server under test. Without a guard, a hostile
+ * server can point that traffic at the host's cloud instance-metadata endpoint
+ * and read the answer back — through the web client's Network log, or a CLI's
+ * error output. This is v1's `/fetch` guard (`server/src/proxy-security.ts`
  * and `proxy-redirect.ts` on `v1/main`, #1717 / #1732), ported:
  *
  *  - **Scheme:** `http:` and `https:` only, on every hop.
@@ -17,6 +16,20 @@
  *  - **Redirects:** followed here, with `redirect: "manual"`, so each hop is
  *    re-validated. The per-hop rewrite the fetch library used to do moves here
  *    with it ({@link nextRedirectRequest}).
+ *
+ * ## Where it applies
+ *
+ * To OAuth traffic only, never to the MCP endpoint a user configured.
+ *
+ *  - The web backend's `POST /api/fetch` ({@link guardedFetch}), which carries
+ *    every OAuth request the browser makes.
+ *  - `InspectorClientEnvironment.oauthFetch` ({@link createGuardedFetch}),
+ *    which the CLI, TUI and mcpdo fill. `InspectorClient` routes the
+ *    transport chain's non-MCP requests there too (`routeOAuthRequests`), so
+ *    the discovery the SDK runs from inside a transport on a 401 or a refresh
+ *    is covered as well.
+ *  - The web backend's own transport (`createTransportNode`), routed the same
+ *    way, since the SDK refreshes there with the tokens the browser handed it.
  *
  * ## DNS: checked and pinned in one step
  *
@@ -30,28 +43,33 @@
  *
  * ## What the guard can promise behind a proxy
  *
- * When `HTTPS_PROXY` / `HTTP_PROXY` is set the route goes through
- * `createProxyFetch()`, and the **proxy** resolves the name, not us. Scheme,
- * redirect re-validation and IP literals are enforced exactly as above. A
- * hostname is resolved locally as a best-effort check — refused if it resolves
- * to a blocked address here, allowed if it does not resolve here at all (behind
- * a corporate proxy local DNS often cannot see external names) — but it cannot
- * be pinned, and the proxy is free to resolve it differently. In that
- * configuration the proxy is the network boundary, and keeping the metadata
- * service out of reach is its job.
+ * When `HTTPS_PROXY` / `HTTP_PROXY` is set the request goes through undici's
+ * `EnvHttpProxyAgent`, built with the same pinning lookup. That agent hands
+ * `connect` to its `NO_PROXY` agent only — `ProxyAgent` builds its connectors
+ * from `proxyTls` / `requestTls` — so a host that bypasses the proxy is pinned
+ * exactly as on the direct path, and the proxy's own address is not checked.
  *
- * ## Out of scope
- *
- * The CLI and TUI make the same OAuth discovery requests directly from Node,
- * without this route. Whether they share the guard is a separate decision.
+ * A proxied host is resolved by the **proxy**, not by us. Scheme, redirect
+ * re-validation and IP literals are enforced as above, and the hostname is
+ * resolved locally as a best-effort check — refused if it resolves to a
+ * blocked address here, allowed if it does not resolve here at all (behind a
+ * corporate proxy local DNS often cannot see external names) — but the proxy
+ * is free to resolve it differently. For that traffic the proxy is the network
+ * boundary, and keeping the metadata service out of reach is its job.
  */
 
 import type { LookupAddress } from "node:dns";
 import { lookup as dnsLookup } from "node:dns/promises";
 import { isIP, type LookupFunction } from "node:net";
-import { asUndiciInit, toGlobalResponse } from "../../node/proxyFetch.js";
+import type { Dispatcher } from "undici";
+import {
+  callerSignalOf,
+  requestHeadersOf,
+  requestUrlOf,
+} from "../../auth/requestTimeout.js";
+import { asUndiciInit, readProxyEnv, toGlobalResponse } from "./proxyFetch.js";
 
-/** Raised when `/api/fetch` is asked to reach a destination it refuses. */
+/** Raised when a guarded fetch is asked to reach a destination it refuses. */
 export class FetchTargetError extends Error {
   override name = "FetchTargetError";
 }
@@ -59,8 +77,17 @@ export class FetchTargetError extends Error {
 /** Hops followed after the first request before giving up, as in v1. */
 export const MAX_FETCH_REDIRECTS = 5;
 
+/**
+ * The statuses the Fetch standard follows. Any other 3xx — a 300 Multiple
+ * Choices, a 304 Not Modified — is a response, Location or not, and is
+ * relayed as one, as the fetch this guard replaced did.
+ */
+const REDIRECT_STATUSES: ReadonlySet<number> = new Set([
+  301, 302, 303, 307, 308,
+]);
+
 /** The one fetch shape this module calls: a string URL and a full init. */
-type HopFetch = (url: string, init: RequestInit) => Promise<Response>;
+export type HopFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 /** Resolves a hostname to every address it currently has. */
 export type ResolveHost = (hostname: string) => Promise<string[]>;
@@ -73,7 +100,7 @@ const resolveWithSystemDns: ResolveHost = async (hostname) =>
 // ---------------------------------------------------------------------------
 
 /**
- * Whether `ip` is a link-local or cloud-metadata address that `/api/fetch`
+ * Whether `ip` is a link-local or cloud-metadata address that a guarded fetch
  * must never reach.
  *
  *  - `169.254.0.0/16` (IPv4 link-local; includes the `169.254.169.254` IMDS)
@@ -171,29 +198,44 @@ export function createPinningLookup(resolveHost: ResolveHost): LookupFunction {
 }
 
 /**
- * One undici `fetch` per resolver, each over a pinned `Agent`, so every
- * request with the system resolver shares one connection pool. Keyed weakly so
- * a resolver a test injects is collected with it.
+ * One undici `fetch` per resolver and proxy setting, each over a dispatcher
+ * built with the pinning lookup, so every request with the system resolver
+ * shares one connection pool. Keyed weakly on the resolver so one a test
+ * injects is collected with it; keyed on the proxy URL because
+ * `EnvHttpProxyAgent` captures it at construction.
  */
-const directFetches = new WeakMap<ResolveHost, Promise<HopFetch>>();
+const hopFetches = new WeakMap<ResolveHost, Map<string, Promise<HopFetch>>>();
 
 /** undici is loaded lazily, as `proxyFetch.ts` does, on the first request. */
-async function loadDirectFetch(resolveHost: ResolveHost): Promise<HopFetch> {
+async function loadHopFetch(
+  resolveHost: ResolveHost,
+  proxied: boolean,
+): Promise<HopFetch> {
   const undici = await import("undici");
-  const dispatcher = new undici.Agent({
-    connect: { lookup: createPinningLookup(resolveHost) },
-  });
+  const connect = { lookup: createPinningLookup(resolveHost) };
+  const dispatcher: Dispatcher = proxied
+    ? new undici.EnvHttpProxyAgent({ connect })
+    : new undici.Agent({ connect });
   return async (url, init) =>
     toGlobalResponse(
       await undici.fetch(url, { ...asUndiciInit(init), dispatcher }),
     );
 }
 
-function directFetch(resolveHost: ResolveHost): Promise<HopFetch> {
-  let loaded = directFetches.get(resolveHost);
+function hopFetchFor(
+  resolveHost: ResolveHost,
+  proxyUrl: string | undefined,
+): Promise<HopFetch> {
+  let byProxy = hopFetches.get(resolveHost);
+  if (byProxy === undefined) {
+    byProxy = new Map();
+    hopFetches.set(resolveHost, byProxy);
+  }
+  const key = proxyUrl ?? "";
+  let loaded = byProxy.get(key);
   if (loaded === undefined) {
-    loaded = loadDirectFetch(resolveHost);
-    directFetches.set(resolveHost, loaded);
+    loaded = loadHopFetch(resolveHost, proxyUrl !== undefined);
+    byProxy.set(key, loaded);
   }
   return loaded;
 }
@@ -280,7 +322,7 @@ function rewritesToGet(status: number, method: string): boolean {
  *    {@link BODY_HEADERS} with it.
  *  - **A body never crosses an origin.** A cross-origin hop still carrying a
  *    body after that rewrite — a 307/308 of a POST — is refused, since a
- *    proxied body here is typically an OAuth form holding a refresh token or
+ *    request body here is typically an OAuth form holding a refresh token or
  *    client secret.
  *
  * Returns a fresh headers object every hop, so the caller's input is never
@@ -317,34 +359,68 @@ export function nextRedirectRequest(
 // The guarded fetch
 // ---------------------------------------------------------------------------
 
-/** The request `/api/fetch` was asked to make. */
+/** The request a guarded fetch was asked to make. */
 export interface GuardedFetchInit {
   method: string;
   headers: Record<string, string>;
   body: string | undefined;
-  signal: AbortSignal;
+  signal?: AbortSignal;
 }
 
 export interface GuardedFetchOptions {
-  /**
-   * The proxy-aware fetch from `createProxyFetch()`, when a proxy is
-   * configured. Its presence is what switches the guard to the best-effort
-   * mode described in the module header.
-   */
-  proxyFetch?: typeof fetch;
   /** Overrides the system resolver. For tests. */
   resolveHost?: ResolveHost;
+  /**
+   * Overrides the fetch each hop is made with, which otherwise is undici over
+   * the pinning lookup. For tests of the hop loop, which then needs no socket.
+   */
+  hopFetch?: HopFetch;
+  /**
+   * Whether a proxy is in play, which switches hostnames to the best-effort
+   * local check described in the module header. Read from the environment
+   * when absent; set only by tests.
+   */
+  viaProxy?: boolean;
+}
+
+/**
+ * `resolveHost(host)`, rejecting with the signal's reason as soon as it
+ * aborts. A local resolver that stalls must not hold a cancelled or timed-out
+ * request open — the signal otherwise only reaches the fetch after it.
+ */
+function resolveUnlessAborted(
+  resolveHost: ResolveHost,
+  host: string,
+  signal: AbortSignal | undefined,
+): Promise<string[]> {
+  if (signal === undefined) return resolveHost(host);
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    resolveHost(host).then(
+      (addresses) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(addresses);
+      },
+      (err: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(err);
+      },
+    );
+  });
 }
 
 /**
  * Checks `url` before it is requested. The scheme and an IP literal are
  * checked on every path; a hostname is checked here only behind a proxy, since
- * on the direct path the pinning lookup checks it as the socket connects.
+ * otherwise the pinning lookup checks it as the socket connects.
  */
 async function assertAllowedTarget(
   url: URL,
   resolveHost: ResolveHost,
   viaProxy: boolean,
+  signal: AbortSignal | undefined,
 ): Promise<void> {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new FetchTargetError(
@@ -359,8 +435,10 @@ async function assertAllowedTarget(
   if (!viaProxy) return;
   let addresses: string[];
   try {
-    addresses = await resolveHost(host);
-  } catch {
+    addresses = await resolveUnlessAborted(resolveHost, host, signal);
+  } catch (err) {
+    // An abort is the caller giving up, and propagates as one.
+    if (signal?.aborted) throw err;
     // Not resolvable here is normal behind a proxy; the proxy resolves it.
     return;
   }
@@ -368,8 +446,7 @@ async function assertAllowedTarget(
 }
 
 /**
- * `fetch(url, init)` for `/api/fetch`, with every hop checked against the
- * destination guard.
+ * `fetch(url, init)` with every hop checked against the destination guard.
  *
  * Rejects with a {@link FetchTargetError} — directly, or as the `cause` of the
  * fetch library's own `TypeError` when the pinning lookup refused the
@@ -381,9 +458,10 @@ export async function guardedFetch(
   options: GuardedFetchOptions = {},
 ): Promise<Response> {
   const resolveHost = options.resolveHost ?? resolveWithSystemDns;
-  const viaProxy = options.proxyFetch !== undefined;
+  const proxyUrl = readProxyEnv();
+  const viaProxy = options.viaProxy ?? proxyUrl !== undefined;
   const fetchFn: HopFetch =
-    options.proxyFetch ?? (await directFetch(resolveHost));
+    options.hopFetch ?? (await hopFetchFor(resolveHost, proxyUrl));
 
   let request: FetchHopRequest = {
     url: new URL(url),
@@ -392,7 +470,7 @@ export async function guardedFetch(
     headers: init.headers,
   };
   for (let hop = 0; hop <= MAX_FETCH_REDIRECTS; hop++) {
-    await assertAllowedTarget(request.url, resolveHost, viaProxy);
+    await assertAllowedTarget(request.url, resolveHost, viaProxy, init.signal);
     const res = await fetchFn(request.url.href, {
       method: request.method,
       headers: new Headers(request.headers),
@@ -401,7 +479,7 @@ export async function guardedFetch(
       redirect: "manual",
     });
     const location = res.headers.get("location");
-    if (res.status < 300 || res.status >= 400 || location === null) {
+    if (!REDIRECT_STATUSES.has(res.status) || location === null) {
       return res;
     }
     // Nobody reads a redirect's body. Not awaited, for the reason the route
@@ -429,4 +507,67 @@ export function findFetchTargetError(
     current = current.cause;
   }
   return undefined;
+}
+
+/**
+ * A request body as the guard's string form. OAuth sends a string (JSON for
+ * DCR) or a `URLSearchParams` form (token, revocation), and both are
+ * replayable across a redirect hop, which a stream is not. Anything else is
+ * refused loudly rather than silently mangled.
+ */
+async function bodyText(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+): Promise<string | undefined> {
+  const body =
+    init?.body !== undefined
+      ? init.body
+      : input instanceof Request && input.body !== null
+        ? await input.clone().text()
+        : undefined;
+  if (body === undefined || body === null) return undefined;
+  if (typeof body === "string") return body;
+  if (body instanceof URLSearchParams) return body.toString();
+  throw new TypeError(
+    "A guarded fetch takes a string or URLSearchParams body only",
+  );
+}
+
+/**
+ * The guard as an ordinary `fetch`, for `InspectorClientEnvironment.oauthFetch`
+ * and the Node clients' standalone OAuth calls.
+ *
+ * It replaces `createProxyFetch()` on those paths rather than wrapping it: it
+ * reads the same proxy variables and routes through the same `EnvHttpProxyAgent`
+ * class, built with the pinning lookup (see the module header).
+ *
+ * A refusal rejects with the {@link FetchTargetError} itself rather than
+ * undici's generic `fetch failed`, so a CLI prints why.
+ */
+export function createGuardedFetch(
+  options: GuardedFetchOptions = {},
+): typeof fetch {
+  return async (input, init) => {
+    const headers = Object.fromEntries(requestHeadersOf(input, init));
+    const body = await bodyText(input, init);
+    // `fetch` sets this itself for a `URLSearchParams` body; a string does not.
+    if (
+      init?.body instanceof URLSearchParams &&
+      !Object.keys(headers).some((h) => h.toLowerCase() === "content-type")
+    ) {
+      headers["content-type"] =
+        "application/x-www-form-urlencoded;charset=UTF-8";
+    }
+    const method =
+      init?.method ?? (input instanceof Request ? input.method : "GET");
+    try {
+      return await guardedFetch(
+        requestUrlOf(input),
+        { method, headers, body, signal: callerSignalOf(input, init) },
+        options,
+      );
+    } catch (err) {
+      throw findFetchTargetError(err) ?? err;
+    }
+  };
 }

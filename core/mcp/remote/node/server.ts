@@ -27,13 +27,12 @@ import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
-import { createProxyFetch } from "../../node/proxyFetch.js";
 import { declaresOversizeBody, readCappedText } from "./cappedBody.js";
 import {
   findFetchTargetError,
   guardedFetch,
   normalizeFetchHeaders,
-} from "./fetchGuard.js";
+} from "../../node/fetchGuard.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
@@ -1395,23 +1394,20 @@ export function createRemoteApp(
       // requests here. Left on the global `fetch`, a corporate-proxy user could
       // connect to a server but never authorize against it — and Node's native
       // `NODE_USE_ENV_PROXY` does not cover them either, being unsupported at
-      // our 22.19 engine floor (#2067).
+      // our 22.19 engine floor (#2067). The guard (#2749) reads the same proxy
+      // variables and routes through the same `EnvHttpProxyAgent` class.
       //
-      // And guarded (#2749): some of these URLs come from the server under
-      // test, so every hop is checked against the link-local / metadata
-      // block-list, redirects are followed there rather than by the fetch,
-      // and the direct path pins each connection to the addresses it checked.
-      // What the guard can and cannot promise behind a proxy is its header.
-      const res = await guardedFetch(
-        url,
-        {
-          method,
-          headers: normalizeFetchHeaders(headers),
-          body: reqBody,
-          signal,
-        },
-        { proxyFetch: createProxyFetch() },
-      );
+      // Guarded because some of these URLs come from the server under test:
+      // every hop is checked against the link-local / metadata block-list,
+      // redirects are followed there rather than by the fetch, and each
+      // connection the guard opens is pinned to the addresses it checked.
+      // What it can and cannot promise behind a proxy is its header.
+      const res = await guardedFetch(url, {
+        method,
+        headers: normalizeFetchHeaders(headers),
+        body: reqBody,
+        signal,
+      });
 
       const resHeaders: Record<string, string> = {};
       res.headers.forEach((v, k) => {

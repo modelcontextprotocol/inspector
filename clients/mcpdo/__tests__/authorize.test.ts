@@ -7,6 +7,7 @@ const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 const navigationSpy = vi.fn();
 const clientCtorSpy = vi.fn();
 const createProxyFetchSpy = vi.fn<() => typeof fetch | undefined>();
+const createGuardedFetchSpy = vi.fn<() => typeof fetch>();
 
 vi.mock("@inspector/core/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
@@ -32,7 +33,11 @@ vi.mock("@inspector/core/mcp/index.js", () => ({
 vi.mock("@inspector/core/mcp/node/index.js", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@inspector/core/mcp/node/index.js")>();
-  return { ...actual, createProxyFetch: () => createProxyFetchSpy() };
+  return {
+    ...actual,
+    createProxyFetch: () => createProxyFetchSpy(),
+    createGuardedFetch: () => createGuardedFetchSpy(),
+  };
 });
 
 vi.mock("@inspector/core/client/runner.js", async (importOriginal) => {
@@ -52,6 +57,7 @@ describe("authorizeInFrontend", () => {
     navigationSpy.mockClear();
     clientCtorSpy.mockClear();
     createProxyFetchSpy.mockReset();
+    createGuardedFetchSpy.mockReset();
   });
 
   it("installs the proxy-aware fetch on the client environment (#2642)", async () => {
@@ -71,6 +77,22 @@ describe("authorizeInFrontend", () => {
       environment: { fetch?: typeof fetch };
     };
     expect(options.environment.fetch).toBe(proxyFetch);
+  });
+
+  it("installs the guarded fetch as the OAuth base (#2749)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const guardedFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
+    createGuardedFetchSpy.mockReturnValue(guardedFetch);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const options = clientCtorSpy.mock.calls[0]?.[1] as {
+      environment: { oauthFetch?: typeof fetch };
+    };
+    expect(options.environment.oauthFetch).toBe(guardedFetch);
   });
 
   it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {

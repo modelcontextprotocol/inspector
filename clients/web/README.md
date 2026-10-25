@@ -465,19 +465,23 @@ In every case, exposing the Inspector beyond loopback also means anyone who can 
 
 ## HTTP proxy support
 
-The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. (`POST /api/fetch` loads undici either way, on its first request, for the destination guard below.)
+The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. (OAuth requests load undici either way, on their first request, for the destination guard below.)
 
 The proxy sits at the **bottom** of the fetch stack rather than wrapping the transport's fetch, and both undici halves must come from the same copy — see [HTTP proxy support](../cli/README.md#http-proxy-support) in the CLI README for why ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).
 
 ## Outbound fetch destination guard
 
-`POST /api/fetch` is how the browser reaches the network for OAuth — discovery, protected-resource metadata, token, client registration, revocation — and some of those URLs come from the server under test. The route therefore refuses destinations a hostile server could use to read the host's cloud credentials ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749), ported from v1's `/fetch`); the logic is `core/mcp/remote/node/fetchGuard.ts`.
+OAuth discovery, protected-resource metadata, token, client registration and revocation URLs come partly from the server under test. Every Inspector client therefore sends its OAuth requests through a destination guard that refuses targets a hostile server could use to read the host's cloud credentials ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749), ported from v1's `/fetch`). The logic is `core/mcp/node/fetchGuard.ts`.
 
 - **Schemes:** `http:` and `https:` only.
 - **Refused addresses:** link-local and instance-metadata only — `169.254.0.0/16` (with its IPv4-mapped IPv6 forms), `fe80::/10` and `fd00:ec2::254`. Loopback and private (RFC 1918) addresses stay reachable, since local and LAN MCP and authorization servers are ordinary targets.
-- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin.
+- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
 - **DNS** is checked inside the connection's own lookup, so the socket connects to exactly the addresses that were checked — a name cannot resolve differently between check and connect.
 
-A refusal is answered `403` with an `error` message. **Behind `HTTPS_PROXY` / `HTTP_PROXY` the proxy resolves names, not the Inspector**, so the guard can only check a hostname against local DNS (refusing it if it resolves to a blocked address here, allowing it if it does not resolve here at all) and cannot pin the connection. Scheme, IP-literal and redirect checks still apply. In that configuration the proxy is the network boundary.
+**What it covers.** OAuth traffic only — never the MCP endpoint you configured:
 
-The guard covers the web backend only. The CLI and TUI make their OAuth requests directly from Node, without it.
+- the browser's OAuth, through `POST /api/fetch` (a refusal is answered `403` with an `error` message);
+- the CLI's, TUI's and mcpdo's OAuth, through `InspectorClientEnvironment.oauthFetch`, including the discovery the SDK runs from inside the transport on a `401` or a token refresh;
+- the web backend's own transport, which refreshes with the tokens the browser hands it.
+
+**Behind `HTTPS_PROXY` / `HTTP_PROXY`** the guard routes through undici's `EnvHttpProxyAgent`, so a `NO_PROXY` host is still connected directly and pinned. A proxied host is resolved by the proxy, not by the Inspector, so the guard can only check its name against local DNS — refusing it if it resolves to a blocked address here, allowing it if it does not resolve here at all — and cannot pin the connection. Scheme, IP-literal and redirect checks still apply. For proxied traffic the proxy is the network boundary.

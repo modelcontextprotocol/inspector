@@ -10,6 +10,7 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import {
+  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
@@ -826,6 +827,9 @@ async function createConnectionClient(
     // `createProxyFetch()` fallback is never reached — leave this out and the
     // daemon connects direct. Undefined when no proxy variable is set.
     fetch: createProxyFetch(),
+    // OAuth on the destination-guarded base (#2749), which refuses link-local
+    // and cloud-metadata targets; proxy-aware itself.
+    oauthFetch: createGuardedFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   if (isOAuthCapableServerConfig(serverConfig)) {

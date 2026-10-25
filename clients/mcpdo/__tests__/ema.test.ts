@@ -11,10 +11,10 @@ import {
 const runRunnerInteractiveOAuth = vi.fn();
 const startIdpOidcAuthorization = vi.fn();
 const completeIdpOidcAuthorization = vi.fn();
-const createProxyFetch = vi.fn<() => typeof fetch | undefined>();
+const createGuardedFetch = vi.fn<() => typeof fetch>();
 
-vi.mock("@inspector/core/mcp/node/proxyFetch.js", () => ({
-  createProxyFetch: () => createProxyFetch(),
+vi.mock("@inspector/core/mcp/node/fetchGuard.js", () => ({
+  createGuardedFetch: () => createGuardedFetch(),
 }));
 
 vi.mock("@inspector/core/auth/node/index.js", async (importOriginal) => {
@@ -62,7 +62,7 @@ describe("mcpdo ema helpers", () => {
     runRunnerInteractiveOAuth.mockReset();
     startIdpOidcAuthorization.mockReset();
     completeIdpOidcAuthorization.mockReset();
-    createProxyFetch.mockReset();
+    createGuardedFetch.mockReset();
   });
 
   afterEach(() => {
@@ -264,10 +264,12 @@ describe("mcpdo ema helpers", () => {
     );
   });
 
-  it("emaLogin routes IdP discovery and the code exchange through the proxy-aware fetch (#2642)", async () => {
+  // The guarded fetch is proxy-aware itself (#2642), and refuses link-local and
+  // cloud-metadata destinations (#2749).
+  it("emaLogin routes IdP discovery and the code exchange through the guarded fetch", async () => {
     writeClientConfig(emaClientConfig());
-    const proxyFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
-    createProxyFetch.mockReturnValue(proxyFetch);
+    const guardedFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
+    createGuardedFetch.mockReturnValue(guardedFetch);
     startIdpOidcAuthorization.mockResolvedValue({
       authorizationUrl: new URL("https://idp.example.com/authorize"),
     });
@@ -296,10 +298,10 @@ describe("mcpdo ema helpers", () => {
       process.stderr.write = originalWrite;
     }
     expect(startIdpOidcAuthorization).toHaveBeenCalledWith(
-      expect.objectContaining({ fetchFn: proxyFetch }),
+      expect.objectContaining({ fetchFn: guardedFetch }),
     );
     expect(completeIdpOidcAuthorization).toHaveBeenCalledWith(
-      expect.objectContaining({ fetchFn: proxyFetch }),
+      expect.objectContaining({ fetchFn: guardedFetch }),
     );
   });
 
