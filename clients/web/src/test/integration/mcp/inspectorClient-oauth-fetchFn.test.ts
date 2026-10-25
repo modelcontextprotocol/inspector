@@ -289,11 +289,11 @@ describe("InspectorClient OAuth fetchFn", () => {
       await expect(client.connect()).rejects.toThrow();
       if (!transportFetch) throw new Error("no transport fetch captured");
 
-      // Legacy SSE: the whole configured origin is MCP traffic.
+      // Legacy SSE: a JSON-RPC message anywhere on the origin is MCP traffic.
       await transportFetch("http://localhost:3000/messages?sessionId=1", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
       });
       expect(plain).toHaveBeenCalledTimes(1);
       expect(oauthFetch).not.toHaveBeenCalled();
@@ -305,12 +305,13 @@ describe("InspectorClient OAuth fetchFn", () => {
       expect(oauthFetch).toHaveBeenCalledTimes(1);
       expect(plain).toHaveBeenCalledTimes(1);
 
-      // Same-origin discovery is OAuth too, despite the origin-wide exemption
-      // (Copilot, #2796).
+      // Same-origin discovery is OAuth too, at a well-known or a custom path,
+      // despite the origin-wide exemption (Copilot, #2796).
       await transportFetch(
         "http://localhost:3000/.well-known/oauth-protected-resource",
       );
-      expect(oauthFetch).toHaveBeenCalledTimes(2);
+      await transportFetch("http://localhost:3000/custom/protected-resource");
+      expect(oauthFetch).toHaveBeenCalledTimes(3);
       expect(plain).toHaveBeenCalledTimes(1);
     });
   });

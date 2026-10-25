@@ -834,7 +834,7 @@ describe("Transport", () => {
       const res = await base("http://169.254.10.10/mcp", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
       });
       expect(await res.text()).toBe("mcp");
       expect(plain).toHaveBeenCalledTimes(1);
@@ -853,10 +853,14 @@ describe("Transport", () => {
     });
 
     // Copilot (#2796): legacy SSE's origin-wide MCP exemption must not carry
-    // the server's own discovery document past the guard.
-    it("guards a same-origin discovery redirect under legacy SSE", async () => {
+    // the server's own discovery documents past the guard, at a well-known
+    // path or a custom `resource_metadata` one.
+    it.each([
+      "/.well-known/oauth-protected-resource",
+      "/custom/protected-resource",
+    ])("guards a same-origin %s redirect under legacy SSE", async (path) => {
       const hostile = createServer((req, res) => {
-        if (req.url === "/.well-known/oauth-protected-resource") {
+        if (req.url === path) {
           res.writeHead(302, { Location: "http://169.254.169.254/latest/" });
         } else {
           res.writeHead(404);
@@ -872,7 +876,7 @@ describe("Transport", () => {
           url: `http://127.0.0.1:${port}/sse`,
         });
         await expect(
-          base(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`),
+          base(`http://127.0.0.1:${port}${path}`),
         ).rejects.toBeInstanceOf(FetchTargetError);
         expect(plain).not.toHaveBeenCalled();
       } finally {
@@ -887,7 +891,10 @@ describe("Transport", () => {
         .spyOn(globalThis, "fetch")
         .mockResolvedValue(new Response("plain"));
       const base = createBackendBaseFetch({ type: "stdio", command: "x" });
-      await base("http://as.example/token");
+      await base("http://as.example/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
       expect(plain).toHaveBeenCalledTimes(1);
     });
   });

@@ -5,7 +5,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
-  isWellKnownUri,
+  isMcpShapedRequest,
   routeOAuthRequests,
 } from "@inspector/core/auth/routeOAuthRequests.js";
 import { exemptMcpEndpoint } from "@inspector/core/auth/requestTimeout.js";
@@ -16,36 +16,87 @@ function fetches() {
   return { mcp, oauth };
 }
 
-describe("routeOAuthRequests", () => {
-  it("routes by the predicate, handing each fetch the original arguments", async () => {
-    const { mcp, oauth } = fetches();
-    const isMcp = vi.fn((url: string) => url.endsWith("/mcp"));
-    const routed = routeOAuthRequests(mcp, oauth, isMcp);
+const RPC = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" });
 
-    const mcpInit = { method: "POST", body: "{}" };
-    expect(await (await routed("http://s.example/mcp", mcpInit)).text()).toBe(
+/** An MCP message POST, as every transport sends one. */
+function rpcPost(body: string = RPC): RequestInit {
+  return {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body,
+  };
+}
+
+describe("isMcpShapedRequest", () => {
+  it.each<[string, RequestInfo | URL, RequestInit | undefined, boolean]>([
+    ["a JSON-RPC POST", "http://s/mcp", rpcPost(), true],
+    ["a JSON-RPC batch POST", "http://s/mcp", rpcPost(`[${RPC},${RPC}]`), true],
+    ["an empty batch", "http://s/mcp", rpcPost("[]"), false],
+    ["a mixed batch", "http://s/mcp", rpcPost(`[${RPC},{"a":1}]`), false],
+    ["a non-JSON-RPC JSON POST (DCR)", "http://s/r", rpcPost('{"a":1}'), false],
+    ["a JSON null POST", "http://s/r", rpcPost("null"), false],
+    ["a non-JSON POST", "http://s/r", rpcPost("grant_type=x"), false],
+    [
+      "a URLSearchParams POST",
+      "http://s/t",
+      { method: "post", body: new URLSearchParams({ a: "b" }) },
+      false,
+    ],
+    [
+      "an event-stream GET",
+      "http://s/sse",
+      { headers: { Accept: "Text/Event-Stream" } },
+      true,
+    ],
+    ["a plain GET (discovery)", "http://s/meta", undefined, false],
+    ["a DELETE", "http://s/mcp", { method: "DELETE" }, true],
+    ["a PUT", "http://s/mcp", { method: "PUT", body: RPC }, false],
+    [
+      "a Request GET accepting event-stream",
+      new Request("http://s/sse", { headers: { accept: "text/event-stream" } }),
+      undefined,
+      true,
+    ],
+    [
+      "a Request POST (body unreadable synchronously)",
+      new Request("http://s/mcp", { method: "POST", body: RPC }),
+      undefined,
+      false,
+    ],
+  ])("%s → %s", (_label, input, init, expected) => {
+    expect(isMcpShapedRequest(input, init)).toBe(expected);
+  });
+});
+
+describe("routeOAuthRequests", () => {
+  it("sends MCP-shaped traffic to the endpoint to mcpFetch, with the original arguments", async () => {
+    const { mcp, oauth } = fetches();
+    const isMcp = vi.fn<(url: string, headers: Headers) => boolean>(() => true);
+    const routed = routeOAuthRequests(mcp, oauth, isMcp);
+    const init = rpcPost();
+    expect(await (await routed("http://s.example/mcp", init)).text()).toBe(
       "mcp",
     );
-    expect(mcp).toHaveBeenCalledWith("http://s.example/mcp", mcpInit);
-
-    const url = new URL("http://as.example/token");
-    expect(await (await routed(url)).text()).toBe("oauth");
-    expect(oauth).toHaveBeenCalledWith(url, undefined);
-    expect(isMcp).toHaveBeenLastCalledWith(url.href, expect.any(Headers));
+    expect(mcp).toHaveBeenCalledWith("http://s.example/mcp", init);
+    const [seenUrl, seenHeaders] = isMcp.mock.calls[0] ?? [];
+    expect(seenUrl).toBe("http://s.example/mcp");
+    expect(seenHeaders?.get("content-type")).toBe("application/json");
   });
 
-  it("hands the predicate a Request's URL and headers", async () => {
+  it("sends MCP-shaped traffic elsewhere to oauthFetch", async () => {
     const { mcp, oauth } = fetches();
-    const isMcp = vi.fn<(url: string, headers: Headers) => boolean>(
-      () => false,
-    );
-    const req = new Request("http://as.example/token", {
-      headers: { "x-probe": "1" },
-    });
-    await routeOAuthRequests(mcp, oauth, isMcp)(req);
-    const [seenUrl, seenHeaders] = isMcp.mock.calls[0] ?? [];
-    expect(seenUrl).toBe("http://as.example/token");
-    expect(seenHeaders?.get("x-probe")).toBe("1");
+    const url = new URL("http://other.example/mcp");
+    await routeOAuthRequests(mcp, oauth, () => false)(url, rpcPost());
+    expect(oauth).toHaveBeenCalledWith(url, rpcPost());
+    expect(mcp).not.toHaveBeenCalled();
+  });
+
+  it("sends a non-MCP shape to oauthFetch without consulting the predicate", async () => {
+    const { mcp, oauth } = fetches();
+    const isMcp = vi.fn(() => true);
+    await routeOAuthRequests(mcp, oauth, isMcp)("http://s.example/meta");
+    expect(oauth).toHaveBeenCalledTimes(1);
+    expect(isMcp).not.toHaveBeenCalled();
   });
 
   it("sends a same-path OAuth form to OAuth under exemptMcpEndpoint", async () => {
@@ -55,24 +106,20 @@ describe("routeOAuthRequests", () => {
       oauth,
       exemptMcpEndpoint(() => "http://s.example/mcp"),
     );
-    await routed("http://s.example/mcp", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
-    });
+    await routed("http://s.example/mcp", rpcPost());
     await routed("http://s.example/mcp", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: "grant_type=refresh_token",
     });
-    await routed("http://as.example/token");
     expect(mcp).toHaveBeenCalledTimes(1);
-    expect(oauth).toHaveBeenCalledTimes(2);
+    expect(oauth).toHaveBeenCalledTimes(1);
   });
 
-  // Copilot (#2796): legacy SSE widens the MCP exemption to the whole origin,
-  // which must not swallow the server's own discovery documents.
-  it("sends a same-origin well-known URI to OAuth under legacy SSE", async () => {
+  // Copilot (#2796, rounds 2 and 3): legacy SSE widens the MCP exemption to
+  // the whole origin, which must not swallow the server's own OAuth requests —
+  // discovery at a well-known or a custom path, or a registration POST.
+  it("keeps same-origin OAuth on the guard under legacy SSE", async () => {
     const { mcp, oauth } = fetches();
     const routed = routeOAuthRequests(
       mcp,
@@ -82,27 +129,19 @@ describe("routeOAuthRequests", () => {
         () => true,
       ),
     );
-    await routed("http://s.example/messages?sessionId=1", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: "{}",
+    await routed("http://s.example/sse", {
+      headers: { accept: "text/event-stream" },
     });
-    await routed("http://s.example/.well-known/oauth-protected-resource");
-    await routed("http://s.example/tenant/.well-known/openid-configuration");
-    expect(mcp).toHaveBeenCalledTimes(1);
-    expect(oauth).toHaveBeenCalledTimes(2);
-  });
-});
+    await routed("http://s.example/messages?sessionId=1", rpcPost());
+    expect(mcp).toHaveBeenCalledTimes(2);
 
-describe("isWellKnownUri", () => {
-  it.each([
-    ["http://s.example/.well-known/oauth-authorization-server", true],
-    ["http://s.example/.well-known/oauth-protected-resource/mcp", true],
-    ["http://s.example/tenant/.well-known/openid-configuration", true],
-    ["http://s.example/mcp", false],
-    ["http://s.example/well-known/x", false],
-    ["not a url", false],
-  ])("%s → %s", (url, expected) => {
-    expect(isWellKnownUri(url)).toBe(expected);
+    await routed("http://s.example/.well-known/oauth-protected-resource");
+    await routed("http://s.example/custom/protected-resource");
+    await routed(
+      "http://s.example/register",
+      rpcPost('{"redirect_uris":["http://localhost/cb"]}'),
+    );
+    expect(oauth).toHaveBeenCalledTimes(3);
+    expect(mcp).toHaveBeenCalledTimes(2);
   });
 });
