@@ -126,6 +126,19 @@ export function resolveLoadOptions(flags: {
 export const MAX_ERROR_KINDS = 10;
 export const OTHER_ERRORS = "(other)";
 
+/**
+ * Slots claimed between forced yields to the event loop. Without
+ * `--load-rate` nothing in the claim path waits on a timer, so calls that
+ * settle without I/O (a client that rejects up front) would keep the run in
+ * one unbroken microtask chain: no timer, socket close or other request gets
+ * a turn until the run's bounds expire. Inside the mcpdo daemon that blocks
+ * every connection, and the caller's own hang-up.
+ */
+export const YIELD_EVERY_SLOTS = 64;
+
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
+
 /** Injected so tests can drive the clock instead of waiting on it. */
 export type LoadClock = {
   now: () => number;
@@ -281,6 +294,11 @@ export async function runLoad(
     turnstile = new Promise((resolve) => (release = resolve));
     await ahead;
     try {
+      // Yield while holding the turnstile: every other worker is queued
+      // behind it, so the whole run pauses, not just this worker.
+      if (started > 0 && started % YIELD_EVERY_SLOTS === 0) {
+        await yieldToEventLoop();
+      }
       for (;;) {
         if (signal?.aborted) return false;
         if (requests !== undefined && started >= requests) return false;

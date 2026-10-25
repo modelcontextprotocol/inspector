@@ -441,6 +441,24 @@ describe("load-test engine", () => {
       }
     });
 
+    it("lets the event loop run while calls fail instantly", async () => {
+      const abort = new AbortController();
+      // Only a macrotask can abort: if the run never yields, this never fires
+      // before the run has spent its whole request count.
+      setImmediate(() => abort.abort());
+      const limit = 200_000;
+      const summary = await runLoad(
+        async () => {
+          throw new Error("rejected up front");
+        },
+        { concurrency: 4, requests: limit },
+        undefined,
+        abort.signal,
+      );
+      expect(summary.requests).toBeGreaterThan(0);
+      expect(summary.requests).toBeLessThan(limit);
+    });
+
     it("starts nothing when its signal has already aborted", async () => {
       const summary = await runLoad(
         async () => "ok",
