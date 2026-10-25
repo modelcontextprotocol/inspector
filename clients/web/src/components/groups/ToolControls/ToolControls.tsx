@@ -23,7 +23,11 @@ import {
 } from "../../elements/ListPaginationControls/ListPaginationControls";
 import { ToolListItem } from "../ToolListItem/ToolListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
-import { compareToolsByLabel, toolRowKey } from "../../../utils/toolUtils";
+import {
+  compareToolLabels,
+  compareToolsByLabel,
+  toolRowKey,
+} from "../../../utils/toolUtils";
 import { formatCountedLabel, listCountOf } from "../../../utils/listCount";
 
 export interface ToolControlsProps {
@@ -161,14 +165,15 @@ export function ToolControls({
     .filter(({ tool }) => !searchText || matchesQuery(tool, query))
     .sort((a, b) => compareToolsByLabel(a.tool, b.tool));
   // Excluded tools are searchable too, matching name AND title like the main
-  // list above, and sorted the same way, so a filtered view stays consistent.
+  // list above, so a filtered view stays consistent. They sort by `name`, not
+  // the resolved label, because `name` is all an excluded row shows.
   const filteredExcluded = excludedTools
     .map((excluded, sourceIndex) => ({
       ...excluded,
       key: excludedRowKey(excluded.tool.name, sourceIndex),
     }))
     .filter(({ tool }) => !searchText || matchesQuery(tool, query))
-    .sort((a, b) => compareToolsByLabel(a.tool, b.tool));
+    .sort((a, b) => compareToolLabels(a.tool.name, b.tool.name));
 
   // The server's total, not the search-filtered view: the header answers "how
   // many tools does this server expose" (#2607). Omitted until the first load

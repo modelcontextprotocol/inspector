@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Tool } from "@modelcontextprotocol/client";
 import {
+  compareToolLabels,
   compareToolsByLabel,
   findToolByRowKey,
   hasInputFields,
@@ -53,6 +54,17 @@ describe("compareToolsByLabel (#2782)", () => {
   it("treats labels differing only by case as equal, so a stable sort keeps source order", () => {
     expect(compareToolsByLabel(tool("Echo"), tool("echo"))).toBe(0);
     expect(compareToolsByLabel(tool("echo"), tool("echo"))).toBe(0);
+  });
+});
+
+describe("compareToolLabels (#2782)", () => {
+  it("compares raw labels with the same collation the tool comparator uses", () => {
+    expect(["tool_10", "Tool_2", "apple"].sort(compareToolLabels)).toEqual([
+      "apple",
+      "Tool_2",
+      "tool_10",
+    ]);
+    expect(compareToolLabels("Echo", "echo")).toBe(0);
   });
 });
 

@@ -25,6 +25,15 @@ const toolLabelCollator = new Intl.Collator(undefined, {
 });
 
 /**
+ * Orders two row labels the way the Tools sidebar sorts (#2782). Exported for
+ * rows that show something other than the resolved label — the excluded rows
+ * show the bare `name` — so each list sorts by the text it actually displays.
+ */
+export function compareToolLabels(a: string, b: string): number {
+  return toolLabelCollator.compare(a, b);
+}
+
+/**
  * Orders tools by the label their row shows ({@link resolveDisplayLabel}: the
  * `title` when present, else the `name`), so the Tools sidebar reads
  * alphabetically however the server ordered `tools/list` (#2782). Ties return
@@ -32,7 +41,7 @@ const toolLabelCollator = new Intl.Collator(undefined, {
  * order.
  */
 export function compareToolsByLabel(a: Tool, b: Tool): number {
-  return toolLabelCollator.compare(
+  return compareToolLabels(
     resolveDisplayLabel(a.name, a.title),
     resolveDisplayLabel(b.name, b.title),
   );

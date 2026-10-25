@@ -433,9 +433,14 @@ describe("ToolControls", () => {
     expect(onSelectTool).toHaveBeenCalledWith("3:git_commit");
   });
 
-  it("lists excluded tools alphabetically too (#2782)", () => {
-    const excluded = ["zed_tool", "alpha_tool"].map((name) => ({
-      tool: { name, inputSchema: { type: "object" as const } },
+  it("lists excluded tools alphabetically by the name they show (#2782)", () => {
+    // Titles that would invert the order: an excluded row shows only `name`,
+    // so sorting by the resolved title would read as unsorted.
+    const excluded = [
+      { name: "zed_tool", title: "Alpha" },
+      { name: "alpha_tool", title: "Zulu" },
+    ].map((tool) => ({
+      tool: { ...tool, inputSchema: { type: "object" as const } },
       reason: "invalid x-mcp-header",
     }));
     renderWithMantine(<ToolControls {...baseProps} excludedTools={excluded} />);
