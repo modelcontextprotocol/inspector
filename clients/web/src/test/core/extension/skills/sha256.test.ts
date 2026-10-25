@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { sha256Bytes } from "@inspector/core/mcp/sha256";
-import { sha256Digest, textToBytes } from "@inspector/core/mcp/skills";
+import { sha256Bytes } from "@inspector/core/extension/skills/sha256";
+import {
+  sha256Digest,
+  textToBytes,
+} from "@inspector/core/extension/skills/conformance";
 
 const hex = (bytes: Uint8Array) =>
   Array.from(bytes)

@@ -3,11 +3,11 @@ import type { InspectorClientProtocol } from "@inspector/core/mcp/inspectorClien
 import {
   DYNAMIC_RESOURCES,
   type SkillEntry,
-} from "@inspector/core/mcp/skillsSchemas.js";
+} from "@inspector/core/extension/skills/schemas.js";
 import {
   SKILL_MAX_CATALOG_SKILLS,
   sha256Digest,
-} from "@inspector/core/mcp/skills.js";
+} from "@inspector/core/extension/skills/conformance.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import {
   allSkillsVerified,
@@ -16,7 +16,7 @@ import {
   DEFAULT_SKILL_BUDGET_HINT,
   utf8Length,
   verifySkills,
-} from "@inspector/core/mcp/skillsVerification.js";
+} from "@inspector/core/extension/skills/verification.js";
 
 /**
  * `verifySkills` is the fetch-and-verify half of the SEP-2640 checks (#2248) —

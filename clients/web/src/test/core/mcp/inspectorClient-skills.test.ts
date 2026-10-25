@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
-import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas.js";
+import { SKILLS_EXTENSION_KEY } from "@inspector/core/extension/skills/schemas.js";
 import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
 
 /**

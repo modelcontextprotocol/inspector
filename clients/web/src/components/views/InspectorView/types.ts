@@ -60,9 +60,9 @@ import type {
 } from "../../screens/ResourcesScreen/ResourcesScreen";
 import type { LogsUiState } from "../../screens/LoggingScreen/LoggingScreen";
 import type { SkillsUiState } from "../../screens/SkillsScreen/SkillsScreen";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
-import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
-import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
+import type { SkillFileContents } from "@inspector/core/extension/skills/conformance.js";
+import type { DirectoryReadResult } from "@inspector/core/extension/skills/schemas.js";
 import type { TasksUiState } from "../../screens/TasksScreen/TasksScreen";
 import type { ProtocolUiState } from "../../screens/ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "../../screens/NetworkScreen/NetworkScreen";

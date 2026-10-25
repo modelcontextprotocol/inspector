@@ -18,7 +18,7 @@ import {
   isSkillCatalogLimit,
   SKILL_MAX_CATALOG_BYTES,
   SKILL_MAX_CATALOG_SKILLS,
-} from "./skills.js";
+} from "../extension/skills/conformance.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
   ElicitCapabilityMode,

@@ -36,17 +36,17 @@ import {
   skillEntryKey,
   skillUriIdentity,
   type SkillIssue,
-} from "@inspector/core/mcp/skills.js";
+} from "@inspector/core/extension/skills/conformance.js";
 import {
   DYNAMIC_RESOURCES,
   type SkillEntry,
-} from "@inspector/core/mcp/skillsSchemas.js";
+} from "@inspector/core/extension/skills/schemas.js";
 import {
   verifySkills,
   type SkillBudgetHint,
   type SkillFileReport,
   type SkillVerifyReport,
-} from "@inspector/core/mcp/skillsVerification.js";
+} from "@inspector/core/extension/skills/verification.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 import { errorMessage } from "../utils/errorText.js";
 import { useListFilter } from "../hooks/useListFilter.js";

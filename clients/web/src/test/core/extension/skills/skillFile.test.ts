@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseSkillFrontmatter,
   splitSkillFile,
-} from "@inspector/core/mcp/skillFile.js";
+} from "@inspector/core/extension/skills/skillFile.js";
 
 describe("splitSkillFile", () => {
   it("separates a leading frontmatter fence from the body", () => {

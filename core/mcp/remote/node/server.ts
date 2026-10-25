@@ -81,7 +81,7 @@ import {
   stripInspectorFields,
 } from "../../serverList.js";
 import { toRecord } from "../../../json/jsonUtils.js";
-import { isSkillCatalogLimit } from "../../skills.js";
+import { isSkillCatalogLimit } from "../../../extension/skills/conformance.js";
 import { resolveImportSource } from "../../import/resolveSource.js";
 import { RemoteSession } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";

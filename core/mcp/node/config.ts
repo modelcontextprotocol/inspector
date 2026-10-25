@@ -9,7 +9,7 @@ import type {
   StreamableHttpServerConfig,
 } from "../types.js";
 import { isProtocolEra, normalizeServerType } from "../serverList.js";
-import { isSkillCatalogLimit } from "../skills.js";
+import { isSkillCatalogLimit } from "../../extension/skills/conformance.js";
 import type { ServerProtocolEra } from "../types.js";
 import { toRecord } from "../../json/jsonUtils.js";
 import { getOwnEntry } from "../../storage/own-entry.js";

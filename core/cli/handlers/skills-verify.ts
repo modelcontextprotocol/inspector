@@ -18,7 +18,7 @@ import {
   anySkillUnverifiable,
   type SkillBudgetHint,
   type SkillVerifyReport,
-} from "../../mcp/skillsVerification.js";
+} from "../../extension/skills/verification.js";
 import { EXIT_CODES } from "../error-handler.js";
 
 /**

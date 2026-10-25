@@ -13,7 +13,7 @@ import type { ServerEntry } from "@inspector/core/mcp/types.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
-import { isSkillsExtensionSupported } from "@inspector/core/mcp/skills.js";
+import { isSkillsExtensionSupported } from "@inspector/core/extension/skills/conformance.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";

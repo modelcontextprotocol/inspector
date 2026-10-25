@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { skillFileBytes } from "@inspector/core/mcp/skills.js";
+import { skillFileBytes } from "@inspector/core/extension/skills/conformance.js";
 
 describe("skillFileBytes", () => {
   it("encodes a text content block as UTF-8", () => {

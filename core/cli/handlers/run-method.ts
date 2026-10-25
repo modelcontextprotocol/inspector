@@ -9,7 +9,7 @@ import {
   ManagedSkillsState,
   MessageLogState,
 } from "../../mcp/state/index.js";
-import { SKILLS_EXTENSION_KEY } from "../../mcp/skillsSchemas.js";
+import { SKILLS_EXTENSION_KEY } from "../../extension/skills/schemas.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import { collectAppInfo } from "./collect-app-info.js";
 import {
@@ -20,7 +20,7 @@ import {
 import {
   verifySkills,
   type SkillBudgetHint,
-} from "../../mcp/skillsVerification.js";
+} from "../../extension/skills/verification.js";
 import type {
   CliAppInfo,
   McpResponse,

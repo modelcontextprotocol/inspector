@@ -1,21 +1,28 @@
 /**
  * Skills extension wire schemas — SEP-2640 (`io.modelcontextprotocol/skills`).
  *
- * There is no `@modelcontextprotocol/ext-skills` package (404 on npm) and the
- * SDK's era codecs define none of these methods, so the Inspector drives them
- * as ordinary `client.request(…, ResultSchema)` calls with the explicit result
- * schemas below. That is exactly what the SDK prescribes for a consumer-owned
- * extension method: `Protocol._assertOutboundRequestInEra` only fires for names
- * one of the era codecs knows, so `skills/list` and `skills/get` are era-blind
- * and go out unchanged on both the 2025- and 2026-era legs. The raw-wire escape
- * hatch that modern `tasks/*` needs is deliberately NOT used here — `tasks/*`
- * are spec names the 2026 codec deleted, which is a different problem.
+ * **The SDK owns the wire constants, and owns the schemas wherever the
+ * Inspector can take them unchanged (#2804).** MCP TypeScript SDK 2.4.0 ships
+ * the client side of this extension (`@modelcontextprotocol/client/ext/skills`)
+ * and its schemas (`@modelcontextprotocol/core/ext/skills`). From the second
+ * this module re-exports the method names, the extension id and the directory
+ * mime type, and builds every caching attribute and the whole
+ * `resources/directory/read` result out of the SDK's schemas rather than
+ * restating them, so a spec revision lands with an SDK bump instead of a
+ * hand edit here.
  *
- * **This module is the wire surface for the two methods the Inspector calls.**
- * SEP-2640 is Accepted, so the method names and the entry shape are settled;
- * the skill *format* is delegated to the independently-versioned Agent Skills
- * specification. Keeping every wire type here makes a spec revision a
- * single-file edit (#2234).
+ * **The entry schemas stay the Inspector's, and that is the one deliberate
+ * divergence.** The SDK's `SkillSchema` is a *host's* schema: `digest` must
+ * match the `sha256:` pattern, `size` must be a non-negative integer, and
+ * `name` and `description` are required, so a non-conforming entry fails the
+ * parse. `SkillsClient` then either throws on it or, with `skipInvalid`,
+ * returns `{ index, uri, reason }` in place of the entry. An inspector has to
+ * show that entry — its frontmatter, its manifest and one finding per broken
+ * rule — so the schemas below parse it permissively and leave the verdict to
+ * `checkSkillConformance`. Taking the SDK's schema here would turn every
+ * finding the conformance report exists to show into a page that fails to
+ * load. The same reason keeps `SkillsClient.list()` / `get()` out of the call
+ * path: both run that schema over every entry.
  *
  * **Permissive where a defect should be reported; strict where a shape is
  * settled.** `looseObject`, and a `digest` typed as a plain string rather than
@@ -27,30 +34,48 @@
  * `skills/list`, `skills/get` or `resources/directory/read` result requires
  * the caching attributes (see `ModernListSkillsResultSchema`,
  * `ModernGetSkillEnvelopeSchema` and `ModernDirectoryReadResultSchema`).
+ *
+ * The method names are consumer-owned as far as the SDK's era codecs are
+ * concerned: `Protocol._assertOutboundRequestInEra` only fires for names one
+ * of the codecs knows, so `skills/list` and `skills/get` go out unchanged on
+ * both the 2025- and 2026-era legs as ordinary `client.request(…, Schema)`
+ * calls. The raw-wire escape hatch modern `tasks/*` needs is deliberately NOT
+ * used here — `tasks/*` are spec names the 2026 codec deleted, which is a
+ * different problem.
  */
 
 import { z } from "zod/v4";
-import { ResourceSchema } from "@modelcontextprotocol/core";
-
-/** SEP-2133 extension identifier for the Skills extension (SEP-2640). */
-export const SKILLS_EXTENSION_KEY = "io.modelcontextprotocol/skills";
-
-/** The `skills/list` JSON-RPC method name. */
-export const SKILLS_LIST_METHOD = "skills/list";
-
-/** The `skills/get` JSON-RPC method name. */
-export const SKILLS_GET_METHOD = "skills/get";
+import {
+  ReadResourceDirectoryResultSchema,
+  SkillCacheScopeSchema,
+} from "@modelcontextprotocol/core/ext/skills";
 
 /**
- * The `resources/directory/read` method name, gated on the server declaring
- * `directoryRead: true` in its extension advertisement. Declared here so the
- * one wire-surface module names every method the extension defines, even though
- * the Inspector does not call it yet (phase 3 of #2234).
+ * SEP-2133 extension identifier, the three method names and the directory
+ * mime type, re-exported from the SDK rather than restated so each string has
+ * one owner — the same shape `core/extension/tasks/constants.ts` uses.
+ * `RESOURCES_DIRECTORY_READ_METHOD` is gated on the server declaring
+ * `directoryRead: true`.
  */
-export const RESOURCES_DIRECTORY_READ_METHOD = "resources/directory/read";
+export {
+  SKILLS_EXTENSION_ID as SKILLS_EXTENSION_KEY,
+  SKILLS_LIST_METHOD,
+  SKILLS_GET_METHOD,
+  RESOURCES_DIRECTORY_READ_METHOD,
+  DIRECTORY_MIME_TYPE,
+} from "@modelcontextprotocol/core/ext/skills";
 
-/** `mimeType` marking a resource as a directory rather than a file. */
-export const DIRECTORY_MIME_TYPE = "inode/directory";
+/**
+ * `CacheableResult`'s two attributes, as the SDK states them: `ttlMs` a
+ * non-negative integer, `cacheScope` `public` or `private`. Taken from the
+ * SDK's own directory-read schema, the one result schema it exports that the
+ * Inspector uses whole, so the caching fields on every era-aware schema here
+ * are the SDK's and cannot drift from it.
+ */
+const CACHE_FIELDS = {
+  ttlMs: ReadResourceDirectoryResultSchema.shape.ttlMs,
+  cacheScope: SkillCacheScopeSchema,
+};
 
 /**
  * The literal `resources` value meaning "this skill's file set is generated and
@@ -119,13 +144,13 @@ export type ListSkillsResult = z.infer<typeof ListSkillsResultSchema>;
  *
  * SEP-2640's `skills/list` section states: *"In protocol versions 2026-07-28
  * and later, the result also carries … `ttlMs` and `cacheScope`."* The field
- * shapes mirror `ModernResultEnvelopeSchema` in `listSalvage.ts`, which is this
- * repo's existing statement of a modern result envelope and is already applied
- * to modern list results on the salvage path — so the two cannot drift.
+ * shapes are the SDK's own ({@link CACHE_FIELDS}), the same two `SkillsClient`
+ * requires of a modern page.
  *
- * The era split is load-bearing rather than defensive. `skills/*` is a
- * consumer-owned method, so it is absent from the SDK's cacheable-method
- * registry and **nothing else validates this**: without an era-aware schema a
+ * The era split is load-bearing rather than defensive. `skills/*` is a method
+ * the SDK's era codecs do not define, so it is absent from their
+ * cacheable-method registry and **nothing else validates this**: without an
+ * era-aware schema a
  * modern server could answer `{ skills: [] }` and the conformance UI would
  * present it as a clean list. The legacy shape stays permissive because these
  * are 2026-era attributes a legacy server has no business sending.
@@ -143,13 +168,11 @@ export type ListSkillsResult = z.infer<typeof ListSkillsResultSchema>;
  * lifts them for a consumer-owned method, so this schema is still the only
  * thing that does.
  */
-export const ModernListSkillsResultSchema = ListSkillsResultSchema.extend({
-  // A non-negative INTEGER, matching the codec: `ttlMs: -1` or `0.5` is an
-  // envelope violation, and accepting it here would hide exactly the kind of
-  // defect this schema exists to surface.
-  ttlMs: z.int().min(0),
-  cacheScope: z.enum(["public", "private"]),
-});
+export const ModernListSkillsResultSchema =
+  // A non-negative INTEGER `ttlMs`, as the SDK states it: `ttlMs: -1` or `0.5`
+  // is an envelope violation, and accepting it here would hide exactly the
+  // kind of defect this schema exists to surface.
+  ListSkillsResultSchema.extend(CACHE_FIELDS);
 
 /**
  * The `skills/get` result envelope on a **legacy** connection: the entry
@@ -183,10 +206,8 @@ export const GetSkillEnvelopeSchema = z.looseObject({
  *
  * ⚠️ Picked by `InspectorClient.getSkillResult` from the negotiated era.
  */
-export const ModernGetSkillEnvelopeSchema = GetSkillEnvelopeSchema.extend({
-  ttlMs: z.int().min(0),
-  cacheScope: z.enum(["public", "private"]),
-});
+export const ModernGetSkillEnvelopeSchema =
+  GetSkillEnvelopeSchema.extend(CACHE_FIELDS);
 
 /**
  * The `skills/get` result envelope as the SDK decoded it: the `skill` wrapper
@@ -218,46 +239,50 @@ export const GetSkillResultSchema = GetSkillEnvelopeSchema.transform(
 export type GetSkillResult = SkillEntry;
 
 /**
- * One `resources/directory/read` child: **the SDK's own `Resource`**, not a
- * shape restated here.
+ * `resources/directory/read` result on a **modern** (2026-07-28+) connection:
+ * **the SDK's own `ReadResourceDirectoryResultSchema`**, used whole (#2804).
  *
- * SEP-2640 defines the result as carrying "the same `Resource` objects that
- * `resources/list` returns, with the same `nextCursor` pagination contract", so
- * the schema that already decodes `resources/list` in this app is the literal
- * statement of that sentence — and one the SDK, not this module, keeps current.
- * Restating it would let the two drift, at which point a directory child and a
- * listed resource could disagree about what a `Resource` is while both claimed
- * to be one.
+ * Unlike the skill entry schemas above, nothing here needed to stay ours. A
+ * directory child is a base-protocol `Resource` — SEP-2640 defines the result
+ * as carrying "the same `Resource` objects that `resources/list` returns, with
+ * the same `nextCursor` pagination contract" — and the SDK's
+ * `DirectoryResourceSchema` is exactly `ResourceSchema`'s shape. The stable
+ * ext-skills specification makes the result a `CacheableResult` (ext-skills#157,
+ * #2740), so `ttlMs` and `cacheScope` are required, and the SDK's schema says
+ * so.
  *
- * ⚠️ It is **stricter than everything else in this module**, and that is the
- * deliberate exception rather than an oversight. `ResourceSchema` requires
- * `name` and strips unknown members, so one child missing `name` rejects the
- * whole page instead of being reported as a per-child finding — the opposite of
- * the posture the entry schemas above take. The reason the trade goes the other
- * way here is ownership: the skills entry types are consumer-owned and nothing
- * else validates them, so this module has to be the reporter; `Resource` is
- * base-protocol and already validated exactly this strictly on the
- * `resources/list` path, where {@link listSalvage} is the answer to a single bad
- * entry. Being *more* permissive here would mean a URI that fails as a listed
- * resource succeeds as a directory child, which is a worse inconsistency than
- * an all-or-nothing page.
+ * ⚠️ It is **stricter than the entry schemas**, and that is the deliberate
+ * exception rather than an oversight. `Resource` requires `name`, so one child
+ * missing `name` rejects the whole page instead of being reported as a
+ * per-child finding — the opposite of the posture the entry schemas take. The
+ * reason the trade goes the other way here is ownership: the skills entry
+ * types are consumer-owned in the sense that nothing else reports on them, so
+ * this module has to; `Resource` is base-protocol and already validated
+ * exactly this strictly on the `resources/list` path, where `listSalvage` is
+ * the answer to a single bad entry. Being *more* permissive here would mean a
+ * URI that fails as a listed resource succeeds as a directory child, which is
+ * a worse inconsistency than an all-or-nothing page.
+ *
+ * The SDK codec checks and lifts `resultType` on a modern result (#2373) but,
+ * for a method it does not define, neither caching attribute — so this schema
+ * is the only thing that does.
+ *
+ * ⚠️ Picked by `InspectorClient.readResourceDirectory` from the negotiated
+ * era — a schema cannot know it on its own.
  */
-export const DirectoryChildSchema = ResourceSchema;
+export const ModernDirectoryReadResultSchema =
+  ReadResourceDirectoryResultSchema;
 
 /**
- * `resources/directory/read` result on a **legacy** connection: the directory's
- * direct children plus the opaque cursor, and nothing required beyond that.
- *
- * Its modern counterpart is {@link ModernDirectoryReadResultSchema}. The
- * caching attributes are 2026-era, so the legacy shape stays permissive,
- * exactly as {@link ListSkillsResultSchema} and {@link GetSkillEnvelopeSchema}
- * do: `looseObject`, so a legacy server that also sends them is not failed for
- * doing so.
+ * `resources/directory/read` result on a **legacy** connection: the SDK's
+ * schema with the caching attributes made optional, which is exactly how
+ * `SkillsClient` decodes a 2025-11-25 result (the backport has no caching
+ * fields). Still `looseObject`, so a legacy server that also sends them is not
+ * failed for doing so — the same posture {@link ListSkillsResultSchema} and
+ * {@link GetSkillEnvelopeSchema} take.
  */
-export const DirectoryReadResultSchema = z.looseObject({
-  resources: z.array(DirectoryChildSchema),
-  nextCursor: z.string().optional(),
-});
+export const DirectoryReadResultSchema =
+  ReadResourceDirectoryResultSchema.partial({ ttlMs: true, cacheScope: true });
 
 /**
  * The result as the SDK decoded it, on either era. Typed from the legacy
@@ -266,34 +291,3 @@ export const DirectoryReadResultSchema = z.looseObject({
  * {@link GetSkillEnvelope} is typed from the legacy envelope.
  */
 export type DirectoryReadResult = z.infer<typeof DirectoryReadResultSchema>;
-
-/**
- * `resources/directory/read` result on a **modern** (2026-07-28+) connection:
- * the page plus `CacheableResult`'s required `ttlMs` / `cacheScope` (#2740).
- *
- * SEP-2640 as accepted said nothing about caching attributes on this method,
- * and its one worked example carried `resultType` alone — so an earlier
- * revision of this module deliberately had no modern variant here, on the
- * reading that requiring more than the SEP's own example would fail a
- * conforming server. The stable ext-skills specification settles it the way
- * it settled `skills/get` (#2404): *"`ReadResourceDirectoryResult` extends
- * `CacheableResult`, so `ttlMs` and `cacheScope` are **REQUIRED**, as they
- * are on `resources/list`, and carry the same semantics. They describe the
- * freshness of the directory listing, not of the held entry"* (ext-skills#157,
- * recorded in its `docs/decisions.md`), and its directory-read examples now
- * carry `"ttlMs": 300000, "cacheScope": "public"`.
- *
- * Same field shapes as {@link ModernListSkillsResultSchema}, and the same
- * reason it exists: this is a consumer-owned method, so the SDK codec checks
- * and lifts `resultType` (#2373) but checks neither caching attribute, and
- * without this a modern server omitting them would be reported as clean.
- *
- * ⚠️ Picked by `InspectorClient.readResourceDirectory` from the negotiated
- * era — a schema cannot know it on its own.
- */
-export const ModernDirectoryReadResultSchema = DirectoryReadResultSchema.extend(
-  {
-    ttlMs: z.int().min(0),
-    cacheScope: z.enum(["public", "private"]),
-  },
-);
