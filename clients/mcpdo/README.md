@@ -248,11 +248,32 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-duration <sec>`  | Stop starting calls after this many seconds; in-flight calls finish. Default `10` without `--load-requests`. |
 | `--load-requests <n>`    | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.         |
 | `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
+| `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
+| `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
+| `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency is above this many milliseconds, or no call completed. |
 
 Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
 `--app-info`. `--format json` prints the summary object itself, with no
-`{ result }` envelope, as for every other mcpdo command. The exit code is `0`
-whenever the run completes, however many calls failed — read `errorRate`.
+`{ result }` envelope, as for every other mcpdo command. Without a threshold
+flag the exit code is `0` whenever the run completes, however many calls
+failed — read `errorRate`.
+
+**Thresholds** ([#2800](https://github.com/modelcontextprotocol/inspector/issues/2800))
+make the exit code carry the verdict, as in the one-shot CLI. They are judged
+by the `mcpdo` process after the summary has been printed, so a breached run
+still shows its numbers; the breach then follows as the usual error envelope,
+with the same `code` and exit code `10` the CLI uses.
+
+**Multiple sessions** (`--load-connections`, #2800) open the extra sessions
+inside the daemon, before the clock starts, from the connection's stored server
+config and settings. They use stored credentials only — an extra never starts a
+sign-in, so connect the connection first — and a session that fails to open is
+counted in the summary's `connections` block, not as a call error. The
+connection's own live client is always the first session. The extras belong to
+the run: they never appear in `connections/list`, they are closed when the run
+ends (or the daemon stops), and Ctrl-C cancels their in-flight calls too. Over
+stdio each session would spawn its own server process, so more than one is
+refused there.
 
 How a run behaves on a shared daemon connection:
 

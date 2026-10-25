@@ -58,9 +58,12 @@ import {
 import {
   positiveIntegerParser,
   positiveNumberParser,
-  type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
-import { resolveLoadFlags } from "./load-flags.js";
+import {
+  fractionParser,
+  maxP99Parser,
+} from "@inspector/core/cli/handlers/load-thresholds.js";
+import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
 import { authorizeInFrontend } from "./authorize.js";
 import {
   AUTH_HELPER_COMMAND,
@@ -1361,6 +1364,11 @@ function registerRpcCommands(program: CommandType): void {
             positiveIntegerParser("--load-concurrency"),
           )
           .option(
+            "--load-connections <n>",
+            "With --load: spread the calls over this many independent sessions to the connection's HTTP or SSE server, opened before timing starts with stored credentials only (positive integer, at most --load-concurrency; default 1).",
+            positiveIntegerParser("--load-connections"),
+          )
+          .option(
             "--load-duration <sec>",
             "With --load: stop starting calls after this many seconds; in-flight calls still finish (default 10 when --load-requests is not set).",
             positiveNumberParser("--load-duration"),
@@ -1374,6 +1382,18 @@ function registerRpcCommands(program: CommandType): void {
             "--load-rate <n>",
             "With --load: start at most this many calls per second, spread evenly (positive number; default unlimited).",
             positiveNumberParser("--load-rate"),
+          )
+          // Thresholds (#2800): judged here, after the summary is printed,
+          // exactly as the one-shot CLI does (#2745).
+          .option(
+            "--load-max-error-rate <fraction>",
+            "With --load: exit 10 (load_error_rate_exceeded) when the share of failed calls is above this value, after printing the summary (0 to 1; 0 fails on any failed call).",
+            fractionParser("--load-max-error-rate"),
+          )
+          .option(
+            "--load-max-p99 <ms>",
+            "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+            maxP99Parser,
           );
         cmd.action(
           async (
@@ -1651,7 +1671,7 @@ async function runRpc(
   program: CommandType,
   method: string,
   methodArgs: MethodArgs,
-  load?: LoadOptions,
+  load?: LoadFlags,
 ): Promise<void> {
   const opts = program.opts<GlobalOpts>();
   await dispatchConnectionRpc(method, methodArgs, {

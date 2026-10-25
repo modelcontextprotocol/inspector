@@ -1016,6 +1016,22 @@ export function formatLoadSummaryHuman(
       lines.push(`    ${count}× ${message}`);
     }
   }
+  // `--load-connections` above 1 (#2800). Connect failures are not call
+  // errors, so they are listed under this line rather than "Top errors".
+  const c = summary.connections;
+  if (c !== undefined) {
+    const failed = `${c.failed} failed`;
+    const connect =
+      c.connectMs === null
+        ? ""
+        : ` (connect p50 ${c.connectMs.p50} / max ${c.connectMs.max} ms)`;
+    lines.push(
+      `  Sessions:   ${c.opened} of ${c.requested} opened, ${c.failed > 0 ? style.red(failed) : failed}${connect}`,
+    );
+    for (const { message, count } of c.errorMessages) {
+      lines.push(`    ${count}× ${message}`);
+    }
+  }
   return lines.join("\n");
 }
 

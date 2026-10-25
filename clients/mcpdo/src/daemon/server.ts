@@ -23,6 +23,7 @@ import {
   type HandleOutcome,
 } from "./ipc-glue.js";
 import { wireElicitationBridge } from "./elicitation-bridge.js";
+import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import {
   ElicitationParkRegistry,
   ParkingElicitationChannel,
@@ -86,6 +87,15 @@ const autoCancelElicitationChannel: ElicitationChannel = {
     });
   },
 };
+
+/**
+ * Opens one extra `--load-connections` session (#2800) sharing `primary`'s
+ * OAuth storage; aborting `signal` cancels the dial.
+ */
+type LoadClientOpener = (
+  primary: InspectorClient,
+  signal: AbortSignal,
+) => Promise<InspectorClient>;
 
 export type DaemonServerOptions = {
   dir?: string;
@@ -617,6 +627,14 @@ export class DaemonServer {
     const connectionName = park
       ? this.registry.connectionFor(params.name, params.requireExplicit).name
       : undefined;
+    // Resolved in the same synchronous step as the primary client below
+    // (`liveClientFor` resolves before its first await), so the extra
+    // sessions dial the server the primary is on even if the default
+    // connection changes while this run waits in the queue (#2800).
+    const openLoadClient =
+      params.load !== undefined
+        ? this.loadConnectionOpener(params, params.load)
+        : undefined;
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
@@ -639,6 +657,7 @@ export class DaemonServer {
           requestId,
           params,
           params.load,
+          openLoadClient,
           signal,
         );
       }
@@ -721,6 +740,7 @@ export class DaemonServer {
     requestId: string,
     params: RpcParams,
     load: LoadOptions,
+    openLoadClient: LoadClientOpener | undefined,
     signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
@@ -755,17 +775,82 @@ export class DaemonServer {
     client.addEventListener("statusChange", onStatus);
     // In-flight calls abort with the run, not only new ones (#1783).
     const clearAmbientSignal = client.setAmbientRequestSignal(stop.signal);
+    // Extra sessions this run opened (#2800). The engine disconnects each in
+    // its own `finally`; this releases what the daemon set up around them.
+    const extras: { client: InspectorClient; release: () => void }[] = [];
     try {
       const summary = await runToolLoad(client, methodArgs, load, {
         signal: stop.signal,
+        ...(openLoadClient && {
+          openConnection: async () => {
+            // The run's signal reaches the dial too, so a stalled handshake
+            // does not hold the queue past Ctrl-C or a dropped primary.
+            const extra = await openLoadClient(client, stop.signal);
+            // The same treatment as the primary: the caller hanging up
+            // aborts the extras' in-flight calls too, and their elicitations
+            // are cancelled rather than left pending with nobody to answer.
+            const clearExtraSignal = extra.setAmbientRequestSignal(stop.signal);
+            const unwireExtra = wireElicitationBridge(
+              extra,
+              autoCancelElicitationChannel,
+              requestId,
+            );
+            extras.push({
+              client: extra,
+              release: () => {
+                unwireExtra();
+                clearExtraSignal();
+                this.registry.releaseLoadClient(extra);
+              },
+            });
+            return extra;
+          },
+        }),
       });
       return { kind: "load", summary };
     } finally {
+      for (const extra of extras) extra.release();
       clearAmbientSignal();
       client.removeEventListener("statusChange", onStatus);
       signal?.removeEventListener("abort", onCallerGone);
       unwire();
     }
+  }
+
+  /**
+   * The extra-session opener for a `--load-connections` run (#2800), bound
+   * to the connection's server config as resolved now, or `undefined` for a
+   * single-session run. Checked before the run is queued: over stdio every
+   * session would spawn its own server process, testing N isolated servers
+   * rather than one server under N sessions, so it is refused exactly as the
+   * one-shot CLI refuses it (#2746).
+   */
+  private loadConnectionOpener(
+    params: RpcParams,
+    load: LoadOptions,
+  ): LoadClientOpener | undefined {
+    if (load.connections === undefined || load.connections <= 1) {
+      return undefined;
+    }
+    const connection = this.registry.connectionFor(
+      params.name,
+      params.requireExplicit,
+    );
+    if (!isOAuthCapableServerConfig(connection.serverConfig)) {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
+        { code: "load_flag_conflict" },
+      );
+    }
+    const target = {
+      serverConfig: connection.serverConfig,
+      ...(connection.serverSettings && {
+        serverSettings: connection.serverSettings,
+      }),
+    };
+    return (primary, signal) =>
+      this.registry.openLoadClient(target, primary, signal);
   }
 
   /**
