@@ -156,7 +156,18 @@ describe("writeRpcOutcome for a load result", () => {
   });
 });
 
-describe("mcpdo tools/call --load", () => {
+/** Deadline for one `runMcp` call that reaches the auto-spawned daemon. */
+const DAEMON_COMMAND_MS = 20_000;
+/**
+ * The longest test here runs three daemon commands in sequence, so its own
+ * budget has to exceed all three deadlines (AGENTS.md: an inner budget is
+ * strictly smaller than the one enclosing it). Otherwise a stalled command
+ * outlives its test and overlaps teardown while `runMcp` still holds the
+ * captured stdout/stderr and the env overrides.
+ */
+const DAEMON_TEST_MS = 3 * DAEMON_COMMAND_MS + 5_000;
+
+describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
   let configPath: string | undefined;
   let storageDir: string | undefined;
 
@@ -194,7 +205,7 @@ describe("mcpdo tools/call --load", () => {
     expectCliSuccess(
       await runMcp(["connect", "test-stdio", "--config", configPath], {
         env: e,
-        timeout: 20000,
+        timeout: DAEMON_COMMAND_MS,
       }),
     );
 
@@ -211,7 +222,7 @@ describe("mcpdo tools/call --load", () => {
         "--format",
         "json",
       ],
-      { env: e, timeout: 20000 },
+      { env: e, timeout: DAEMON_COMMAND_MS },
     );
     expectCliSuccess(loaded);
     expect(JSON.parse(loaded.stdout)).toMatchObject({
@@ -230,7 +241,7 @@ describe("mcpdo tools/call --load", () => {
         ["tools/call", "echo", "message:=after", "--format", "json"],
         {
           env: e,
-          timeout: 20000,
+          timeout: DAEMON_COMMAND_MS,
         },
       ),
     );
@@ -242,12 +253,12 @@ describe("mcpdo tools/call --load", () => {
     expectCliSuccess(
       await runMcp(["connect", "test-stdio", "--config", configPath], {
         env: e,
-        timeout: 20000,
+        timeout: DAEMON_COMMAND_MS,
       }),
     );
     const result = await runMcp(
       ["tools/call", "no_such_tool", "--load", "--load-requests", "2"],
-      { env: e, timeout: 20000 },
+      { env: e, timeout: DAEMON_COMMAND_MS },
     );
     expect(result.exitCode).toBe(5);
     expect(result.stderr).toContain("Tool 'no_such_tool' not found on server.");
