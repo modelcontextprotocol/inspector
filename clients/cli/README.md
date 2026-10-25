@@ -98,7 +98,7 @@ Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici)
 
 Because undici's `Response` is a different class from `globalThis.Response`, the proxied fetch re-wraps each response as a genuine global `Response`, streaming preserved. Without that, `res instanceof Response` is `false` for callers that test it — including the MCP SDK, whose OAuth error formatter would degrade every message to `Raw body: [object Response]`.
 
-`undici` is declared **only** in the root `package.json`, and every client's tsup config lists it as `external`. Both halves matter: tsup auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
+`undici` is declared **only** in the root `package.json`, and every client's bundler config lists it as `external` (this client's is `clients/cli/tsdown.config.ts`). Both halves matter: the bundler auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
 
 ### Shell completion
 

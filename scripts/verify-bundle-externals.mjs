@@ -33,11 +33,12 @@ import { fileURLToPath } from "node:url";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * Clients that ship a tsup bundle, with the config to read `external` from and
- * the build directory to inspect. `entry` names the file whose presence
- * proves a build actually ran; it defaults to `index.js` (what web/cli/tui
- * each name their single tsup entry) and is overridden only when a client's
- * tsup config uses a different entry name, like mcpdo's multi-entry `mcp-bin`.
+ * Clients that ship a bundle, with the config to read `external` from and
+ * the build directory to inspect. Most are tsup builds; `cli` is tsdown (#1492),
+ * which emits the same `// <path>` module banners. `entry` names the file whose
+ * presence proves a build actually ran; it defaults to `index.js` (what
+ * web/cli/tui each name their single entry) and is overridden only when a
+ * client's config uses a different entry name, like mcpdo's multi-entry `mcp-bin`.
  * `clients/launcher` is plain `tsc` — it emits no bundle and inlines nothing —
  * so it has nothing to check.
  */
@@ -49,7 +50,7 @@ export const BUNDLED_CLIENTS = [
   },
   {
     name: "cli",
-    config: "clients/cli/tsup.config.ts",
+    config: "clients/cli/tsdown.config.ts",
     build: "clients/cli/build",
   },
   {
@@ -66,17 +67,21 @@ export const BUNDLED_CLIENTS = [
 ];
 
 /**
- * Extracts the string literals of a tsup config's `external: [...]` array.
+ * Extracts the string literals of a bundler config's externals array — tsup's
+ * inline `external: [...]`, or the `const EXTERNALS = [...]` a tsdown config
+ * expands into `deps.neverBundle` (a bare string there matches no subpath, so
+ * the config maps each name to a pattern rather than listing them inline).
  *
  * Reading the config as *text* rather than importing it keeps this guard free of
- * the client's own toolchain (tsup, esbuild, and — for the TUI — a plugin that
- * reads `ink-form` off disk at module load). Only bare string entries are
- * collected; a regex entry such as `/^@inspector\/core/` is a `noExternal`
- * pattern in practice and has no package name to look for.
+ * the client's own toolchain (tsup or tsdown, the bundler under it, and — for
+ * the TUI — a plugin that reads `ink-form` off disk at module load). Only bare
+ * string entries are collected; a regex entry such as `/^@inspector\/core/` is
+ * a `noExternal` pattern in practice and has no package name to look for.
  */
 export function parseExternals(source) {
-  const start = source.indexOf("external: [");
-  if (start === -1) return [];
+  const anchor = /\bexternal: \[|\bconst EXTERNALS = \[/.exec(source);
+  if (!anchor) return [];
+  const start = anchor.index;
   let depth = 0;
   let end = -1;
   for (let i = source.indexOf("[", start); i < source.length; i++) {
@@ -96,14 +101,15 @@ export function parseExternals(source) {
   const withoutComments = body
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/\/\/[^\n]*/g, "");
-  return [...withoutComments.matchAll(/"([^"]+)"|'([^']+)'/g)]
-    .map((m) => m[1] ?? m[2])
-    .filter((name) => name !== "external: [");
+  return [...withoutComments.matchAll(/"([^"]+)"|'([^']+)'/g)].map(
+    (m) => m[1] ?? m[2],
+  );
 }
 
 /**
  * Every module esbuild inlines is emitted under a `// <path>` banner naming its
- * source file, so a package that was bundled despite being declared external
+ * source file — Rolldown (tsdown) writes the same shape, and some Rolldown
+ * releases write `//#region <path>` instead, so both are read — so a package that was bundled despite being declared external
  * leaves `// ../../node_modules/<pkg>/…` lines behind. Matching on those covers
  * **both** shapes this can take: a separate `<pkg>-HASH.js` chunk (what a
  * dynamically `import()`ed CommonJS package produces, which is what #2067 was)
@@ -118,7 +124,7 @@ export function parseExternals(source) {
  */
 export function findInlinedExternals({ externals, files }) {
   const banners = files.flatMap((file) =>
-    [...file.source.matchAll(/^\/\/ (\S+)$/gm)].map((m) => ({
+    [...file.source.matchAll(/^\/\/(?: |#region )(\S+)$/gm)].map((m) => ({
       file: file.name,
       path: m[1],
     })),
@@ -149,7 +155,7 @@ export function findInlinedExternals({ externals, files }) {
  * The candidate set is the **union of two independently-derived lists**, and the
  * second is what makes this guard cover #2067 rather than merely its regression:
  *
- * - `externals` — what the client's tsup config declares. Catches a package that
+ * - `externals` — what the client's bundler config declares. Catches a package that
  *   was meant to stay out and got pulled in anyway.
  * - `rootDependencies` — the root manifest's runtime dependencies. These are
  *   root-declared *by rule* (see AGENTS.md), reached through `core/`, and must be
@@ -160,7 +166,7 @@ export function findInlinedExternals({ externals, files }) {
  *   from an `external` list must not be able to remove it from scrutiny.
  *
  * It also **fails closed on an empty `external` list**. `parseExternals` keys off
- * the literal text `external: [`, so an ordinary tsup refactor — hoisting the
+ * the literal text `external: [` (or `const EXTERNALS = [`), so an ordinary refactor — hoisting the
  * array to a constant, or a line break after the colon — would make it return
  * nothing. Every enrolled bundle has externals today, so "none parsed" means the
  * parser lost track of the config, not that the invariant holds.
@@ -174,9 +180,10 @@ export function evaluateClient({
 }) {
   if (externals.length === 0) {
     return [
-      `${name}: no \`external\` entries could be parsed from its tsup config. ` +
+      `${name}: no \`external\` entries could be parsed from its bundler config. ` +
         `Every bundled client has some, so this means the config no longer matches ` +
-        `what parseExternals() reads (it keys off the literal text "external: ["). ` +
+        `what parseExternals() reads (it keys off the literal text "external: [" ` +
+        `or "const EXTERNALS = ["). ` +
         `Update the parser rather than leaving the guard checking nothing.`,
     ];
   }
@@ -188,7 +195,7 @@ export function evaluateClient({
   });
   if (noBanners) {
     return [
-      `${name}: ${build} has no esbuild module banners, so this guard cannot see ` +
+      `${name}: ${build} has no module banners, so this guard cannot see ` +
         `what was inlined. Has minification been enabled for this bundle?`,
     ];
   }
@@ -203,7 +210,7 @@ export function evaluateClient({
       ? `${name}: "${v.pkg}" is declared external but was inlined (${v.reason}).`
       : `${name}: "${v.pkg}" is a root runtime dependency, so it must stay ` +
         `external, but it was inlined (${v.reason}). Add it to this client's ` +
-        `tsup \`external\` list.`,
+        `bundler \`external\` list.`,
   );
 }
 
@@ -252,10 +259,10 @@ function main() {
     if (failures.some((f) => f.includes("was inlined"))) {
       console.error(
         "\nAn externalized package must resolve from the consumer's install. If it was\n" +
-          "inlined, esbuild rewrote its specifier to a relative chunk that no user-side\n" +
+          "inlined, the bundler rewrote its specifier to a relative chunk that no user-side\n" +
           "install can satisfy — and a CommonJS package inlined into an ESM bundle throws\n" +
           '`Dynamic require of "..." is not supported` on first use (#2067).\n' +
-          "Add the package to that client's tsup `external` list.",
+          "Add the package to that client's bundler `external` list.",
       );
     }
     process.exit(1);
