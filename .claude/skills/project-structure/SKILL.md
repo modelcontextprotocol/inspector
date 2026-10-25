@@ -41,7 +41,7 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 | --- | --- |
 | `core/mcp/` | `InspectorClient`, transports, state stores, config import, URI templates, subscription/App-elicitation protocol helpers |
 | `core/mcp/node/` | Node stdio transport factory; `proxyFetch.ts` (the shared HTTPS_PROXY/NO_PROXY fetch) |
-| `core/mcp/remote/` | Browser HTTP/SSE transport + remote logger/fetch, and (under `node/`) the Hono backend it talks to |
+| `core/mcp/remote/` | Browser HTTP/SSE transport + remote logger/fetch, and (under `node/`) the Hono backend it talks to, plus `fetchGuard.ts` (the `/api/fetch` destination guard) |
 | `core/mcp/state/` | The stores `core/react/` hooks read |
 | `core/auth/` | OAuth end to end — providers, discovery, storage, endpoint overrides, scopes, revocation, mid-session recovery — split into isomorphic logic plus `browser/`, `node/` and `remote/` backends |
 | `core/auth/node/` | Node OAuth storage + loopback callback server, **and** the `SecretStore` backends (keychain / file / memory) and their selection policy |

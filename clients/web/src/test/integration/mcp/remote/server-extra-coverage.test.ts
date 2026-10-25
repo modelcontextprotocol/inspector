@@ -367,6 +367,19 @@ describe("server.ts supplemental coverage", () => {
       });
       const srv = createServer((req, res) => {
         upstreamHits.push(req.url ?? "");
+        if (req.url === "/redirect-to-metadata") {
+          // A server under test steering OAuth discovery at the IMDS (#2749).
+          res.writeHead(302, {
+            Location: "http://169.254.169.254/latest/meta-data/",
+          });
+          res.end();
+          return;
+        }
+        if (req.url === "/redirect-to-plain") {
+          res.writeHead(302, { Location: "/plain" });
+          res.end();
+          return;
+        }
         if (req.url === "/not-found-oversize") {
           // An error status with a body past the budget, chunked so only the
           // streamed count can catch it.
@@ -804,6 +817,46 @@ describe("server.ts supplemental coverage", () => {
       const body = (await res.json()) as { body?: string; status: number };
       expect(body.status).toBe(200);
       expect(body.body).toBeUndefined();
+    });
+
+    // #2749: the destination guard. Refusals are 403, as on v1's `/fetch`.
+    it.each([
+      "http://169.254.169.254/latest/meta-data/",
+      "http://[fd00:ec2::254]/",
+      "file:///etc/passwd",
+    ])("refuses %s with 403 before any request", async (url) => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toMatch(/^Refusing to fetch/);
+    });
+
+    it("refuses a redirect into the metadata range", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/redirect-to-metadata` }),
+      });
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toContain("169.254.169.254");
+      expect(upstreamHits).toEqual(["/redirect-to-metadata"]);
+    });
+
+    it("follows a permitted redirect to its target", async () => {
+      const res = await fetch(`${h.baseUrl}/api/fetch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: `${targetUrl}/redirect-to-plain` }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: number };
+      expect(body.status).toBe(200);
+      expect(upstreamHits).toEqual(["/redirect-to-plain", "/plain"]);
     });
 
     it("relays a body of exactly the response cap", async () => {

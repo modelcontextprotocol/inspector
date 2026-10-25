@@ -465,6 +465,19 @@ In every case, exposing the Inspector beyond loopback also means anyone who can 
 
 ## HTTP proxy support
 
-The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost.
+The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. (`POST /api/fetch` loads undici either way, on its first request, for the destination guard below.)
 
 The proxy sits at the **bottom** of the fetch stack rather than wrapping the transport's fetch, and both undici halves must come from the same copy — see [HTTP proxy support](../cli/README.md#http-proxy-support) in the CLI README for why ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).
+
+## Outbound fetch destination guard
+
+`POST /api/fetch` is how the browser reaches the network for OAuth — discovery, protected-resource metadata, token, client registration, revocation — and some of those URLs come from the server under test. The route therefore refuses destinations a hostile server could use to read the host's cloud credentials ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749), ported from v1's `/fetch`); the logic is `core/mcp/remote/node/fetchGuard.ts`.
+
+- **Schemes:** `http:` and `https:` only.
+- **Refused addresses:** link-local and instance-metadata only — `169.254.0.0/16` (with its IPv4-mapped IPv6 forms), `fe80::/10` and `fd00:ec2::254`. Loopback and private (RFC 1918) addresses stay reachable, since local and LAN MCP and authorization servers are ordinary targets.
+- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin.
+- **DNS** is checked inside the connection's own lookup, so the socket connects to exactly the addresses that were checked — a name cannot resolve differently between check and connect.
+
+A refusal is answered `403` with an `error` message. **Behind `HTTPS_PROXY` / `HTTP_PROXY` the proxy resolves names, not the Inspector**, so the guard can only check a hostname against local DNS (refusing it if it resolves to a blocked address here, allowing it if it does not resolve here at all) and cannot pin the connection. Scheme, IP-literal and redirect checks still apply. In that configuration the proxy is the network boundary.
+
+The guard covers the web backend only. The CLI and TUI make their OAuth requests directly from Node, without it.
