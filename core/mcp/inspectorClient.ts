@@ -6165,6 +6165,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     tokenUrl?: string;
     /** Declare the `refresh_token` grant in client metadata (#2068). */
     requestRefreshToken?: boolean;
+    /** Send `scope` on the refresh-token request (#2805). */
+    scopeOnRefresh?: boolean;
   }): void {
     if (!this.oauthManager) {
       throw new Error(

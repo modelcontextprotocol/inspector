@@ -5,6 +5,7 @@ import type {
   OAuthClientMetadata,
   OAuthDiscoveryState,
   OAuthTokens,
+  StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
 import type { BaseOAuthClientProvider } from "../providers.js";
 import {
@@ -98,6 +99,13 @@ export class EmaTransportOAuthProvider implements OAuthClientProvider {
       return refreshed;
     }
     return undefined;
+  }
+
+  // #2805: the per-server "send scope on refresh" setting lives on the inner
+  // provider. Without this the SDK would find no `scopeForRefresh` here and
+  // refresh an EMA connection's resource tokens with no `scope` regardless.
+  scopeForRefresh(tokens: StoredOAuthTokens): Promise<string | undefined> {
+    return this.inner.scopeForRefresh(tokens);
   }
 
   saveTokens(tokens: OAuthTokens): void | Promise<void> {

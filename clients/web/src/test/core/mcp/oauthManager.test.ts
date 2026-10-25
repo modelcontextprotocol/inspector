@@ -2258,6 +2258,24 @@ describe("OAuthManager", () => {
       expect(provider.clientMetadata.scope).toBe("mcp");
     });
 
+    // #2805 — the same bridge for the refresh-scope opt-in: the e2e suite
+    // proves the request, this pins the one line that carries the setting.
+    it("forwards the refresh-scope opt-in to the provider it builds", async () => {
+      const tokens = {
+        access_token: "at",
+        token_type: "Bearer",
+        scope: "mcp",
+      };
+      const on = new OAuthManager(createMockParams());
+      on.setOAuthConfig({ scopeOnRefresh: true });
+      const onProvider = await on.createOAuthProviderForTransport();
+      expect(await onProvider.scopeForRefresh?.(tokens)).toBe("mcp");
+
+      const off = new OAuthManager(createMockParams());
+      const offProvider = await off.createOAuthProviderForTransport();
+      expect(await offProvider.scopeForRefresh?.(tokens)).toBeUndefined();
+    });
+
     it("declares the refresh_token grant when the opt-out is not configured", async () => {
       const manager = new OAuthManager(createMockParams());
 

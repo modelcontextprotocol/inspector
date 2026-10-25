@@ -598,6 +598,112 @@ describe("OAuthNavigation", () => {
       });
     });
 
+    describe("scopeForRefresh (#2805)", () => {
+      function makeRefreshProvider(opts: {
+        scopeOnRefresh?: boolean;
+        storedScope?: string;
+        configuredScope?: string;
+        requestRefreshToken?: boolean;
+      }): BaseOAuthClientProvider {
+        const storage = makeStorage();
+        vi.mocked(storage.getScope).mockResolvedValue(opts.storedScope);
+        return new BaseOAuthClientProvider(SERVER, {
+          storage,
+          redirectUrlProvider: new MutableRedirectUrlProvider(),
+          navigation: new CallbackNavigation(vi.fn()),
+          scopeOnRefresh: opts.scopeOnRefresh,
+          configuredScope: opts.configuredScope,
+          requestRefreshToken: opts.requestRefreshToken,
+        });
+      }
+
+      const grantedTokens = {
+        access_token: "at",
+        token_type: "Bearer",
+        refresh_token: "rt",
+        scope: "mcp tools:read",
+      };
+
+      // The default must leave the SDK's refresh request untouched: an
+      // `undefined` here is what makes `auth()` send no `scope` at all.
+      it("sends no scope by default", async () => {
+        const provider = makeRefreshProvider({ storedScope: "mcp" });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBeUndefined();
+      });
+
+      it("sends no scope when explicitly off", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: false,
+          storedScope: "mcp",
+        });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBeUndefined();
+      });
+
+      it("sends the granted scope saved with the tokens", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp",
+          configuredScope: "mcp",
+        });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBe(
+          "mcp tools:read",
+        );
+      });
+
+      // RFC 6749 §5.1: a token response omits `scope` when it equals the
+      // requested one, so the request scope is what was granted.
+      it("falls back to the stored request scope when the tokens carry none", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "  mcp offline_access ",
+          configuredScope: "mcp",
+        });
+        expect(
+          await provider.scopeForRefresh({ ...grantedTokens, scope: "  " }),
+        ).toBe("mcp offline_access");
+      });
+
+      it("falls back to the configured scope when storage holds none", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          configuredScope: "mcp",
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+
+      it("returns undefined when no scope is known anywhere", async () => {
+        const provider = makeRefreshProvider({ scopeOnRefresh: true });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBeUndefined();
+      });
+
+      // The fallback is the scope the authorization request used, and that
+      // request went through the #2068 filter — so the fallback does too.
+      it("applies the #2068 offline_access filter to the fallback scope", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp offline_access",
+          configuredScope: "mcp",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+    });
+
     describe("SEP-2352 issuer threading", () => {
       it("forwards ctx.issuer to storage on clientInformation/tokens reads", async () => {
         const storage = makeStorage();
