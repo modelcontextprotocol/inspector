@@ -115,6 +115,16 @@ export class ConnectionRegistry {
    */
   private closed = false;
 
+  /**
+   * Extra `--load-connections` sessions (#2800) currently open. They belong
+   * to the load run that opened them, which closes them when it ends, and are
+   * never entered in {@link connections}: `connections/list` does not show
+   * them and idle accounting does not count them (a run only happens on a
+   * registered connection, which already holds the idle timer off). They are
+   * tracked here only so that a daemon shutdown mid-run closes them too.
+   */
+  private readonly loadClients = new Set<InspectorClient>();
+
   private async withNameLock<T>(
     name: string,
     fn: () => Promise<T>,
@@ -464,6 +474,32 @@ export class ConnectionRegistry {
     return client;
   }
 
+  /**
+   * Open one extra session to `name`'s server for a `--load-connections` run
+   * (#2800): a fresh client built from the connection's stored server config
+   * and settings, dialed the way a revive dials — stored credentials only, so
+   * an extra never starts an interactive sign-in mid-run. The caller owns the
+   * returned client and must hand it to {@link releaseLoadClient} once it has
+   * disconnected it. A failed dial leaves nothing behind.
+   */
+  async openLoadClient(name: string): Promise<InspectorClient> {
+    this.assertOpen();
+    const connection = this.resolve(name, true);
+    const client = await this.dial(connection);
+    if (this.closed) {
+      // Shutdown ran while dialing, past the point where it closes these.
+      await safeDisconnect(client);
+      this.assertOpen();
+    }
+    this.loadClients.add(client);
+    return client;
+  }
+
+  /** Stop tracking an extra session its load run has closed. */
+  releaseLoadClient(client: InspectorClient): void {
+    this.loadClients.delete(client);
+  }
+
   use(name: string): ConnectionInfo {
     const connection = this.resolve(name, true);
     this.touch(connection.name);
@@ -638,6 +674,11 @@ export class ConnectionRegistry {
         // rest.
       }
     }
+    // A load run still in flight would close these in its own `finally`, but
+    // the daemon may exit first; close them now. Disconnecting twice is safe.
+    const extras = [...this.loadClients];
+    this.loadClients.clear();
+    await Promise.all(extras.map((client) => safeDisconnect(client)));
     this.clearIdleTimer();
   }
 

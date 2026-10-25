@@ -5,7 +5,8 @@ import type {
   MethodArgs,
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
-import type { LoadOptions } from "@inspector/core/cli/handlers/load-test.js";
+import { checkLoadThresholds } from "@inspector/core/cli/handlers/load-thresholds.js";
+import type { LoadFlags } from "./load-flags.js";
 import { writeConnectionOutput } from "./format-connection.js";
 import { styleFromOpts, type Style } from "@inspector/core/cli/style.js";
 import { promptElicitation } from "./elicitation-prompt.js";
@@ -25,8 +26,11 @@ export type ConnectionDispatchOpts = {
   plain?: boolean;
   connection?: string;
   requireExplicit: boolean;
-  /** `tools/call --load` (#2744): run the load engine daemon-side. */
-  load?: LoadOptions;
+  /**
+   * `tools/call --load` (#2744): `options` run the load engine daemon-side;
+   * `thresholds` (#2800) grade its summary here, after it is printed.
+   */
+  load?: LoadFlags;
 };
 
 /**
@@ -48,7 +52,7 @@ export async function dispatchConnectionRpc(
     method,
     name: stripAt(opts.connection),
     requireExplicit: opts.requireExplicit,
-    ...(opts.load !== undefined && { load: opts.load }),
+    ...(opts.load !== undefined && { load: opts.load.options }),
   };
 
   const { socketPath } = await ensureDaemon();
@@ -139,6 +143,12 @@ export async function dispatchConnectionRpc(
     methodArgs.toolName,
     outcome,
   );
+  // After the summary is out, so a breached run still shows its numbers —
+  // the one-shot CLI's order (#2745). The breach is a CliExitCodeError, so it
+  // leaves as mcpdo's error envelope with the CLI's code and exit code.
+  if (outcome.kind === "load") {
+    checkLoadThresholds(outcome.summary, opts.load?.thresholds);
+  }
 }
 
 /**

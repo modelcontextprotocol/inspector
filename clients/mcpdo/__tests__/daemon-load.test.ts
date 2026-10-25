@@ -2,7 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import {
+  createEchoTool,
+  createTestServerHttp,
+  createTestServerInfo,
+} from "@modelcontextprotocol/inspector-test-server";
 import { DaemonServer } from "../src/daemon/server.js";
+import { ConnectionRegistry } from "../src/daemon/connections.js";
 import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
@@ -11,6 +17,7 @@ import type {
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import type { RpcParams } from "../src/daemon/protocol.js";
+import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 
 /**
  * `tools/call --load` inside the daemon (#2744): the `rpc` op hands the run to
@@ -24,7 +31,10 @@ type LoadImpl = (
   client: unknown,
   args: Record<string, unknown>,
   options: LoadOptions,
-  run: { signal?: AbortSignal },
+  run: {
+    signal?: AbortSignal;
+    openConnection?: () => Promise<InspectorClient>;
+  },
 ) => Promise<LoadSummary>;
 
 const loadMock = vi.hoisted(() => {
@@ -82,7 +92,7 @@ class FakeLoadClient
   implements
     Pick<
       InspectorClient,
-      "getStatus" | "cancelToolCall" | "setAmbientRequestSignal"
+      "getStatus" | "cancelToolCall" | "setAmbientRequestSignal" | "disconnect"
     >
 {
   ambient: AbortSignal | undefined;
@@ -105,6 +115,8 @@ class FakeLoadClient
       this.ambient = undefined;
     };
   }
+
+  async disconnect(): Promise<void> {}
 }
 
 function fakeClient(status: ConnectionStatus = "connected") {
@@ -259,5 +271,137 @@ describe("daemon rpc with --load", () => {
       appInfo: undefined,
     });
     expect(runMethodMock.calls).toBe(1);
+  });
+
+  describe("--load-connections", () => {
+    const MULTI: LoadOptions = { concurrency: 2, connections: 2, requests: 4 };
+
+    /** Point the connection at a server config and stub the extra dial. */
+    function useConnection(serverConfig: MCPServerConfig) {
+      const extra = fakeClient();
+      // Only `name` and `serverConfig` are read on this path.
+      vi.spyOn(server.registry, "connectionFor").mockReturnValue({
+        name: "srv",
+        serverConfig,
+      } as ReturnType<typeof server.registry.connectionFor>);
+      const open = vi
+        .spyOn(server.registry, "openLoadClient")
+        .mockResolvedValue(extra.client);
+      const release = vi.spyOn(server.registry, "releaseLoadClient");
+      return { extra, open, release };
+    }
+
+    it("opens extras through the registry with the run's signal, and releases them", async () => {
+      const { extra, open, release } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      let opened: InspectorClient | undefined;
+      loadMock.impl = async (_client, _args, options, run) => {
+        expect(options).toEqual(MULTI);
+        opened = await run.openConnection!();
+        // The caller hanging up aborts the extra's in-flight calls too.
+        expect(extra.ambient()).toBe(run.signal);
+        return SUMMARY;
+      };
+      const response = await rpc({ load: MULTI });
+      expect(response.ok).toBe(true);
+      expect(opened).toBe(extra.client);
+      expect(open).toHaveBeenCalledWith("srv");
+      expect(release).toHaveBeenCalledWith(extra.client);
+      expect(extra.ambient()).toBeUndefined();
+    });
+
+    it("gives a single-session run no way to open more", async () => {
+      const { open } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      loadMock.impl = async (_client, _args, _options, run) => {
+        expect(run.openConnection).toBeUndefined();
+        return SUMMARY;
+      };
+      expect((await rpc({ load: { ...MULTI, connections: 1 } })).ok).toBe(true);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("refuses more than one session over stdio before the run starts", async () => {
+      const { open } = useConnection({ type: "stdio", command: "node" });
+      loadMock.impl = async () => SUMMARY;
+      const response = await rpc({ load: MULTI });
+      expect(response.ok).toBe(false);
+      expect(!response.ok && response.error.code).toBe("load_flag_conflict");
+      expect(open).not.toHaveBeenCalled();
+      // Nothing was set up, so nothing is left behind on the primary.
+      expect(fake.ambient()).toBeUndefined();
+    });
+  });
+});
+
+/**
+ * The registry side of `--load-connections` (#2800), against a real HTTP
+ * server: an extra session is dialed from the connection's stored config,
+ * stays out of the connection list, and is closed by a daemon shutdown that
+ * lands mid-run.
+ */
+describe("ConnectionRegistry load sessions", () => {
+  let httpServer: ReturnType<typeof createTestServerHttp>;
+  let registry: ConnectionRegistry;
+
+  beforeEach(async () => {
+    httpServer = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-registry", "1.0.0"),
+      tools: [createEchoTool()],
+    });
+    await httpServer.start();
+    registry = new ConnectionRegistry(0);
+    await registry.connect({
+      name: "remote",
+      serverConfig: { type: "streamable-http", url: httpServer.url },
+      serverIdentity: httpServer.url,
+    });
+  });
+
+  afterEach(async () => {
+    await registry.disconnectAll();
+    await httpServer.stop();
+  });
+
+  it("dials a separate, unlisted session that shutdown closes", async () => {
+    const primary = registry.resolve("remote", true).client;
+    const extra = await registry.openLoadClient("remote");
+    expect(extra).not.toBe(primary);
+    expect(extra.getStatus()).toBe("connected");
+    expect(registry.list().map((c) => c.name)).toEqual(["remote"]);
+    expect(registry.connectionCount()).toBe(1);
+
+    const disconnect = vi.spyOn(extra, "disconnect");
+    await registry.disconnectAll();
+    expect(disconnect).toHaveBeenCalledOnce();
+  });
+
+  it("leaves a released session to its run", async () => {
+    const extra = await registry.openLoadClient("remote");
+    await extra.disconnect();
+    registry.releaseLoadClient(extra);
+    const disconnect = vi.spyOn(extra, "disconnect");
+    await registry.disconnectAll();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it("closes a session whose dial finished after shutdown began", async () => {
+    const opening = registry.openLoadClient("remote");
+    const outcome = opening.catch((err: unknown) => err);
+    await registry.disconnectAll();
+    expect(await outcome).toMatchObject({
+      envelope: { code: "daemon_stopping" },
+    });
+  });
+
+  it("refuses to open a session once the daemon is stopping", async () => {
+    await registry.disconnectAll();
+    await expect(registry.openLoadClient("remote")).rejects.toMatchObject({
+      envelope: { code: "daemon_stopping" },
+    });
   });
 });

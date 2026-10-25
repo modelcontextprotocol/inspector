@@ -6,32 +6,54 @@ import {
   resolveLoadOptions,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  resolveLoadThresholds,
+  type LoadThresholds,
+} from "@inspector/core/cli/handlers/load-thresholds.js";
+
+/** What a `tools/call --load` invocation asked for. */
+export type LoadFlags = {
+  /** Bounds the run; sent to the daemon, which runs the engine. */
+  options: LoadOptions;
+  /**
+   * Grades the finished summary (#2800). Front-end only: the daemon never
+   * sees it, since it judges a summary rather than bounding the run.
+   */
+  thresholds?: LoadThresholds;
+};
 
 /**
  * `tools/call --load` (#2744): turn mcpdo's flag values into the shared
- * engine's {@link LoadOptions}, refusing the same combinations the one-shot
- * CLI refuses (#2439). Each `--load-*` bound is meaningless without `--load`,
- * and `--app-info` shapes a single result where a load run prints a summary,
- * so both are usage errors rather than silently ignored. Value parsing itself
- * (positive integers, positive numbers) is done by commander through the
- * engine's own parsers, so the two CLIs reject the same inputs.
+ * engine's {@link LoadOptions} and the optional {@link LoadThresholds},
+ * refusing the same combinations the one-shot CLI refuses (#2439, #2745,
+ * #2746). Each `--load-*` flag is meaningless without `--load`, and
+ * `--app-info` shapes a single result where a load run prints a summary, so
+ * both are usage errors rather than silently ignored. Value parsing itself
+ * (positive integers, positive numbers, fractions) is done by commander
+ * through the engine's own parsers, so the two CLIs reject the same inputs.
  *
  * Returns `undefined` when `--load` is not set: an ordinary `tools/call`.
  */
 export function resolveLoadFlags(flags: {
   load?: boolean;
   loadConcurrency?: number;
+  loadConnections?: number;
   loadDuration?: number;
   loadRequests?: number;
   loadRate?: number;
+  loadMaxErrorRate?: number;
+  loadMaxP99?: number;
   appInfo?: boolean;
   toolName?: string;
-}): LoadOptions | undefined {
+}): LoadFlags | undefined {
   const bounds = [
     ["--load-concurrency", flags.loadConcurrency],
+    ["--load-connections", flags.loadConnections],
     ["--load-duration", flags.loadDuration],
     ["--load-requests", flags.loadRequests],
     ["--load-rate", flags.loadRate],
+    ["--load-max-error-rate", flags.loadMaxErrorRate],
+    ["--load-max-p99", flags.loadMaxP99],
   ] as const;
   if (flags.load !== true) {
     for (const [flag, value] of bounds) {
@@ -49,12 +71,26 @@ export function resolveLoadFlags(flags: {
   if (!flags.toolName) {
     throw usage("--load requires a tool name.", "missing_tool_name");
   }
-  return resolveLoadOptions({
-    concurrency: flags.loadConcurrency,
-    durationSec: flags.loadDuration,
-    requests: flags.loadRequests,
-    rate: flags.loadRate,
+  let options: LoadOptions;
+  try {
+    options = resolveLoadOptions({
+      concurrency: flags.loadConcurrency,
+      connections: flags.loadConnections,
+      durationSec: flags.loadDuration,
+      requests: flags.loadRequests,
+      rate: flags.loadRate,
+    });
+  } catch (err) {
+    // `--load-connections` above `--load-concurrency`: the engine's own
+    // message, as a usage error rather than a generic failure. It only ever
+    // throws an `Error`.
+    throw usage((err as Error).message);
+  }
+  const thresholds = resolveLoadThresholds({
+    maxErrorRate: flags.loadMaxErrorRate,
+    maxP99Ms: flags.loadMaxP99,
   });
+  return { options, ...(thresholds && { thresholds }) };
 }
 
 function usage(message: string, code = "load_flag_conflict"): CliExitCodeError {
