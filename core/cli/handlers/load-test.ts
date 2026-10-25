@@ -12,14 +12,21 @@ import type { MethodArgs } from "./method-types.js";
  * Lives in `core/cli/` so the one-shot CLI and `mcpdo` share one engine:
  * `mcpdo` runs it inside the daemon against a live connection (#2744).
  *
- * All calls share ONE connection, so this measures how a server handles
- * concurrent requests on a session, not how it handles many sessions.
+ * By default all calls share ONE connection, so this measures how a server
+ * handles concurrent requests on a session. `connections` (#2746) spreads the
+ * workers over that many independent sessions instead — see
+ * {@link runLoadAcrossConnections} for how they are opened, shared and closed.
  */
 
 /** Bounds for one load run. Validated by the caller before connecting. */
 export type LoadOptions = {
-  /** Most calls in flight at once. */
+  /** Most calls in flight at once, across all connections. */
   concurrency: number;
+  /**
+   * Independent connections (sessions) to spread the workers over (#2746).
+   * Absent means one — the connection the caller already opened.
+   */
+  connections?: number;
   /** Stop starting calls after this long. In-flight calls still finish. */
   durationMs?: number;
   /** Stop after this many calls have been started. */
@@ -63,9 +70,39 @@ export type LoadSummary = {
   latencyMs: LoadLatency | null;
   /** Thrown messages by frequency, at most {@link MAX_ERROR_KINDS} of them. */
   errorMessages: { message: string; count: number }[];
+  /**
+   * Present only when more than one connection was asked for, so a default
+   * run's summary is exactly what it was before #2746.
+   */
+  connections?: LoadConnectionsSummary;
+};
+
+/**
+ * How the connections of a multi-connection run (#2746) fared. Opening them
+ * happens before the clock starts, so none of this is in `latencyMs`,
+ * `elapsedMs` or `throughput`; and a connection that failed to open is counted
+ * here, never as a call error, so `errorRate` still means calls only.
+ */
+export type LoadConnectionsSummary = {
+  /** Connections asked for, the already-open one included. */
+  requested: number;
+  /** Connections the run actually spread its workers over. */
+  opened: number;
+  /** Extra connections that failed to open. */
+  failed: number;
+  /**
+   * Time to open each extra connection (session setup, handshake included),
+   * excluding the first, which the caller opened before the run. `null` when
+   * no extra connection opened.
+   */
+  connectMs: LoadLatency | null;
+  /** Connect failure messages by frequency, capped like `errorMessages`. */
+  errorMessages: { message: string; count: number }[];
 };
 
 export const DEFAULT_LOAD_CONCURRENCY = 10;
+/** One connection: every call over the session the caller opened. */
+export const DEFAULT_LOAD_CONNECTIONS = 1;
 /** Applied only when neither a duration nor a request count is given. */
 export const DEFAULT_LOAD_DURATION_MS = 10_000;
 
@@ -101,9 +138,14 @@ export function positiveNumberParser(flag: string): (value: string) => number {
  * {@link DEFAULT_LOAD_CONCURRENCY} workers, and a
  * {@link DEFAULT_LOAD_DURATION_MS} window when no request count bounds the
  * run instead. Given both, the run stops at whichever is reached first.
+ *
+ * `concurrency` is the total across all connections, so it may not be below
+ * `connections`: a connection with no worker would carry no calls and would
+ * only inflate the session count the run claims to have tested.
  */
 export function resolveLoadOptions(flags: {
   concurrency?: number;
+  connections?: number;
   durationSec?: number;
   requests?: number;
   rate?: number;
@@ -114,8 +156,15 @@ export function resolveLoadOptions(flags: {
       : flags.requests === undefined
         ? DEFAULT_LOAD_DURATION_MS
         : undefined;
+  const concurrency = flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY;
+  if (flags.connections !== undefined && flags.connections > concurrency) {
+    throw new Error(
+      `--load-connections (${flags.connections}) cannot exceed --load-concurrency (${concurrency}); every connection needs at least one worker.`,
+    );
+  }
   return {
-    concurrency: flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY,
+    concurrency,
+    ...(flags.connections !== undefined && { connections: flags.connections }),
     ...(durationMs !== undefined && { durationMs }),
     ...(flags.requests !== undefined && { requests: flags.requests }),
     ...(flags.rate !== undefined && { rate: flags.rate }),
@@ -240,7 +289,9 @@ class ErrorTally {
 }
 
 /**
- * Run `call` under the given bounds and summarize what happened. Workers pull
+ * Run `call` under the given bounds and summarize what happened. Each call is
+ * handed the index of the worker making it (0 to `concurrency - 1`), which
+ * {@link runLoadAcrossConnections} uses to pin a worker to a connection. Workers pull
  * slots from a shared counter, so `concurrency` is a hard cap on calls in
  * flight and `requests` a hard cap on calls started. With `rate`, starts
  * follow an even `1 / rate` grid rather than a burst each second.
@@ -255,7 +306,7 @@ class ErrorTally {
  * calls are left to settle, and the summary covers what completed.
  */
 export async function runLoad(
-  call: () => Promise<LoadCallOutcome>,
+  call: (worker: number) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
@@ -323,14 +374,14 @@ export async function runLoad(
     }
   };
 
-  const worker = async (): Promise<void> => {
+  const worker = async (index: number): Promise<void> => {
     while (await claimSlot()) {
       // Another worker's call can abort the run between this worker taking
       // its slot and resuming here.
       if (signal?.aborted) return;
       const t0 = clock.now();
       try {
-        const outcome = await call();
+        const outcome = await call(index);
         if (outcome === "ok") ok++;
         else toolErrors++;
       } catch (err) {
@@ -341,7 +392,7 @@ export async function runLoad(
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, worker));
+  await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
 
   const elapsedMs = clock.now() - start;
   const completed = ok + toolErrors + errors;
@@ -364,17 +415,108 @@ export async function runLoad(
   };
 }
 
+/** The one thing every load connection must offer: a way to close it. */
+export type LoadConnection = { disconnect: () => Promise<void> };
+
+/**
+ * Run {@link runLoad} with its workers spread over `options.connections`
+ * connections: `primary` (already open, owned by the caller) plus extras made
+ * by `openConnection`, which owns cleaning up after a connect it fails.
+ *
+ * - **All extras are opened before the clock starts**, concurrently, so
+ *   session setup never lands in the call latencies. Their connect times are
+ *   reported on their own, in `connections.connectMs`.
+ * - **A connect failure does not abort the run** and is not a call error: the
+ *   run goes ahead on the connections that did open, and the failures are
+ *   counted in `connections.failed` — a server refusing its Nth session is
+ *   exactly what a multi-connection run is for finding.
+ * - **Worker `i` always uses connection `i % opened`**, so `concurrency` stays
+ *   the total in flight and the calls split as evenly as the counts allow.
+ * - **Every extra is disconnected in a `finally`**, settled independently, so
+ *   one failing teardown neither hides another nor replaces the summary.
+ *   `primary` is left open; it belongs to the caller.
+ */
+export async function runLoadAcrossConnections<C extends LoadConnection>(
+  primary: C,
+  openConnection: (() => Promise<C>) | undefined,
+  callOn: (connection: C) => Promise<LoadCallOutcome>,
+  options: LoadOptions,
+  clock: LoadClock = realClock,
+  signal?: AbortSignal,
+): Promise<LoadSummary> {
+  const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
+  if (requested <= 1) {
+    return runLoad(() => callOn(primary), options, clock, signal);
+  }
+  if (!openConnection) {
+    throw new Error(
+      "--load-connections above 1 needs a way to open more connections.",
+    );
+  }
+  const open = openConnection;
+  const extras: C[] = [];
+  const connectTimes: number[] = [];
+  const tally = new ErrorTally();
+  try {
+    const attempts = await Promise.allSettled(
+      Array.from({ length: requested - 1 }, async () => {
+        const t0 = clock.now();
+        const connection = await open();
+        // Pushed as each one lands, so a connection that opened is closed in
+        // the `finally` below even when a sibling's connect is still failing.
+        extras.push(connection);
+        connectTimes.push(clock.now() - t0);
+      }),
+    );
+    for (const attempt of attempts) {
+      if (attempt.status === "rejected") {
+        const err: unknown = attempt.reason;
+        tally.add(err instanceof Error ? err.message : String(err));
+      }
+    }
+    const pool = [primary, ...extras];
+    const summary = await runLoad(
+      (worker) => callOn(pool[worker % pool.length]!),
+      options,
+      clock,
+      signal,
+    );
+    return {
+      ...summary,
+      connections: {
+        requested,
+        opened: pool.length,
+        failed: requested - pool.length,
+        connectMs: summarizeLatency(connectTimes),
+        errorMessages: tally.entries(),
+      },
+    };
+  } finally {
+    await Promise.allSettled(extras.map((c) => c.disconnect()));
+  }
+}
+
 /**
  * Resolve `args.toolName` once, then load it with {@link runLoad}. The tool
  * lookup happens before the clock starts, so a missing tool fails the run
  * outright (exit 5, as a plain `tools/call` would) instead of being reported
- * as a 100% error rate.
+ * as a 100% error rate. The lookup runs on `inspectorClient` alone, before
+ * any extra connection is opened.
+ *
+ * With `options.connections` above one, `extra.openConnection` must return a
+ * further CONNECTED client over the same server; see
+ * {@link runLoadAcrossConnections} for how they are used and closed.
  */
 export async function runToolLoad(
   inspectorClient: InspectorClient,
   args: MethodArgs,
   options: LoadOptions,
-  run: { clock?: LoadClock; signal?: AbortSignal } = {},
+  extra: {
+    openConnection?: () => Promise<InspectorClient>;
+    clock?: LoadClock;
+    /** Ends the run early; see {@link runLoad}. */
+    signal?: AbortSignal;
+  } = {},
 ): Promise<LoadSummary> {
   if (!args.toolName) {
     throw new Error("--load requires --tool-name.");
@@ -399,7 +541,7 @@ export async function runToolLoad(
   // Same rule as a single `tools/call` (#2649): a tool that requires task
   // support can only be called task-augmented.
   const useTask = tool.execution?.taskSupport === "required";
-  const call = async (): Promise<LoadCallOutcome> => {
+  const call = async (client: InspectorClient): Promise<LoadCallOutcome> => {
     const params = [
       tool,
       args.toolArg ?? {},
@@ -407,8 +549,8 @@ export async function runToolLoad(
       args.toolMeta,
     ] as const;
     const invocation = useTask
-      ? await inspectorClient.callToolStream(...params)
-      : await inspectorClient.callTool(...params);
+      ? await client.callToolStream(...params)
+      : await client.callTool(...params);
     /* v8 ignore next 3 -- defensive: `ToolCallInvocation.result` is nullable,
        but both call paths throw on failure rather than return a null result. */
     if (invocation.result === null) {
@@ -416,6 +558,13 @@ export async function runToolLoad(
     }
     return invocation.result.isError === true ? "tool_error" : "ok";
   };
-  const summary = await runLoad(call, options, run.clock, run.signal);
+  const summary = await runLoadAcrossConnections(
+    inspectorClient,
+    extra.openConnection,
+    call,
+    options,
+    extra.clock,
+    extra.signal,
+  );
   return { tool: tool.name, ...summary };
 }

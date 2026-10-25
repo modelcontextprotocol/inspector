@@ -266,6 +266,38 @@ publish is not a period of secrecy to protect; it is a period of **exposure to
 anyone reading commits**, which is why it should be short. Merge close to the
 release rather than early, and publish as soon as the release is out.
 
+#### Merging from the private fork
+
+Three things about the merge itself, all learned on 1.0.3 (#2753):
+
+- ⚠️ **A fork PR can never satisfy a required Actions check.** Private advisory
+  forks do not run GitHub Actions, so `v2/main`'s required `DCO` check (the
+  `v2/main - DCO` ruleset) and `v1/main`'s required `build` check (the
+  `v1/main - full protection` ruleset) stay **"Expected"** forever, and the
+  advisory page offers no bypass. The workable path is to remove **only** the
+  `required_status_checks` rule from that ruleset for the merge, then restore
+  it from a snapshot taken first — never delete the ruleset, which also carries
+  the deletion and force-push protection:
+
+  ```sh
+  gh api repos/modelcontextprotocol/inspector/rulesets/<ID> > ruleset-<ID>.json   # snapshot
+  # PUT the ruleset back with its rules minus required_status_checks, merge,
+  # then PUT the snapshot's rules back and diff the result against the snapshot.
+  ```
+
+  That leaves the fork's commits unchecked, so run the DCO check and the
+  line's gate on the fix branch yourself before merging. Changing a ruleset is
+  an admin act on a protected branch: say what you are about to change and get
+  the maintainer's go-ahead, and restore it in the same sitting.
+- ⚠️ **Merging an advisory merges all of its fork's PRs at once.** An advisory
+  with one PR per affected line (a v2 PR and a v1 PR) lands both together.
+  Plan any cross-advisory merge order around that: you cannot land one
+  advisory's v1 fix before another's and its v2 fix after.
+- **Use "Create a merge commit"** when several fix branches were chained on top
+  of each other in the fork. Squash or rebase rewrites the lower branches'
+  commits, so the branches stacked on them no longer share history with what
+  landed and their PRs show the lower fixes again, or conflict.
+
 **Do not hand this off to the release skill.** It is `disable-model-invocation:
 true`, so a pointer to it from here is a dead end for the model anyway — a
 maintainer invokes `/release` themselves. Say which lines need a release and

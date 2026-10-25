@@ -11,6 +11,7 @@ import { honoMiddlewarePlugin } from "./server/vite-hono-plugin";
 import {
   getStorybookOptimizeDeps,
   getViteBaseConfig,
+  getViteDevCors,
   getViteDevOptimizeDeps,
 } from "./server/vite-base-config";
 import { buildWebServerConfigFromEnv } from "./server/web-server-config";
@@ -193,6 +194,10 @@ export default defineConfig(({ command }) => {
       // `devConfig` already read and validated, so dev and the prod listener
       // agree. Undefined (plain http) for build/vitest, which never bind.
       https: devConfig?.tls,
+      // Reflect only the configured `allowedOrigins`, not Vite's default of any
+      // loopback origin on any port (#2752). Undefined (Vite's default) for
+      // build/vitest, which have no `devConfig` and serve no Inspector page.
+      cors: devConfig ? getViteDevCors(devConfig.allowedOrigins) : undefined,
       fs: {
         allow: [path.resolve(dirname, "../..")],
       },

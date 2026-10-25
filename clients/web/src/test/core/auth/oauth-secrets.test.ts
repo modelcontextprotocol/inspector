@@ -506,6 +506,93 @@ describe("client-credential owner stamps (#2734)", () => {
     expect(stampedOwner(stamp, "ics")).toBeUndefined();
   });
 
+  describe("join reads a value stamped for another client as absent (#2768)", () => {
+    const REG = issuerRegistrationTokenField(issuer);
+    const clientOf = (
+      residue: ServerOAuthState,
+      secrets: Record<string, string>,
+    ) =>
+      joinServerOAuthState(residue, secrets).byIssuer![issuer]!
+        .clientInformation;
+
+    it("drops a secret and registration token whose stamps name another client", () => {
+      expect(
+        clientOf(dcr("client-b"), {
+          [SECRET]: "secret-a",
+          [STAMP]: clientCredentialStamp("client-a", "secret-a"),
+          [REG]: "rat-a",
+          [clientCredentialStampField(REG)]: clientCredentialStamp(
+            "client-a",
+            "rat-a",
+          ),
+        }),
+      ).toEqual({ client_id: "client-b" });
+    });
+
+    it("drops only the mismatched field", () => {
+      expect(
+        clientOf(dcr("client-b"), {
+          [SECRET]: "secret-a",
+          [STAMP]: clientCredentialStamp("client-a", "secret-a"),
+          [REG]: "rat-b",
+          [clientCredentialStampField(REG)]: clientCredentialStamp(
+            "client-b",
+            "rat-b",
+          ),
+        }),
+      ).toEqual({ client_id: "client-b", registration_access_token: "rat-b" });
+    });
+
+    it.each([
+      ["no stamp", undefined],
+      ["a stamp for another value", clientCredentialStamp("client-a", "other")],
+    ])("still serves a value with %s", (_label, stamp) => {
+      expect(
+        clientOf(dcr("client-b"), {
+          [SECRET]: "secret-a",
+          ...(stamp !== undefined && { [STAMP]: stamp }),
+        }),
+      ).toEqual({ client_id: "client-b", client_secret: "secret-a" });
+    });
+
+    it("applies to the legacy unkeyed slot, but not to a pre-registered client", () => {
+      const joined = joinServerOAuthState(
+        {
+          clientInformation: { client_id: "client-b" },
+          preregisteredClientInformation: { client_id: "pre-b" },
+        },
+        {
+          [LEGACY_CLIENT_SECRET_FIELD]: "secret-a",
+          [clientCredentialStampField(LEGACY_CLIENT_SECRET_FIELD)]:
+            clientCredentialStamp("client-a", "secret-a"),
+          [PREREG_CLIENT_SECRET_FIELD]: "pre-secret",
+          [clientCredentialStampField(PREREG_CLIENT_SECRET_FIELD)]:
+            clientCredentialStamp("pre-a", "pre-secret"),
+        },
+      );
+      expect(joined.clientInformation).toEqual({ client_id: "client-b" });
+      expect(joined.preregisteredClientInformation).toEqual({
+        client_id: "pre-b",
+        client_secret: "pre-secret",
+      });
+    });
+
+    it("serves a stamped value to a slot with no client_id", () => {
+      expect(
+        joinServerOAuthState(
+          {
+            clientInformation: {} as ServerOAuthState["clientInformation"],
+          },
+          {
+            [LEGACY_CLIENT_SECRET_FIELD]: "secret-a",
+            [clientCredentialStampField(LEGACY_CLIENT_SECRET_FIELD)]:
+              clientCredentialStamp("client-a", "secret-a"),
+          },
+        ).clientInformation,
+      ).toEqual({ client_secret: "secret-a" });
+    });
+  });
+
   it("restamps only what no stamp vouches for, keeping a valid one whatever client it names", () => {
     const valid = clientCredentialStamp("earlier", "ics");
     expect(

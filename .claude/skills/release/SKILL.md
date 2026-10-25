@@ -243,6 +243,7 @@ API the UI's *Generate release notes* button uses. Run it twice, then publish in
 ```sh
 ARGS=(--merge-branch "v2/chore/milestone-merge-vX.Y.Z" --ledger-url "https://claude.ai/artifact/<id>")
 # Add one --known-issue "<markdown paragraph>" per known issue, if any.
+# Add one --advisory "<GHSA-id>: <markdown>" per security advisory the release fixes.
 
 npm run release:notes -- "${ARGS[@]}"            # 1. preview: prints the notes, creates nothing
 npm run release:notes -- "${ARGS[@]}" --draft    # 2. creates the Release as a DRAFT
@@ -267,6 +268,31 @@ The rules the helper applies:
 - **One line per person, most issues first:** `* @user (#1, #2, …)`.
 - **"Addresses", not "fixes."** The credited issues include feature requests.
 - **The section is left out** when no community reporter remains, as with 2.1.0.
+
+**Security advisories need `--advisory`** (#2766). A GHSA fix lands on
+`v2/main` as a *Merge commit from fork*, not a PR, so the generated list never
+shows it, and its reporter filed no issue, so nothing credits them. Pass one
+`--advisory "<GHSA-id>: <markdown>"` per advisory. The markdown describes the
+**fix**, not the vulnerability (the advisory's own summary is the latter), and
+is used verbatim — bold the lead clause yourself, as 1.0.3 and 2.12.0 do. For
+each one the helper:
+
+- **Adds a bullet under `### Security fixes`** at the top of What's Changed,
+  ending in the advisory link, and moves the PR list under `### Other changes`.
+- **Credits its reporters** — `reporter` and `finder` credits on the advisory,
+  in **every** credit state, `pending` included — merged into the Thanks list
+  as `* @user (#123, GHSA-…)`, with the same maintainer exclusion. People with
+  issues sort first; advisory-only reporters follow, by name. The section now
+  appears when only advisory reporters remain, and its lead-in says "issues
+  and vulnerabilities" or "vulnerabilities" to match.
+- **Aborts when the advisory's patched versions do not name this release**,
+  since a wrong id would link and credit an unrelated advisory, and on any
+  failed advisory lookup.
+- **Warns, but goes on, while the advisory is a `draft`.** Its link 404s until
+  it is published; publish the Release first, then the advisories.
+
+The intro sentence under `### Security fixes` and any `### New configuration`
+block stay hand-written: add them to the draft on the Releases page.
 - ⚠️ **Any API failure aborts the whole run.** A failed permission lookup never
   reads as "community", which could credit a maintainer, and a rate-limited PR
   or issue lookup is never skipped. A partial Thanks list is never published, so
@@ -278,7 +304,9 @@ for preview only. `--draft` and `--publish` refuse `--previous-tag`, and any
 version other than the one on `origin/main`, because the Release would carry
 the wrong range of changes or attach to the wrong tree.
 Previewing `--version 2.9.0` with 2.9.0's ledger and known issue reproduces its
-published notes exactly.
+published notes exactly. Previewing `--version 2.12.0` with its three
+`--advisory` lines reproduces its security bullets and Thanks list exactly;
+only the hand-written intro sentence and New configuration block differ.
 
 ### 3b. Publish the Release
 
@@ -408,3 +436,122 @@ Flat: `feature branch → v1/main → npm v1-latest`, with no merge into `main` 
 any point. The two lines publish independently under separate dist-tags, so a v1
 fix does **not** need forward-porting to reach users on
 `npx @modelcontextprotocol/inspector@v1-latest`.
+
+None of the v2 machinery above applies: no milestone-merge PR, no ledger, no
+`release:notes` script, no `package` job. v1 is a four-package npm workspace
+(root, `client/`, `server/`, `cli/`) with its own, older workflow on `v1/main`.
+This procedure was reconstructed for 1.0.3 (#2753) from the earlier releases and
+that workflow, and the first attempt got the tag and the Latest flag wrong —
+both are called out below.
+
+### v1-1. Bump the version on `v1/main`
+
+The bump is an ordinary PR against **`v1/main`**, cut from `origin/v1/main`
+(the two lines have unrelated histories), labeled `v1` + `chore`, linked to a
+`v1` release issue on board **#11**. That issue takes **no milestone** — every
+milestone is a v2 bucket — and board #11 has no Priority field.
+
+Edit the versions **by hand**. Don't use `npm run update-version`: its trailing
+bare `npm install` re-resolves the whole tree, turning a version bump into an
+uncontrolled dependency update (seen on 1.0.2, #2080). The edits are:
+
+- `version` in the **four** `package.json` files: root, `client/`, `server/`,
+  `cli/`.
+- The **three** `@modelcontextprotocol/inspector-{cli,client,server}` ranges in
+  the root `package.json` `dependencies` (`^X.Y.Z`).
+- The **eight** matching fields in `package-lock.json`: the top-level
+  `version`, `packages[""].version`, the three ranges under
+  `packages[""].dependencies`, and `packages["cli"|"client"|"server"].version`.
+  The `node_modules/@modelcontextprotocol/inspector-*` entries are workspace
+  links with no version, so they need no edit.
+
+Then prove the edit is complete and touched nothing else:
+
+```sh
+npm run check-version                       # every version field agrees
+cp package-lock.json /tmp/lock-before.json
+npm ci && cmp package-lock.json /tmp/lock-before.json   # silent: npm ci left the lockfile alone
+```
+
+Compare the lockfile against itself, not against `git status`: the bump is
+still uncommitted here, so the worktree is dirty by design.
+
+### v1-2. Merge order: the bump merges last
+
+Merge every fix the release ships **first**, then the bump, and cut the Release
+right after it. That way `v1/main` never carries the new version number without
+the fixes it names, and the commit the tag lands on is the bump itself.
+
+When the fixes are security advisories, they merge from private forks, which
+have constraints of their own — required checks that can never report, and
+an advisory merging all of its PRs at once. Those are in the
+`security-advisory` skill, step 5.
+
+### v1-3. Cut the Release
+
+```sh
+gh release create X.Y.Z --repo modelcontextprotocol/inspector \
+  --target v1/main --title X.Y.Z --latest=false --notes-file <notes.md>
+```
+
+- ⚠️ **The tag is bare — `1.0.3`, not `v1.0.3`** — like `1.0.0` through
+  `1.0.2`. The `v1 release tags` ruleset protects `refs/tags/1.*` against
+  deletion and update; a `v`-prefixed tag would sit outside it, and outside the
+  sequence every earlier v1 release established.
+- ⚠️ **`--latest=false` is required.** Every v1 release has it. GitHub's
+  "Latest" badge is repo-wide, so a v1 release marked Latest takes the badge
+  from the current v2 release — and `gh release create` marks a new release
+  Latest by default.
+- `--target v1/main` sets where the tag is created. The tag does not exist yet,
+  so without it GitHub would tag the default branch, `main`, which is v2.
+
+### v1-4. What CI does
+
+The `release` event runs `v1/main`'s `.github/workflows/main.yml` at the tagged
+commit:
+
+- **`build`** first.
+- **`publish`** (`needs: build`) — npm **trusted publishing** over OIDC
+  (`id-token: write`, no npm token), running `npm run publish-all`, which
+  publishes the three workspaces and then the root, all with
+  `--tag v1-latest`. That tag is what keeps a v1 publish off `latest`.
+- **`publish-github-container-registry`** (`needs: build`) — the GHCR image.
+
+### v1-5. Verify
+
+```sh
+npm view @modelcontextprotocol/inspector dist-tags --prefer-online
+```
+
+`v1-latest` must show the new version **and `latest` must still show the
+current v2 release**. As with v2 (3c), a fresh version can sit in npm's
+validation window before `dist-tags` moves, so query the exact version
+(`npm view @modelcontextprotocol/inspector@X.Y.Z version --prefer-online`)
+before concluding anything failed. Confirm the release still shows
+`isLatest: false`:
+
+```sh
+gh release list --repo modelcontextprotocol/inspector --limit 100 \
+  --json tagName,isLatest --jq '.[] | select(.tagName == "X.Y.Z")'
+```
+
+(`gh release view` has no `isLatest` field; `gh release list` does.)
+
+### v1-6. Release notes for unpublished advisories
+
+When the release ships fixes for advisories that are **not yet published**,
+keep the notes **neutral** at release time: say what changed in behavior, with
+no GHSA link and no description of the vulnerability. The Release is public
+the moment it is created, and an advisory link there points at a page nobody
+outside it can open while the notes themselves describe the bug.
+
+Once the advisories are published (which waits on every affected line having
+shipped — `security-advisory`, step 5), **edit the Release** to link each one
+and thank its reporters, as 1.0.3's notes now do:
+
+```sh
+gh release edit X.Y.Z --repo modelcontextprotocol/inspector --notes-file <notes.md>
+```
+
+Re-check `isLatest` afterwards (v1-5): an edit must not hand the Latest badge
+to the v1 release.

@@ -7,6 +7,7 @@ import type {
   CliAppInfo,
   MethodArgs,
 } from "@inspector/core/cli/handlers/method-types.js";
+import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
   LoadOptions,
   LoadSummary,
@@ -121,12 +122,24 @@ export type DaemonRequest = {
     | Record<string, never>;
 };
 
+/**
+ * The envelope fields a daemon error carries across the socket beyond `code`
+ * and `message`, so the caller's envelope matches the one-shot CLI's (#2772).
+ * `status` is relayed for every error that has one; the rest only exist on a
+ * `rate_limited` failure, where they are the structured retry timing a script
+ * schedules on.
+ */
+export type RelayedEnvelopeFields = Pick<
+  ErrorEnvelope,
+  "status" | "method" | "retryAfter" | "retryAfterMs"
+>;
+
 export type DaemonErrorBody = {
   code: string;
   message: string;
   /** Suggested CLI exit code when applicable. */
   exitCode?: number;
-};
+} & RelayedEnvelopeFields;
 
 export type DaemonResponse =
   | { id: string; ok: true; result: unknown }

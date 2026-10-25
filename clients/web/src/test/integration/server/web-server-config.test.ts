@@ -15,6 +15,8 @@ import {
   defaultAllowedOrigins,
   portInUseMessage,
   printServerBanner,
+  nonLoopbackBindWarning,
+  HOSTING_ON_A_NETWORK_DOC_URL,
   webServerConfigToInitialPayload,
   type WebServerConfig,
 } from "../../../../server/web-server-config.js";
@@ -835,6 +837,46 @@ describe("webServerConfigToInitialPayload", () => {
   });
 });
 
+describe("nonLoopbackBindWarning", () => {
+  it.each([
+    "127.0.0.1",
+    "localhost",
+    "::1",
+    "[::1]",
+    "127.0.0.5",
+    "::ffff:127.0.0.1",
+  ])("stays silent for the loopback bind %j", (host) => {
+    expect(nonLoopbackBindWarning(host, false)).toBeUndefined();
+    expect(nonLoopbackBindWarning(host, true)).toBeUndefined();
+  });
+
+  it.each([
+    ["0.0.0.0", "0.0.0.0"],
+    ["::", "[::]"],
+    ["192.168.1.50", "192.168.1.50"],
+    ["2001:db8::1", "[2001:db8::1]"],
+    ["inspector.example.com", "inspector.example.com"],
+  ])("warns for the non-loopback bind %j", (host, shown) => {
+    const warning = nonLoopbackBindWarning(host, false);
+    expect(warning).toContain(`non-loopback address ${shown}`);
+    expect(warning).toContain("not access control");
+    expect(warning).toContain("other local users on a shared host");
+    expect(warning).toContain(HOSTING_ON_A_NETWORK_DOC_URL);
+  });
+
+  it("names the missing auth rather than the token when auth is disabled", () => {
+    const warning = nonLoopbackBindWarning("192.168.1.50", true);
+    expect(warning).toContain("Auth is disabled");
+    expect(warning).not.toContain("token");
+  });
+
+  it("links the README section that documents the boundary", () => {
+    expect(HOSTING_ON_A_NETWORK_DOC_URL).toMatch(
+      /clients\/web\/README\.md#hosting-on-a-network$/,
+    );
+  });
+});
+
 describe("printServerBanner", () => {
   let logSpy: ReturnType<typeof vitestSpyOnConsoleLog>;
 
@@ -896,6 +938,20 @@ describe("printServerBanner", () => {
     const url = printServerBanner(cfg, 6274, "", undefined);
     expect(url).toBe("http://127.0.0.1:6274");
     expect(defaultAllowedOrigins(cfg.hostname, 6274)).toContain(url);
+  });
+
+  it("prints no exposure warning for the default loopback bind", () => {
+    printServerBanner(baseConfig(), 6274, "tok", undefined);
+    expect(logSpy.lines.some((l) => l.includes("WARNING"))).toBe(false);
+  });
+
+  it("prints the exposure warning once for a non-loopback bind", () => {
+    const cfg = baseConfig();
+    cfg.hostname = "192.168.1.50";
+    printServerBanner(cfg, 6274, "tok", undefined);
+    expect(
+      logSpy.lines.filter((l) => l.includes("non-loopback address")),
+    ).toHaveLength(1);
   });
 
   it("prints an https URL when TLS is configured", () => {
