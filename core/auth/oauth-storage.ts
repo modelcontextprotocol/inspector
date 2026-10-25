@@ -1,5 +1,6 @@
 import type {
   OAuthClientInformation,
+  StoredOAuthClientInformation as SdkStoredOAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
   OAuthDiscoveryState,
@@ -34,6 +35,17 @@ import { getOwnEntry, setOwnEntry } from "../storage/own-entry.js";
  */
 function withIssuer<T extends object>(value: T, issuer: string | undefined): T {
   return issuer === undefined ? value : { ...value, issuer };
+}
+
+/**
+ * The `issuer` stamp a preregistered client was saved with. A static client
+ * has no `byIssuer` key to recover its stamp from, so it carries the stamp on
+ * the stored value itself (#2751).
+ */
+function storedIssuerStamp(value: object): string | undefined {
+  return "issuer" in value && typeof value.issuer === "string"
+    ? value.issuer
+    : undefined;
 }
 
 /**
@@ -198,7 +210,10 @@ export class OAuthStorageBase implements OAuthStorage {
     if (isPreregistered) {
       const prereg = state.preregisteredClientInformation;
       return prereg
-        ? await OAuthClientInformationSchema.parseAsync(prereg)
+        ? withIssuer(
+            await OAuthClientInformationSchema.parseAsync(prereg),
+            storedIssuerStamp(prereg),
+          )
         : undefined;
     }
 
@@ -261,7 +276,7 @@ export class OAuthStorageBase implements OAuthStorage {
 
   async savePreregisteredClientInformation(
     serverUrl: string,
-    clientInformation: OAuthClientInformation,
+    clientInformation: SdkStoredOAuthClientInformation,
   ): Promise<void> {
     await this.ensureLoaded();
     this.memory.getState().setServerState(serverUrl, {
