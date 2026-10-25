@@ -110,6 +110,22 @@ export function getViteDevOptimizeDeps() {
   };
 }
 
+/**
+ * Dev-server `server.cors`: reflect only the Inspector's own configured origins
+ * (#2752) — the same `allowedOrigins` the backend's origin guard enforces.
+ *
+ * Vite's default reflects any `localhost` / `127.0.0.1` / `[::1]` origin on
+ * any port, so another local page could read the dev server's source modules
+ * cross-origin. Vite installs this middleware ahead of every `configureServer`
+ * middleware, so it also answers `/api/*` before the Hono plugin does; using
+ * the same list keeps the two from disagreeing about which origins may read a
+ * response. Copied so a caller mutating the config can't reach back into
+ * `WebServerConfig`.
+ */
+export function getViteDevCors(allowedOrigins: readonly string[]) {
+  return { origin: [...allowedOrigins] };
+}
+
 /** Remove Vite's pre-bundle cache under clients/web before a dev launch. */
 export function clearViteDepsCache(clientWebRoot: string): void {
   rmSync(join(clientWebRoot, "node_modules", ".vite"), {

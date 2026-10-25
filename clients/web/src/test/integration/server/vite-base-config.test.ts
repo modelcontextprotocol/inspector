@@ -12,8 +12,24 @@ import {
   clearViteDepsCache,
   getStorybookOptimizeDeps,
   getViteBaseConfig,
+  getViteDevCors,
   getViteDevOptimizeDeps,
 } from "../../../../server/vite-base-config.js";
+
+describe("getViteDevCors", () => {
+  it("reflects only the configured origins, not any loopback port (#2752)", () => {
+    const origins = ["http://localhost:6274", "http://127.0.0.1:6274"];
+    expect(getViteDevCors(origins)).toEqual({ origin: origins });
+  });
+
+  it("copies the list so mutating the Vite config can't reach the caller's", () => {
+    const origins = ["http://localhost:6274"];
+    const cors = getViteDevCors(origins);
+    expect(cors.origin).not.toBe(origins);
+    cors.origin.push("http://localhost:9999");
+    expect(origins).toEqual(["http://localhost:6274"]);
+  });
+});
 
 describe("getViteBaseConfig", () => {
   it("excludes node-only deps from optimizeDeps so vite dev doesn't scan them", () => {
