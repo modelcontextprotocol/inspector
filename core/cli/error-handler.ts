@@ -19,7 +19,8 @@ import { HTTP_TOO_MANY_REQUESTS } from "../mcp/rateLimit.js";
  *  - 7: `--verify` found a SEP-2640 violation
  *  - 8: `--verify` could not check the whole catalog within the read bounds
  *  - 9: `--verify --require-digests` found a skill that advertised no digests
- *  - 10: the server rate limited the request (HTTP 429)
+ *  - 10: a `--load` run breached a `--load-max-*` threshold
+ *  - 11: the server rate limited the request (HTTP 429)
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -71,6 +72,18 @@ export const EXIT_CODES = {
    */
   SKILL_UNVERIFIABLE: 9,
   /**
+   * A `--load` run completed and breached a threshold set with
+   * `--load-max-error-rate` or `--load-max-p99` (#2745). The summary has
+   * already been printed; the envelope `code` names the threshold
+   * (`load_error_rate_exceeded` / `load_p99_exceeded`).
+   *
+   * Not `TOOL_ERROR` (5): a load run's failed calls are measurements, and
+   * without a threshold the same run exits 0. Exit 5 from `--load` keeps
+   * meaning "the tool was not found", so a CI job can tell "the server missed
+   * its SLO" apart from "the job is pointed at the wrong tool".
+   */
+  LOAD_THRESHOLD_EXCEEDED: 10,
+  /**
    * The server answered `429 Too Many Requests` (#2772).
    *
    * Its own code rather than the catch-all, because it is the one failure
@@ -78,7 +91,7 @@ export const EXIT_CODES = {
    * envelope says how long, in `retryAfterMs`. Folding it into `1` would leave
    * a script to scrape the prose message to tell throttling from a real error.
    */
-  RATE_LIMITED: 10,
+  RATE_LIMITED: 11,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */

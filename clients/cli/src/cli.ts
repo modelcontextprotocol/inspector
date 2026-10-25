@@ -64,6 +64,13 @@ import {
   runToolLoad,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  checkLoadThresholds,
+  fractionParser,
+  maxP99Parser,
+  resolveLoadThresholds,
+  type LoadThresholds,
+} from "@inspector/core/cli/handlers/load-thresholds.js";
 import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
   isOneShotMethod,
@@ -145,7 +152,22 @@ async function callMethod(
   relogin: boolean,
   revoke: boolean,
   load?: LoadOptions,
+  loadThresholds?: LoadThresholds,
 ): Promise<void> {
+  // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
+  // spawns its own server process, so N of them test N isolated servers rather
+  // than one server under N sessions. Checked before anything connects.
+  if (
+    load?.connections !== undefined &&
+    load.connections > 1 &&
+    !isOAuthCapableServerConfig(serverConfig)
+  ) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-connections above 1 requires an HTTP or SSE server; over stdio each connection would spawn its own server process.",
+    );
+  }
+
   // Clear after parse-time validation so a bad flag combo never deletes store
   // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
   if (relogin) {
@@ -208,7 +230,11 @@ async function callMethod(
     cliAuthOverrides,
   );
 
-  const inspectorClient = new InspectorClient(serverConfig, {
+  // Named so `--load-connections` (#2746) can open more clients exactly like
+  // this one: same transport, headers, identity and OAuth store.
+  const inspectorClientOptions: ConstructorParameters<
+    typeof InspectorClient
+  >[1] = {
     environment,
     clientIdentity,
     initialLoggingLevel: "debug",
@@ -258,7 +284,35 @@ async function callMethod(
       advertisedExtensions: { [UI_EXTENSION_KEY]: true },
     }),
     ...clientAuthOptions,
-  });
+  };
+  const inspectorClient = new InspectorClient(
+    serverConfig,
+    inspectorClientOptions,
+  );
+
+  // Opens one extra `--load-connections` client (#2746), connected. Stored
+  // auth only: the connection above already completed any login the run
+  // needed, and N connections must never start N interactive OAuth flows. The
+  // shared in-process OAuth store is what hands every connection the same
+  // token. Quiet, so N connects print no N status lines. On a failed connect
+  // it disconnects what it made; a connected client is the caller's to close.
+  const openLoadConnection = async (): Promise<InspectorClient> => {
+    const client = new InspectorClient(serverConfig, inspectorClientOptions);
+    try {
+      await connectInspectorWithOAuth(
+        client,
+        serverConfig,
+        redirectUrlProvider,
+        callbackUrlConfig,
+        serverSettings,
+        { storedAuthOnly: true, autoOpenControl, quiet: true },
+      );
+      return client;
+    } catch (err) {
+      await client.disconnect().catch(() => {});
+      throw err;
+    }
+  };
 
   try {
     await connectInspectorWithOAuth(
@@ -279,13 +333,18 @@ async function callMethod(
         redirectUrlProvider,
         callbackUrlConfig,
         serverSettings,
-        () => runToolLoad(inspectorClient, args, load),
+        () =>
+          runToolLoad(inspectorClient, args, load, {
+            openConnection: openLoadConnection,
+          }),
         { storedAuthOnly, autoOpenControl, quiet: args.quiet },
       );
       await writeFormattedResult(
         summary,
         args.format === "json" ? "json" : "text",
       );
+      // After the summary is out, so a breached run still shows its numbers.
+      checkLoadThresholds(summary, loadThresholds);
       return;
     }
 
@@ -819,6 +878,7 @@ type ParseResult =
       serverConfig: MCPServerConfig;
       serverSettings: InspectorServerSettings | undefined;
       methodArgs: MethodArgs & { method: string };
+      loadThresholds?: LoadThresholds;
       clientConfigPath?: string;
       clientId?: string;
       clientSecret?: string;
@@ -1046,6 +1106,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveIntegerParser("--load-concurrency"),
     )
     .option(
+      "--load-connections <n>",
+      "With --load: spread the calls over this many independent connections (sessions) to an HTTP or SSE server, opened before timing starts (positive integer, at most --load-concurrency; default 1).",
+      positiveIntegerParser("--load-connections"),
+    )
+    .option(
       "--load-duration <sec>",
       "With --load: stop starting calls after this many seconds; in-flight calls still finish (default 10 when --load-requests is not set).",
       positiveNumberParser("--load-duration"),
@@ -1059,6 +1124,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "--load-rate <n>",
       "With --load: start at most this many calls per second, spread evenly (positive number; default unlimited).",
       positiveNumberParser("--load-rate"),
+    )
+    .option(
+      "--load-max-error-rate <fraction>",
+      "With --load: exit 10 (load_error_rate_exceeded) when the share of failed calls is above this value, after printing the summary (0 to 1; 0 fails on any failed call).",
+      fractionParser("--load-max-error-rate"),
+    )
+    .option(
+      "--load-max-p99 <ms>",
+      "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+      maxP99Parser,
     )
     .option(
       "--connect-timeout <ms>",
@@ -1250,9 +1325,12 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     printHandoff?: boolean;
     load?: boolean;
     loadConcurrency?: number;
+    loadConnections?: number;
     loadDuration?: number;
     loadRequests?: number;
     loadRate?: number;
+    loadMaxErrorRate?: number;
+    loadMaxP99?: number;
   };
 
   if (options.relogin) {
@@ -1344,9 +1422,12 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // short-circuit returns below would otherwise accept it and do nothing.
   const loadBounds = [
     ["--load-concurrency", options.loadConcurrency],
+    ["--load-connections", options.loadConnections],
     ["--load-duration", options.loadDuration],
     ["--load-requests", options.loadRequests],
     ["--load-rate", options.loadRate],
+    ["--load-max-error-rate", options.loadMaxErrorRate],
+    ["--load-max-p99", options.loadMaxP99],
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
@@ -1664,7 +1745,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     outputFormat: options.outputFormat,
   };
 
+  // Separate from `resolveLoadOptions`: these grade a finished run rather than
+  // bound it. `undefined` when neither flag is set (#2745).
+  const loadThresholds = resolveLoadThresholds({
+    maxErrorRate: options.loadMaxErrorRate,
+    maxP99Ms: options.loadMaxP99,
+  });
+
   return {
+    loadThresholds,
     serverConfig,
     serverSettings,
     methodArgs,
@@ -1681,6 +1770,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ...(options.load && {
       load: resolveLoadOptions({
         concurrency: options.loadConcurrency,
+        connections: options.loadConnections,
         durationSec: options.loadDuration,
         requests: options.loadRequests,
         rate: options.loadRate,
@@ -1721,6 +1811,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     relogin,
     revoke,
     load,
+    loadThresholds,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
@@ -1752,5 +1843,6 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     relogin === true,
     revoke !== false,
     load,
+    loadThresholds,
   );
 }
