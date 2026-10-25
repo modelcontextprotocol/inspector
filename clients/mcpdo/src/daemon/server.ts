@@ -4,6 +4,7 @@ import {
   classifyError,
   CliExitCodeError,
   EXIT_CODES,
+  type ErrorEnvelope,
 } from "@inspector/core/cli/error-handler.js";
 import {
   runMethod,
@@ -48,6 +49,7 @@ import type {
   RpcResult,
   ConnectionNameParams,
   ConnectionShowResult,
+  RelayedEnvelopeFields,
 } from "./protocol.js";
 import {
   DEFAULT_IDLE_MS,
@@ -334,6 +336,7 @@ export class DaemonServer {
               code: error.envelope?.code ?? "cli_error",
               message: error.message,
               exitCode: error.exitCode,
+              ...relayedEnvelopeFields(error.envelope),
             },
           },
         };
@@ -348,6 +351,7 @@ export class DaemonServer {
             code: envelope.code,
             message: envelope.message,
             exitCode,
+            ...relayedEnvelopeFields(envelope),
           },
         },
       };
@@ -1037,6 +1041,27 @@ export class DaemonServer {
     }
     this.releaseLock();
   }
+}
+
+/**
+ * The envelope fields a failed request relays to the caller beyond `code` and
+ * `message` (#2772). Without them the connection CLI's envelope lost `status`
+ * and a 429's structured retry timing on the socket, leaving a script to
+ * scrape the prose message.
+ */
+function relayedEnvelopeFields(
+  envelope: Partial<ErrorEnvelope> | undefined,
+): RelayedEnvelopeFields {
+  return {
+    ...(envelope?.status !== undefined && { status: envelope.status }),
+    ...(envelope?.method !== undefined && { method: envelope.method }),
+    ...(envelope?.retryAfter !== undefined && {
+      retryAfter: envelope.retryAfter,
+    }),
+    ...(envelope?.retryAfterMs !== undefined && {
+      retryAfterMs: envelope.retryAfterMs,
+    }),
+  };
 }
 
 /** `kill(pid, 0)` liveness probe; EPERM means alive but not ours. */

@@ -6,7 +6,12 @@ import {
   formatErrorOutput,
   handleError,
 } from "@inspector/core/cli/error-handler.js";
-import { UnauthorizedError } from "@modelcontextprotocol/client";
+import {
+  SdkErrorCode,
+  SdkHttpError,
+  UnauthorizedError,
+} from "@modelcontextprotocol/client";
+import { annotateRateLimit } from "@inspector/core/mcp/rateLimit.js";
 import {
   SecretFileLockHeldError,
   SecretStoreUnavailableError,
@@ -283,8 +288,35 @@ describe("classifyError", () => {
         .code,
     ).toBe("tool_error");
     expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.RATE_LIMITED, "x")).envelope
+        .code,
+    ).toBe("rate_limited");
+    expect(
       classifyError(new CliExitCodeError(EXIT_CODES.USAGE, "x")).envelope.code,
     ).toBe("error");
+  });
+
+  it("carries a CliExitCodeError's relayed rate-limit fields onto the envelope", () => {
+    // mcpdo rebuilds a daemon-side rate-limit failure as a pre-classified
+    // error with these fields on its envelope (#2772).
+    const { exitCode, envelope } = classifyError(
+      new CliExitCodeError(EXIT_CODES.RATE_LIMITED, "throttled", {
+        code: "rate_limited",
+        status: 429,
+        method: "tools/list",
+        retryAfter: "30",
+        retryAfterMs: 30_000,
+      }),
+    );
+    expect(exitCode).toBe(EXIT_CODES.RATE_LIMITED);
+    expect(envelope).toEqual({
+      code: "rate_limited",
+      message: "throttled",
+      status: 429,
+      method: "tools/list",
+      retryAfter: "30",
+      retryAfterMs: 30_000,
+    });
   });
 
   it("terminates on a self-referential cause chain without recursing infinitely", () => {
@@ -340,6 +372,83 @@ describe("classifyError", () => {
     // must NOT be treated as an HTTP status.
     expect(exitCode).toBe(EXIT_CODES.UNREACHABLE);
     expect(envelope.status).toBeUndefined();
+  });
+});
+
+describe("rate-limited classification (#2772)", () => {
+  const NOW = Date.parse("2026-10-24T00:00:00Z");
+
+  function throttled(retryAfter?: string): SdkHttpError {
+    const err = new SdkHttpError(
+      SdkErrorCode.ClientHttpNotImplemented,
+      "Error POSTing to endpoint: slow down",
+      { status: 429, ...(retryAfter !== undefined && { retryAfter }) },
+    );
+    return annotateRateLimit(err, "tools/list", NOW) as SdkHttpError;
+  }
+
+  it("classifies an annotated 429 as RATE_LIMITED with its structured fields", () => {
+    const { exitCode, envelope } = classifyError(throttled("30"));
+    expect(exitCode).toBe(EXIT_CODES.RATE_LIMITED);
+    expect(envelope).toMatchObject({
+      code: "rate_limited",
+      status: 429,
+      method: "tools/list",
+      retryAfter: "30",
+      retryAfterMs: 30_000,
+    });
+  });
+
+  it("keeps a malformed Retry-After verbatim and omits retryAfterMs", () => {
+    const { envelope } = classifyError(throttled("soon"));
+    expect(envelope.retryAfter).toBe("soon");
+    expect(envelope).not.toHaveProperty("retryAfterMs");
+  });
+
+  it("omits both retry fields when no header was sent", () => {
+    const { envelope } = classifyError(throttled());
+    expect(envelope.method).toBe("tools/list");
+    expect(envelope).not.toHaveProperty("retryAfter");
+    expect(envelope).not.toHaveProperty("retryAfterMs");
+  });
+
+  it("classifies an unannotated 429 as RATE_LIMITED with no structured fields", () => {
+    const { exitCode, envelope } = classifyError({ status: 429 });
+    expect(exitCode).toBe(EXIT_CODES.RATE_LIMITED);
+    expect(envelope).toEqual({
+      code: "rate_limited",
+      message: "Unknown error",
+      status: 429,
+    });
+  });
+
+  it("ignores non-object data and fields of the wrong type", () => {
+    expect(
+      classifyError({ status: 429, data: "nope" }).envelope,
+    ).not.toHaveProperty("method");
+    const { envelope } = classifyError({
+      status: 429,
+      data: { method: 1, retryAfter: 30, retryAfterMs: "30000" },
+    });
+    expect(envelope).not.toHaveProperty("method");
+    expect(envelope).not.toHaveProperty("retryAfter");
+    expect(envelope).not.toHaveProperty("retryAfterMs");
+  });
+
+  it("wins over the unreachable pattern a response body could match", () => {
+    const err = new SdkHttpError(
+      SdkErrorCode.ClientHttpNotImplemented,
+      "Error POSTing to endpoint: upstream ETIMEDOUT, slow down",
+      { status: 429 },
+    );
+    expect(classifyError(err).exitCode).toBe(EXIT_CODES.RATE_LIMITED);
+  });
+
+  it("threads the context url onto the envelope", () => {
+    expect(
+      classifyError(throttled("30"), { url: "https://api.example/mcp" })
+        .envelope.url,
+    ).toBe("https://api.example/mcp");
   });
 });
 
