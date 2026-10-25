@@ -129,18 +129,33 @@ export const OTHER_ERRORS = "(other)";
 /** Injected so tests can drive the clock instead of waiting on it. */
 export type LoadClock = {
   now: () => number;
-  sleep: (ms: number) => Promise<void>;
+  /** A clock that can, should drop its timer when `signal` aborts. */
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
 const realClock: LoadClock = {
   now: () => performance.now(),
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep: (ms, signal) =>
+    new Promise((resolve) => {
+      // Cleared on abort, not left to fire: a `--load-rate 0.001` slot is a
+      // 1000s timer, and a pending one keeps the process (the mcpdo daemon
+      // during shutdown) alive until it fires.
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", cancel);
+        resolve();
+      }, ms);
+      const cancel = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
+    }),
 };
 
 /**
- * {@link LoadClock.sleep}, cut short when `signal` aborts. The timer itself
- * still fires later; only the wait ends early, so a slow `--load-rate` slot
- * never holds a cancelled run open for a whole interval.
+ * {@link LoadClock.sleep}, cut short when `signal` aborts, whether or not the
+ * clock honors the signal itself, so a slow `--load-rate` slot never holds a
+ * cancelled run open for a whole interval.
  */
 function sleepUnlessAborted(
   clock: LoadClock,
@@ -154,7 +169,7 @@ function sleepUnlessAborted(
       resolve();
     };
     signal.addEventListener("abort", done, { once: true });
-    void clock.sleep(ms).then(done); // `sleep` never rejects
+    void clock.sleep(ms, signal).then(done); // `sleep` never rejects
   });
 }
 
@@ -292,6 +307,9 @@ export async function runLoad(
 
   const worker = async (): Promise<void> => {
     while (await claimSlot()) {
+      // Another worker's call can abort the run between this worker taking
+      // its slot and resuming here.
+      if (signal?.aborted) return;
       const t0 = clock.now();
       try {
         const outcome = await call();

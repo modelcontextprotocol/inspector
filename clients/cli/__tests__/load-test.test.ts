@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -402,6 +402,43 @@ describe("load-test engine", () => {
       await new Promise((r) => setImmediate(r));
       abort.abort();
       expect((await run).requests).toBe(1);
+    });
+
+    it("does not run a claimed slot once another worker aborted", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        calls++;
+        abort.abort();
+        return "ok";
+      };
+      await runLoad(
+        call,
+        { concurrency: 2, requests: 10 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(calls).toBe(1);
+    });
+
+    it("drops the real clock's rate timer when the run aborts", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const abort = new AbortController();
+        // Default (real) clock: the second slot is 1000s away.
+        const run = runLoad(
+          async () => "ok",
+          { concurrency: 1, requests: 2, rate: 0.001 },
+          undefined,
+          abort.signal,
+        );
+        await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+        abort.abort();
+        expect((await run).requests).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("starts nothing when its signal has already aborted", async () => {

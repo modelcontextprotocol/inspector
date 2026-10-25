@@ -235,7 +235,7 @@ summary fields mean the same thing in each.
 
 ```bash
 # 20 calls in flight for 30 seconds
-mcpdo tools/call search query=mcp --load --load-concurrency 20 --load-duration 30
+mcpdo tools/call search query:=mcp --load --load-concurrency 20 --load-duration 30
 
 # exactly 500 calls, started at no more than 50 per second, as JSON
 mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 50 --format json
