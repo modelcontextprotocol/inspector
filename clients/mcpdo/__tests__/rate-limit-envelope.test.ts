@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { SdkErrorCode, SdkHttpError } from "@modelcontextprotocol/client";
@@ -10,6 +11,7 @@ import {
 } from "@inspector/core/cli/error-handler.js";
 import { DaemonServer } from "../src/daemon/server.js";
 import { callDaemon, relayedEnvelope } from "../src/daemon/client.js";
+import { streamDaemon } from "../src/daemon/stream-client.js";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
   startThrottlingServer,
@@ -121,6 +123,53 @@ describe("mcpdo rate-limited request envelope", () => {
     expect(relayedEnvelope({ code: "error", message: "m" })).toEqual({
       code: "error",
     });
+  });
+
+  it("keeps the relayed fields when a stream's setup is refused", async () => {
+    // `resources/subscribe` runs over `streamDaemon`, whose first frame is an
+    // ordinary daemon response — a throttled subscribe must keep its fields.
+    const sock = path.join(freshDir(), "stream.sock");
+    const refuser = net.createServer((socket) => {
+      socket.on("error", () => {});
+      socket.once("data", (buf) => {
+        const req = JSON.parse(String(buf).trim()) as { id: string };
+        socket.write(
+          JSON.stringify({
+            id: req.id,
+            ok: false,
+            error: {
+              code: "rate_limited",
+              message: "throttled",
+              exitCode: EXIT_CODES.RATE_LIMITED,
+              status: 429,
+              method: "resources/subscribe",
+              retryAfter: "30",
+              retryAfterMs: 30_000,
+            },
+          }) + "\n",
+        );
+      });
+    });
+    await new Promise<void>((resolve) => refuser.listen(sock, resolve));
+    try {
+      const error = await streamDaemon(
+        {},
+        { socketPath: sock, timeoutMs: 2000, onData: () => {} },
+      ).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(CliExitCodeError);
+      expect((error as CliExitCodeError).exitCode).toBe(
+        EXIT_CODES.RATE_LIMITED,
+      );
+      expect((error as CliExitCodeError).envelope).toEqual({
+        code: "rate_limited",
+        status: 429,
+        method: "resources/subscribe",
+        retryAfter: "30",
+        retryAfterMs: 30_000,
+      });
+    } finally {
+      await new Promise<void>((resolve) => refuser.close(() => resolve()));
+    }
   });
 
   it("writes the structured fields end to end through the daemon", async () => {

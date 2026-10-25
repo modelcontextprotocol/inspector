@@ -16,7 +16,7 @@ import type {
   DaemonStreamFrame,
 } from "./protocol.js";
 import type { DaemonClientOptions } from "./client.js";
-import { daemonTokenDir } from "./client.js";
+import { daemonTokenDir, relayedEnvelope } from "./client.js";
 import { sanitizeText } from "../connection/sanitize.js";
 
 export type StreamDaemonOptions = DaemonClientOptions & {
@@ -106,7 +106,7 @@ export async function streamDaemon(
             new CliExitCodeError(
               response.error.exitCode ?? EXIT_CODES.USAGE,
               sanitizeText(response.error.message),
-              { code: response.error.code },
+              relayedEnvelope(response.error),
             ),
           );
           return;

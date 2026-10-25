@@ -130,7 +130,10 @@ function rateLimitFieldsOf(error: unknown): RateLimitFields {
   return {
     ...(typeof method === "string" && { method }),
     ...(typeof retryAfter === "string" && { retryAfter }),
-    ...(typeof retryAfterMs === "number" && { retryAfterMs }),
+    // Finite only: a delta-seconds header too long for a double parses to
+    // `Infinity`, which JSON serializes as `null`. The raw header stays.
+    ...(typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) && { retryAfterMs }),
   };
 }
 
@@ -218,6 +221,11 @@ function redactEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
       cause: redactUrlsInText(envelope.cause),
     }),
     ...(envelope.url !== undefined && { url: redactUrlQuery(envelope.url) }),
+    // Kept verbatim when malformed, so it is server text like `message` and
+    // can carry a URL just the same (#2772).
+    ...(envelope.retryAfter !== undefined && {
+      retryAfter: redactUrlsInText(envelope.retryAfter),
+    }),
   };
 }
 

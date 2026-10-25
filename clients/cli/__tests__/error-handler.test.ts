@@ -450,6 +450,29 @@ describe("rate-limited classification (#2772)", () => {
         .envelope.url,
     ).toBe("https://api.example/mcp");
   });
+
+  it("omits retryAfterMs when an overflowing header parses to Infinity", () => {
+    const header = "9".repeat(400);
+    const { exitCode, stderr } = formatErrorOutput(throttled(header));
+    expect(exitCode).toBe(EXIT_CODES.RATE_LIMITED);
+    const { error } = JSON.parse(stderr) as { error: Record<string, unknown> };
+    expect(error.retryAfter).toBe(header);
+    expect(error).not.toHaveProperty("retryAfterMs");
+  });
+
+  it("redacts a secret-bearing URL in a malformed retryAfter", () => {
+    const header = "https://srv.example/mcp?access_token=secret";
+    expect(classifyError(throttled(header)).envelope.retryAfter).not.toContain(
+      "secret",
+    );
+    expect(
+      classifyError(
+        new CliExitCodeError(EXIT_CODES.RATE_LIMITED, "throttled", {
+          retryAfter: header,
+        }),
+      ).envelope.retryAfter,
+    ).not.toContain("secret");
+  });
 });
 
 describe("formatErrorOutput", () => {
