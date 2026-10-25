@@ -155,6 +155,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--output-format <raw\|json>` | Encoding of the `--output` file. `json` (default) is the whole result, pretty-printed. `raw` is the result's text, or the decoded bytes of its single image/audio/blob block; `tools/call` and `resources/read` only. |
 | `--load`                      | Load-test one tool: call it repeatedly and concurrently, then print a latency / error-rate summary in place of a result. Requires `--method tools/call --tool-name <name>`. See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
+| `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
@@ -351,10 +352,50 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   about a millisecond, so a rate in the high hundreds per second or above is
   reached only approximately (1000/s measured ~700 against a local stdio
   server); compare `requests` against what you asked for.
+- **`connections`** appears only with `--load-connections` above `1` (see
+  below), so a default run's summary is unchanged.
 
-**All calls share one connection**, so this measures how a server copes with
-concurrent requests on a single session — not with many sessions. A slow call
-is bounded by the server's request timeout (`requestTimeout` in the
+**By default all calls share one connection**, so a run measures how a server
+copes with concurrent requests on a single session. `--load-connections <n>`
+([#2746](https://github.com/modelcontextprotocol/inspector/issues/2746)) opens
+`n` independent connections instead — same transport, headers and OAuth — so it
+can show per-session state, session setup cost, connection limits and
+contention that only appear across sessions:
+
+- **HTTP and SSE only.** Over stdio every connection would spawn its own server
+  process, which tests `n` isolated servers rather than one server under `n`
+  sessions, so it is rejected.
+- **`--load-concurrency` is the total across all connections**, and so is
+  `--load-rate`. Worker `i` always uses connection `i mod n`, which splits the
+  workers as evenly as the counts allow; `--load-connections` may not exceed
+  `--load-concurrency`, since a connection with no worker would carry no calls.
+- **Setup stays out of the latency.** Every connection is opened, concurrently,
+  before the clock starts; their connect times are reported on their own in
+  `connections.connectMs` (excluding the first connection, which the CLI opens
+  before any load run). Every extra connection is closed when the run ends.
+- **A connection that fails to open is not a call error.** The run goes ahead
+  on the connections that did open, and the failures are counted under
+  `connections` — never in `errors` or `errorRate`:
+
+  ```json
+  "connections": {
+    "requested": 50,
+    "opened": 48,
+    "failed": 2,
+    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p99": 41.8, "max": 41.8 },
+    "errorMessages": [{ "message": "Too many sessions", "count": 2 }]
+  }
+  ```
+
+- **OAuth.** The extra connections reuse the token the first one connected
+  with, read from the shared in-process store, and run stored-auth-only: `n`
+  connections never start `n` logins. A token refreshed by one connection is
+  visible to the rest. Two connections that hit an expired token at the same
+  instant can each try to refresh it — the same exposure a single connection
+  already has under concurrency — and against a server that rotates refresh
+  tokens the losing refresh may fail and appear as call errors.
+
+A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
 A load run does not prompt for OAuth step-up: a tool that needs scopes the
