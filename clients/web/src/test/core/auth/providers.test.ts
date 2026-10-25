@@ -765,12 +765,23 @@ describe("OAuthNavigation", () => {
         describe("across SDK auth() runs", () => {
           const ISSUER_B = "https://as-b.example.com";
 
-          function makeRealStorage(): OAuthStorage {
+          /**
+           * A persisted store that outlives any one process: each
+           * {@link startProcess} reloads it into fresh storage and memory, so a
+           * stamp that does not survive serialization is lost between runs.
+           */
+          function makeDisk() {
+            let saved: string | null = null;
             const backend: OAuthPersistBackend = {
-              read: async () => null,
-              write: async () => {},
+              read: async () => (saved === null ? null : JSON.parse(saved)),
+              write: async (snapshot) => {
+                saved = JSON.stringify(snapshot);
+              },
             };
-            return new OAuthStorageBase(new OAuthMemoryStore(), backend);
+            return {
+              startProcess: (): OAuthStorage =>
+                new OAuthStorageBase(new OAuthMemoryStore(), backend),
+            };
           }
 
           /** Discovery naming `issuer` as the resource's authorization server. */
@@ -833,13 +844,14 @@ describe("OAuthNavigation", () => {
           }
 
           it("keeps the stamp across a restart, so the SDK warns only once", async () => {
-            const storage = makeRealStorage();
+            const disk = makeDisk();
 
-            await startAndAuthorize(storage, ISSUER);
+            await startAndAuthorize(disk.startProcess(), ISSUER);
             // First use: nothing was stamped yet, so the SDK warns and stamps.
             expect(sep2352Warnings()).toHaveLength(1);
             warn.mockClear();
 
+            const storage = disk.startProcess();
             await startAndAuthorize(storage, ISSUER);
 
             expect(sep2352Warnings()).toHaveLength(0);
@@ -853,11 +865,13 @@ describe("OAuthNavigation", () => {
           });
 
           it("re-binds the static client when discovery resolves another issuer", async () => {
-            const storage = makeRealStorage();
-            await startAndAuthorize(storage, ISSUER);
+            const disk = makeDisk();
+            const first = disk.startProcess();
+            await startAndAuthorize(first, ISSUER);
             // SDK auth() reuses the cached AS; drop it so discovery re-resolves.
-            await storage.clearDiscoveryState(SERVER);
+            await first.clearDiscoveryState(SERVER);
 
+            const storage = disk.startProcess();
             await startAndAuthorize(storage, ISSUER_B);
 
             expect(await storage.getClientInformation(SERVER, true)).toEqual({
