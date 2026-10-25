@@ -5,6 +5,7 @@ import type {
   MethodArgs,
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
+import type { LoadOptions } from "@inspector/core/cli/handlers/load-test.js";
 import { writeConnectionOutput } from "./format-connection.js";
 import { styleFromOpts, type Style } from "@inspector/core/cli/style.js";
 import { promptElicitation } from "./elicitation-prompt.js";
@@ -24,6 +25,8 @@ export type ConnectionDispatchOpts = {
   plain?: boolean;
   connection?: string;
   requireExplicit: boolean;
+  /** `tools/call --load` (#2744): run the load engine daemon-side. */
+  load?: LoadOptions;
 };
 
 /**
@@ -45,6 +48,7 @@ export async function dispatchConnectionRpc(
     method,
     name: stripAt(opts.connection),
     requireExplicit: opts.requireExplicit,
+    ...(opts.load !== undefined && { load: opts.load }),
   };
 
   const { socketPath } = await ensureDaemon();
@@ -150,6 +154,13 @@ export async function writeRpcOutcome(
   outcome: RpcResult,
 ): Promise<void> {
   const { format, style } = out;
+  if (outcome.kind === "load") {
+    await writeConnectionOutput(
+      { format, style },
+      { kind: "load", summary: outcome.summary },
+    );
+    return;
+  }
   if (outcome.kind === "elicitation-pending") {
     await writeConnectionOutput(
       { format, style },

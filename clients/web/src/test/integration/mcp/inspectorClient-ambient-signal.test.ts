@@ -1,6 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
 import {
   createTestServerHttp,
   createTestServerInfo,
@@ -127,6 +128,61 @@ describe("ambient request signal cancels non-tool requests (#1783)", () => {
     await rejected;
     expect(await slow.aborted).toBe(true);
 
+    dispose();
+  });
+
+  // A modern-era tool call goes through the task session, not
+  // `getRequestOptions`, so the ambient signal has to be folded in on that
+  // path separately (#2744: `mcpdo tools/call --load` relies on it to cancel
+  // in-flight calls when its caller hangs up).
+  it("aborts an in-flight modern-era tool call when the ambient signal fires", async () => {
+    const started = deferred<void>();
+    const aborted = deferred<boolean>();
+    const slowServer = createTestServerHttp({
+      serverInfo: createTestServerInfo("ambient-signal-modern", "1.0.0"),
+      tools: [
+        {
+          name: "slow_tool",
+          description: "Runs until the client cancels it",
+          handler: (_params, _context, extra) => {
+            extra?.signal?.addEventListener(
+              "abort",
+              () => aborted.resolve(true),
+              { once: true },
+            );
+            started.resolve();
+            // Never settles on its own; only the abort ends the call.
+            return new Promise(() => {});
+          },
+        },
+      ],
+      modern: {},
+    });
+    await slowServer.start();
+    server = slowServer;
+
+    const connected = new InspectorClient(
+      { type: "streamable-http", url: slowServer.url },
+      {
+        environment: { transport: createTransportNode },
+        versionNegotiation: eraToVersionNegotiation("modern"),
+      },
+    );
+    await connected.connect();
+    client = connected;
+    const { tools } = await connected.listTools();
+    const tool = tools.find((t) => t.name === "slow_tool");
+
+    const controller = new AbortController();
+    const dispose = connected.setAmbientRequestSignal(controller.signal);
+    const call = connected.callTool(tool!, {});
+    const rejected = expect(call).rejects.toThrow();
+
+    await started.promise;
+    controller.abort();
+
+    await rejected;
+    expect(await aborted.promise).toBe(true);
     dispose();
   });
 

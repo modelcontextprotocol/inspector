@@ -9,6 +9,10 @@ import type {
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
+  LoadOptions,
+  LoadSummary,
+} from "@inspector/core/cli/handlers/load-test.js";
+import type {
   Implementation,
   ProtocolEra,
   ServerCapabilities,
@@ -89,6 +93,14 @@ export type RpcParams = ConnectionNameParams &
      * only ever a daemon-internal caller.
      */
     interactive?: boolean;
+    /**
+     * `tools/call --load` (#2744): run the shared load engine against this
+     * connection in place of one call, and return its {@link LoadSummary} as
+     * a `kind: "load"` result. The whole run is one `rpc` op, so it holds
+     * this connection's rpc queue until it finishes — later commands on the
+     * same connection wait for it; other connections are unaffected.
+     */
+    load?: LoadOptions;
   };
 
 export type DaemonRequest = {
@@ -362,6 +374,11 @@ export type RpcResult =
       summary?: string;
       /** Non-zero when the emitted report is itself a failure (`--verify`). */
       exitCode?: number;
+    }
+  | {
+      /** `tools/call --load`: the summary of the whole run. */
+      kind: "load";
+      summary: LoadSummary;
     }
   | {
       /**

@@ -4054,6 +4054,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   ): Promise<CallToolResult> {
     const session = this.taskSession;
     if (!session) throw new Error("Client is not connected");
+    // This path calls the task session directly rather than through
+    // `getRequestOptions`, so it folds in the ambient request signal itself
+    // (#1783): a modern-era or task-required call must abort with its caller
+    // too, or a daemon caller's hang-up leaves it holding the connection.
+    signal = combineAbortSignals(signal, this.ambientRequestSignal);
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
     let outcomeEmitted = false;

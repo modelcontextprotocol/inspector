@@ -13,6 +13,10 @@ import {
 import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
 import {
+  runToolLoad,
+  type LoadOptions,
+} from "@inspector/core/cli/handlers/load-test.js";
+import {
   acceptDaemonConnection,
   removeStaleDaemonSocket,
   type ElicitationChannel,
@@ -598,7 +602,16 @@ export class DaemonServer {
     //     raw `params.interactive` (boolean | undefined) is threaded to
     //     `liveClientFor`, and `authRequiredError` treats only `=== true` as a
     //     human — so absent falls to the agent-tuned wording.
-    const park = params.interactive === false;
+    if (params.load !== undefined && params.method !== "tools/call") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "--load requires tools/call",
+        { code: "invalid_params" },
+      );
+    }
+    // A load run never parks: its elicitations are declined, not relayed
+    // (see runLoadOnClient).
+    const park = params.interactive === false && params.load === undefined;
     // Parking needs the connection *name* for the pending payload and for
     // teardown-keyed cancellation; resolve it before reviving the client.
     const connectionName = park
@@ -618,6 +631,15 @@ export class DaemonServer {
           EXIT_CODES.UNREACHABLE,
           "The caller disconnected before this command could run.",
           { code: "caller_gone" },
+        );
+      }
+      if (params.load !== undefined) {
+        return this.runLoadOnClient(
+          client,
+          requestId,
+          params,
+          params.load,
+          signal,
         );
       }
       return park
@@ -685,6 +707,65 @@ export class DaemonServer {
       unwire();
     }
     return toRpcResult(outcome, params.method);
+  }
+
+  /**
+   * `tools/call --load` (#2744): the shared load engine, run here against the
+   * daemon's live connection so the front-end makes one round trip for the
+   * whole run instead of one per call. It runs inside the per-client rpc
+   * queue like any other op, so later commands on this connection wait for
+   * it to finish.
+   */
+  private async runLoadOnClient(
+    client: InspectorClient,
+    requestId: string,
+    params: RpcParams,
+    load: LoadOptions,
+    signal?: AbortSignal,
+  ): Promise<RpcResult> {
+    const methodArgs = stripConnectionFields(params);
+    this.assertNoParkedCall(client);
+    if (isTerminalStatus(client.getStatus())) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "The connection dropped before this command could run; re-run the command to reconnect.",
+        { code: "connection_stale" },
+      );
+    }
+    // Many calls share one bridge subscriber, so an elicitation could not be
+    // routed back to the call that raised it, and nobody is at the stream to
+    // answer one mid-run anyway: cancel each, as the in-process default does.
+    const unwire = wireElicitationBridge(
+      client,
+      autoCancelElicitationChannel,
+      requestId,
+    );
+    // Ends the run early. The caller hanging up is one reason; the connection
+    // dropping is the other — every further call would fail at once, turning
+    // the rest of the window into a loop of instant failures that holds the
+    // queue for nothing. The summary still reports what completed.
+    const stop = new AbortController();
+    const onCallerGone = () => stop.abort();
+    signal?.addEventListener("abort", onCallerGone, { once: true });
+    const onStatus = (
+      event: TypedEventGeneric<InspectorClientEventMap, "statusChange">,
+    ) => {
+      if (isTerminalStatus(event.detail)) stop.abort();
+    };
+    client.addEventListener("statusChange", onStatus);
+    // In-flight calls abort with the run, not only new ones (#1783).
+    const clearAmbientSignal = client.setAmbientRequestSignal(stop.signal);
+    try {
+      const summary = await runToolLoad(client, methodArgs, load, {
+        signal: stop.signal,
+      });
+      return { kind: "load", summary };
+    } finally {
+      clearAmbientSignal();
+      client.removeEventListener("statusChange", onStatus);
+      signal?.removeEventListener("abort", onCallerGone);
+      unwire();
+    }
   }
 
   /**
@@ -1106,13 +1187,14 @@ function stripConnectionFields(
   // runMethod's `format === "json"` branch collect app info (an extra
   // resources/read) whose result the frontend discards. `interactive` is
   // daemon routing (elicitation parking, message audience), not a method
-  // argument.
-  const { name, requireExplicit, format, interactive, method, ...rest } =
+  // argument. `load` is consumed by runLoadOnClient, never by runMethod.
+  const { name, requireExplicit, format, interactive, load, method, ...rest } =
     params;
   void name;
   void requireExplicit;
   void format;
   void interactive;
+  void load;
   return { method, ...rest };
 }
 

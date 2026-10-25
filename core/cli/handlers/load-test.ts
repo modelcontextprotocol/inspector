@@ -9,9 +9,8 @@ import type { MethodArgs } from "./method-types.js";
  * traffic over the connection the Inspector already set up — transport, OAuth
  * and headers included — and report latency and error rate at the end.
  *
- * Lives in `core/cli/` rather than the CLI client so `mcpdo` can reuse it
- * against a daemon connection without a second copy; only the one-shot CLI
- * exposes it today.
+ * Lives in `core/cli/` so the one-shot CLI and `mcpdo` share one engine:
+ * `mcpdo` runs it inside the daemon against a live connection (#2744).
  *
  * By default all calls share ONE connection, so this measures how a server
  * handles concurrent requests on a session. `connections` (#2746) spreads the
@@ -176,16 +175,65 @@ export function resolveLoadOptions(flags: {
 export const MAX_ERROR_KINDS = 10;
 export const OTHER_ERRORS = "(other)";
 
+/**
+ * Slots claimed between forced yields to the event loop. Without
+ * `--load-rate` nothing in the claim path waits on a timer, so calls that
+ * settle without I/O (a client that rejects up front) would keep the run in
+ * one unbroken microtask chain: no timer, socket close or other request gets
+ * a turn until the run's bounds expire. Inside the mcpdo daemon that blocks
+ * every connection, and the caller's own hang-up.
+ */
+export const YIELD_EVERY_SLOTS = 64;
+
+const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => setImmediate(resolve));
+
 /** Injected so tests can drive the clock instead of waiting on it. */
 export type LoadClock = {
   now: () => number;
-  sleep: (ms: number) => Promise<void>;
+  /** A clock that can, should drop its timer when `signal` aborts. */
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
 const realClock: LoadClock = {
   now: () => performance.now(),
-  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  sleep: (ms, signal) =>
+    new Promise((resolve) => {
+      // Cleared on abort, not left to fire: a `--load-rate 0.001` slot is a
+      // 1000s timer, and a pending one keeps the process (the mcpdo daemon
+      // during shutdown) alive until it fires.
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", cancel);
+        resolve();
+      }, ms);
+      const cancel = (): void => {
+        clearTimeout(timer);
+        resolve();
+      };
+      signal?.addEventListener("abort", cancel, { once: true });
+    }),
 };
+
+/**
+ * {@link LoadClock.sleep}, cut short when `signal` aborts, whether or not the
+ * clock honors the signal itself, so a slow `--load-rate` slot never holds a
+ * cancelled run open for a whole interval.
+ */
+function sleepUnlessAborted(
+  clock: LoadClock,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (!signal) return clock.sleep(ms);
+  return new Promise((resolve) => {
+    const done = (): void => {
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    signal.addEventListener("abort", done, { once: true });
+    void clock.sleep(ms, signal).then(done); // `sleep` never rejects
+  });
+}
 
 /** Nearest-rank percentile over an ascending-sorted, non-empty array. */
 export function percentile(sorted: number[], p: number): number {
@@ -253,11 +301,15 @@ class ErrorTally {
  * owed, so a stall — one slow call at concurrency 1, or timers firing late —
  * is never followed by a catch-up burst against a server that may just be
  * recovering. A slot past the duration is never started.
+ *
+ * Aborting `signal` ends the run early: no further call starts, in-flight
+ * calls are left to settle, and the summary covers what completed.
  */
 export async function runLoad(
   call: (worker: number) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
+  signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const { concurrency, durationMs, requests, rate } = options;
   const latencies: number[] = [];
@@ -293,7 +345,13 @@ export async function runLoad(
     turnstile = new Promise((resolve) => (release = resolve));
     await ahead;
     try {
+      // Yield while holding the turnstile: every other worker is queued
+      // behind it, so the whole run pauses, not just this worker.
+      if (started > 0 && started % YIELD_EVERY_SLOTS === 0) {
+        await yieldToEventLoop();
+      }
       for (;;) {
+        if (signal?.aborted) return false;
         if (requests !== undefined && started >= requests) return false;
         const now = clock.now();
         if (now >= deadline) return false;
@@ -309,7 +367,7 @@ export async function runLoad(
             now - nextStart < interval ? nextStart + interval : now + interval;
           return true;
         }
-        await clock.sleep(scheduled - now);
+        await sleepUnlessAborted(clock, scheduled - now, signal);
       }
     } finally {
       release();
@@ -318,6 +376,9 @@ export async function runLoad(
 
   const worker = async (index: number): Promise<void> => {
     while (await claimSlot()) {
+      // Another worker's call can abort the run between this worker taking
+      // its slot and resuming here.
+      if (signal?.aborted) return;
       const t0 = clock.now();
       try {
         const outcome = await call(index);
@@ -381,10 +442,11 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   callOn: (connection: C) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
+  signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
-    return runLoad(() => callOn(primary), options, clock);
+    return runLoad(() => callOn(primary), options, clock, signal);
   }
   if (!openConnection) {
     throw new Error(
@@ -417,6 +479,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       (worker) => callOn(pool[worker % pool.length]!),
       options,
       clock,
+      signal,
     );
     return {
       ...summary,
@@ -451,6 +514,8 @@ export async function runToolLoad(
   extra: {
     openConnection?: () => Promise<InspectorClient>;
     clock?: LoadClock;
+    /** Ends the run early; see {@link runLoad}. */
+    signal?: AbortSignal;
   } = {},
 ): Promise<LoadSummary> {
   if (!args.toolName) {
@@ -499,6 +564,7 @@ export async function runToolLoad(
     call,
     options,
     extra.clock,
+    extra.signal,
   );
   return { tool: tool.name, ...summary };
 }

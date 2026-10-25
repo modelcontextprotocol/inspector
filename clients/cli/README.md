@@ -301,6 +301,8 @@ Exit codes are unchanged: a `tools/call` that returns `isError:true` is still wr
 all — at one tool and keeps calling it, so seeing how a server behaves under
 concurrent or sustained traffic does not mean rewriting that setup in a
 separate script ([#2439](https://github.com/modelcontextprotocol/inspector/issues/2439)).
+`mcpdo` offers the same mode against an open connection — see
+[`tools/call --load`](../mcpdo/README.md#load-testing-a-tool-toolscall---load).
 
 ```bash
 # 20 calls in flight for 30 seconds

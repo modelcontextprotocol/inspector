@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -392,6 +392,106 @@ describe("load-test engine", () => {
       );
       // Each call outlasts its 100ms slot, so the schedule never holds one back.
       expect(summary.elapsedMs).toBe(1500);
+    });
+
+    it("starts no further call once its signal aborts", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        if (++calls === 3) abort.abort();
+        return "ok";
+      };
+      // A rate, so the waits between those calls end on their timers.
+      const summary = await runLoad(
+        call,
+        { concurrency: 1, requests: 100, rate: 1000 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(summary.requests).toBe(3);
+    });
+
+    it("cuts a rate-limit wait short when its signal aborts", async () => {
+      const abort = new AbortController();
+      // A timer that never fires: only the abort can end the wait.
+      const clock: LoadClock = {
+        now: () => 1000,
+        sleep: () => new Promise<void>(() => {}),
+      };
+      const run = runLoad(
+        async () => "ok",
+        { concurrency: 1, requests: 5, rate: 1 },
+        clock,
+        abort.signal,
+      );
+      await new Promise((r) => setImmediate(r));
+      abort.abort();
+      expect((await run).requests).toBe(1);
+    });
+
+    it("does not run a claimed slot once another worker aborted", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        calls++;
+        abort.abort();
+        return "ok";
+      };
+      await runLoad(
+        call,
+        { concurrency: 2, requests: 10 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(calls).toBe(1);
+    });
+
+    it("drops the real clock's rate timer when the run aborts", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const abort = new AbortController();
+        // Default (real) clock: the second slot is 1000s away.
+        const run = runLoad(
+          async () => "ok",
+          { concurrency: 1, requests: 2, rate: 0.001 },
+          undefined,
+          abort.signal,
+        );
+        await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+        abort.abort();
+        expect((await run).requests).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("lets the event loop run while calls fail instantly", async () => {
+      const abort = new AbortController();
+      // Only a macrotask can abort: if the run never yields, this never fires
+      // before the run has spent its whole request count.
+      setImmediate(() => abort.abort());
+      const limit = 200_000;
+      const summary = await runLoad(
+        async () => {
+          throw new Error("rejected up front");
+        },
+        { concurrency: 4, requests: limit },
+        undefined,
+        abort.signal,
+      );
+      expect(summary.requests).toBeGreaterThan(0);
+      expect(summary.requests).toBeLessThan(limit);
+    });
+
+    it("starts nothing when its signal has already aborted", async () => {
+      const summary = await runLoad(
+        async () => "ok",
+        { concurrency: 2, requests: 5 },
+        fakeClock(),
+        AbortSignal.abort(),
+      );
+      expect(summary.requests).toBe(0);
     });
 
     it("reports an empty run without dividing by zero", async () => {
