@@ -156,6 +156,43 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  // #2805 — the inverse of the refresh-token mapping: off is the default, so
+  // only the opt-in persists and unchecking it writes nothing.
+  it("maps the refresh-scope opt-in into settings, and back to unset", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /OAuth Settings/i }));
+    await user.click(screen.getByLabelText("Send scope on token refresh"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthScopeOnRefresh: true }),
+    );
+
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{ ...initialSettings, oauthScopeOnRefresh: true }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByLabelText("Send scope on token refresh"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthScopeOnRefresh: undefined }),
+    );
+  });
+
   // #2317 — omit-when-off, so an untouched server writes no field.
   it("maps the notification-stream suppression into settings, and back to unset", async () => {
     const user = userEvent.setup();

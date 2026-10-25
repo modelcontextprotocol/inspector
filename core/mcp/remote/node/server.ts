@@ -1759,6 +1759,7 @@ export function createRemoteApp(
     tokenUrl?: string;
     enterpriseManaged?: boolean;
     requestRefreshToken?: boolean;
+    scopeOnRefresh?: boolean;
     revokeOnClear?: boolean;
   } => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
@@ -1792,6 +1793,13 @@ export function createRemoteApp(
     if (
       o.requestRefreshToken !== undefined &&
       typeof o.requestRefreshToken !== "boolean"
+    ) {
+      return false;
+    }
+    // #2805 — shape only; the read side keeps just an explicit `true`.
+    if (
+      o.scopeOnRefresh !== undefined &&
+      typeof o.scopeOnRefresh !== "boolean"
     ) {
       return false;
     }
@@ -1938,7 +1946,7 @@ export function createRemoteApp(
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
-          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, revokeOnClear? }`.",
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, scopeOnRefresh?, revokeOnClear? }`.",
         );
         delete valObj.oauth;
       }
@@ -2273,6 +2281,15 @@ export function createRemoteApp(
       };
     }
     if (
+      obj.oauthScopeOnRefresh !== undefined &&
+      typeof obj.oauthScopeOnRefresh !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.oauthScopeOnRefresh must be a boolean",
+      };
+    }
+    if (
       obj.oauthRevokeOnClear !== undefined &&
       typeof obj.oauthRevokeOnClear !== "boolean"
     ) {
@@ -2423,6 +2440,10 @@ export function createRemoteApp(
     // `true` on the wire reads back as unset, which means the same thing.
     if (obj.oauthRequestRefreshToken === false) {
       value.oauthRequestRefreshToken = false;
+    }
+    // #2805: the default is off, so only the opt-in travels.
+    if (obj.oauthScopeOnRefresh === true) {
+      value.oauthScopeOnRefresh = true;
     }
     // #2144: same shape — the default is on, so only the opt-out travels.
     if (obj.oauthRevokeOnClear === false) {

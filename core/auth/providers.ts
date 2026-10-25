@@ -2,6 +2,7 @@ import type {
   OAuthClientProvider,
   OAuthClientInformationContext,
   StoredOAuthClientInformation,
+  StoredOAuthTokens,
 } from "@modelcontextprotocol/client";
 import type {
   OAuthClientInformation,
@@ -139,6 +140,19 @@ export type OAuthProviderConfig = {
    */
   configuredScope?: string;
   /**
+   * Whether to send a `scope` on the refresh-token request (#2805). Defaults to
+   * `false`, which leaves the SDK's refresh request exactly as it was: no
+   * `scope`, which asks for the scope already granted (RFC 6749 §6).
+   *
+   * Some authorization servers reject that request. Microsoft Entra ID answers
+   * `AADSTS90009` when the client and the resource are the same app
+   * registration, so every refresh fails and the user has to sign in again.
+   * Opt-in per server, because a `scope` on refresh can narrow or alter the
+   * grant on other authorization servers — which is why the SDK keeps its own
+   * default unchanged too. See {@link BaseOAuthClientProvider.scopeForRefresh}.
+   */
+  scopeOnRefresh?: boolean;
+  /**
    * Where the in-flight PKCE verifier lives (#2726). When set, the verifier is
    * keyed by the OAuth `state` of the flow that created it instead of sharing
    * the server-URL-keyed slot in {@link storage}, so overlapping flows for the
@@ -170,6 +184,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected requestRefreshToken: boolean;
   /** Server-configured scope, for the #2068 `offline_access` distinction. */
   protected configuredScope?: string;
+  /** Send `scope` on the refresh-token request (#2805). */
+  protected scopeOnRefresh: boolean;
   /** Per-flow verifier store (#2726); absent → the shared storage slot. */
   protected flowStore?: PkceFlowStore;
   /**
@@ -187,6 +203,7 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.authorizationParams = oauthConfig.authorizationParams;
     this.requestRefreshToken = oauthConfig.requestRefreshToken ?? true;
     this.configuredScope = oauthConfig.configuredScope;
+    this.scopeOnRefresh = oauthConfig.scopeOnRefresh ?? false;
     this.flowStore = oauthConfig.flowStore;
   }
 
@@ -241,6 +258,54 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
       );
     }
     return this.cachedScope;
+  }
+
+  /**
+   * The `scope` the SDK's `auth()` sends on a refresh-token request (#2805).
+   * `undefined` — the answer whenever {@link scopeOnRefresh} is off — means the
+   * request carries no `scope`, the SDK's default.
+   *
+   * When it is on, the SDK requires the value not to exceed what was granted,
+   * so the sources are tried in order of how directly they say that:
+   *
+   * 1. **The granted scope saved with the tokens** (`tokens.scope`). It is the
+   *    authorization server's own statement of the grant, and it already
+   *    reflects a step-up: a widened grant comes back with its token response.
+   * 2. **The scope of the authorization request**, as persisted in OAuth
+   *    storage. A token response may omit `scope` when it equals the requested
+   *    one (RFC 6749 §5.1), so this is what was granted in that case. It is the
+   *    same value {@link scope} requests with, so it gets the same #2068
+   *    `offline_access` filter — see {@link scopeForDeclinedRefreshGrant} —
+   *    applied only to remove tokens, never to add one the record lacks.
+   * 3. **The configured scope**, for a store that recorded no request scope.
+   *
+   * A step-up that would *widen* the grant never reaches here: the SDK skips
+   * refresh for it (`forceReauthorization`) and runs a new authorization
+   * request, so this never asks a refresh for more than was granted.
+   */
+  async scopeForRefresh(
+    tokens: StoredOAuthTokens,
+  ): Promise<string | undefined> {
+    if (!this.scopeOnRefresh) return undefined;
+    const granted = tokens.scope?.trim();
+    if (granted) return granted;
+    const requested =
+      (await this.storage.getScope(this.serverUrl))?.trim() ||
+      this.configuredScope?.trim() ||
+      undefined;
+    if (!requested || this.requestRefreshToken) return requested;
+    // The #2068 filter may only *remove* here. It can also add a configured
+    // `offline_access` back, which is right for an authorization request but
+    // not for a refresh: after a configuration change that token may not be
+    // in the recorded grant, and asking for it fails an ordinary refresh with
+    // `invalid_scope`. So keep only what both the filter and the record allow.
+    const allowed = new Set(
+      scopeForDeclinedRefreshGrant(requested, this.configuredScope)?.split(
+        /\s+/,
+      ),
+    );
+    const kept = requested.split(/\s+/).filter((token) => allowed.has(token));
+    return kept.length > 0 ? kept.join(" ") : undefined;
   }
 
   get redirectUrl(): string {

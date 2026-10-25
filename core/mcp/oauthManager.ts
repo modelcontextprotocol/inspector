@@ -117,6 +117,8 @@ export class OAuthManager {
     tokenUrl?: string;
     /** Declare the `refresh_token` grant in client metadata (#2068). */
     requestRefreshToken?: boolean;
+    /** Send `scope` on the refresh-token request (#2805). */
+    scopeOnRefresh?: boolean;
   }): void {
     this.oauthConfig = {
       ...this.oauthConfig,
@@ -192,6 +194,9 @@ export class OAuthManager {
       // `authorizationParams` this is pure config off mcp.json, so it lives on
       // the provider rather than in OAuth storage.
       requestRefreshToken: this.oauthConfig.requestRefreshToken,
+      // #2805: per-server opt-in to a `scope` on the refresh-token request.
+      // Pure config, like the two above.
+      scopeOnRefresh: this.oauthConfig.scopeOnRefresh,
       // #2068: lets the provider tell an `offline_access` the user asked for
       // from one inherited from a previous grant's persisted scope.
       configuredScope: this.oauthConfig.scope,

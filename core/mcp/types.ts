@@ -247,6 +247,13 @@ export type StoredMCPServer = MCPServerConfig & {
      */
     requestRefreshToken?: boolean;
     /**
+     * Whether a refresh-token request carries `scope`. Defaults to `false`;
+     * only `true` is written to disk. See
+     * {@link InspectorServerSettings.oauthScopeOnRefresh}. Inspector-specific.
+     * (#2805)
+     */
+    scopeOnRefresh?: boolean;
+    /**
      * Whether clearing this server's OAuth state also revokes the grant at the
      * authorization server (RFC 7009). Defaults to `true`; only `false` is
      * written to disk, so an entry that never touched the setting keeps a
@@ -719,6 +726,11 @@ export interface OAuthSettings {
    */
   requestRefreshToken?: boolean;
   /**
+   * Whether a refresh-token request carries `scope` (#2805). Optional for the
+   * same reason as `authorizationParams`; `undefined` means the default, off.
+   */
+  scopeOnRefresh?: boolean;
+  /**
    * Whether clearing the stored OAuth state revokes the grant at the
    * authorization server (#2144). Optional for the same reason as
    * `authorizationParams`; `undefined` means the default, on.
@@ -954,6 +966,20 @@ export interface InspectorServerSettings {
    * the stored OAuth state is cleared.
    */
   oauthRequestRefreshToken?: boolean;
+  /**
+   * Whether the Inspector sends `scope` on a refresh-token request for this
+   * server (#2805). `undefined` (the default) means off, which leaves the
+   * SDK's refresh request unchanged: no `scope`, asking for the scope already
+   * granted. Persisted as `oauth.scopeOnRefresh` only when on.
+   *
+   * For an authorization server that rejects a refresh without `scope` —
+   * Microsoft Entra ID's `AADSTS90009`, when the client and the resource are
+   * the same app registration. Off by default because a `scope` on refresh can
+   * narrow or alter the grant elsewhere. The value sent is the granted scope;
+   * see `BaseOAuthClientProvider.scopeForRefresh`. Read at connect time like
+   * the rest of the OAuth block.
+   */
+  oauthScopeOnRefresh?: boolean;
   /**
    * Whether clearing this server's stored OAuth state also revokes the grant
    * at the authorization server, per RFC 7009 (#2144). `undefined` (the
@@ -1474,6 +1500,8 @@ export interface InspectorClientOptions {
      * (#2068). Defaults to `true` when omitted.
      */
     requestRefreshToken?: boolean;
+    /** Send `scope` on the refresh-token request (#2805). Defaults to `false`. */
+    scopeOnRefresh?: boolean;
   };
 
   /**

@@ -1165,6 +1165,35 @@ describe("server.ts supplemental coverage", () => {
       expect((await res.json()).error).toMatch(/oauthRequestRefreshToken/);
     });
 
+    it("rejects a non-boolean oauthScopeOnRefresh (#2805)", async () => {
+      const res = await postSettings({ ...base, oauthScopeOnRefresh: "yes" });
+      expect((await res.json()).error).toMatch(/oauthScopeOnRefresh/);
+    });
+
+    // #2805 — read the saved entry back, for the reason the #2068 pair below
+    // gives: a 200 alone does not prove `normalizeSettings` carried it.
+    async function readScopeOnRefresh(): Promise<unknown> {
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      const body = (await res.json()) as {
+        mcpServers: Record<string, { oauth?: Record<string, unknown> }>;
+      };
+      return body.mcpServers.srv?.oauth?.scopeOnRefresh;
+    }
+
+    it("persists the refresh-scope opt-in through a save", async () => {
+      expect(
+        (await postSettings({ ...base, oauthScopeOnRefresh: true })).status,
+      ).toBe(200);
+      expect(await readScopeOnRefresh()).toBe(true);
+    });
+
+    it("writes no refresh-scope field when the setting is off", async () => {
+      expect(
+        (await postSettings({ ...base, oauthScopeOnRefresh: false })).status,
+      ).toBe(200);
+      expect(await readScopeOnRefresh()).toBeUndefined();
+    });
+
     it("rejects a non-boolean oauthRevokeOnClear (#2144)", async () => {
       const res = await postSettings({ ...base, oauthRevokeOnClear: "no" });
       expect((await res.json()).error).toMatch(/oauthRevokeOnClear/);
@@ -1441,6 +1470,30 @@ describe("server.ts supplemental coverage", () => {
               type: "streamable-http",
               url: "https://x.test/mcp",
               oauth: { requestRefreshToken: "no" },
+            },
+          },
+        }),
+      });
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers`);
+        const body = (await res.json()) as {
+          mcpServers: Record<string, Record<string, unknown>>;
+        };
+        expect(body.mcpServers.srv).not.toHaveProperty("oauth");
+      } finally {
+        await stop(h);
+      }
+    });
+
+    // #2805 — same all-or-nothing rule for the refresh-scope opt-in.
+    it("drops oauth whose scopeOnRefresh is not a boolean", async () => {
+      const h = await start({
+        seedConfig: JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { scopeOnRefresh: "yes" },
             },
           },
         }),

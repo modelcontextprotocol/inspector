@@ -1042,6 +1042,93 @@ describe("InspectorClient OAuth E2E", () => {
         const toolsResult = await client.listTools();
         expect(toolsResult).toBeDefined();
       });
+
+      // #2805: the opt-in must reach the token request itself, through the
+      // real SDK `auth()`, and the default must leave it carrying no `scope`.
+      it.each([
+        { scopeOnRefresh: undefined, expectScope: false },
+        { scopeOnRefresh: true, expectScope: true },
+      ])(
+        "sends scope on the refresh request only when opted in (scopeOnRefresh: $scopeOnRefresh)",
+        async ({ scopeOnRefresh, expectScope }) => {
+          const staticClientId = "test-refresh-scope";
+          const staticClientSecret = "test-secret-refresh-scope";
+          server = new TestServerHttp({
+            ...getDefaultServerConfig(),
+            serverType: transport.serverType,
+            ...createOAuthTestServerConfig({
+              requireAuth: true,
+              supportRefreshTokens: true,
+              staticClients: [
+                {
+                  clientId: staticClientId,
+                  clientSecret: staticClientSecret,
+                  redirectUris: [testRedirectUrl],
+                },
+              ],
+            }),
+          });
+          const port = await server.start();
+          const serverUrl = `http://localhost:${port}`;
+          await waitForOAuthWellKnown(serverUrl);
+
+          const oauthConfig = createTestOAuthConfig({
+            mode: "static",
+            clientId: staticClientId,
+            clientSecret: staticClientSecret,
+            redirectUrl: testRedirectUrl,
+          });
+          client = new InspectorClient(
+            {
+              type: transport.clientType,
+              url: `${serverUrl}${transport.endpoint}`,
+            } as MCPServerConfig,
+            {
+              environment: {
+                transport: createTransportNode,
+                oauth: {
+                  storage: oauthConfig.storage,
+                  navigation: oauthConfig.navigation,
+                  redirectUrlProvider: oauthConfig.redirectUrlProvider,
+                },
+              },
+              oauth: {
+                clientId: oauthConfig.clientId,
+                clientSecret: oauthConfig.clientSecret,
+                scope: "mcp",
+                ...(scopeOnRefresh !== undefined && { scopeOnRefresh }),
+              },
+            },
+          );
+          const fetchRequestLogState = new FetchRequestLogState(client);
+
+          const authUrl = await client.authenticate();
+          if (!authUrl) throw new Error("Expected authorization URL");
+          const { code: authCode, iss: authCodeIss } =
+            await completeOAuthAuthorization(authUrl);
+          await client.completeOAuthFlow(authCode, authCodeIss);
+          await client.connect();
+
+          const tokens = await client.getOAuthTokens();
+          expect(tokens?.refresh_token).toBeDefined();
+          invalidateAccessToken(tokens!.access_token);
+          await client.disconnect();
+          await client.connect();
+          expect(client.getStatus()).toBe("connected");
+
+          const refreshRequests = fetchRequestLogState
+            .getFetchRequests()
+            .map((r) => new URLSearchParams(r.requestBody ?? ""))
+            .filter((body) => body.get("grant_type") === "refresh_token");
+          expect(refreshRequests).toHaveLength(1);
+          const sentScope = refreshRequests[0]!.get("scope");
+          if (expectScope) {
+            expect(sentScope?.split(" ")).toContain("mcp");
+          } else {
+            expect(sentScope).toBeNull();
+          }
+        },
+      );
     },
   );
 
