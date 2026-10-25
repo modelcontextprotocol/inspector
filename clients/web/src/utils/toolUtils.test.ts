@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Tool } from "@modelcontextprotocol/client";
 import {
+  compareToolLabels,
+  compareToolsByLabel,
   findToolByRowKey,
   hasInputFields,
   offersRunAsTask,
@@ -23,6 +25,46 @@ describe("resolveDisplayLabel", () => {
     // Empty string is a valid (if unusual) title — title ?? name only falls
     // back on undefined / null, not empty string. Document that here.
     expect(resolveDisplayLabel("send_message", "")).toBe("");
+  });
+});
+
+describe("compareToolsByLabel (#2782)", () => {
+  const tool = (name: string, title?: string): Tool => ({
+    name,
+    ...(title === undefined ? {} : { title }),
+    inputSchema: { type: "object" },
+  });
+  const labels = (tools: Tool[]) =>
+    [...tools]
+      .sort(compareToolsByLabel)
+      .map((t) => resolveDisplayLabel(t.name, t.title));
+
+  it("orders by the displayed label: the title when present, else the name", () => {
+    expect(
+      labels([tool("zeta", "Alpha"), tool("beta"), tool("aaa", "Gamma")]),
+    ).toEqual(["Alpha", "beta", "Gamma"]);
+  });
+
+  it("ignores case and compares digit runs numerically", () => {
+    expect(
+      labels([tool("tool_10"), tool("Tool_2"), tool("apple"), tool("Banana")]),
+    ).toEqual(["apple", "Banana", "Tool_2", "tool_10"]);
+  });
+
+  it("treats labels differing only by case as equal, so a stable sort keeps source order", () => {
+    expect(compareToolsByLabel(tool("Echo"), tool("echo"))).toBe(0);
+    expect(compareToolsByLabel(tool("echo"), tool("echo"))).toBe(0);
+  });
+});
+
+describe("compareToolLabels (#2782)", () => {
+  it("compares raw labels with the same collation the tool comparator uses", () => {
+    expect(["tool_10", "Tool_2", "apple"].sort(compareToolLabels)).toEqual([
+      "apple",
+      "Tool_2",
+      "tool_10",
+    ]);
+    expect(compareToolLabels("Echo", "echo")).toBe(0);
   });
 });
 
