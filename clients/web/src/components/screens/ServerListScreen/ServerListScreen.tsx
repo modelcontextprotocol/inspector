@@ -49,6 +49,11 @@ export interface ServerListScreenProps {
    */
   erroredServerId?: string;
   /**
+   * Why that server's connection attempt failed (#2783), shown on the
+   * `erroredServerId` card so the reason outlasts the failure toast.
+   */
+  connectErrorMessage?: string;
+  /**
    * Id of the server that just connected successfully (#1682). Its card draws
    * the green highlight border and scrolls into view — the success mirror of
    * `erroredServerId`.
@@ -190,6 +195,7 @@ export function ServerListScreen({
   writable = true,
   activeServer,
   erroredServerId,
+  connectErrorMessage,
   connectedServerId,
   onAddManually,
   onImportConfig,
@@ -252,6 +258,8 @@ export function ServerListScreen({
     onRemove,
     highlighted: highlightedServerIds?.includes(server.id) ?? false,
     errored: server.id === erroredServerId,
+    errorMessage:
+      server.id === erroredServerId ? connectErrorMessage : undefined,
     justConnected: server.id === connectedServerId,
     scrollOnHighlight: server.id === firstHighlightedId,
     onClearHighlight: onClearHighlight

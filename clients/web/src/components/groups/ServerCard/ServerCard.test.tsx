@@ -364,6 +364,54 @@ describe("ServerCard", () => {
     });
   });
 
+  describe("connection-failed reason (#2783)", () => {
+    const reason =
+      "Failed to start transport: Endpoint origin does not match connection origin: http://10.0.0.5:8000";
+
+    it("shows the failure reason on an errored card", () => {
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          errored
+          errorMessage={reason}
+        />,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent(reason);
+    });
+
+    it("shows the failure reason in compact mode too", () => {
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          compact
+          errored
+          errorMessage={reason}
+        />,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent(reason);
+    });
+
+    it("hides a stale reason once the card is no longer errored", () => {
+      renderWithMantine(
+        <ServerCard
+          {...baseProps}
+          connection={disconnected}
+          errorMessage={reason}
+        />,
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+
+    it("renders no reason line for an errored card without a message", () => {
+      renderWithMantine(
+        <ServerCard {...baseProps} connection={disconnected} errored />,
+      );
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+
   describe("connection-failed border (#1621)", () => {
     it("draws the red errored-variant border when errored", () => {
       const { container } = renderWithMantine(

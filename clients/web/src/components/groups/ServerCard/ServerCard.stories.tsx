@@ -102,6 +102,21 @@ export const ErroredBorder: Story = {
   },
 };
 
+// The failure reason kept on the errored card (#2783), so it is still there
+// after the toast that first reported it auto-closes. A long transport error
+// with a URL in it wraps inside the card rather than running under the border.
+export const ErroredWithReason: Story = {
+  args: {
+    id: "5e4d3c2b-1a0f-4e9d-8c7b-6a5f4e3d2c1b",
+    name: "Legacy SSE Server",
+    config: { type: "sse", url: "https://mcp.example.com/sse" },
+    connection: disconnected,
+    errored: true,
+    errorMessage:
+      'Remote connect failed (500): {"error":"Failed to start transport: Endpoint origin does not match connection origin: http://10.0.0.5:8000"}',
+  },
+};
+
 // The green border flagging the server that just connected (#1682) — the
 // success mirror of ErroredBorder. It persists while connected and clears on
 // disconnect or a new connection attempt.

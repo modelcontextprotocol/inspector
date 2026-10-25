@@ -37,6 +37,20 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // The reason a server card's last connect attempt failed (#2783), kept on
+    // the card after the toast that first reported it auto-closes. The text
+    // is often a raw transport error carrying a URL or a JSON body, so it has
+    // to wrap inside the card rather than run under its border.
+    if (props.variant === "connectError") {
+      return {
+        root: {
+          color: "var(--inspector-danger-text)",
+          fontSize: "var(--mantine-font-size-sm)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        },
+      };
+    }
     // Two small, unobtrusive labels that sit in the footer row (#1682): the
     // build version (left) and the copyright notice (right), positioned by the
     // footer's `space-between` Group. Both are grey, single-line, and out of the

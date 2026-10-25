@@ -144,7 +144,8 @@ export interface ConnectionProps {
    * Last connection-level error message (handshake failure, OAuth start
    * failure, deep-link automation failure). Surfaced as `data-error-message`
    * on the header's `connection-status` testid so an automated driver can read
-   * *why* a connect failed without scraping a transient toast.
+   * *why* a connect failed without scraping a transient toast, and — for the
+   * same reason, but for people — on the `erroredServerId` card (#2783).
    */
   connectErrorMessage?: string;
   initializeResult?: InitializeResult;
