@@ -9,9 +9,8 @@ import type { MethodArgs } from "./method-types.js";
  * traffic over the connection the Inspector already set up — transport, OAuth
  * and headers included — and report latency and error rate at the end.
  *
- * Lives in `core/cli/` rather than the CLI client so `mcpdo` can reuse it
- * against a daemon connection without a second copy; only the one-shot CLI
- * exposes it today.
+ * Lives in `core/cli/` so the one-shot CLI and `mcpdo` share one engine:
+ * `mcpdo` runs it inside the daemon against a live connection (#2744).
  *
  * All calls share ONE connection, so this measures how a server handles
  * concurrent requests on a session, not how it handles many sessions.
@@ -138,6 +137,27 @@ const realClock: LoadClock = {
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
 };
 
+/**
+ * {@link LoadClock.sleep}, cut short when `signal` aborts. The timer itself
+ * still fires later; only the wait ends early, so a slow `--load-rate` slot
+ * never holds a cancelled run open for a whole interval.
+ */
+function sleepUnlessAborted(
+  clock: LoadClock,
+  ms: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  if (!signal) return clock.sleep(ms);
+  return new Promise((resolve) => {
+    const done = (): void => {
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    signal.addEventListener("abort", done, { once: true });
+    void clock.sleep(ms).then(done); // `sleep` never rejects
+  });
+}
+
 /** Nearest-rank percentile over an ascending-sorted, non-empty array. */
 export function percentile(sorted: number[], p: number): number {
   const rank = Math.ceil((p / 100) * sorted.length);
@@ -202,11 +222,15 @@ class ErrorTally {
  * owed, so a stall — one slow call at concurrency 1, or timers firing late —
  * is never followed by a catch-up burst against a server that may just be
  * recovering. A slot past the duration is never started.
+ *
+ * Aborting `signal` ends the run early: no further call starts, in-flight
+ * calls are left to settle, and the summary covers what completed.
  */
 export async function runLoad(
   call: () => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
+  signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const { concurrency, durationMs, requests, rate } = options;
   const latencies: number[] = [];
@@ -243,6 +267,7 @@ export async function runLoad(
     await ahead;
     try {
       for (;;) {
+        if (signal?.aborted) return false;
         if (requests !== undefined && started >= requests) return false;
         const now = clock.now();
         if (now >= deadline) return false;
@@ -258,7 +283,7 @@ export async function runLoad(
             now - nextStart < interval ? nextStart + interval : now + interval;
           return true;
         }
-        await clock.sleep(scheduled - now);
+        await sleepUnlessAborted(clock, scheduled - now, signal);
       }
     } finally {
       release();
@@ -313,7 +338,7 @@ export async function runToolLoad(
   inspectorClient: InspectorClient,
   args: MethodArgs,
   options: LoadOptions,
-  clock?: LoadClock,
+  run: { clock?: LoadClock; signal?: AbortSignal } = {},
 ): Promise<LoadSummary> {
   if (!args.toolName) {
     throw new Error("--load requires --tool-name.");
@@ -355,6 +380,6 @@ export async function runToolLoad(
     }
     return invocation.result.isError === true ? "tool_error" : "ok";
   };
-  const summary = await runLoad(call, options, clock);
+  const summary = await runLoad(call, options, run.clock, run.signal);
   return { tool: tool.name, ...summary };
 }

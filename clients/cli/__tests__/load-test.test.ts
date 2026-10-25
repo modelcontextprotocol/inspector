@@ -369,6 +369,51 @@ describe("load-test engine", () => {
       expect(summary.elapsedMs).toBe(1500);
     });
 
+    it("starts no further call once its signal aborts", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        if (++calls === 3) abort.abort();
+        return "ok";
+      };
+      // A rate, so the waits between those calls end on their timers.
+      const summary = await runLoad(
+        call,
+        { concurrency: 1, requests: 100, rate: 1000 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(summary.requests).toBe(3);
+    });
+
+    it("cuts a rate-limit wait short when its signal aborts", async () => {
+      const abort = new AbortController();
+      // A timer that never fires: only the abort can end the wait.
+      const clock: LoadClock = {
+        now: () => 1000,
+        sleep: () => new Promise<void>(() => {}),
+      };
+      const run = runLoad(
+        async () => "ok",
+        { concurrency: 1, requests: 5, rate: 1 },
+        clock,
+        abort.signal,
+      );
+      await new Promise((r) => setImmediate(r));
+      abort.abort();
+      expect((await run).requests).toBe(1);
+    });
+
+    it("starts nothing when its signal has already aborted", async () => {
+      const summary = await runLoad(
+        async () => "ok",
+        { concurrency: 2, requests: 5 },
+        fakeClock(),
+        AbortSignal.abort(),
+      );
+      expect(summary.requests).toBe(0);
+    });
+
     it("reports an empty run without dividing by zero", async () => {
       const summary = await runLoad(
         async () => "ok",

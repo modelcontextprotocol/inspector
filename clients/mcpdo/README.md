@@ -74,6 +74,7 @@ mcpdo auth/clear --all --yes
 mcpdo tools/list
 mcpdo tools/call echo message:=hi
 mcpdo tools/call echo '{"message":"hi"}'
+mcpdo tools/call echo message:=hi --load --load-requests 500   # load test; see below
 mcpdo @test-stdio resources/list
 mcpdo logging/tail                        # long-lived; Ctrl-C to stop
 mcpdo connections/list
@@ -220,6 +221,62 @@ Like `--era`, this overrides whatever a catalog/config entry's
 mcpdo connect my-server --config path/to/mcp.json --elicit off
 mcpdo connect https://example.com/mcp --elicit url
 ```
+
+## Load testing a tool (`tools/call --load`)
+
+`tools/call --load` is the one-shot CLI's
+[load mode](../cli/README.md#load-testing-a-tool---load), run against an open
+connection ([#2744](https://github.com/modelcontextprotocol/inspector/issues/2744)).
+It calls one tool repeatedly and concurrently and prints a single summary in
+place of a result: `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
+latency `min`/`mean`/`p50`/`p90`/`p99`/`max`, and the most frequent error
+messages. Both CLIs run the same engine, so the flags, their defaults and the
+summary fields mean the same thing in each.
+
+```bash
+# 20 calls in flight for 30 seconds
+mcpdo tools/call search query=mcp --load --load-concurrency 20 --load-duration 30
+
+# exactly 500 calls, started at no more than 50 per second, as JSON
+mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 50 --format json
+```
+
+| Flag                     | Meaning                                                                                                      |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `--load`                 | Load-test the tool instead of calling it once.                                                               |
+| `--load-concurrency <n>` | Most calls in flight at once (positive integer; default `10`).                                               |
+| `--load-duration <sec>`  | Stop starting calls after this many seconds; in-flight calls finish. Default `10` without `--load-requests`. |
+| `--load-requests <n>`    | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.         |
+| `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
+
+Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
+`--app-info`. `--format json` prints the summary object itself, with no
+`{ result }` envelope, as for every other mcpdo command. The exit code is `0`
+whenever the run completes, however many calls failed — read `errorRate`.
+
+How a run behaves on a shared daemon connection:
+
+- **The run happens inside the daemon**, on the connection's live client — its
+  transport, headers and OAuth tokens — and the `mcpdo` process makes one round
+  trip for the whole run. The IPC call has no client-side deadline, so a long
+  `--load-duration` is not cut off; the connection's own request timeout still
+  applies to each call.
+- **Later commands on the same connection wait for it.** The daemon runs one
+  `rpc` command per connection at a time (so that an elicitation can be routed
+  to the call that raised it), and the load run is one such command. A
+  `tools/list` issued mid-run starts when the run ends. Other connections, and
+  an already-running `logging/tail` or `resources/subscribe` stream, are
+  unaffected.
+- **Ctrl-C ends the run**: no further calls start and those in flight are
+  cancelled, so the connection is free for the next command at once. No summary
+  is printed, since the caller has gone.
+- **A dropped connection ends the run early** with the summary of what
+  completed, rather than spending the rest of the window counting instant
+  failures. The next command revives the connection as usual.
+- **Elicitations are cancelled.** Many calls are in flight at once and none of
+  them can be answered mid-run, so a server that elicits during a load run sees
+  each request cancelled. Use `connect --elicit off` to keep the server from
+  asking at all.
 
 ## Relation to one-shot CLI
 
