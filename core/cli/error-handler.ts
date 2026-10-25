@@ -18,6 +18,7 @@ import { OAuthStateFileUnrecognizedError } from "../auth/node/oauth-persist-file
  *  - 7: `--verify` found a SEP-2640 violation
  *  - 8: `--verify` could not check the whole catalog within the read bounds
  *  - 9: `--verify --require-digests` found a skill that advertised no digests
+ *  - 10: a `--load` run breached a `--load-max-*` threshold
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -68,6 +69,18 @@ export const EXIT_CODES = {
    * short".
    */
   SKILL_UNVERIFIABLE: 9,
+  /**
+   * A `--load` run completed and breached a threshold set with
+   * `--load-max-error-rate` or `--load-max-p99` (#2745). The summary has
+   * already been printed; the envelope `code` names the threshold
+   * (`load_error_rate_exceeded` / `load_p99_exceeded`).
+   *
+   * Not `TOOL_ERROR` (5): a load run's failed calls are measurements, and
+   * without a threshold the same run exits 0. Exit 5 from `--load` keeps
+   * meaning "the tool was not found", so a CI job can tell "the server missed
+   * its SLO" apart from "the job is pointed at the wrong tool".
+   */
+  LOAD_THRESHOLD_EXCEEDED: 10,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */

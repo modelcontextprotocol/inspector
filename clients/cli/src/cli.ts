@@ -64,6 +64,13 @@ import {
   runToolLoad,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  checkLoadThresholds,
+  fractionParser,
+  maxP99Parser,
+  resolveLoadThresholds,
+  type LoadThresholds,
+} from "@inspector/core/cli/handlers/load-thresholds.js";
 import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
   isOneShotMethod,
@@ -145,6 +152,7 @@ async function callMethod(
   relogin: boolean,
   revoke: boolean,
   load?: LoadOptions,
+  loadThresholds?: LoadThresholds,
 ): Promise<void> {
   // Clear after parse-time validation so a bad flag combo never deletes store
   // entries. Deletes the shared URL-keyed OAuth entry (not "ignore for this run").
@@ -286,6 +294,8 @@ async function callMethod(
         summary,
         args.format === "json" ? "json" : "text",
       );
+      // After the summary is out, so a breached run still shows its numbers.
+      checkLoadThresholds(summary, loadThresholds);
       return;
     }
 
@@ -819,6 +829,7 @@ type ParseResult =
       serverConfig: MCPServerConfig;
       serverSettings: InspectorServerSettings | undefined;
       methodArgs: MethodArgs & { method: string };
+      loadThresholds?: LoadThresholds;
       clientConfigPath?: string;
       clientId?: string;
       clientSecret?: string;
@@ -1061,6 +1072,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveNumberParser("--load-rate"),
     )
     .option(
+      "--load-max-error-rate <fraction>",
+      "With --load: exit 10 (load_error_rate_exceeded) when the share of failed calls is above this value, after printing the summary (0 to 1; 0 fails on any failed call).",
+      fractionParser("--load-max-error-rate"),
+    )
+    .option(
+      "--load-max-p99 <ms>",
+      "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+      maxP99Parser,
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -1253,6 +1274,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadDuration?: number;
     loadRequests?: number;
     loadRate?: number;
+    loadMaxErrorRate?: number;
+    loadMaxP99?: number;
   };
 
   if (options.relogin) {
@@ -1347,6 +1370,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-duration", options.loadDuration],
     ["--load-requests", options.loadRequests],
     ["--load-rate", options.loadRate],
+    ["--load-max-error-rate", options.loadMaxErrorRate],
+    ["--load-max-p99", options.loadMaxP99],
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
@@ -1664,7 +1689,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     outputFormat: options.outputFormat,
   };
 
+  // Separate from `resolveLoadOptions`: these grade a finished run rather than
+  // bound it. `undefined` when neither flag is set (#2745).
+  const loadThresholds = resolveLoadThresholds({
+    maxErrorRate: options.loadMaxErrorRate,
+    maxP99Ms: options.loadMaxP99,
+  });
+
   return {
+    loadThresholds,
     serverConfig,
     serverSettings,
     methodArgs,
@@ -1721,6 +1754,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     relogin,
     revoke,
     load,
+    loadThresholds,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
@@ -1752,5 +1786,6 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     relogin === true,
     revoke !== false,
     load,
+    loadThresholds,
   );
 }
