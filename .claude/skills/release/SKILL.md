@@ -243,6 +243,7 @@ API the UI's *Generate release notes* button uses. Run it twice, then publish in
 ```sh
 ARGS=(--merge-branch "v2/chore/milestone-merge-vX.Y.Z" --ledger-url "https://claude.ai/artifact/<id>")
 # Add one --known-issue "<markdown paragraph>" per known issue, if any.
+# Add one --advisory "<GHSA-id>: <markdown>" per security advisory the release fixes.
 
 npm run release:notes -- "${ARGS[@]}"            # 1. preview: prints the notes, creates nothing
 npm run release:notes -- "${ARGS[@]}" --draft    # 2. creates the Release as a DRAFT
@@ -267,6 +268,31 @@ The rules the helper applies:
 - **One line per person, most issues first:** `* @user (#1, #2, …)`.
 - **"Addresses", not "fixes."** The credited issues include feature requests.
 - **The section is left out** when no community reporter remains, as with 2.1.0.
+
+**Security advisories need `--advisory`** (#2766). A GHSA fix lands on
+`v2/main` as a *Merge commit from fork*, not a PR, so the generated list never
+shows it, and its reporter filed no issue, so nothing credits them. Pass one
+`--advisory "<GHSA-id>: <markdown>"` per advisory. The markdown describes the
+**fix**, not the vulnerability (the advisory's own summary is the latter), and
+is used verbatim — bold the lead clause yourself, as 1.0.3 and 2.12.0 do. For
+each one the helper:
+
+- **Adds a bullet under `### Security fixes`** at the top of What's Changed,
+  ending in the advisory link, and moves the PR list under `### Other changes`.
+- **Credits its reporters** — `reporter` and `finder` credits on the advisory,
+  in **every** credit state, `pending` included — merged into the Thanks list
+  as `* @user (#123, GHSA-…)`, with the same maintainer exclusion. People with
+  issues sort first; advisory-only reporters follow, by name. The section now
+  appears when only advisory reporters remain, and its lead-in says "issues
+  and vulnerabilities" or "vulnerabilities" to match.
+- **Aborts when the advisory's patched versions do not name this release**,
+  since a wrong id would link and credit an unrelated advisory, and on any
+  failed advisory lookup.
+- **Warns, but goes on, while the advisory is a `draft`.** Its link 404s until
+  it is published; publish the Release first, then the advisories.
+
+The intro sentence under `### Security fixes` and any `### New configuration`
+block stay hand-written: add them to the draft on the Releases page.
 - ⚠️ **Any API failure aborts the whole run.** A failed permission lookup never
   reads as "community", which could credit a maintainer, and a rate-limited PR
   or issue lookup is never skipped. A partial Thanks list is never published, so
@@ -278,7 +304,9 @@ for preview only. `--draft` and `--publish` refuse `--previous-tag`, and any
 version other than the one on `origin/main`, because the Release would carry
 the wrong range of changes or attach to the wrong tree.
 Previewing `--version 2.9.0` with 2.9.0's ledger and known issue reproduces its
-published notes exactly.
+published notes exactly. Previewing `--version 2.12.0` with its three
+`--advisory` lines reproduces its security bullets and Thanks list exactly;
+only the hand-written intro sentence and New configuration block differ.
 
 ### 3b. Publish the Release
 

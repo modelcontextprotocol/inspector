@@ -1,22 +1,28 @@
 // Tests for scripts/release-notes.mjs (#2550) — the issue-author mapping and
 // its exclusions (maintainers by permission, bots, PRs, other repos), the
 // paginated closing references, fail-fast on every API error, the note
-// layout 2.9.0 shipped with, and that nothing is created without an explicit
-// --draft / --publish. Run via `npm run test:scripts`.
+// layout 2.9.0 shipped with, that nothing is created without an explicit
+// --draft / --publish, and the --advisory security section and credits
+// (#2766). Run via `npm run test:scripts`.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   REPO,
   THANKS_LEAD_IN,
+  THANKS_LEAD_IN_ADVISORIES,
+  THANKS_LEAD_IN_BOTH,
+  advisoryReporters,
   assembleNotes,
   closingKeywordIssues,
   formatKnownIssues,
   formatThanks,
   main,
+  parseAdvisoryArg,
   parseNotesArgs,
   previousStableTag,
   pullNumbersFrom,
+  withSecurityFixes,
 } from "./release-notes.mjs";
 
 const BASE = [
@@ -33,6 +39,7 @@ test("parseNotesArgs defaults to a preview and validates its inputs", () => {
     mergeBranch: "v2/chore/mm",
     ledgerUrl: "https://l.example/x",
     knownIssues: [],
+    advisories: [],
     version: undefined,
     previousTag: undefined,
     mode: "preview",
@@ -145,12 +152,14 @@ test("closingKeywordIssues ignores keywords GitHub ignores: code, quotes, commen
   );
 });
 
+const issuesOnly = (...issues) => ({ issues, advisories: [] });
+
 test("formatThanks orders by issue count, then name case-insensitively", () => {
   const reporters = new Map([
-    ["zed", [5]],
-    ["Amy", [9]],
-    ["many", [1, 2, 3]],
-    ["bob", [4]],
+    ["zed", issuesOnly(5)],
+    ["Amy", issuesOnly(9)],
+    ["many", issuesOnly(1, 2, 3)],
+    ["bob", issuesOnly(4)],
   ]);
   assert.equal(
     formatThanks(reporters),
@@ -166,6 +175,130 @@ test("formatThanks orders by issue count, then name case-insensitively", () => {
     ].join("\n"),
   );
   assert.equal(formatThanks(new Map()), "");
+});
+
+test("formatThanks lists advisories after issues and sorts advisory-only reporters last", () => {
+  const reporters = new Map([
+    ["0xParth", { issues: [], advisories: ["GHSA-aaaa-bbbb-cccc"] }],
+    ["Clone", { issues: [1, 2], advisories: ["GHSA-dddd-eeee-ffff"] }],
+    ["amy", issuesOnly(3)],
+  ]);
+  assert.equal(
+    formatThanks(reporters),
+    [
+      "## Thanks for helping us improve",
+      "",
+      THANKS_LEAD_IN_BOTH,
+      "",
+      "* @Clone (#1, #2, GHSA-dddd-eeee-ffff)",
+      "* @amy (#3)",
+      "* @0xParth (GHSA-aaaa-bbbb-cccc)",
+    ].join("\n"),
+  );
+  // Advisory reporters alone still earn the section, with their own lead-in.
+  assert.match(
+    formatThanks(
+      new Map([
+        ["b", { issues: [], advisories: ["GHSA-1111-2222-3333"] }],
+        ["A", { issues: [], advisories: ["GHSA-4444-5555-6666"] }],
+      ]),
+    ),
+    new RegExp(
+      `${THANKS_LEAD_IN_ADVISORIES}\n\n\\* @A \\(GHSA-4444-5555-6666\\)\n\\* @b `,
+    ),
+  );
+});
+
+test("parseAdvisoryArg splits the id from the markdown and validates the id", () => {
+  assert.deepEqual(parseAdvisoryArg("GHSA-q978-78c7-phqw: **Fix** it: now"), {
+    id: "GHSA-q978-78c7-phqw",
+    description: "**Fix** it: now",
+  });
+  assert.deepEqual(parseAdvisoryArg("  GHSA-q978-78c7-phqw :x  "), {
+    id: "GHSA-q978-78c7-phqw",
+    description: "x",
+  });
+  for (const bad of [
+    "GHSA-q978-78c7-phqw",
+    "GHSA-q978-78c7-phqw:   ",
+    "CVE-2026-1234: x",
+    "GHSA-Q978-78C7-PHQW: x",
+    ": x",
+  ]) {
+    assert.throws(() => parseAdvisoryArg(bad), /is not "<GHSA-xxxx-xxxx-xxxx>/);
+  }
+  assert.deepEqual(
+    parseNotesArgs([...BASE, "--advisory", "GHSA-aaaa-bbbb-cccc: one"])
+      .advisories,
+    [{ id: "GHSA-aaaa-bbbb-cccc", description: "one" }],
+  );
+  assert.throws(
+    () =>
+      parseNotesArgs([
+        ...BASE,
+        "--advisory",
+        "GHSA-aaaa-bbbb-cccc: one",
+        "--advisory",
+        "GHSA-aaaa-bbbb-cccc: two",
+      ]),
+    /--advisory GHSA-aaaa-bbbb-cccc is given twice/,
+  );
+});
+
+test("advisoryReporters takes reporting users in every credit state", () => {
+  const credit = (login, type, state, userType = "User") => ({
+    user: { login, type: userType },
+    type,
+    state,
+  });
+  assert.deepEqual(
+    advisoryReporters({
+      credits_detailed: [
+        credit("a", "reporter", "accepted"),
+        credit("b", "reporter", "pending"),
+        credit("c", "finder", "declined"),
+        credit("d", "remediation_developer", "accepted"),
+        credit("e", "reporter", "accepted", "Bot"),
+        { type: "reporter", state: "accepted", user: null },
+      ],
+    }),
+    ["a", "b", "c"],
+  );
+  assert.deepEqual(advisoryReporters({}), []);
+});
+
+test("withSecurityFixes puts the fixes first and the PRs under Other changes", () => {
+  const advisories = [
+    { id: "GHSA-aaaa-bbbb-cccc", description: "**A** fixed" },
+    { id: "GHSA-dddd-eeee-ffff", description: "**D** fixed" },
+  ];
+  const link = (id) => `https://github.com/${REPO}/security/advisories/${id}`;
+  assert.equal(
+    withSecurityFixes(
+      "## What's Changed\n* pr\n\n**Full Changelog**: c",
+      advisories,
+    ),
+    [
+      "## What's Changed",
+      "",
+      "### Security fixes",
+      "",
+      `* **A** fixed ([GHSA-aaaa-bbbb-cccc](${link("GHSA-aaaa-bbbb-cccc")}))`,
+      `* **D** fixed ([GHSA-dddd-eeee-ffff](${link("GHSA-dddd-eeee-ffff")}))`,
+      "",
+      "### Other changes",
+      "",
+      "* pr",
+      "",
+      "**Full Changelog**: c",
+    ].join("\n"),
+  );
+  // No PRs means no What's Changed heading to insert under: add one.
+  assert.equal(
+    withSecurityFixes("**Full Changelog**: c", advisories.slice(0, 1)),
+    `## What's Changed\n\n### Security fixes\n\n* **A** fixed ([GHSA-aaaa-bbbb-cccc](${link("GHSA-aaaa-bbbb-cccc")}))\n\n**Full Changelog**: c`,
+  );
+  assert.equal(withSecurityFixes("G", []), "G");
 });
 
 test("formatKnownIssues pluralizes and is omitted when empty", () => {
@@ -221,6 +354,7 @@ function world({
   pulls = {},
   issues = {},
   perms = {},
+  advisories = {},
   failOn,
 } = {}) {
   const calls = [];
@@ -247,6 +381,12 @@ function world({
     assert.equal(cmd, "gh");
     if (args[1].endsWith("/releases/generate-notes")) return ok(generated);
     if (args[0] === "release") return ok("https://github.com/r/releases/1");
+    const advisory = args[1].match(/\/security-advisories\/(.+)$/);
+    if (advisory) {
+      const found = advisories[advisory[1]];
+      if (!found) return { status: 1, stdout: "", stderr: "HTTP 404" };
+      return ok(JSON.stringify({ ghsa_id: advisory[1], ...found }));
+    }
     if (args[1] === "graphql") {
       const vars = Object.fromEntries(
         args
@@ -442,6 +582,99 @@ for (const [what, failOn] of [
     );
   });
 }
+
+const reporterCredit = (login, state = "accepted") => ({
+  user: { login, type: "User" },
+  type: "reporter",
+  state,
+});
+const ADVISORY = "GHSA-aaaa-bbbb-cccc";
+const ADVISORY_ARGS = ["--advisory", `${ADVISORY}: **Fixed** the thing`];
+const patched = (...versions) => versions.map((v) => ({ patched_versions: v }));
+
+test("--advisory lists the fix and merges its reporters with issue reporters", (t) => {
+  quiet(t);
+  const spawn = world({
+    pulls: { 10: { body: "Closes #1" } },
+    issues: { 1: user("both") },
+    perms: { both: "read", solo: "none", maint: "admin" },
+    advisories: {
+      [ADVISORY]: {
+        state: "published",
+        vulnerabilities: patched("1.0.3", ">= 2.10.0"),
+        credits_detailed: [
+          reporterCredit("both"),
+          reporterCredit("solo", "pending"),
+          reporterCredit("maint"),
+        ],
+      },
+    },
+  });
+  const notes = main([...BASE, ...ADVISORY_ARGS], spawn);
+  assert.match(
+    notes,
+    /### Security fixes\n\n\* \*\*Fixed\*\* the thing \(\[GHSA-aaaa-bbbb-cccc\]\(.+\/security\/advisories\/GHSA-aaaa-bbbb-cccc\)\)\n\n### Other changes\n\n\* change/,
+  );
+  assert.match(
+    notes,
+    /\* @both \(#1, GHSA-aaaa-bbbb-cccc\)\n\* @solo \(GHSA-aaaa-bbbb-cccc\)\n$/,
+  );
+  assert.doesNotMatch(notes, /@maint/);
+  // `both` is looked up once across the issue and the advisory.
+  const permissionCalls = spawn.calls.filter((c) =>
+    c.args[1]?.includes("/permission"),
+  );
+  assert.deepEqual(
+    permissionCalls.map((c) => c.args[1].split("/")[4]),
+    ["both", "solo", "maint"],
+  );
+});
+
+test("an advisory that does not list this release as patched aborts", (t) => {
+  quiet(t);
+  for (const vulnerabilities of [patched("2.9.0", "2.10.1"), [], undefined]) {
+    const spawn = world({
+      advisories: { [ADVISORY]: { state: "published", vulnerabilities } },
+    });
+    assert.throws(
+      () => main([...BASE, ...ADVISORY_ARGS, "--draft"], spawn),
+      new RegExp(`${ADVISORY} does not list 2\\.10\\.0 as patched`),
+    );
+    assert.equal(
+      spawn.calls.some((c) => c.args[0] === "release"),
+      false,
+    );
+  }
+});
+
+test("a draft advisory warns but does not fail", (t) => {
+  quiet(t);
+  const spawn = world({
+    advisories: {
+      [ADVISORY]: { state: "draft", vulnerabilities: patched("2.10.0") },
+    },
+  });
+  const notes = main([...BASE, ...ADVISORY_ARGS], spawn);
+  assert.match(notes, /### Security fixes/);
+  assert.ok(
+    console.error.mock.calls.some((c) =>
+      /warning: GHSA-aaaa-bbbb-cccc is still a draft/.test(c.arguments[0]),
+    ),
+  );
+});
+
+test("a failed advisory lookup aborts before any release is created", (t) => {
+  quiet(t);
+  const spawn = world();
+  assert.throws(
+    () => main([...BASE, ...ADVISORY_ARGS, "--publish"], spawn),
+    /security-advisories\/GHSA-aaaa-bbbb-cccc failed: HTTP 404/,
+  );
+  assert.equal(
+    spawn.calls.some((c) => c.args[0] === "release"),
+    false,
+  );
+});
 
 test("an unknown permission value aborts rather than reading as community", (t) => {
   quiet(t);
