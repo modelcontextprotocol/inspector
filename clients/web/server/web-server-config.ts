@@ -31,6 +31,7 @@ import {
   canonicalUrlHost,
   formatHostForUrl,
   isAllInterfacesHost,
+  isLoopbackHost,
 } from "../../../core/node/hostUrl.ts";
 import { resolveTlsConfig, webScheme, type TlsConfig } from "./tls.js";
 import { ALLOWED_HOSTS_ENV, parseAllowedHostsEnv } from "./host-allow-list.js";
@@ -213,6 +214,40 @@ function transportDefaults(config: WebServerConfig): InitialConfigPayload {
   };
 }
 
+/** Where the network-exposure caveat is documented; linked from the warning below. */
+export const HOSTING_ON_A_NETWORK_DOC_URL =
+  "https://github.com/modelcontextprotocol/inspector/blob/main/clients/web/README.md#hosting-on-a-network";
+
+/**
+ * The warning printed with the banner when the server is bound to a
+ * non-loopback host (#2750), or `undefined` for a loopback bind.
+ *
+ * The API token defends against cross-origin browser requests; it is not access
+ * control, because `GET /` hands it to whoever can load the page. A wildcard
+ * bind already needs `DANGEROUSLY_BIND_ALL_INTERFACES`, but a specific LAN or
+ * public `HOST` is accepted with no opt-in, so this is the one place that
+ * exposure is announced. The published Docker image binds `0.0.0.0` by design
+ * and therefore always prints it — consistent with every other wildcard bind,
+ * and true of the container whenever its port is published beyond loopback.
+ */
+export function nonLoopbackBindWarning(
+  hostname: string,
+  dangerouslyOmitAuth: boolean,
+): string | undefined {
+  if (isLoopbackHost(hostname)) return undefined;
+  const exposure = dangerouslyOmitAuth
+    ? "Auth is disabled, so anyone who can reach this address can act as you."
+    : "The auth token guards against cross-origin browser requests; it is not " +
+      "access control. GET / hands the token to anyone who can load this page, " +
+      "and they can then act as you.";
+  return (
+    `   WARNING: bound to the non-loopback address ${canonicalUrlHost(hostname)}. ` +
+    `${exposure} That includes other local users on a shared host. Put a real ` +
+    `access-control boundary in front (an authenticating reverse proxy, an SSH ` +
+    `tunnel, a private network). See ${HOSTING_ON_A_NETWORK_DOC_URL}\n`
+  );
+}
+
 export function printServerBanner(
   config: WebServerConfig,
   actualPort: number,
@@ -246,6 +281,14 @@ export function printServerBanner(
     console.log("   Auth: disabled (DANGEROUSLY_OMIT_AUTH)\n");
   } else {
     console.log(`   Auth token: ${resolvedToken}\n`);
+  }
+
+  const exposureWarning = nonLoopbackBindWarning(
+    config.hostname,
+    config.dangerouslyOmitAuth,
+  );
+  if (exposureWarning) {
+    console.log(exposureWarning);
   }
 
   // Where a secret typed into this session lands (#1950). Printed for every
