@@ -148,9 +148,9 @@ describe("findInlinedExternals", () => {
   });
 
   test("reads Rolldown's #region banners as well as the plain form", () => {
-    // Rolldown 1.2.15 writes `// <path>` like esbuild, but other Rolldown
-    // releases write `//#region <path>`. Missing that form would read every
-    // such bundle as banner-less rather than checking it.
+    // Rolldown 1.2.13 — what the cli's tsdown build runs on — writes
+    // `//#region <path>`; 1.2.15 writes `// <path>` like esbuild. Missing
+    // either form would read that bundle as banner-less rather than check it.
     const { noBanners, violations } = findInlinedExternals({
       externals: ["zod"],
       files: [

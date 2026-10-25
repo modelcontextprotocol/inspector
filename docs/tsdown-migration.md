@@ -62,22 +62,29 @@ None of these fails the build, so each one needs a guard or a test to catch it.
    keeps `build/index.js`, which `bin`, `main`, the e2e test and
    `scripts/pack-and-verify.mjs` all name.
 3. **Rolldown keeps JSDoc comments.** That produced a 1.22 MB CLI bundle.
-   `outputOptions.comments: { jsdoc: false }` brings it to 681 KB, against
+   `outputOptions.comments: { jsdoc: false }` brings it to 684 KB, against
    tsup's 844 KB.
-4. **Module banners vary by Rolldown release.** Rolldown 1.2.15 (the version
-   tsdown 0.23.1 resolves here) writes the same `// <path>` banner as esbuild.
-   An earlier prototype on Rolldown 1.2.13 saw `//#region <path>`.
-   `verify:bundle-externals` reads banners to find inlined packages, so it now
-   accepts both forms. A bundle with neither still fails loudly as banner-less.
-5. **The guard parsed only `external: [`.** It now also reads the
+4. **Module banners vary by Rolldown release.** Rolldown 1.2.13, the version
+   this repo builds with, writes `//#region <path>`. 1.2.15 writes esbuild's
+   `// <path>`. `verify:bundle-externals` reads banners to find inlined
+   packages, so it now accepts both forms. A bundle with neither still fails
+   loudly as banner-less.
+5. **Rolldown is also Vite's bundler**, so it reaches two installs: the root
+   (through `vite`) and the CLI (through `tsdown`). tsdown 0.23.1 accepts
+   `~1.2.13` and resolved 1.2.15, while Vite sits on 1.2.13, and
+   `verify:dep-lockstep` refuses the skew. The CLI pins its copy to the root's
+   with an `overrides` entry, the same mechanism it uses for `@types/node`.
+   That override has to move whenever the root's Vite moves Rolldown, and the
+   lockstep guard will say so.
+6. **The guard parsed only `external: [`.** It now also reads the
    `const EXTERNALS = [` array, and its enrolment test discovers
    `tsdown*.config.ts` as well as `tsup*.config.ts`.
 
 ## Measurements (CLI)
 
-|                   | tsup 8.5.1 | tsdown 0.23.1 (Rolldown 1.2.15) |
+|                   | tsup 8.5.1 | tsdown 0.23.1 (Rolldown 1.2.13) |
 | ----------------- | ---------- | ------------------------------- |
-| `build/index.js`  | 844 KB     | 681 KB                          |
+| `build/index.js`  | 844 KB     | 684 KB                          |
 | Build time        | ~110 ms    | ~45 ms                          |
 | Bare imports      | 31         | 31, the identical set           |
 

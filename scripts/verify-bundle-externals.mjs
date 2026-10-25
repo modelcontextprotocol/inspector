@@ -108,8 +108,8 @@ export function parseExternals(source) {
 
 /**
  * Every module esbuild inlines is emitted under a `// <path>` banner naming its
- * source file — Rolldown (tsdown) writes the same shape, and some Rolldown
- * releases write `//#region <path>` instead, so both are read — so a package that was bundled despite being declared external
+ * source file. Rolldown (tsdown) writes `//#region <path>` in the release the
+ * cli builds on and esbuild's shape in others, so both forms are read — so a package that was bundled despite being declared external
  * leaves `// ../../node_modules/<pkg>/…` lines behind. Matching on those covers
  * **both** shapes this can take: a separate `<pkg>-HASH.js` chunk (what a
  * dynamically `import()`ed CommonJS package produces, which is what #2067 was)
