@@ -144,7 +144,7 @@ const h = vi.hoisted(() => {
     // (#2615).
     opts?: {
       defaultMetadata?: unknown;
-      environment?: { fetch?: unknown };
+      environment?: { fetch?: unknown; oauthFetch?: unknown };
       connectionTimeoutRemedy?: string;
     };
   }> = [];
@@ -152,6 +152,9 @@ const h = vi.hoisted(() => {
   // behavior with no proxy env var set; a test points this at a sentinel to
   // exercise the proxy-configured branch (#2067).
   const proxyFetchState: { current: unknown } = { current: undefined };
+  // What the mocked `createGuardedFetch` returns: a fixed sentinel, so a test
+  // can assert it landed in `environment.oauthFetch` (#2749).
+  const guardedFetchSentinel: typeof fetch = async () => new Response("");
   const fireClientEvent = (event: string, detail?: unknown) => {
     clientEvents.get(event)?.forEach((e) => e.fn({ detail }));
   };
@@ -259,6 +262,7 @@ const h = vi.hoisted(() => {
   return {
     ctrl,
     proxyFetchState,
+    guardedFetchSentinel,
     connect,
     disconnect,
     openUrl,
@@ -337,6 +341,7 @@ vi.mock("@inspector/core/mcp/node/index.js", () => ({
   // test can point `h.proxyFetchState.current` at a sentinel to exercise the
   // other branch.
   createProxyFetch: vi.fn(() => h.proxyFetchState.current),
+  createGuardedFetch: vi.fn(() => h.guardedFetchSentinel),
 }));
 vi.mock("@inspector/core/react/useInspectorClient.js", () => ({
   useInspectorClient: h.useInspectorClient,
@@ -2189,6 +2194,14 @@ describe("App (OAuth result branches)", () => {
     await mount(oneHttp());
     expect(h.clientInstances.length).toBeGreaterThan(0);
     expect(h.clientInstances[0]!.opts?.environment?.fetch).toBeUndefined();
+  });
+
+  it("installs the guarded fetch as environment.oauthFetch (#2749)", async () => {
+    await mount(oneHttp());
+    expect(h.clientInstances.length).toBeGreaterThan(0);
+    expect(h.clientInstances[0]!.opts?.environment?.oauthFetch).toBe(
+      h.guardedFetchSentinel,
+    );
   });
 
   it("ignores auth lifecycle events from a non-selected server", async () => {

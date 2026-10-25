@@ -275,6 +275,7 @@ import {
   type HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
+import { routeOAuthRequests } from "../auth/routeOAuthRequests.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
@@ -875,10 +876,33 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `this.fetchFn` directly. The overrides are read lazily — `oauthManager` is
     // created a few lines below, and `setOAuthConfig` can change them later — so
     // the wrapper is inert until a server actually configures one.
-    const withOverrides = withOAuthEndpointOverrides(
-      this.fetchFn ?? fetch,
-      () => this.oauthManager?.getEndpointOverrides(),
+    //
+    // #2749: OAuth work gets its own base when the environment supplies one —
+    // the Node clients' destination-guarded fetch. The auth chain sits on it
+    // outright; the transport chain routes to it everything that is not the
+    // MCP endpoint (`routeOAuthRequests`), which is exactly the
+    // transport-internal discovery described above. Absent, both chains share
+    // the one base as before.
+    const transportBase = this.fetchFn ?? fetch;
+    const oauthBase = options.environment.oauthFetch;
+    // Legacy SSE negotiates its message endpoint inside the stream, so its path
+    // is unknowable here and the exemption has to widen to the origin.
+    // Streamable HTTP sends everything to the configured URL, so the path rule
+    // is exact there and same-origin OAuth stays bounded (and guarded).
+    const isMcpEndpoint = exemptMcpEndpoint(
+      () => this.getServerUrl(),
+      () => this.transportConfig?.type === "sse",
     );
+    const getOverrides = () => this.oauthManager?.getEndpointOverrides();
+    const withOverrides = withOAuthEndpointOverrides(
+      oauthBase
+        ? routeOAuthRequests(transportBase, oauthBase, isMcpEndpoint)
+        : transportBase,
+      getOverrides,
+    );
+    const authWithOverrides = oauthBase
+      ? withOAuthEndpointOverrides(oauthBase, getOverrides)
+      : withOverrides;
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
     // the SDK validates as an OpenID provider document and rejects. Wraps the
@@ -900,14 +924,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       withOAuthRequestTimeout(
         withOverrides,
         DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-        exemptMcpEndpoint(
-          () => this.getServerUrl(),
-          // Legacy SSE negotiates its message endpoint inside the stream, so
-          // its path is unknowable here and the exemption has to widen to the
-          // origin. Streamable HTTP sends everything to the configured URL, so
-          // the path rule is exact there and same-origin OAuth stays bounded.
-          () => this.transportConfig?.type === "sse",
-        ),
+        isMcpEndpoint,
       ),
     );
     // #2319: the auth chain is composed separately so the deadline sits
@@ -920,7 +937,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // chain above: every request on this chain is OAuth work, so there is
     // nothing here to exempt.
     this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
-      withRfc8414OidcCompat(withOAuthRequestTimeout(withOverrides)),
+      withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
     );
 
     this.sessionId = options.sessionId;

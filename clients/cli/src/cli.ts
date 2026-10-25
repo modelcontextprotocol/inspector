@@ -38,6 +38,7 @@ import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
 import {
+  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
   loadServerEntries,
@@ -206,6 +207,10 @@ async function callMethod(
     // also run through `environment.fetch`, are proxied too (#2067). Undefined
     // when no proxy env var is set, which leaves the built-in fetch in place.
     fetch: createProxyFetch(),
+    // OAuth on its own base, which refuses link-local and cloud-metadata
+    // destinations a hostile server could steer discovery at (#2749). It is
+    // proxy-aware itself, so the proxy still covers OAuth.
+    oauthFetch: createGuardedFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
@@ -527,18 +532,19 @@ export async function refreshStoredAuthToken(
   // `serverMetadata` still cannot refresh against an authorization server that
   // publishes RFC 8414 metadata at the OIDC well-known path (Copilot).
   //
-  // Built over `createProxyFetch()` for the same reason `environment.fetch` is
-  // (#2067): this whole function runs outside `InspectorClient`, so nothing
-  // else puts a proxy under it, and a server reachable only through
-  // `HTTPS_PROXY` would otherwise be probed directly. The same fetch is handed
-  // to the token request below, so neither leg bypasses the proxy (Copilot).
+  // Built over `createGuardedFetch()` for the same reason `environment.oauthFetch`
+  // is: this whole function runs outside `InspectorClient`, so nothing else
+  // puts the destination guard (#2749) or a proxy (#2067) under it — the guard
+  // is proxy-aware, so a server reachable only through `HTTPS_PROXY` is still
+  // reached through it. The same fetch is handed to the token request below,
+  // so neither leg bypasses either (Copilot).
   // #2319: this path runs outside `InspectorClient`, so nothing else bounds it
   // — the discovery and the token request below would otherwise hang forever
   // against an authorization server that accepts the connection and never
   // answers. Innermost, so the compat wrapper's own probe requests inherit the
   // deadline too.
   const storedAuthFetch = withRfc8414OidcCompat(
-    withOAuthRequestTimeout(createProxyFetch() ?? fetch),
+    withOAuthRequestTimeout(createGuardedFetch()),
   );
   const discover: typeof discoverAuthorizationServerMetadata =
     deps.discover ??

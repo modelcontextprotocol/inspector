@@ -38,6 +38,7 @@ import {
   ResourceSubscriptionsState,
 } from "@inspector/core/mcp/state/index.js";
 import {
+  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
@@ -401,6 +402,9 @@ function App({
           // over it and OAuth requests are proxied too (#2067). Undefined when
           // no proxy env var is set.
           fetch: createProxyFetch(),
+          // OAuth on the destination-guarded base (#2749), which refuses
+          // link-local and cloud-metadata targets; proxy-aware itself.
+          oauthFetch: createGuardedFetch(),
         };
         // Per-server default `_meta` is already a JSON object (#1910) — no
         // pair-array flattening left to do; `{}` means "no defaults".

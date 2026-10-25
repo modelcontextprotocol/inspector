@@ -1236,6 +1236,20 @@ export interface InspectorClientEnvironment {
   fetch?: typeof fetch;
 
   /**
+   * Optional base fetch for OAuth work only — discovery, protected-resource
+   * metadata, DCR/CIMD, token and revocation — never the MCP endpoint (#2749).
+   * When set, `InspectorClient` builds its auth chain on it and routes the
+   * transport chain's non-MCP requests (the SDK's own discovery on a 401 or a
+   * refresh) to it as well; absent, OAuth shares `fetch`.
+   * - Node: `createGuardedFetch()` (core/mcp/node/fetchGuard.ts) — refuses
+   *   link-local and cloud-metadata destinations, proxy-aware like
+   *   `createProxyFetch()`.
+   * - Browser: unset; the browser's OAuth already goes through the guarded
+   *   `/api/fetch` route via `createRemoteFetch`.
+   */
+  oauthFetch?: typeof fetch;
+
+  /**
    * Optional logger for InspectorClient events (transport, OAuth, etc.).
    * - Node: pino file logger
    * - Browser: createRemoteLogger

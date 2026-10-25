@@ -27,8 +27,12 @@ import { streamSSE } from "hono/streaming";
 import { bodyLimit } from "hono/body-limit";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import { createTransportNode } from "../../node/transport.js";
-import { createProxyFetch } from "../../node/proxyFetch.js";
 import { declaresOversizeBody, readCappedText } from "./cappedBody.js";
+import {
+  findFetchTargetError,
+  guardedFetch,
+  normalizeFetchHeaders,
+} from "../../node/fetchGuard.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
@@ -1390,10 +1394,17 @@ export function createRemoteApp(
       // requests here. Left on the global `fetch`, a corporate-proxy user could
       // connect to a server but never authorize against it — and Node's native
       // `NODE_USE_ENV_PROXY` does not cover them either, being unsupported at
-      // our 22.19 engine floor (#2067).
-      const res = await (createProxyFetch() ?? fetch)(url, {
+      // our 22.19 engine floor (#2067). The guard (#2749) reads the same proxy
+      // variables and routes through the same `EnvHttpProxyAgent` class.
+      //
+      // Guarded because some of these URLs come from the server under test:
+      // every hop is checked against the link-local / metadata block-list,
+      // redirects are followed there rather than by the fetch, and each
+      // connection the guard opens is pinned to the addresses it checked.
+      // What it can and cannot promise behind a proxy is its header.
+      const res = await guardedFetch(url, {
         method,
-        headers: new Headers(headers),
+        headers: normalizeFetchHeaders(headers),
         body: reqBody,
         signal,
       });
@@ -1499,6 +1510,10 @@ export function createRemoteApp(
           504,
         );
       }
+      // A refused destination is the caller's request being declined, not a
+      // fault in the route, so 403 — the status v1's `/fetch` returns for it.
+      const refused = findFetchTargetError(err);
+      if (refused) return c.json({ error: refused.message }, 403);
       return c.json({ error: msg }, 500);
     } finally {
       if (timer !== undefined) clearTimeout(timer);

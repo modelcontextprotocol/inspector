@@ -8,7 +8,11 @@ import {
   vi,
 } from "vitest";
 import { getServerType } from "@inspector/core/mcp/config.js";
-import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
+import {
+  createBackendBaseFetch,
+  createTransportNode,
+} from "@inspector/core/mcp/node/transport.js";
+import { FetchTargetError } from "@inspector/core/mcp/node/fetchGuard.js";
 import {
   createProxyFetch,
   readProxyEnv,
@@ -788,6 +792,110 @@ describe("Transport", () => {
       );
       vi.doUnmock("undici");
       vi.resetModules();
+    });
+  });
+
+  // #2749: the backend's transport refreshes with the tokens the browser
+  // handed it, so the SDK's OAuth from in here must go through the guard
+  // while the MCP endpoint itself does not.
+  describe("createBackendBaseFetch", () => {
+    // An ambient proxy would replace the plain fetch these tests spy on.
+    const savedProxyEnv = new Map<string, string | undefined>();
+    beforeAll(() => {
+      for (const name of [
+        "HTTPS_PROXY",
+        "https_proxy",
+        "HTTP_PROXY",
+        "http_proxy",
+      ]) {
+        savedProxyEnv.set(name, process.env[name]);
+        delete process.env[name];
+      }
+    });
+    afterAll(() => {
+      for (const [name, value] of savedProxyEnv) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("sends MCP-endpoint requests to the plain fetch", async () => {
+      const plain = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response("mcp"));
+      const base = createBackendBaseFetch({
+        type: "streamable-http",
+        url: "http://169.254.10.10/mcp",
+      });
+      // The user configured this server, link-local or not.
+      const res = await base("http://169.254.10.10/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      expect(await res.text()).toBe("mcp");
+      expect(plain).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends OAuth work through the destination guard", async () => {
+      const plain = vi.spyOn(globalThis, "fetch");
+      const base = createBackendBaseFetch({
+        type: "sse",
+        url: "http://127.0.0.1:1/sse",
+      });
+      await expect(
+        base("http://169.254.169.254/.well-known/oauth-authorization-server"),
+      ).rejects.toBeInstanceOf(FetchTargetError);
+      expect(plain).not.toHaveBeenCalled();
+    });
+
+    // Copilot (#2796): legacy SSE's origin-wide MCP exemption must not carry
+    // the server's own discovery documents past the guard, at a well-known
+    // path or a custom `resource_metadata` one.
+    it.each([
+      "/.well-known/oauth-protected-resource",
+      "/custom/protected-resource",
+    ])("guards a same-origin %s redirect under legacy SSE", async (path) => {
+      const hostile = createServer((req, res) => {
+        if (req.url === path) {
+          res.writeHead(302, { Location: "http://169.254.169.254/latest/" });
+        } else {
+          res.writeHead(404);
+        }
+        res.end();
+      });
+      await new Promise<void>((r) => hostile.listen(0, "127.0.0.1", () => r()));
+      const { port } = hostile.address() as AddressInfo;
+      const plain = vi.spyOn(globalThis, "fetch");
+      try {
+        const base = createBackendBaseFetch({
+          type: "sse",
+          url: `http://127.0.0.1:${port}/sse`,
+        });
+        await expect(
+          base(`http://127.0.0.1:${port}${path}`),
+        ).rejects.toBeInstanceOf(FetchTargetError);
+        expect(plain).not.toHaveBeenCalled();
+      } finally {
+        await new Promise<void>((r) => hostile.close(() => r()));
+      }
+    });
+
+    // A stdio transport makes no HTTP requests at all; with no server URL the
+    // classifier fails open toward MCP, as it does on every chain it guards.
+    it("fails open toward the plain fetch with no server URL", async () => {
+      const plain = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(new Response("plain"));
+      const base = createBackendBaseFetch({ type: "stdio", command: "x" });
+      await base("http://as.example/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      });
+      expect(plain).toHaveBeenCalledTimes(1);
     });
   });
 });
