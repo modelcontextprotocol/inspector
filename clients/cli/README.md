@@ -715,6 +715,7 @@ prose from stderr:
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
 | `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
+| `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:
@@ -733,6 +734,28 @@ On any non-zero exit the CLI also writes a single JSON line to **stderr** — th
 The `code` is a stable identifier for the failure class; `message` is the
 human-readable error; `cause`, `status`, and `url` are included when known.
 Because it is one line, a caller can parse it with `2>&1 | tail -1 | jq .error`.
+
+A `rate_limited` envelope adds the structured retry data, so a script can wait
+and re-run without parsing `message`:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "Rate limited by the server (HTTP 429) on tools/list. The server asked to retry after 30s. …",
+    "status": 429,
+    "method": "tools/list",
+    "retryAfter": "30",
+    "retryAfterMs": 30000
+  }
+}
+```
+
+`method` is the request that was throttled. `retryAfter` is the server's
+`Retry-After` header exactly as sent, so a malformed value is still reported;
+`retryAfterMs` is that header as a delay, present only when it parsed. A server
+that sent no header gets neither field. The connection CLI (`mcpdo`) writes the
+same envelope and exit code.
 
 ## Why use the CLI?
 
