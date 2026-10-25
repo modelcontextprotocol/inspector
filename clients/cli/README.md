@@ -158,6 +158,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
+| `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
+| `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency is above this many milliseconds, or when no call completed. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -362,9 +364,34 @@ Run one plain `tools/call` of the tool first to grant them, then load it.
 The tool is looked up once before the clock starts, so a missing tool fails
 the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
-is the result. `--load` is rejected with any other method and with `--app-info`,
+is the result — unless a threshold below is set. `--load` is rejected with any other method and with `--app-info`,
 `--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
 rejected without `--load`.
+
+##### Thresholds for CI
+
+To gate a job on the run without parsing the summary, set a threshold and let
+the exit code carry the verdict
+([#2745](https://github.com/modelcontextprotocol/inspector/issues/2745)):
+
+```bash
+# fail the job if more than 1% of calls fail, or p99 is above 250 ms
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-requests 1000 \
+  --load-max-error-rate 0.01 --load-max-p99 250
+```
+
+- The full summary is printed first either way; a breach then exits `10`
+  with an error envelope on stderr whose `code` names the threshold:
+  `load_error_rate_exceeded` or `load_p99_exceeded`. When both are breached
+  the message lists both and the `code` is `load_error_rate_exceeded`.
+- A value equal to the threshold passes. The error-rate check uses the exact
+  share of failed calls (`toolErrors` plus `errors`, over `requests`), not the
+  four-place `errorRate`, so `--load-max-error-rate 0` fails even one failure
+  that rounds away in the summary.
+- With `--load-max-p99`, a run in which no call completed has no p99 to
+  compare, and fails rather than passing a latency check it never measured.
+- With no threshold set, nothing changes: a completed run exits `0`.
 
 #### Schema portability (`--strict`)
 
@@ -646,6 +673,7 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
+| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:
