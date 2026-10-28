@@ -60,7 +60,7 @@ npm run web:dev      # web launcher in --dev mode (Vite)
 Individual builds: `build:web`, `build:cli`, `build:mcpdo`, `build:tui`,
 `build:launcher`. The
 web build produces both the browser SPA (`clients/web/dist`, Vite) and the Node
-prod-server runner (`clients/web/build`, tsup).
+prod-server runner (`clients/web/build`, tsdown).
 
 To run the CLI or TUI: `node clients/launcher/build/index.js --cli …` /
 `--tui …`. The connection CLI (`mcpdo`) has its own bin:
@@ -73,14 +73,17 @@ To run the CLI or TUI: `node clients/launcher/build/index.js --cli …` /
 `package.json`** — it is not published on its own. Each client bundles it via a
 build-time alias:
 
-- **CLI / TUI** — `esbuildOptions.alias` in `tsup.config.ts` maps
+- **CLI / TUI / mcpdo** — a top-level `alias` in `tsdown.config.ts` maps
   `@inspector/core` → the repo `core/` directory, with
-  `noExternal: [/^@inspector\/core/]` inlining it.
+  `deps.alwaysBundle: [/^@inspector\/core/]` inlining it (#1492, #2797).
+  Externals are `deps.neverBundle`, where a bare string matches the exact
+  specifier only — each config expands every name in its `EXTERNALS` array to
+  cover its subpaths.
 - **Web** — **two** configs, because the client is two builds:
   `clients/web/vite.config.ts` for the browser app, and
-  `clients/web/tsup.runner.config.ts` for the Node backend runner, which
+  `clients/web/tsdown.runner.config.ts` for the Node backend runner, which
   defines the alias itself. Dependency or debugging work on the runner belongs
-  in the tsup config, not the Vite one (Copilot).
+  in the tsdown config, not the Vite one (Copilot).
 
 ## Where a dependency goes
 
@@ -178,7 +181,7 @@ toolchain". `tsx`, `playwright`, `storybook`, `happy-dom`, `ink-testing-library`
 `vite-node` and each client's own `@types/*` are toolchain too and stay where
 they are — hoisting them would make every client install the union of all five.
 So do the ones **more than one** client declares without all of them doing so:
-`tsup` sits in web, cli and tui, and `vite` in web and tui on top of the root
+`tsdown` sits in web, cli, mcpdo and tui, and `vite` in web and tui on top of the root
 _runtime_ `dependency` that `--web --dev` needs. Neither is in scope here;
 whether to consolidate them is a separate call with a separate rationale (`vite`
 especially, since its root declaration is a `dependency`, not a
@@ -270,7 +273,7 @@ Two live examples worth knowing:
 
 ### Why a root dependency must also be externalised
 
-tsup and Vite externalise what the **client's** `package.json` declares, and a
+tsdown and Vite externalise what the **client's** `package.json` declares, and a
 root-only dependency is in none of them — so it is **bundled**, silently. For a
 CJS package inlined into an ESM bundle that is fatal: esbuild leaves a
 `Dynamic require of "path" is not supported` shim that throws at _import_ time,
@@ -307,7 +310,7 @@ a `createRequire` banner). ⚠️ **Never justify that exemption by a peer range
 it briefly read "its `">=19"` peer keeps npm honest", which is false: a consumer
 pinning React 19.0 satisfies `">=19"` while a narrower range of ours nests
 underneath. What makes it safe is the _root `react` range staying open to the
-whole major_, so npm can dedupe. `clients/tui/__tests__/tsupConfig.test.ts`
+whole major_, so npm can dedupe. `clients/tui/__tests__/tsdownConfig.test.ts`
 enforces the whole split, the exemption included.
 
 ### Why a version skew is worth aligning rather than working around
@@ -334,14 +337,17 @@ an `overrides` entry in that install (see the next section).
 
 ### Why `overrides` beats `npm audit fix`
 
-`tsup@8.5.1` declares `esbuild: ^0.27.0`, and the advisory covers
+`tsup@8.5.1` declared `esbuild: ^0.27.0`, and the advisory covers
 `0.27.3 - 0.28.0` with `0.27.7` the last 0.27.x — so there is no _upward_ escape
 inside that range, and `npm audit fix` "resolves" it by silently **downgrading**
 to `0.27.2` across three installs (~700 lines of lockfile churn for a low-severity
 dev-only advisory; tried and reverted in #2058). The override forces one deduped
 copy above the range instead.
 
-Two costs: it puts `tsup` on an esbuild **major it does not declare**, so
+Two costs: it puts a consumer on an esbuild **major it does not declare**, so
 `npm run build` — not `npm audit` — is the real gate on such a pin; and it is
-invisible to the audit once clean, so **drop it when `tsup` widens its range**
-rather than carrying it forever.
+invisible to the audit once clean, so **drop it when no consumer's range
+admits the vulnerable versions** rather than carrying it forever. tsup is gone
+(#1492, #2797), and mcpdo and the CLI dropped the override with it, but web
+and tui still carry it: Vite (both) and Storybook (web) accept `^0.27.0`,
+which still admits the advisory range.

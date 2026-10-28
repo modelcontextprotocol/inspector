@@ -34,10 +34,10 @@ import type {
 } from "../components/screens/ToolsScreen/ToolsScreen";
 import type { GetPromptState } from "../components/screens/PromptsScreen/PromptsScreen";
 import type { ReadResourceState } from "../components/screens/ResourcesScreen/ResourcesScreen";
-import type { SkillFileContents } from "@inspector/core/mcp/skills.js";
-import type { DirectoryReadResult } from "@inspector/core/mcp/skillsSchemas.js";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
-import { normalizeSkillUri } from "@inspector/core/mcp/skills.js";
+import type { SkillFileContents } from "@inspector/core/extension/skills/conformance.js";
+import type { DirectoryReadResult } from "@inspector/core/extension/skills/schemas.js";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
+import { normalizeSkillUri } from "@inspector/core/extension/skills/conformance.js";
 import { UrlElicitationErrorToastMessage } from "../components/elements/Toasts/UrlElicitationErrorToastMessage";
 import {
   errorCodeOf,

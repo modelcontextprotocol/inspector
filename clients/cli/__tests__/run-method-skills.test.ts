@@ -6,9 +6,9 @@ import {
 } from "@inspector/core/cli/handlers/skills-verify.js";
 import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
-import { sha256Digest } from "@inspector/core/mcp/skills.js";
-import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
+import { sha256Digest } from "@inspector/core/extension/skills/conformance.js";
+import type { SkillVerifyReport } from "@inspector/core/extension/skills/verification.js";
 
 /**
  * The three SEP-2640 methods the CLI gained in #2248, plus `--verify`.

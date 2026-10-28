@@ -14,7 +14,11 @@ import {
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   SkillEntrySchema,
-} from "@inspector/core/mcp/skillsSchemas";
+} from "@inspector/core/extension/skills/schemas";
+import {
+  ReadResourceDirectoryResultSchema,
+  SKILLS_EXTENSION_ID,
+} from "@modelcontextprotocol/core/ext/skills";
 
 const ENTRY = {
   uri: "skill://demo/SKILL.md",
@@ -25,6 +29,15 @@ const ENTRY = {
 };
 
 describe("skills wire constants", () => {
+  // #2804: the SDK owns these, so a spec revision lands with an SDK bump. A
+  // local restatement would still pass the literal checks below.
+  it("takes the extension id and the directory schema from the SDK", () => {
+    expect(SKILLS_EXTENSION_KEY).toBe(SKILLS_EXTENSION_ID);
+    expect(ModernDirectoryReadResultSchema).toBe(
+      ReadResourceDirectoryResultSchema,
+    );
+  });
+
   it("names the extension and its two required methods", () => {
     expect(SKILLS_EXTENSION_KEY).toBe("io.modelcontextprotocol/skills");
     expect(SKILLS_LIST_METHOD).toBe("skills/list");

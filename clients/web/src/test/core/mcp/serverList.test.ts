@@ -1461,6 +1461,55 @@ describe("oauth.requestRefreshToken (#2068)", () => {
   });
 });
 
+describe("oauth.scopeOnRefresh (#2805)", () => {
+  const baseSettings = {
+    headers: [],
+    env: [],
+    metadata: {},
+    connectionTimeout: 0,
+    requestTimeout: 0,
+    taskTtl: 60000,
+    maxFetchRequests: 1000,
+    roots: [],
+  };
+
+  it("lifts an explicit true to settings.oauthScopeOnRefresh", () => {
+    const settings = storedFieldsToInspectorSettings({
+      oauth: { clientId: "cid", scopeOnRefresh: true },
+    });
+    expect(settings?.oauthScopeOnRefresh).toBe(true);
+  });
+
+  it("leaves the setting unset when absent or false (default: off)", () => {
+    expect(
+      storedFieldsToInspectorSettings({ oauth: { clientId: "cid" } })
+        ?.oauthScopeOnRefresh,
+    ).toBeUndefined();
+    expect(
+      storedFieldsToInspectorSettings({
+        oauth: { clientId: "cid", scopeOnRefresh: false },
+      })?.oauthScopeOnRefresh,
+    ).toBeUndefined();
+  });
+
+  it("writes only the opt-in, and round-trips it", () => {
+    const stored = inspectorSettingsToStoredFields({
+      ...baseSettings,
+      oauthScopeOnRefresh: true,
+    });
+    expect(stored.oauth?.scopeOnRefresh).toBe(true);
+    expect(storedFieldsToInspectorSettings(stored)?.oauthScopeOnRefresh).toBe(
+      true,
+    );
+    expect(
+      inspectorSettingsToStoredFields({
+        ...baseSettings,
+        oauthScopeOnRefresh: false,
+      }).oauth,
+    ).toBeUndefined();
+  });
+});
+
 // #2144 — same inverted-default shape as `requestRefreshToken` above: on by
 // default, and only the opt-out is written, so an entry that never touched the
 // switch keeps a byte-stable round-trip.

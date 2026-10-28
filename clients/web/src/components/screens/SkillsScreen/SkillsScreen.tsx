@@ -22,11 +22,11 @@ import type {
   DirectoryReadResult,
   SkillEntry,
   SkillResource,
-} from "@inspector/core/mcp/skillsSchemas.js";
+} from "@inspector/core/extension/skills/schemas.js";
 import {
   DIRECTORY_MIME_TYPE,
   DYNAMIC_RESOURCES,
-} from "@inspector/core/mcp/skillsSchemas.js";
+} from "@inspector/core/extension/skills/schemas.js";
 import {
   checkSkillConformance,
   checkSkillFrontmatterMatch,
@@ -44,12 +44,12 @@ import {
   type SkillFileContents,
   type SkillIssue,
   type SkillVerification,
-} from "@inspector/core/mcp/skills.js";
+} from "@inspector/core/extension/skills/conformance.js";
 import { CodeHighlight } from "../../elements/CodeHighlight/CodeHighlight";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useValueChange } from "../../../hooks/useValueChange";
-import { splitSkillFile } from "@inspector/core/mcp/skillFile.js";
+import { splitSkillFile } from "@inspector/core/extension/skills/skillFile.js";
 import {
   inferMimeFromUri,
   isGenericMime,

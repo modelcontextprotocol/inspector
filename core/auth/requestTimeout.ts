@@ -332,7 +332,7 @@ export function deadlineForRequestInit(
  * The request's headers, whatever form `fetch`'s arguments took. `init` wins
  * over a `Request`'s own, matching `fetch`.
  */
-function requestHeadersOf(
+export function requestHeadersOf(
   input: RequestInfo | URL,
   init: RequestInit | undefined,
 ): Headers {
@@ -382,7 +382,7 @@ function cancelBoth(
 }
 
 /** The request URL, whatever form `fetch`'s first argument took. */
-function requestUrlOf(input: RequestInfo | URL): string {
+export function requestUrlOf(input: RequestInfo | URL): string {
   if (typeof input === "string") return input;
   if (input instanceof URL) return input.href;
   return input.url;

@@ -1,8 +1,11 @@
 import { StrictMode, useState } from "react";
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
-import { sha256Digest, textToBytes } from "@inspector/core/mcp/skills";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas";
+import {
+  sha256Digest,
+  textToBytes,
+} from "@inspector/core/extension/skills/conformance";
 import {
   act,
   renderWithMantine,

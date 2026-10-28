@@ -10,6 +10,7 @@ import {
   type MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import {
+  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
@@ -114,6 +115,16 @@ export class ConnectionRegistry {
    * nothing would ever disconnect it once the daemon exits.
    */
   private closed = false;
+
+  /**
+   * Extra `--load-connections` sessions (#2800) currently open. They belong
+   * to the load run that opened them, which closes them when it ends, and are
+   * never entered in {@link connections}: `connections/list` does not show
+   * them and idle accounting does not count them (a run only happens on a
+   * registered connection, which already holds the idle timer off). They are
+   * tracked here only so that a daemon shutdown mid-run closes them too.
+   */
+  private readonly loadClients = new Set<InspectorClient>();
 
   private async withNameLock<T>(
     name: string,
@@ -431,14 +442,18 @@ export class ConnectionRegistry {
       serverSettings?: InspectorServerSettings;
     },
     signal?: AbortSignal,
+    shareOAuthWith?: InspectorClient,
   ): Promise<InspectorClient> {
     // Front-end authorize / auth/clear write oauth.json in another process.
-    // Drop the daemon's cached store so this dial re-reads disk.
-    resetNodeOAuthStorageCache();
+    // Drop the daemon's cached store so this dial re-reads disk — except for
+    // a session that shares a live client's storage (see openLoadClient),
+    // which must see that client's tokens, not a fresh snapshot of the disk.
+    if (!shareOAuthWith) resetNodeOAuthStorageCache();
 
     const client = await createConnectionClient(
       params.serverConfig,
       params.serverSettings,
+      shareOAuthWith && clientOAuthStorage.get(shareOAuthWith),
     );
 
     try {
@@ -462,6 +477,46 @@ export class ConnectionRegistry {
       throw error;
     }
     return client;
+  }
+
+  /**
+   * Open one extra session for a `--load-connections` run (#2800): a fresh
+   * client built from a connection's stored server config and settings
+   * (captured by the caller when it resolved the primary), dialed the way a
+   * revive dials — stored credentials only, so an extra never starts an
+   * interactive sign-in mid-run. Aborting `signal` cancels a dial still in
+   * progress.
+   *
+   * The extra shares `primary`'s OAuth storage rather than a fresh one. That
+   * storage is load-once and memory-authoritative, so separate instances
+   * would each hold their own token snapshot: a refresh-token rotation in
+   * one session would leave its siblings, and the primary after the run,
+   * holding a token the authorization server has already invalidated. The caller owns the returned client and must hand it to
+   * {@link releaseLoadClient} once it has disconnected it. A failed dial
+   * leaves nothing behind.
+   */
+  async openLoadClient(
+    target: {
+      serverConfig: MCPServerConfig;
+      serverSettings?: InspectorServerSettings;
+    },
+    primary: InspectorClient,
+    signal?: AbortSignal,
+  ): Promise<InspectorClient> {
+    this.assertOpen();
+    const client = await this.dial(target, signal, primary);
+    if (this.closed) {
+      // Shutdown ran while dialing, past the point where it closes these.
+      await safeDisconnect(client);
+      this.assertOpen();
+    }
+    this.loadClients.add(client);
+    return client;
+  }
+
+  /** Stop tracking an extra session its load run has closed. */
+  releaseLoadClient(client: InspectorClient): void {
+    this.loadClients.delete(client);
   }
 
   use(name: string): ConnectionInfo {
@@ -638,6 +693,11 @@ export class ConnectionRegistry {
         // rest.
       }
     }
+    // A load run still in flight would close these in its own `finally`, but
+    // the daemon may exit first; close them now. Disconnecting twice is safe.
+    const extras = [...this.loadClients];
+    this.loadClients.clear();
+    await Promise.all(extras.map((client) => safeDisconnect(client)));
     this.clearIdleTimer();
   }
 
@@ -814,9 +874,17 @@ export async function getLiveConnectionAuthInfo(connection: {
   }
 }
 
+/**
+ * The OAuth storage each daemon-built client was given, so a load run's extra
+ * sessions can share their primary's (see `openLoadClient`). `InspectorClient`
+ * exposes no accessor for it.
+ */
+const clientOAuthStorage = new WeakMap<InspectorClient, NodeOAuthStorage>();
+
 async function createConnectionClient(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
+  oauthStorage?: NodeOAuthStorage,
 ): Promise<InspectorClient> {
   const environment: InspectorClientEnvironment = {
     transport: createTransportNode,
@@ -826,6 +894,9 @@ async function createConnectionClient(
     // `createProxyFetch()` fallback is never reached — leave this out and the
     // daemon connects direct. Undefined when no proxy variable is set.
     fetch: createProxyFetch(),
+    // OAuth on the destination-guarded base (#2749), which refuses link-local
+    // and cloud-metadata targets; proxy-aware itself.
+    oauthFetch: createGuardedFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   if (isOAuthCapableServerConfig(serverConfig)) {
@@ -839,7 +910,7 @@ async function createConnectionClient(
     redirectUrlProvider.redirectUrl =
       formatRunnerOAuthRedirectUrl(callbackUrlConfig);
     environment.oauth = {
-      storage: new NodeOAuthStorage(),
+      storage: oauthStorage ?? new NodeOAuthStorage(),
       navigation: new ConsoleNavigation(),
       redirectUrlProvider,
     };
@@ -852,7 +923,7 @@ async function createConnectionClient(
     {},
   );
 
-  return new InspectorClient(serverConfig, {
+  const client = new InspectorClient(serverConfig, {
     environment,
     clientIdentity: {
       name: CONNECTION_CLIENT_NAME,
@@ -883,6 +954,10 @@ async function createConnectionClient(
     }),
     ...clientAuthOptions,
   });
+  if (environment.oauth?.storage instanceof NodeOAuthStorage) {
+    clientOAuthStorage.set(client, environment.oauth.storage);
+  }
+  return client;
 }
 
 async function safeDisconnect(client: InspectorClient): Promise<void> {

@@ -446,7 +446,8 @@ export function useConnectionLifecycle({
           serverAuthorizationParams ||
           serverEndpointOverrides ||
           savedSettings.enterpriseManaged ||
-          savedSettings.oauthRequestRefreshToken === false)
+          savedSettings.oauthRequestRefreshToken === false ||
+          savedSettings.oauthScopeOnRefresh === true)
           ? {
               ...(savedSettings.oauthClientId && {
                 clientId: savedSettings.oauthClientId,
@@ -468,6 +469,11 @@ export function useConnectionLifecycle({
               // leaves the provider's default (declare `refresh_token`) in place.
               ...(savedSettings.oauthRequestRefreshToken === false && {
                 requestRefreshToken: false,
+              }),
+              // #2805: only the opt-in is forwarded; omitting the key leaves the
+              // SDK's default refresh request (no `scope`) in place.
+              ...(savedSettings.oauthScopeOnRefresh === true && {
+                scopeOnRefresh: true,
               }),
             }
           : undefined;

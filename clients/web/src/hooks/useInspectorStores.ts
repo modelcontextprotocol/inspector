@@ -13,7 +13,7 @@ import type {
   ResourceSubscriptionStreamState,
   StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";

@@ -357,14 +357,37 @@ function splitClientInformation<T extends ClientInfoSecretKeys>(
  * Overlay a slot's stored bearer-grade keys back onto its residue
  * (store-wins). Only called when the residue slot exists — a secret with no
  * slot was cleared, and rejoining it would resurrect the cleared value.
+ *
+ * A DCR value whose stamp vouches for it but names a different client is
+ * read as absent (#2768): the file-to-keychain hand-off keeps an existing
+ * keychain value, so after a re-registration the keychain can still hold
+ * the previous client's secret, and pairing it with the new `client_id`
+ * fails only at the token endpoint. A value with no valid stamp (legacy, or
+ * rewritten by an older Inspector) is served as before — its owner is
+ * unknown, and an unknown owner is never guessed.
  */
 function joinClientInformation<T extends ClientInfoSecretKeys>(
   info: T,
   fields: ClientInfoFields,
   secrets: OAuthSecretValues,
 ): T {
-  const clientSecret = secrets[fields.clientSecret];
-  const registrationToken = secrets[fields.registrationToken];
+  const owned = (field: string): string | undefined => {
+    const value = secrets[field];
+    if (
+      value === undefined ||
+      !fields.stamped ||
+      typeof info.client_id !== "string"
+    ) {
+      return value;
+    }
+    const owner = stampedOwner(
+      secrets[clientCredentialStampField(field)],
+      value,
+    );
+    return owner === undefined || owner === info.client_id ? value : undefined;
+  };
+  const clientSecret = owned(fields.clientSecret);
+  const registrationToken = owned(fields.registrationToken);
   if (clientSecret === undefined && registrationToken === undefined) {
     return info;
   }

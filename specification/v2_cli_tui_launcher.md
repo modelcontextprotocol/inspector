@@ -14,7 +14,7 @@ This document describes how those clients are built, wired, and tested today, an
 
 - One published entry binary (`mcp-inspector`) that forwards argv to the selected client.
 - CLI and TUI use the same `InspectorClient`, managed-state classes, and shared `loadServerEntries()` resolution path — adapted to v2's `InspectorServerSettings` model (post-#1358).
-- Bundle `core/` into CLI/TUI Node artifacts with **tsup** (analogous to Vite bundling core for the browser).
+- Bundle `core/` into CLI/TUI Node artifacts with **tsdown** (analogous to Vite bundling core for the browser).
 - Port v1.5 CLI integration tests (86 cases) and TUI smoke tests without duplicating `core/` unit tests (web suite remains canonical for core).
 - CI runs CLI and TUI tests plus a launcher `--help` smoke step on every PR.
 
@@ -22,7 +22,7 @@ This document describes how those clients are built, wired, and tested today, an
 
 - **CLI v2 connections** (connect once, many subcommands) — as-built in [v2_cli_v2.md](v2_cli_v2.md) (`mcpdo` bin connection-first; `mcp-inspector --cli` stays one-shot); tracked by [#1432](https://github.com/modelcontextprotocol/inspector/issues/1432).
 - **npm workspaces** — v2 uses a fat root package plus per-client `package.json` for dev dependencies; the launcher resolves sibling `build/` outputs via relative paths, not workspace hoisting.
-  - _Why not workspaces:_ `core/` is consumed by **bundling** — a Vite alias for the browser, tsup inlining for the Node clients — not by symlinked package resolution, so workspaces' main benefit (cross-package linking) does not apply. Each client also pins `react` / `@modelcontextprotocol/sdk` to its own `node_modules` (see `vitest.shared.mts`) to avoid dual-package-instance hazards, which hoisting works against. And the published `@modelcontextprotocol/inspector` is a single flat fat package that workspaces would complicate rather than simplify.
+  - _Why not workspaces:_ `core/` is consumed by **bundling** — a Vite alias for the browser, tsdown inlining for the Node clients — not by symlinked package resolution, so workspaces' main benefit (cross-package linking) does not apply. Each client also pins `react` / `@modelcontextprotocol/sdk` to its own `node_modules` (see `vitest.shared.mts`) to avoid dual-package-instance hazards, which hoisting works against. And the published `@modelcontextprotocol/inspector` is a single flat fat package that workspaces would complicate rather than simplify.
   - _Cost (from-source dev only):_ there is no hoisting, so each client keeps its own `node_modules`. A root `postinstall` (`scripts/install-clients.mjs`) cascades `npm install` into every client, so a single `npm install` at the repo root populates them all — re-run it after a pull that changes a client's dependencies. The cascade no-ops outside a source checkout (it exits early when running from `node_modules`, and the published tarball ships only each client's `build/`, no client `package.json`), so end users of the published package are unaffected. Set `INSPECTOR_SKIP_CLIENT_INSTALL=1` to skip the cascade (e.g. CI that installs each client itself).
 - **Per-client coverage gates** — `core/` coverage stays on the web suite; CLI/TUI source gates are follow-up work (see [Known gaps](#known-gaps)).
 - **Catalog CRUD in TUI** — TUI loads and connects; persistent catalog editing remains web-first today.
@@ -34,10 +34,10 @@ This document describes how those clients are built, wired, and tested today, an
 | Artifact   | Path                            | Build                                                  | Published bin                                            |
 | ---------- | ------------------------------- | ------------------------------------------------------ | -------------------------------------------------------- |
 | Launcher   | `clients/launcher/`             | `tsc` → `build/index.js`                               | Root `mcp-inspector` → `clients/launcher/build/index.js` |
-| CLI        | `clients/cli/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-cli` (client package only; one-shot)      |
-| mcpdo | `clients/mcpdo/`           | `tsup` → `build/mcp-bin.js` + `build/mcpdod.js`        | `mcpdo` (experimental; ships in the inspector package)   |
-| TUI        | `clients/tui/`                  | `tsup` → `build/index.js`                              | `mcp-inspector-tui` (client package only)                |
-| Web runner | `clients/web/server/run-web.ts` | `tsup` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only)                |
+| CLI        | `clients/cli/`                  | `tsdown` → `build/index.js`                            | `mcp-inspector-cli` (client package only; one-shot)      |
+| mcpdo | `clients/mcpdo/`           | `tsdown` → `build/mcp-bin.js` + `build/mcpdod.js`      | `mcpdo` (experimental; ships in the inspector package)   |
+| TUI        | `clients/tui/`                  | `tsdown` → `build/index.js`                            | `mcp-inspector-tui` (client package only)                |
+| Web runner | `clients/web/server/run-web.ts` | `tsdown` (`build:runner`) → `clients/web/build/index.js` | `mcp-inspector-web` (client package only)                |
 
 Root `package.json` (`@modelcontextprotocol/inspector` v2) publishes a **fat package**: merged runtime `dependencies`, `files` manifest listing each client's `build/` (and web `dist/`), and `prepack` → full `npm run build`. On the dev side, a `postinstall` runs `scripts/install-clients.mjs`, which cascades `npm install` into each client so one `npm install` at the repo root sets up every client; it no-ops when the package is installed as a dependency. The launcher does not declare `file:` sibling dependencies; it dynamically imports `../web/build/index.js`, `../cli/build/index.js`, or `../tui/build/index.js` relative to its own `build/` directory.
 
@@ -66,7 +66,7 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 
 **Production web caveat:** launcher `prebuild` chains `build:runner` for web, not a full `vite build`. Running `mcp-inspector --web` (without `--dev`) requires `clients/web/dist/` from a prior `cd clients/web && npm run build`. CI builds CLI, TUI, and launcher before the launcher smoke step but does not currently validate prod web startup end-to-end.
 
-**Build targets:** client `tsup` bundles target `node22`, aligned with root `engines.node` (`>=22.19.0`).
+**Build targets:** client `tsdown` bundles target `node22`, aligned with root `engines.node` (`>=22.19.0`).
 
 ---
 
@@ -77,7 +77,7 @@ All four clients import from `@inspector/core/...` (mapped to `../../core/` sour
 | Concern        | Web                               | CLI / mcpdo / TUI                                   | Launcher                  |
 | -------------- | --------------------------------- | -------------------------------------------------------- | ------------------------- |
 | Dev typecheck  | `tsconfig.app.json` paths         | per-client `tsconfig.json` paths                         | `tsconfig.json` (no core) |
-| Runtime bundle | Vite alias                        | tsup `noExternal: [/^@inspector\/core/]` + esbuild alias | n/a                       |
+| Runtime bundle | Vite alias                        | tsdown `deps.alwaysBundle: [/^@inspector\/core/]` + `alias` | n/a                       |
 | Tests          | Vitest projects in `clients/web/` | Vitest + `vitest.shared.mts` aliases                     | none                      |
 
 `vitest.shared.mts` at repo root centralizes `@inspector/core` and test-server aliases plus bare-module pins (`react`, `pino`, SDK, etc.) so CLI/mcpdo/TUI Vitest configs stay aligned with web.
@@ -87,7 +87,7 @@ All four clients import from `@inspector/core/...` (mapped to `../../core/` sour
 | Topic               | Decision                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | Core package        | No separate `inspector-core` npm package; source-only `core/`                                                                              |
-| CLI/TUI build       | tsup bundles `@inspector/core` into each client's `build/` (CLI/TUI `index.js`; mcpdo `mcp-bin.js` + `mcpdod.js`)                     |
+| CLI/TUI build       | tsdown bundles `@inspector/core` into each client's `build/` (CLI/TUI `index.js`; mcpdo `mcp-bin.js` + `mcpdod.js`)                     |
 | Core tests          | Not duplicated under cli/tui; web unit + integration suites cover `core/`                                                                  |
 | Default config path | `loadServerEntries()` applies `withDefaultCatalogPath()` → `~/.mcp-inspector/mcp.json` when no `--catalog`/`--config` and no ad-hoc target |
 
@@ -129,7 +129,7 @@ All four clients import from `@inspector/core/...` (mapped to `../../core/` sour
 
 **Tests:** 2 cases in `clients/tui/__tests__/tui.test.ts` assert `tabsConfig` shape only. Config parsing, OAuth, and Ink component flows are untested.
 
-**Dev:** `npm run dev` in `clients/tui` uses `vite-node` + `dev.ts` for fast iteration without a full tsup rebuild.
+**Dev:** `npm run dev` in `clients/tui` uses `vite-node` + `dev.ts` for fast iteration without a full tsdown rebuild.
 
 ---
 

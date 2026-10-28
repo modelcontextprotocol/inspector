@@ -33,20 +33,18 @@ export const MCP_PARAM_HEADER_PREFIX = "Mcp-Param-";
 const RFC9110_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
- * JSON Schema `type` values the spec admits on an `x-mcp-header` property.
- *
- * The spec text names `integer`, `string`, `boolean` and explicitly excludes
- * `number`. The published conformance referee at the pinned release ships its
- * `http-custom-headers` scenario with `type: "number"` `x-mcp-header` params and
- * expects the client to mirror them, so the SDK accepts `number` for the
- * conformance gate; this port matches the SDK so exclusions agree exactly.
- * Everything else (`object`, `array`, `null`, absent) is rejected.
+ * JSON Schema `type` values the spec admits on an `x-mcp-header` property:
+ * `integer`, `string` and `boolean`. `number` is explicitly not permitted
+ * (2026-07-28 Streamable HTTP, "Schema Extension"), so a tool that annotates a
+ * `number`-typed property is invalid. The SDK accepted `number` through 2.3.x
+ * to satisfy an older conformance fixture and rejects it from 2.4.0; this port
+ * follows it so exclusions agree exactly. Everything else (`object`, `array`,
+ * `null`, absent) is rejected too.
  */
 const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set([
   "string",
   "integer",
   "boolean",
-  "number",
 ]);
 
 /**
@@ -113,7 +111,8 @@ function isRecord(node: unknown): node is Record<string, unknown> {
 /**
  * Scan a tool's `inputSchema` for `x-mcp-header` declarations and validate every
  * constraint the spec places on them. Returns the collected declarations
- * (possibly empty) on success, or the first violated constraint's reason.
+ * (possibly empty) on success, or the first violated constraint's reason — the
+ * first `number`-typed annotation's when there is one, as the SDK reports it.
  *
  * The walk descends through `properties` at any depth (the spec's "any nesting
  * depth" clause). The static-reachability MUST is enforced structurally: every
@@ -130,6 +129,11 @@ export function scanXMcpHeaderDeclarations(
 ): XMcpHeaderScan {
   const declarations: XMcpHeaderDeclaration[] = [];
   const seenLower = new Map<string, string>();
+  // The SDK records a `number`-typed annotation's fault and keeps walking
+  // (its server still checks those headers), then reports that fault in
+  // preference to any later one. Mirrored here so the excluded tool's reason
+  // matches; the declarations it also returns serve only that server check.
+  let numberFault: string | undefined;
 
   const visit = (
     node: unknown,
@@ -152,7 +156,9 @@ export function scanXMcpHeaderDeclarations(
       }
       const type = typeof schema.type === "string" ? schema.type : undefined;
       if (type === undefined || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) {
-        return `${pathName(path)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+        const fault = `${pathName(path)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+        if (type !== "number") return fault;
+        numberFault ??= fault;
       }
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
@@ -188,10 +194,10 @@ export function scanXMcpHeaderDeclarations(
     return undefined;
   };
 
-  const fault = visit(inputSchema, [], true);
+  const fault = visit(inputSchema, [], true) ?? numberFault;
   return fault === undefined
     ? { valid: true, declarations }
-    : { valid: false, reason: fault };
+    : { valid: false, reason: numberFault ?? fault };
 }
 
 /**

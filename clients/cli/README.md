@@ -90,15 +90,17 @@ The file is the only durable way to give a run its roots: there is no roots flag
 
 ### HTTP proxy support
 
-Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to every Node client — CLI, TUI, and the web backend — with no inspector-specific flag. It also covers **OAuth discovery and token requests**, which run through the same fetch.
+Connections to remote HTTP/SSE servers honor the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. This applies to every Node client — CLI, TUI, and the web backend — with no inspector-specific flag. It also covers **OAuth discovery and token requests**.
 
-Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (declared in the **root** manifest only; `^8.x` requires Node `>= 22.19.0`, the Inspector's supported floor). It is imported lazily on the first request and only when a proxy variable is set, so runs without a proxy configured pay no cost.
+OAuth requests go through the destination guard rather than the plain proxied fetch: it reads the same variables, refuses link-local and cloud-metadata targets, and pins each direct connection to the addresses it checked ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749)). What it can and cannot promise behind a proxy is in [Outbound fetch destination guard](../web/README.md#outbound-fetch-destination-guard).
+
+Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (declared in the **root** manifest only; `^8.x` requires Node `>= 22.19.0`, the Inspector's supported floor). It is imported lazily on the first request and, for MCP traffic, only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. OAuth requests load it either way, for the destination guard.
 
 **Both halves of the pair come from userland undici — its `fetch` _and_ its `EnvHttpProxyAgent` ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).** The obvious-looking alternative is to hand the agent to Node's built-in `fetch` as a `dispatcher`, which is what v2.0.0–2.3.0 did. That couples two _different copies_ of undici at the dispatcher handler interface, and that interface is not stable across majors: Node 22 embeds undici 6, Node 24 embeds 7, Node 26 embeds 8. A userland undici 8 agent handed a built-in undici 7 handler is rejected outright — `fetch failed: invalid onRequestStart method` — and the request never leaves the process. Keeping both sides inside one copy is what makes proxying work unchanged from the Node 22.19 floor through Node 26. (Node's own `NODE_USE_ENV_PROXY` is not a substitute: it is unsupported at our 22.19 engine floor.)
 
 Because undici's `Response` is a different class from `globalThis.Response`, the proxied fetch re-wraps each response as a genuine global `Response`, streaming preserved. Without that, `res instanceof Response` is `false` for callers that test it — including the MCP SDK, whose OAuth error formatter would degrade every message to `Raw body: [object Response]`.
 
-`undici` is declared **only** in the root `package.json`, and every client's tsup config lists it as `external`. Both halves matter: tsup auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
+`undici` is declared **only** in the root `package.json`, and every client's bundler config lists it as `external` (this client's is `clients/cli/tsdown.config.ts`). Both halves matter: the bundler auto-externalizes what the _nearest_ manifest declares, so without the explicit entry the web and TUI bundles inlined it — and a CommonJS package inlined into an ESM bundle throws `Dynamic require of "assert" is not supported` the first time it is used. `npm run verify:bundle-externals` is the durable guard.
 
 ### Shell completion
 
@@ -155,9 +157,12 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--output-format <raw\|json>` | Encoding of the `--output` file. `json` (default) is the whole result, pretty-printed. `raw` is the result's text, or the decoded bytes of its single image/audio/blob block; `tools/call` and `resources/read` only. |
 | `--load`                      | Load-test one tool: call it repeatedly and concurrently, then print a latency / error-rate summary in place of a result. Requires `--method tools/call --tool-name <name>`. See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
+| `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
+| `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
+| `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency is above this many milliseconds, or when no call completed. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -298,6 +303,8 @@ Exit codes are unchanged: a `tools/call` that returns `isError:true` is still wr
 all — at one tool and keeps calling it, so seeing how a server behaves under
 concurrent or sustained traffic does not mean rewriting that setup in a
 separate script ([#2439](https://github.com/modelcontextprotocol/inspector/issues/2439)).
+`mcpdo` offers the same mode against an open connection — see
+[`tools/call --load`](../mcpdo/README.md#load-testing-a-tool-toolscall---load).
 
 ```bash
 # 20 calls in flight for 30 seconds
@@ -349,10 +356,50 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   about a millisecond, so a rate in the high hundreds per second or above is
   reached only approximately (1000/s measured ~700 against a local stdio
   server); compare `requests` against what you asked for.
+- **`connections`** appears only with `--load-connections` above `1` (see
+  below), so a default run's summary is unchanged.
 
-**All calls share one connection**, so this measures how a server copes with
-concurrent requests on a single session — not with many sessions. A slow call
-is bounded by the server's request timeout (`requestTimeout` in the
+**By default all calls share one connection**, so a run measures how a server
+copes with concurrent requests on a single session. `--load-connections <n>`
+([#2746](https://github.com/modelcontextprotocol/inspector/issues/2746)) opens
+`n` independent connections instead — same transport, headers and OAuth — so it
+can show per-session state, session setup cost, connection limits and
+contention that only appear across sessions:
+
+- **HTTP and SSE only.** Over stdio every connection would spawn its own server
+  process, which tests `n` isolated servers rather than one server under `n`
+  sessions, so it is rejected.
+- **`--load-concurrency` is the total across all connections**, and so is
+  `--load-rate`. Worker `i` always uses connection `i mod n`, which splits the
+  workers as evenly as the counts allow; `--load-connections` may not exceed
+  `--load-concurrency`, since a connection with no worker would carry no calls.
+- **Setup stays out of the latency.** Every connection is opened, concurrently,
+  before the clock starts; their connect times are reported on their own in
+  `connections.connectMs` (excluding the first connection, which the CLI opens
+  before any load run). Every extra connection is closed when the run ends.
+- **A connection that fails to open is not a call error.** The run goes ahead
+  on the connections that did open, and the failures are counted under
+  `connections` — never in `errors` or `errorRate`:
+
+  ```json
+  "connections": {
+    "requested": 50,
+    "opened": 48,
+    "failed": 2,
+    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p99": 41.8, "max": 41.8 },
+    "errorMessages": [{ "message": "Too many sessions", "count": 2 }]
+  }
+  ```
+
+- **OAuth.** The extra connections reuse the token the first one connected
+  with, read from the shared in-process store, and run stored-auth-only: `n`
+  connections never start `n` logins. A token refreshed by one connection is
+  visible to the rest. Two connections that hit an expired token at the same
+  instant can each try to refresh it — the same exposure a single connection
+  already has under concurrency — and against a server that rotates refresh
+  tokens the losing refresh may fail and appear as call errors.
+
+A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
 A load run does not prompt for OAuth step-up: a tool that needs scopes the
@@ -362,9 +409,34 @@ Run one plain `tools/call` of the tool first to grant them, then load it.
 The tool is looked up once before the clock starts, so a missing tool fails
 the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
-is the result. `--load` is rejected with any other method and with `--app-info`,
+is the result — unless a threshold below is set. `--load` is rejected with any other method and with `--app-info`,
 `--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
 rejected without `--load`.
+
+##### Thresholds for CI
+
+To gate a job on the run without parsing the summary, set a threshold and let
+the exit code carry the verdict
+([#2745](https://github.com/modelcontextprotocol/inspector/issues/2745)):
+
+```bash
+# fail the job if more than 1% of calls fail, or p99 is above 250 ms
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-requests 1000 \
+  --load-max-error-rate 0.01 --load-max-p99 250
+```
+
+- The full summary is printed first either way; a breach then exits `10`
+  with an error envelope on stderr whose `code` names the threshold:
+  `load_error_rate_exceeded` or `load_p99_exceeded`. When both are breached
+  the message lists both and the `code` is `load_error_rate_exceeded`.
+- A value equal to the threshold passes. The error-rate check uses the exact
+  share of failed calls (`toolErrors` plus `errors`, over `requests`), not the
+  four-place `errorRate`, so `--load-max-error-rate 0` fails even one failure
+  that rounds away in the summary.
+- With `--load-max-p99`, a run in which no call completed has no p99 to
+  compare, and fails rather than passing a latency check it never measured.
+- With no threshold set, nothing changes: a completed run exits `0`.
 
 #### Schema portability (`--strict`)
 
@@ -646,6 +718,8 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
+| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
+| `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:
@@ -664,6 +738,28 @@ On any non-zero exit the CLI also writes a single JSON line to **stderr** — th
 The `code` is a stable identifier for the failure class; `message` is the
 human-readable error; `cause`, `status`, and `url` are included when known.
 Because it is one line, a caller can parse it with `2>&1 | tail -1 | jq .error`.
+
+A `rate_limited` envelope adds the structured retry data, so a script can wait
+and re-run without parsing `message`:
+
+```json
+{
+  "error": {
+    "code": "rate_limited",
+    "message": "Rate limited by the server (HTTP 429) on tools/list. The server asked to retry after 30s. …",
+    "status": 429,
+    "method": "tools/list",
+    "retryAfter": "30",
+    "retryAfterMs": 30000
+  }
+}
+```
+
+`method` is the request that was throttled. `retryAfter` is the server's
+`Retry-After` header exactly as sent, so a malformed value is still reported;
+`retryAfterMs` is that header as a delay, present only when it parsed. A server
+that sent no header gets neither field. The connection CLI (`mcpdo`) writes the
+same envelope and exit code.
 
 ## Why use the CLI?
 

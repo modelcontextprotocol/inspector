@@ -42,7 +42,7 @@ npm run build      # tsc -b  →  vite build  →  build:runner
 Two artifacts come out, both of which ship in the published package:
 
 - **`dist/`** — the browser SPA (`vite build`). Served statically by the prod backend.
-- **`build/`** — the Node prod-server runner (`build:runner` = `tsup --config tsup.runner.config.ts`), which bundles `server/` + `@inspector/core` into one ESM file and externalizes npm deps.
+- **`build/`** — the Node prod-server runner (`build:runner` = `tsdown --config tsdown.runner.config.ts`), which bundles `server/` + `@inspector/core` into one ESM file and externalizes npm deps.
 
 `build:client` runs only the `vite build` half when you just need fresh `dist/`.
 
@@ -461,10 +461,29 @@ MCP_APP_ORIGIN_FULL_ADDRESS=https://inspector-apps.example.com \
 - Set **both** if a server you inspect declares `_meta.ui.domain`: with only the sandbox overridden, that app is still served from `http://<bind host>:6278`, which an `https` page blocks and a remote browser cannot reach — and that frame stays blank with no fallback. A plain-`http` address under an `https` `ALLOWED_ORIGINS` entry is advertised but warned about for the same reason.
 - The web client itself still needs a secure context off loopback (`crypto.randomUUID` is unavailable over plain HTTP on a non-`localhost` host), so serve the Inspector over HTTPS when it is not on `localhost`.
 
+**The API token is not access control.** It stops a page on some other origin from driving the backend through your browser; it does nothing against a person who can load the Inspector's own page, because `GET /` embeds the token in the HTML it serves. So **anyone who can load the page can act as you** — spawn processes through the backend and connect to MCP servers with your stored credentials — and on a shared host that includes the other local users, who can reach even a loopback bind. Setting your own `MCP_INSPECTOR_API_TOKEN` does not change this, since the page discloses whichever token is in use. Publishing the Inspector beyond a single trusted user needs a real access-control boundary in front of it: a reverse proxy that authenticates, an SSH tunnel, or a private network (see also [Docker](../../docs/docker.md)). Whenever the bind host is not loopback, the startup banner prints a warning to this effect, with a link back to this section.
+
 In every case, exposing the Inspector beyond loopback also means anyone who can reach it can drive its backend — keep authentication on (do **not** set `DANGEROUSLY_OMIT_AUTH`) and prefer a specific bind address over the wildcard.
 
 ## HTTP proxy support
 
-The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so runs without a proxy configured pay no cost.
+The web backend connects to remote MCP servers through the shared Node fetch (`core/mcp/node/proxyFetch.ts`), which honors the conventional proxy environment variables: `HTTPS_PROXY` / `HTTP_PROXY` (and their lowercase forms) select the proxy, and `NO_PROXY` exempts hosts. Routing uses [`undici`](https://www.npmjs.com/package/undici)'s own `fetch` bound to its `EnvHttpProxyAgent`, imported lazily only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. (OAuth requests load undici either way, on their first request, for the destination guard below.)
 
 The proxy sits at the **bottom** of the fetch stack rather than wrapping the transport's fetch, and both undici halves must come from the same copy — see [HTTP proxy support](../cli/README.md#http-proxy-support) in the CLI README for why ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).
+
+## Outbound fetch destination guard
+
+OAuth discovery, protected-resource metadata, token, client registration and revocation URLs come partly from the server under test. Every Inspector client therefore sends its OAuth requests through a destination guard that refuses targets a hostile server could use to read the host's cloud credentials ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749), ported from v1's `/fetch`). The logic is `core/mcp/node/fetchGuard.ts`.
+
+- **Schemes:** `http:` and `https:` only.
+- **Refused addresses:** link-local and instance-metadata only — `169.254.0.0/16` (with its IPv4-mapped IPv6 forms), `fe80::/10` and `fd00:ec2::254`. Loopback and private (RFC 1918) addresses stay reachable, since local and LAN MCP and authorization servers are ordinary targets.
+- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
+- **DNS** is checked inside the connection's own lookup, so the socket connects to exactly the addresses that were checked — a name cannot resolve differently between check and connect.
+
+**What it covers.** OAuth traffic only — never the MCP endpoint you configured:
+
+- the browser's OAuth, through `POST /api/fetch` (a refusal is answered `403` with an `error` message);
+- the CLI's, TUI's and mcpdo's OAuth, through `InspectorClientEnvironment.oauthFetch`, including the discovery the SDK runs from inside the transport on a `401` or a token refresh;
+- the web backend's own transport, which refreshes with the tokens the browser hands it.
+
+**Behind `HTTPS_PROXY` / `HTTP_PROXY`** the guard routes through undici's `EnvHttpProxyAgent`, so a `NO_PROXY` host is still connected directly and pinned. A proxied host is resolved by the proxy, not by the Inspector, so the guard can only check its name against local DNS — refusing it if it resolves to a blocked address here, allowing it if it does not resolve here at all — and cannot pin the connection. Scheme, IP-literal and redirect checks still apply. For proxied traffic the proxy is the network boundary.

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas";
 import {
   ManagedSkillsState,
   REPEATED_CURSOR_MESSAGE,

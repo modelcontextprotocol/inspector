@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { runCli } from "./helpers/cli-runner.js";
 import {
   expectCliSuccess,
@@ -23,6 +23,7 @@ import {
   positiveNumberParser,
   resolveLoadOptions,
   runLoad,
+  runLoadAcrossConnections,
   summarizeLatency,
   type LoadCallOutcome,
   type LoadClock,
@@ -147,6 +148,30 @@ describe("load-test engine", () => {
         requests: 5,
         rate: 3,
       });
+    });
+
+    it("keeps an explicit connection count and omits an absent one", () => {
+      expect(resolveLoadOptions({ connections: 3, requests: 5 })).toEqual({
+        concurrency: DEFAULT_LOAD_CONCURRENCY,
+        connections: 3,
+        requests: 5,
+      });
+      expect(resolveLoadOptions({ requests: 5 })).not.toHaveProperty(
+        "connections",
+      );
+    });
+
+    it("refuses more connections than workers, default concurrency included", () => {
+      expect(() =>
+        resolveLoadOptions({ connections: 3, concurrency: 2 }),
+      ).toThrow(
+        "--load-connections (3) cannot exceed --load-concurrency (2); every connection needs at least one worker.",
+      );
+      expect(() =>
+        resolveLoadOptions({ connections: DEFAULT_LOAD_CONCURRENCY + 1 }),
+      ).toThrow(
+        `cannot exceed --load-concurrency (${DEFAULT_LOAD_CONCURRENCY})`,
+      );
     });
   });
 
@@ -369,6 +394,106 @@ describe("load-test engine", () => {
       expect(summary.elapsedMs).toBe(1500);
     });
 
+    it("starts no further call once its signal aborts", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        if (++calls === 3) abort.abort();
+        return "ok";
+      };
+      // A rate, so the waits between those calls end on their timers.
+      const summary = await runLoad(
+        call,
+        { concurrency: 1, requests: 100, rate: 1000 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(summary.requests).toBe(3);
+    });
+
+    it("cuts a rate-limit wait short when its signal aborts", async () => {
+      const abort = new AbortController();
+      // A timer that never fires: only the abort can end the wait.
+      const clock: LoadClock = {
+        now: () => 1000,
+        sleep: () => new Promise<void>(() => {}),
+      };
+      const run = runLoad(
+        async () => "ok",
+        { concurrency: 1, requests: 5, rate: 1 },
+        clock,
+        abort.signal,
+      );
+      await new Promise((r) => setImmediate(r));
+      abort.abort();
+      expect((await run).requests).toBe(1);
+    });
+
+    it("does not run a claimed slot once another worker aborted", async () => {
+      const abort = new AbortController();
+      let calls = 0;
+      const call = async (): Promise<LoadCallOutcome> => {
+        calls++;
+        abort.abort();
+        return "ok";
+      };
+      await runLoad(
+        call,
+        { concurrency: 2, requests: 10 },
+        fakeClock(),
+        abort.signal,
+      );
+      expect(calls).toBe(1);
+    });
+
+    it("drops the real clock's rate timer when the run aborts", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const abort = new AbortController();
+        // Default (real) clock: the second slot is 1000s away.
+        const run = runLoad(
+          async () => "ok",
+          { concurrency: 1, requests: 2, rate: 0.001 },
+          undefined,
+          abort.signal,
+        );
+        await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+        abort.abort();
+        expect((await run).requests).toBe(1);
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("lets the event loop run while calls fail instantly", async () => {
+      const abort = new AbortController();
+      // Only a macrotask can abort: if the run never yields, this never fires
+      // before the run has spent its whole request count.
+      setImmediate(() => abort.abort());
+      const limit = 200_000;
+      const summary = await runLoad(
+        async () => {
+          throw new Error("rejected up front");
+        },
+        { concurrency: 4, requests: limit },
+        undefined,
+        abort.signal,
+      );
+      expect(summary.requests).toBeGreaterThan(0);
+      expect(summary.requests).toBeLessThan(limit);
+    });
+
+    it("starts nothing when its signal has already aborted", async () => {
+      const summary = await runLoad(
+        async () => "ok",
+        { concurrency: 2, requests: 5 },
+        fakeClock(),
+        AbortSignal.abort(),
+      );
+      expect(summary.requests).toBe(0);
+    });
+
     it("reports an empty run without dividing by zero", async () => {
       const summary = await runLoad(
         async () => "ok",
@@ -382,6 +507,216 @@ describe("load-test engine", () => {
         latencyMs: null,
         errorMessages: [],
       });
+    });
+
+    it("hands each call the index of the worker making it", async () => {
+      const seen = new Set<number>();
+      await runLoad(
+        async (worker) => {
+          seen.add(worker);
+          await new Promise((r) => setTimeout(r, 1));
+          return "ok";
+        },
+        { concurrency: 3, requests: 9 },
+      );
+      expect([...seen].sort()).toEqual([0, 1, 2]);
+    });
+  });
+
+  describe("runLoadAcrossConnections", () => {
+    type FakeConnection = {
+      id: string;
+      calls: number;
+      closed: boolean;
+      disconnect: () => Promise<void>;
+    };
+    const fake = (id: string, failClose = false): FakeConnection => {
+      const c: FakeConnection = {
+        id,
+        calls: 0,
+        closed: false,
+        disconnect: async () => {
+          c.closed = true;
+          if (failClose) throw new Error(`close ${id} failed`);
+        },
+      };
+      return c;
+    };
+    const callOn = async (c: FakeConnection): Promise<LoadCallOutcome> => {
+      c.calls++;
+      await new Promise((r) => setTimeout(r, 1));
+      return "ok";
+    };
+
+    it("is plain runLoad on the primary, with no connections field, for one connection", async () => {
+      const primary = fake("primary");
+      let opened = 0;
+      const open = async (): Promise<FakeConnection> => {
+        opened++;
+        return fake("extra");
+      };
+      for (const connections of [undefined, 1]) {
+        const summary = await runLoadAcrossConnections(primary, open, callOn, {
+          concurrency: 2,
+          requests: 4,
+          ...(connections !== undefined && { connections }),
+        });
+        expect(summary).not.toHaveProperty("connections");
+        expect(summary.requests).toBe(4);
+      }
+      expect(primary.calls).toBe(8);
+      expect(primary.closed).toBe(false);
+      expect(opened).toBe(0);
+    });
+
+    it("spreads workers evenly over every connection and closes only the extras", async () => {
+      const primary = fake("primary");
+      const extras: FakeConnection[] = [];
+      const clock = fakeClock();
+      const open = async (): Promise<FakeConnection> => {
+        // Opening is timed on the run's clock, before the run starts.
+        clock.advance(5);
+        const c = fake(`extra-${extras.length}`);
+        extras.push(c);
+        return c;
+      };
+      const summary = await runLoadAcrossConnections(
+        primary,
+        open,
+        callOn,
+        { concurrency: 6, connections: 3, requests: 30 },
+        clock,
+      );
+      expect(extras).toHaveLength(2);
+      expect(primary.calls + extras[0]!.calls + extras[1]!.calls).toBe(30);
+      for (const c of [primary, ...extras]) expect(c.calls).toBeGreaterThan(0);
+      expect(primary.closed).toBe(false);
+      expect(extras.every((c) => c.closed)).toBe(true);
+      expect(summary.connections).toEqual({
+        requested: 3,
+        opened: 3,
+        failed: 0,
+        connectMs: expect.objectContaining({ min: expect.any(Number) }),
+        errorMessages: [],
+      });
+      expect(summary.connections!.connectMs!.max).toBeGreaterThan(0);
+      // Connect time is not call time: the fake calls took no clock time.
+      expect(summary.latencyMs).toMatchObject({ max: 0 });
+    });
+
+    it("pins worker i to connection i % opened", async () => {
+      const primary = fake("primary");
+      const extra = fake("extra");
+      const seen: string[] = [];
+      // Four workers, one call each, over two connections: workers 0 and 2 on
+      // the primary, 1 and 3 on the extra.
+      await runLoadAcrossConnections(
+        primary,
+        async () => extra,
+        async (c) => {
+          seen.push(c.id);
+          await new Promise((r) => setTimeout(r, 1));
+          return "ok";
+        },
+        { concurrency: 4, connections: 2, requests: 4 },
+      );
+      expect(seen).toEqual(["primary", "extra", "primary", "extra"]);
+    });
+
+    it("runs on the connections that opened and reports connect failures apart from call errors", async () => {
+      const primary = fake("primary");
+      const opened: FakeConnection[] = [];
+      let n = 0;
+      const open = async (): Promise<FakeConnection> => {
+        const i = n++;
+        if (i === 0) throw new Error("session limit reached");
+        if (i === 1) throw "refused";
+        const c = fake(`extra-${i}`);
+        opened.push(c);
+        return c;
+      };
+      const summary = await runLoadAcrossConnections(primary, open, callOn, {
+        concurrency: 4,
+        connections: 4,
+        requests: 8,
+      });
+      expect(summary).toMatchObject({
+        requests: 8,
+        ok: 8,
+        errors: 0,
+        errorRate: 0,
+        errorMessages: [],
+        connections: {
+          requested: 4,
+          opened: 2,
+          failed: 2,
+          errorMessages: [
+            { message: "session limit reached", count: 1 },
+            { message: "refused", count: 1 },
+          ],
+        },
+      });
+      expect(primary.calls + opened[0]!.calls).toBe(8);
+      expect(opened[0]!.closed).toBe(true);
+    });
+
+    it("still runs on the primary when every extra fails to open", async () => {
+      const primary = fake("primary");
+      const summary = await runLoadAcrossConnections(
+        primary,
+        async () => {
+          throw new Error("nope");
+        },
+        callOn,
+        { concurrency: 2, connections: 2, requests: 3 },
+      );
+      expect(primary.calls).toBe(3);
+      expect(summary.connections).toEqual({
+        requested: 2,
+        opened: 1,
+        failed: 1,
+        connectMs: null,
+        errorMessages: [{ message: "nope", count: 1 }],
+      });
+    });
+
+    it("closes every extra even when the run throws or a close fails", async () => {
+      const primary = fake("primary");
+      const extras = [fake("a", true), fake("b")];
+      const toOpen = [...extras];
+      let i = 0;
+      const boom = new Error("clock broke");
+      const clock: LoadClock = {
+        now: () => {
+          // Throw once the run itself starts (after the two connect timings).
+          if (i++ >= 4) throw boom;
+          return 0;
+        },
+        sleep: async () => {},
+      };
+      await expect(
+        runLoadAcrossConnections(
+          primary,
+          async () => toOpen.shift()!,
+          callOn,
+          { concurrency: 3, connections: 3, requests: 3 },
+          clock,
+        ),
+      ).rejects.toBe(boom);
+      expect(primary.closed).toBe(false);
+      expect(extras.every((c) => c.closed)).toBe(true);
+    });
+
+    it("requires a way to open connections when more than one is asked for", async () => {
+      await expect(
+        runLoadAcrossConnections(fake("primary"), undefined, callOn, {
+          concurrency: 2,
+          connections: 2,
+          requests: 1,
+        }),
+      ).rejects.toThrow(
+        "--load-connections above 1 needs a way to open more connections.",
+      );
     });
   });
 });
@@ -545,10 +880,124 @@ describe("--load (CLI)", () => {
       ["--method", "tools/call", "--load", "--load-concurrency", "0"],
       "--load-concurrency must be a positive integer.",
     ],
+    [
+      [
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "echo",
+        "--load-connections",
+        "2",
+      ],
+      "--load-connections requires --load.",
+    ],
+    [
+      ["--method", "tools/call", "--load", "--load-connections", "0"],
+      "--load-connections must be a positive integer.",
+    ],
+    [
+      [
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "echo",
+        "--load",
+        "--load-connections",
+        "3",
+        "--load-concurrency",
+        "2",
+      ],
+      "--load-connections (3) cannot exceed --load-concurrency (2)",
+    ],
+    [
+      [
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "echo",
+        "--load",
+        "--load-connections",
+        "2",
+      ],
+      "--load-connections above 1 requires an HTTP or SSE server",
+    ],
   ])("rejects %j", async (flags, message) => {
     const result = await runCli([command, ...args, "--cli", ...flags]);
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(message);
+  });
+
+  it("keeps the one-connection summary unchanged with --load-connections 1", async () => {
+    const result = await runCli([
+      ...echoLoad,
+      "--load",
+      "--load-requests",
+      "4",
+      "--load-connections",
+      "1",
+    ]);
+    expectCliSuccess(result);
+    const json = expectValidJson(result);
+    expect(json).toMatchObject({ requests: 4, ok: 4 });
+    expect(json).not.toHaveProperty("connections");
+  });
+
+  it("spreads the calls over --load-connections separate HTTP sessions", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-sessions", "1.0.0"),
+      tools: [
+        {
+          name: "ping",
+          description: "Answers",
+          inputSchema: {},
+          handler: async () => ({ content: [{ type: "text", text: "pong" }] }),
+        },
+      ],
+    });
+    try {
+      await server.start();
+      const result = await runCli([
+        server.url,
+        "--cli",
+        "--transport",
+        "http",
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "ping",
+        "--load",
+        "--load-requests",
+        "12",
+        "--load-concurrency",
+        "6",
+        "--load-connections",
+        "3",
+      ]);
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json).toMatchObject({
+        tool: "ping",
+        requests: 12,
+        ok: 12,
+        errorRate: 0,
+        connections: {
+          requested: 3,
+          opened: 3,
+          failed: 0,
+          errorMessages: [],
+        },
+      });
+      expect(json.connections.connectMs).not.toBeNull();
+      const sessions = new Set(
+        server
+          .getRecordedRequests()
+          .filter((r) => r.method === "tools/call")
+          .map((r) => r.headers?.["mcp-session-id"]),
+      );
+      expect(sessions.size).toBe(3);
+    } finally {
+      await server.stop();
+    }
   });
 
   it("counts a result carrying isError as a tool error", async () => {

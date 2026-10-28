@@ -33,17 +33,34 @@
  * in transit and says nothing about whether the *listing* described that file
  * honestly. A server could advertise one description, serve another, and pass
  * every other check in this module. {@link checkSkillFrontmatterMatch} is the
- * check; it needs a real YAML parser, and `core/mcp/skillFile.ts` explains why
+ * check; it needs a real YAML parser, and `skillFile.ts` explains why
  * that dependency is imported rather than approximated.
+ *
+ * **Why this stays ours rather than the SDK's `SkillsClient` (#2804).** The SDK
+ * implements the same rules as a *host* needs them: `skills/list` refuses an
+ * entry that breaks one (or, with `skipInvalid`, replaces it with a one-line
+ * `reason`), and `read()` throws a `SkillVerificationError` on the first check
+ * that fails. Both are right for a host deciding whether to load a skill and
+ * wrong for a tool whose output *is* the list of what failed. This module
+ * reports every rule separately, with a code and a severity, keeps
+ * `"dynamic"` resources a warning rather than a silent `verified: false`
+ * (#2405), and runs against entries the SDK would never hand back. The
+ * interoperability limits and the digest grammar are the SDK's, though —
+ * {@link SKILL_MAX_RESOURCE_ENTRIES}, {@link SKILL_MAX_TOTAL_BYTES} and the
+ * digest pattern are read from `@modelcontextprotocol/core/ext/skills`.
  */
 
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
+import {
+  SKILL_DIGEST_PATTERN,
+  SKILL_LIMITS,
+} from "@modelcontextprotocol/core/ext/skills";
 import {
   DYNAMIC_RESOURCES,
   SKILLS_EXTENSION_KEY,
   type SkillEntry,
   type SkillResource,
-} from "./skillsSchemas.js";
+} from "./schemas.js";
 import { sha256Bytes } from "./sha256.js";
 import {
   jsonGraphError,
@@ -51,11 +68,17 @@ import {
   splitSkillFile,
 } from "./skillFile.js";
 
-/** Maximum resource entries a single skill may declare (SEP-2640). */
-export const SKILL_MAX_RESOURCE_ENTRIES = 512;
+/**
+ * Maximum resource entries a single skill may declare (SEP-2640) — the SDK's
+ * `SKILL_LIMITS.files`.
+ */
+export const SKILL_MAX_RESOURCE_ENTRIES = SKILL_LIMITS.files;
 
-/** Maximum total size, in bytes, of a single skill's resources (16 MiB). */
-export const SKILL_MAX_TOTAL_BYTES = 16 * 1024 * 1024;
+/**
+ * Maximum total size, in bytes, of a single skill's resources (16 MiB) — the
+ * SDK's `SKILL_LIMITS.bytes`.
+ */
+export const SKILL_MAX_TOTAL_BYTES = SKILL_LIMITS.bytes;
 
 /**
  * Maximum skills one verification run will actually read from, and the byte
@@ -123,8 +146,8 @@ export function resolveSkillCatalogBudget(settings?: {
 /** The suffix every skill URI ends with; the segment before it is the name. */
 export const SKILL_FILE_SUFFIX = "/SKILL.md";
 
-/** `sha256:` followed by exactly 64 lowercase hex characters. */
-const DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+/** `sha256:` followed by exactly 64 lowercase hex characters (the SDK's). */
+const DIGEST_PATTERN = SKILL_DIGEST_PATTERN;
 
 /**
  * The Agent Skills name format SEP-2640 requires of `frontmatter.name`: 1–64
@@ -175,6 +198,12 @@ export interface SkillsExtensionSupport {
  * method names in either codec, so nothing about the negotiated era changes
  * whether the extension can be served or called. A legacy-era server that
  * declares it is serving it.
+ *
+ * Not the SDK's `skillsCapabilityOf` either, which runs the declaration
+ * through `SkillsCapabilitySchema` and returns `undefined` when it does not
+ * parse. A server declaring `{ directoryRead: "yes" }` would then lose the
+ * Skills tab outright, hiding the very server an inspector is for; here any
+ * object is a declaration and only a literal `true` enables `directoryRead`.
  */
 export function getSkillsExtension(
   capabilities: ServerCapabilities | undefined,

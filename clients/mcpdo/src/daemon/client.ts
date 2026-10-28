@@ -9,7 +9,9 @@ import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
 import { getDaemonDir, getDaemonSocketPath } from "./paths.js";
 import { sanitizeText } from "../connection/sanitize.js";
+import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
+  DaemonErrorBody,
   DaemonOp,
   DaemonRequest,
   DaemonResponse,
@@ -77,6 +79,28 @@ export function daemonTokenDir(options: {
     return path.dirname(options.socketPath);
   }
   return getDaemonDir();
+}
+
+/**
+ * The envelope a daemon error is rebuilt into on this side: its `code` plus
+ * whatever structured fields the daemon relayed (#2772), so the connection
+ * CLI's JSON error matches the one-shot CLI's. `retryAfter` is the server's
+ * own header text, so it is sanitized like the message.
+ */
+export function relayedEnvelope(
+  error: DaemonErrorBody,
+): Partial<ErrorEnvelope> {
+  return {
+    code: error.code,
+    ...(error.status !== undefined && { status: error.status }),
+    ...(error.method !== undefined && { method: error.method }),
+    ...(error.retryAfter !== undefined && {
+      retryAfter: sanitizeText(error.retryAfter),
+    }),
+    ...(error.retryAfterMs !== undefined && {
+      retryAfterMs: error.retryAfterMs,
+    }),
+  };
 }
 
 /**
@@ -205,7 +229,7 @@ export async function callDaemon<T = unknown>(
             // Daemon error text can embed server-supplied strings; sanitize
             // before it reaches a terminal via the shared error handler.
             sanitizeText(response.error.message),
-            { code: response.error.code },
+            relayedEnvelope(response.error),
           ),
         );
         return;

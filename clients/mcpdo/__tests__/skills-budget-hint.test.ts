@@ -17,7 +17,7 @@ import {
   createTestServerHttp,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
-import type { SkillVerifyReport } from "@inspector/core/mcp/skillsVerification.js";
+import type { SkillVerifyReport } from "@inspector/core/extension/skills/verification.js";
 import { runMcp, type McpResult } from "./helpers/mcp-runner.js";
 import {
   createTestConfig,

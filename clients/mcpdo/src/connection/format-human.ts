@@ -7,6 +7,7 @@ import { PLAIN, type Style } from "@inspector/core/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
+import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -972,6 +973,66 @@ export function formatStreamEventHuman(
     return `[${colorLevel(style, level)}]${logger} ${text}`;
   }
   return JSON.stringify(ev, null, 2);
+}
+
+/**
+ * `tools/call --load` summary (#2744): the run's shape, its outcome counts,
+ * the latency distribution, and the most frequent thrown messages. Every
+ * figure is also in `--format json`, which is the form to script against.
+ */
+export function formatLoadSummaryHuman(
+  summary: LoadSummary,
+  style: Style = PLAIN,
+): string {
+  const tool =
+    summary.tool !== undefined ? ` ${code(style, summary.tool)}` : "";
+  const bounds = [
+    `concurrency ${summary.concurrency}`,
+    ...(summary.durationMs !== undefined
+      ? [`duration ${summary.durationMs / 1000}s`]
+      : []),
+    ...(summary.requestLimit !== undefined
+      ? [`limit ${summary.requestLimit}`]
+      : []),
+    ...(summary.rate !== undefined ? [`rate ${summary.rate}/s`] : []),
+  ];
+  const failed = summary.toolErrors + summary.errors;
+  const rate = `${(summary.errorRate * 100).toFixed(2)}%`;
+  const lines = [
+    `${heading(style, "Load test")}${tool} ${style.dim(`(${bounds.join(", ")})`)}`,
+    `  Requests:   ${summary.requests} in ${(summary.elapsedMs / 1000).toFixed(2)}s (${summary.throughput}/s)`,
+    `  Outcomes:   ${style.green(`${summary.ok} ok`)}, ${summary.toolErrors} tool errors, ${summary.errors} errors`,
+    `  Error rate: ${failed > 0 ? style.red(rate) : rate}`,
+  ];
+  const l = summary.latencyMs;
+  lines.push(
+    l === null
+      ? `  Latency:    ${style.dim("no calls completed")}`
+      : `  Latency:    min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p99 ${l.p99} / max ${l.max} ms`,
+  );
+  if (summary.errorMessages.length > 0) {
+    lines.push(`  ${style.bold("Top errors:")}`);
+    for (const { message, count } of summary.errorMessages) {
+      lines.push(`    ${count}× ${message}`);
+    }
+  }
+  // `--load-connections` above 1 (#2800). Connect failures are not call
+  // errors, so they are listed under this line rather than "Top errors".
+  const c = summary.connections;
+  if (c !== undefined) {
+    const failed = `${c.failed} failed`;
+    const connect =
+      c.connectMs === null
+        ? ""
+        : ` (connect p50 ${c.connectMs.p50} / max ${c.connectMs.max} ms)`;
+    lines.push(
+      `  Sessions:   ${c.opened} of ${c.requested} opened, ${c.failed > 0 ? style.red(failed) : failed}${connect}`,
+    );
+    for (const { message, count } of c.errorMessages) {
+      lines.push(`    ${count}× ${message}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /**

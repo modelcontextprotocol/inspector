@@ -10,7 +10,7 @@ import type {
 } from "@modelcontextprotocol/client";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { getServerType } from "@inspector/core/mcp/config.js";
-import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
+import { getSkillsExtension } from "@inspector/core/extension/skills/conformance.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
 
 import type { TypedEventGeneric } from "@inspector/core/mcp/typedEventTarget.js";

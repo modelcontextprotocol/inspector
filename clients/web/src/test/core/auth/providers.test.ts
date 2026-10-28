@@ -6,6 +6,10 @@ import {
   BaseOAuthClientProvider,
   type OAuthProviderConfig,
 } from "@inspector/core/auth/providers.js";
+import {
+  auth,
+  type StoredOAuthClientInformation,
+} from "@modelcontextprotocol/client";
 import type { OAuthStorage } from "@inspector/core/auth/storage.js";
 import { OAuthStorageBase } from "@inspector/core/auth/oauth-storage.js";
 import { OAuthMemoryStore } from "@inspector/core/auth/store.js";
@@ -594,6 +598,146 @@ describe("OAuthNavigation", () => {
       });
     });
 
+    describe("scopeForRefresh (#2805)", () => {
+      function makeRefreshProvider(opts: {
+        scopeOnRefresh?: boolean;
+        storedScope?: string;
+        configuredScope?: string;
+        requestRefreshToken?: boolean;
+      }): BaseOAuthClientProvider {
+        const storage = makeStorage();
+        vi.mocked(storage.getScope).mockResolvedValue(opts.storedScope);
+        return new BaseOAuthClientProvider(SERVER, {
+          storage,
+          redirectUrlProvider: new MutableRedirectUrlProvider(),
+          navigation: new CallbackNavigation(vi.fn()),
+          scopeOnRefresh: opts.scopeOnRefresh,
+          configuredScope: opts.configuredScope,
+          requestRefreshToken: opts.requestRefreshToken,
+        });
+      }
+
+      const grantedTokens = {
+        access_token: "at",
+        token_type: "Bearer",
+        refresh_token: "rt",
+        scope: "mcp tools:read",
+      };
+
+      // The default must leave the SDK's refresh request untouched: an
+      // `undefined` here is what makes `auth()` send no `scope` at all.
+      it("sends no scope by default", async () => {
+        const provider = makeRefreshProvider({ storedScope: "mcp" });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBeUndefined();
+      });
+
+      it("sends no scope when explicitly off", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: false,
+          storedScope: "mcp",
+        });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBeUndefined();
+      });
+
+      it("sends the granted scope saved with the tokens", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp",
+          configuredScope: "mcp",
+        });
+        expect(await provider.scopeForRefresh(grantedTokens)).toBe(
+          "mcp tools:read",
+        );
+      });
+
+      // RFC 6749 §5.1: a token response omits `scope` when it equals the
+      // requested one, so the request scope is what was granted.
+      it("falls back to the stored request scope when the tokens carry none", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "  mcp offline_access ",
+          configuredScope: "mcp",
+        });
+        expect(
+          await provider.scopeForRefresh({ ...grantedTokens, scope: "  " }),
+        ).toBe("mcp offline_access");
+      });
+
+      it("falls back to the configured scope when storage holds none", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          configuredScope: "mcp",
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+
+      it("returns undefined when no scope is known anywhere", async () => {
+        const provider = makeRefreshProvider({ scopeOnRefresh: true });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBeUndefined();
+      });
+
+      // The fallback is the scope the authorization request used, and that
+      // request went through the #2068 filter — so the fallback does too.
+      it("applies the #2068 offline_access filter to the fallback scope", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp offline_access",
+          configuredScope: "mcp",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+
+      // Copilot on #2809: the #2068 helper re-adds a configured
+      // `offline_access`. After the configuration gained it, that token is not
+      // in the recorded grant, and asking a refresh for it fails with
+      // `invalid_scope` — so the fallback must stay within the record.
+      it("never adds a scope the recorded grant lacks", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "mcp",
+          configuredScope: "mcp offline_access",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBe("mcp");
+      });
+
+      it("returns undefined when the filter removes the whole recorded scope", async () => {
+        const provider = makeRefreshProvider({
+          scopeOnRefresh: true,
+          storedScope: "offline_access",
+          configuredScope: "mcp",
+          requestRefreshToken: false,
+        });
+        expect(
+          await provider.scopeForRefresh({
+            access_token: "at",
+            token_type: "Bearer",
+          }),
+        ).toBeUndefined();
+      });
+    });
+
     describe("SEP-2352 issuer threading", () => {
       it("forwards ctx.issuer to storage on clientInformation/tokens reads", async () => {
         const storage = makeStorage();
@@ -634,6 +778,259 @@ describe("OAuthNavigation", () => {
           { access_token: "t", token_type: "Bearer" },
           { issuer },
         );
+      });
+
+      // #2751: the static client's stamp used to land in a dynamic slot the
+      // preregistered read never looks at, and re-seeding dropped it anyway.
+      describe("static client issuer stamp", () => {
+        const ISSUER = "https://as.example.com";
+        const STATIC = { client_id: "static", client_secret: "s3cret" };
+
+        function makeStaticStorage(
+          preregistered: StoredOAuthClientInformation | undefined,
+        ): OAuthStorage {
+          const storage = makeStorage();
+          vi.mocked(storage.getClientInformation).mockImplementation(
+            async (_url: string, isPreregistered?: boolean) =>
+              isPreregistered ? preregistered : undefined,
+          );
+          return storage;
+        }
+
+        it("writes the SDK back-stamp of the static client to the preregistered slot", async () => {
+          const storage = makeStaticStorage(STATIC);
+          const provider = makeProvider(storage);
+
+          await provider.saveClientInformation(
+            { ...STATIC, issuer: ISSUER },
+            { issuer: ISSUER },
+          );
+
+          expect(
+            storage.savePreregisteredClientInformation,
+          ).toHaveBeenCalledWith(SERVER, { ...STATIC, issuer: ISSUER });
+          expect(storage.saveClientInformation).not.toHaveBeenCalled();
+        });
+
+        it("keeps a different client_id in its registration slot", async () => {
+          const storage = makeStaticStorage(STATIC);
+          const provider = makeProvider(storage);
+
+          await provider.saveClientInformation(
+            { client_id: "dyn" },
+            { issuer: ISSUER },
+          );
+
+          expect(
+            storage.savePreregisteredClientInformation,
+          ).not.toHaveBeenCalled();
+          expect(storage.saveClientInformation).toHaveBeenCalledWith(
+            SERVER,
+            { client_id: "dyn" },
+            { registrationKind: "dcr", issuer: ISSUER },
+          );
+        });
+
+        it("leaves our own saves alone even when the client_id matches", async () => {
+          const storage = makeStaticStorage(STATIC);
+          const provider = makeProvider(storage);
+
+          await provider.saveClientInformation(STATIC, {
+            registrationKind: "cimd",
+            issuer: ISSUER,
+          });
+
+          expect(
+            storage.savePreregisteredClientInformation,
+          ).not.toHaveBeenCalled();
+          expect(storage.getClientInformation).not.toHaveBeenCalled();
+        });
+
+        it("returns the static client with a matching stamp as stored", async () => {
+          const storage = makeStaticStorage({ ...STATIC, issuer: ISSUER });
+          const provider = makeProvider(storage);
+
+          expect(await provider.clientInformation({ issuer: ISSUER })).toEqual({
+            ...STATIC,
+            issuer: ISSUER,
+          });
+          expect(await provider.clientInformation()).toEqual({
+            ...STATIC,
+            issuer: ISSUER,
+          });
+        });
+
+        it("returns the static client unstamped when the stamp names another issuer", async () => {
+          const storage = makeStaticStorage({ ...STATIC, issuer: ISSUER });
+          const provider = makeProvider(storage);
+
+          expect(
+            await provider.clientInformation({
+              issuer: "https://other-as.example.com",
+            }),
+          ).toEqual({ ...STATIC, issuer: undefined });
+        });
+
+        it("keeps the stamp when re-seeding the same static client", async () => {
+          const storage = makeStaticStorage({ ...STATIC, issuer: ISSUER });
+          const provider = makeProvider(storage);
+
+          await provider.savePreregisteredClientInformation(STATIC);
+
+          expect(
+            storage.savePreregisteredClientInformation,
+          ).toHaveBeenCalledWith(SERVER, { ...STATIC, issuer: ISSUER });
+        });
+
+        it.each([
+          ["client_id", { ...STATIC, client_id: "rotated" }],
+          ["client_secret", { ...STATIC, client_secret: "rotated" }],
+        ])(
+          "drops the stamp when re-seeding with a changed %s",
+          async (_field, changed) => {
+            const storage = makeStaticStorage({ ...STATIC, issuer: ISSUER });
+            const provider = makeProvider(storage);
+
+            await provider.savePreregisteredClientInformation(changed);
+
+            expect(
+              storage.savePreregisteredClientInformation,
+            ).toHaveBeenCalledWith(SERVER, changed);
+          },
+        );
+
+        // The regression end to end: real storage, the real startup seed and
+        // the SDK's own `auth()`, whose unstamped-credential warning is what
+        // repeated on every run.
+        describe("across SDK auth() runs", () => {
+          const ISSUER_B = "https://as-b.example.com";
+
+          /**
+           * A persisted store that outlives any one process: each
+           * {@link startProcess} reloads it into fresh storage and memory, so a
+           * stamp that does not survive serialization is lost between runs.
+           */
+          function makeDisk() {
+            let saved: string | null = null;
+            const backend: OAuthPersistBackend = {
+              read: async () => (saved === null ? null : JSON.parse(saved)),
+              write: async (snapshot) => {
+                saved = JSON.stringify(snapshot);
+              },
+            };
+            return {
+              startProcess: (): OAuthStorage =>
+                new OAuthStorageBase(new OAuthMemoryStore(), backend),
+            };
+          }
+
+          /** Discovery naming `issuer` as the resource's authorization server. */
+          function discoveryFetch(issuer: string): typeof fetch {
+            return async (input: RequestInfo | URL) => {
+              const url = String(input);
+              if (url.includes("/.well-known/oauth-protected-resource")) {
+                return new Response(
+                  JSON.stringify({
+                    resource: SERVER,
+                    authorization_servers: [issuer],
+                  }),
+                );
+              }
+              if (url.startsWith(issuer)) {
+                return new Response(
+                  JSON.stringify({
+                    issuer,
+                    authorization_endpoint: `${issuer}/authorize`,
+                    token_endpoint: `${issuer}/token`,
+                    response_types_supported: ["code"],
+                  }),
+                );
+              }
+              throw new Error(`unexpected fetch: ${url}`);
+            };
+          }
+
+          /** One process lifetime: seed from config, then let the SDK authorize. */
+          async function startAndAuthorize(
+            storage: OAuthStorage,
+            issuer: string,
+          ) {
+            const redirectUrlProvider = new MutableRedirectUrlProvider();
+            redirectUrlProvider.redirectUrl = "http://localhost/oauth/callback";
+            const provider = makeProvider(storage, vi.fn(), {
+              redirectUrlProvider,
+            });
+            await provider.savePreregisteredClientInformation(STATIC);
+            expect(
+              await auth(provider, {
+                serverUrl: SERVER,
+                fetchFn: discoveryFetch(issuer),
+              }),
+            ).toBe("REDIRECT");
+          }
+
+          let warn: ReturnType<typeof vi.spyOn>;
+          beforeEach(() => {
+            warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+          });
+          afterEach(() => {
+            warn.mockRestore();
+          });
+
+          function sep2352Warnings(): unknown[][] {
+            return warn.mock.calls.filter((args: unknown[]) =>
+              String(args[0]).includes("SEP-2352"),
+            );
+          }
+
+          it("keeps the stamp across a restart, so the SDK warns only once", async () => {
+            const disk = makeDisk();
+
+            await startAndAuthorize(disk.startProcess(), ISSUER);
+            // First use: nothing was stamped yet, so the SDK warns and stamps.
+            expect(sep2352Warnings()).toHaveLength(1);
+            warn.mockClear();
+
+            const storage = disk.startProcess();
+            await startAndAuthorize(storage, ISSUER);
+
+            expect(sep2352Warnings()).toHaveLength(0);
+            expect(await storage.getClientInformation(SERVER, true)).toEqual({
+              ...STATIC,
+              issuer: ISSUER,
+            });
+            expect(
+              await storage.getClientInformation(SERVER, false, ISSUER),
+            ).toBeUndefined();
+          });
+
+          it("re-binds the static client when discovery resolves another issuer", async () => {
+            const disk = makeDisk();
+            const first = disk.startProcess();
+            await startAndAuthorize(first, ISSUER);
+            // SDK auth() reuses the cached AS; drop it so discovery re-resolves.
+            await first.clearDiscoveryState(SERVER);
+
+            const storage = disk.startProcess();
+            await startAndAuthorize(storage, ISSUER_B);
+
+            expect(await storage.getClientInformation(SERVER, true)).toEqual({
+              ...STATIC,
+              issuer: ISSUER_B,
+            });
+          });
+        });
+
+        it("seeds an unstamped static client as given", async () => {
+          const storage = makeStaticStorage({ ...STATIC });
+          const provider = makeProvider(storage);
+
+          await provider.savePreregisteredClientInformation(STATIC);
+
+          expect(
+            storage.savePreregisteredClientInformation,
+          ).toHaveBeenCalledWith(SERVER, STATIC);
+        });
       });
 
       // #2242: the SDK binds an existing registration to its issuer by calling
@@ -795,8 +1192,13 @@ describe("OAuthNavigation", () => {
             { issuer: ISSUER },
           );
 
-          // The id is not the metadata URL, so nothing is read at all.
-          expect(storage.getClientInformation).not.toHaveBeenCalled();
+          // The id is not the metadata URL, so no registration slot is read —
+          // only the preregistered one, to rule out a static back-stamp (#2751).
+          expect(storage.getClientInformation).not.toHaveBeenCalledWith(
+            SERVER,
+            false,
+            ISSUER,
+          );
           expect(storage.getDiscoveryState).not.toHaveBeenCalled();
           expect(storage.saveClientInformation).toHaveBeenCalledWith(
             SERVER,

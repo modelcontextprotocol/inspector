@@ -47,7 +47,7 @@ import {
 import {
   isSkillCatalogLimit,
   resolveSkillCatalogBudget,
-} from "@inspector/core/mcp/skills.js";
+} from "@inspector/core/extension/skills/conformance.js";
 import type { Root } from "@modelcontextprotocol/client";
 
 /**
@@ -621,6 +621,8 @@ export function ServerSettingsForm({
       onInsufficientScope: settings.oauthOnInsufficientScope,
       // Unset means the default, on — only an explicit opt-out is stored.
       requestRefreshToken: settings.oauthRequestRefreshToken ?? true,
+      // Unset means the default, off — only an explicit opt-in is stored.
+      scopeOnRefresh: settings.oauthScopeOnRefresh ?? false,
       // Unset means the default, on — only an explicit opt-out is stored.
       revokeOnClear: settings.oauthRevokeOnClear ?? true,
     };
@@ -669,6 +671,15 @@ export function ServerSettingsForm({
     onOAuthChange({
       ...currentOAuth(),
       requestRefreshToken: event.currentTarget.checked,
+    });
+  }
+
+  function handleScopeOnRefreshChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): void {
+    onOAuthChange({
+      ...currentOAuth(),
+      scopeOnRefresh: event.currentTarget.checked,
     });
   }
 
@@ -1066,6 +1077,12 @@ export function ServerSettingsForm({
                 description={`Declares the refresh_token grant, so the authorization server may issue a refresh token and renew access tokens without a new sign-in. Uncheck it for authorization servers that reject the offline_access scope and forced consent prompt the grant brings with it. Applies on the next connect.${refreshTokenEmaNote}`}
                 checked={settings.oauthRequestRefreshToken ?? true}
                 onChange={handleRequestRefreshTokenChange}
+              />
+              <Checkbox
+                label="Send scope on token refresh"
+                description="Includes the granted scope on the refresh-token request. Check it for authorization servers that reject a refresh without one, such as Microsoft Entra ID answering AADSTS90009 when the client and the resource are the same app registration. Leave it unchecked otherwise: some authorization servers narrow or alter the grant when a refresh carries a scope. Applies on the next connect."
+                checked={settings.oauthScopeOnRefresh ?? false}
+                onChange={handleScopeOnRefreshChange}
               />
               <Checkbox
                 label="Revoke tokens on clear"

@@ -18,6 +18,6 @@
       "@inspector/core/*": ["../../core/*"]
     }
   },
-  "include": ["src/**/*", "vitest.config.ts", "tsup.config.ts"],
+  "include": ["src/**/*", "vitest.config.ts", "tsdown.config.ts"],
   "exclude": ["node_modules", "**/*.test.ts", "build"]
 }

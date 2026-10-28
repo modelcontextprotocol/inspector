@@ -60,7 +60,7 @@ This specification defines **launch-time configuration** across web, CLI, and TU
 | Document                                         | Owns                                                                            |
 | ------------------------------------------------ | ------------------------------------------------------------------------------- |
 | [v2_servers_file.md](v2_servers_file.md)         | Catalog path, on-disk shape, web CRUD, `/api/servers`, per-server settings      |
-| [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md) | Bins, tsup, tests, `runWeb`, CLI config-file settings lift (G1, resolved #1482) |
+| [v2_cli_tui_launcher.md](v2_cli_tui_launcher.md) | Bins, tsdown, tests, `runWeb`, CLI config-file settings lift (G1, resolved #1482) |
 | [v2_ux.md](v2_ux.md)                             | Import config vs Import server.json menu UX                                     |
 | v1.5 `docs/mcp-server-configuration.md`          | Baseline shared launch flags (port to v2 pending, G6)                           |
 

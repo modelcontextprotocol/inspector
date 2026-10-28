@@ -10,7 +10,7 @@ import { defineConfig, globalIgnores } from "eslint/config";
 
 export default defineConfig([
   // Generated output, none of it first-party source. Web is the only client
-  // that emits *two* bundles — `dist` (the Vite SPA) and `build` (the tsup
+  // that emits *two* bundles — `dist` (the Vite SPA) and `build` (the tsdown
   // prod-server runner, which vendors ~1.2MB of `undici`) — and only the first
   // was originally listed, so `lint` reported a warning from inside undici's
   // own source that nobody could act on (#2043).

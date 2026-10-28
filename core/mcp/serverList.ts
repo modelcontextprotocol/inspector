@@ -18,7 +18,7 @@ import {
   isSkillCatalogLimit,
   SKILL_MAX_CATALOG_BYTES,
   SKILL_MAX_CATALOG_SKILLS,
-} from "./skills.js";
+} from "../extension/skills/conformance.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type {
   ElicitCapabilityMode,
@@ -683,6 +683,11 @@ export function storedFieldsToInspectorSettings(
   if (stored.oauth?.requestRefreshToken === false) {
     settings.oauthRequestRefreshToken = false;
   }
+  // Default *off*, like `enterpriseManaged`: only an explicit `true` is carried
+  // through, so a hand-edited non-boolean reads back as the default. (#2805)
+  if (stored.oauth?.scopeOnRefresh === true) {
+    settings.oauthScopeOnRefresh = true;
+  }
   // Same inverted default as the flag above: revocation is on unless the entry
   // explicitly opted out. (#2144)
   if (stored.oauth?.revokeOnClear === false) {
@@ -859,6 +864,10 @@ export function inspectorSettingsToStoredFields(
   // set it and break byte-stable round-trips. (#2068)
   if (settings.oauthRequestRefreshToken === false) {
     oauthFields.requestRefreshToken = false;
+  }
+  // The default here is off, so only `true` is written. (#2805)
+  if (settings.oauthScopeOnRefresh === true) {
+    oauthFields.scopeOnRefresh = true;
   }
   // Same omit-the-default rule as the flag above. (#2144)
   if (settings.oauthRevokeOnClear === false) {

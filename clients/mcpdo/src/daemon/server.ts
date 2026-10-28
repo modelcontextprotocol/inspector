@@ -4,6 +4,7 @@ import {
   classifyError,
   CliExitCodeError,
   EXIT_CODES,
+  type ErrorEnvelope,
 } from "@inspector/core/cli/error-handler.js";
 import {
   runMethod,
@@ -12,12 +13,17 @@ import {
 import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
 import {
+  runToolLoad,
+  type LoadOptions,
+} from "@inspector/core/cli/handlers/load-test.js";
+import {
   acceptDaemonConnection,
   removeStaleDaemonSocket,
   type ElicitationChannel,
   type HandleOutcome,
 } from "./ipc-glue.js";
 import { wireElicitationBridge } from "./elicitation-bridge.js";
+import { isOAuthCapableServerConfig } from "@inspector/core/client/runner.js";
 import {
   ElicitationParkRegistry,
   ParkingElicitationChannel,
@@ -48,6 +54,7 @@ import type {
   RpcResult,
   ConnectionNameParams,
   ConnectionShowResult,
+  RelayedEnvelopeFields,
 } from "./protocol.js";
 import {
   DEFAULT_IDLE_MS,
@@ -80,6 +87,15 @@ const autoCancelElicitationChannel: ElicitationChannel = {
     });
   },
 };
+
+/**
+ * Opens one extra `--load-connections` session (#2800) sharing `primary`'s
+ * OAuth storage; aborting `signal` cancels the dial.
+ */
+type LoadClientOpener = (
+  primary: InspectorClient,
+  signal: AbortSignal,
+) => Promise<InspectorClient>;
 
 export type DaemonServerOptions = {
   dir?: string;
@@ -334,6 +350,7 @@ export class DaemonServer {
               code: error.envelope?.code ?? "cli_error",
               message: error.message,
               exitCode: error.exitCode,
+              ...relayedEnvelopeFields(error.envelope),
             },
           },
         };
@@ -348,6 +365,7 @@ export class DaemonServer {
             code: envelope.code,
             message: envelope.message,
             exitCode,
+            ...relayedEnvelopeFields(envelope),
           },
         },
       };
@@ -594,12 +612,29 @@ export class DaemonServer {
     //     raw `params.interactive` (boolean | undefined) is threaded to
     //     `liveClientFor`, and `authRequiredError` treats only `=== true` as a
     //     human — so absent falls to the agent-tuned wording.
-    const park = params.interactive === false;
+    if (params.load !== undefined && params.method !== "tools/call") {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "--load requires tools/call",
+        { code: "invalid_params" },
+      );
+    }
+    // A load run never parks: its elicitations are declined, not relayed
+    // (see runLoadOnClient).
+    const park = params.interactive === false && params.load === undefined;
     // Parking needs the connection *name* for the pending payload and for
     // teardown-keyed cancellation; resolve it before reviving the client.
     const connectionName = park
       ? this.registry.connectionFor(params.name, params.requireExplicit).name
       : undefined;
+    // Resolved in the same synchronous step as the primary client below
+    // (`liveClientFor` resolves before its first await), so the extra
+    // sessions dial the server the primary is on even if the default
+    // connection changes while this run waits in the queue (#2800).
+    const openLoadClient =
+      params.load !== undefined
+        ? this.loadConnectionOpener(params, params.load)
+        : undefined;
     const client = await this.registry.liveClientFor(
       params.name,
       params.requireExplicit,
@@ -614,6 +649,16 @@ export class DaemonServer {
           EXIT_CODES.UNREACHABLE,
           "The caller disconnected before this command could run.",
           { code: "caller_gone" },
+        );
+      }
+      if (params.load !== undefined) {
+        return this.runLoadOnClient(
+          client,
+          requestId,
+          params,
+          params.load,
+          openLoadClient,
+          signal,
         );
       }
       return park
@@ -681,6 +726,131 @@ export class DaemonServer {
       unwire();
     }
     return toRpcResult(outcome, params.method);
+  }
+
+  /**
+   * `tools/call --load` (#2744): the shared load engine, run here against the
+   * daemon's live connection so the front-end makes one round trip for the
+   * whole run instead of one per call. It runs inside the per-client rpc
+   * queue like any other op, so later commands on this connection wait for
+   * it to finish.
+   */
+  private async runLoadOnClient(
+    client: InspectorClient,
+    requestId: string,
+    params: RpcParams,
+    load: LoadOptions,
+    openLoadClient: LoadClientOpener | undefined,
+    signal?: AbortSignal,
+  ): Promise<RpcResult> {
+    const methodArgs = stripConnectionFields(params);
+    this.assertNoParkedCall(client);
+    if (isTerminalStatus(client.getStatus())) {
+      throw new CliExitCodeError(
+        EXIT_CODES.UNREACHABLE,
+        "The connection dropped before this command could run; re-run the command to reconnect.",
+        { code: "connection_stale" },
+      );
+    }
+    // Many calls share one bridge subscriber, so an elicitation could not be
+    // routed back to the call that raised it, and nobody is at the stream to
+    // answer one mid-run anyway: cancel each, as the in-process default does.
+    const unwire = wireElicitationBridge(
+      client,
+      autoCancelElicitationChannel,
+      requestId,
+    );
+    // Ends the run early. The caller hanging up is one reason; the connection
+    // dropping is the other — every further call would fail at once, turning
+    // the rest of the window into a loop of instant failures that holds the
+    // queue for nothing. The summary still reports what completed.
+    const stop = new AbortController();
+    const onCallerGone = () => stop.abort();
+    signal?.addEventListener("abort", onCallerGone, { once: true });
+    const onStatus = (
+      event: TypedEventGeneric<InspectorClientEventMap, "statusChange">,
+    ) => {
+      if (isTerminalStatus(event.detail)) stop.abort();
+    };
+    client.addEventListener("statusChange", onStatus);
+    // In-flight calls abort with the run, not only new ones (#1783).
+    const clearAmbientSignal = client.setAmbientRequestSignal(stop.signal);
+    // Extra sessions this run opened (#2800). The engine disconnects each in
+    // its own `finally`; this releases what the daemon set up around them.
+    const extras: { client: InspectorClient; release: () => void }[] = [];
+    try {
+      const summary = await runToolLoad(client, methodArgs, load, {
+        signal: stop.signal,
+        ...(openLoadClient && {
+          openConnection: async () => {
+            // The run's signal reaches the dial too, so a stalled handshake
+            // does not hold the queue past Ctrl-C or a dropped primary.
+            const extra = await openLoadClient(client, stop.signal);
+            // The same treatment as the primary: the caller hanging up
+            // aborts the extras' in-flight calls too, and their elicitations
+            // are cancelled rather than left pending with nobody to answer.
+            const clearExtraSignal = extra.setAmbientRequestSignal(stop.signal);
+            const unwireExtra = wireElicitationBridge(
+              extra,
+              autoCancelElicitationChannel,
+              requestId,
+            );
+            extras.push({
+              client: extra,
+              release: () => {
+                unwireExtra();
+                clearExtraSignal();
+                this.registry.releaseLoadClient(extra);
+              },
+            });
+            return extra;
+          },
+        }),
+      });
+      return { kind: "load", summary };
+    } finally {
+      for (const extra of extras) extra.release();
+      clearAmbientSignal();
+      client.removeEventListener("statusChange", onStatus);
+      signal?.removeEventListener("abort", onCallerGone);
+      unwire();
+    }
+  }
+
+  /**
+   * The extra-session opener for a `--load-connections` run (#2800), bound
+   * to the connection's server config as resolved now, or `undefined` for a
+   * single-session run. Checked before the run is queued: over stdio every
+   * session would spawn its own server process, testing N isolated servers
+   * rather than one server under N sessions, so it is refused exactly as the
+   * one-shot CLI refuses it (#2746).
+   */
+  private loadConnectionOpener(
+    params: RpcParams,
+    load: LoadOptions,
+  ): LoadClientOpener | undefined {
+    if (load.connections === undefined || load.connections <= 1) {
+      return undefined;
+    }
+    const connection = this.registry.connectionFor(
+      params.name,
+      params.requireExplicit,
+    );
+    if (!isOAuthCapableServerConfig(connection.serverConfig)) {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
+        { code: "load_flag_conflict" },
+      );
+    }
+    const target = {
+      serverConfig: connection.serverConfig,
+      ...(connection.serverSettings && {
+        serverSettings: connection.serverSettings,
+      }),
+    };
+    return (primary, signal) =>
+      this.registry.openLoadClient(target, primary, signal);
   }
 
   /**
@@ -1039,6 +1209,27 @@ export class DaemonServer {
   }
 }
 
+/**
+ * The envelope fields a failed request relays to the caller beyond `code` and
+ * `message` (#2772). Without them the connection CLI's envelope lost `status`
+ * and a 429's structured retry timing on the socket, leaving a script to
+ * scrape the prose message.
+ */
+function relayedEnvelopeFields(
+  envelope: Partial<ErrorEnvelope> | undefined,
+): RelayedEnvelopeFields {
+  return {
+    ...(envelope?.status !== undefined && { status: envelope.status }),
+    ...(envelope?.method !== undefined && { method: envelope.method }),
+    ...(envelope?.retryAfter !== undefined && {
+      retryAfter: envelope.retryAfter,
+    }),
+    ...(envelope?.retryAfterMs !== undefined && {
+      retryAfterMs: envelope.retryAfterMs,
+    }),
+  };
+}
+
 /** `kill(pid, 0)` liveness probe; EPERM means alive but not ours. */
 function isPidAlive(pid: number): boolean {
   try {
@@ -1081,13 +1272,14 @@ function stripConnectionFields(
   // runMethod's `format === "json"` branch collect app info (an extra
   // resources/read) whose result the frontend discards. `interactive` is
   // daemon routing (elicitation parking, message audience), not a method
-  // argument.
-  const { name, requireExplicit, format, interactive, method, ...rest } =
+  // argument. `load` is consumed by runLoadOnClient, never by runMethod.
+  const { name, requireExplicit, format, interactive, load, method, ...rest } =
     params;
   void name;
   void requireExplicit;
   void format;
   void interactive;
+  void load;
   return { method, ...rest };
 }
 

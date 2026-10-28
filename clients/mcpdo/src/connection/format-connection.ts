@@ -12,6 +12,7 @@ import {
 } from "@inspector/core/cli/error-handler.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import type { CliAppInfo } from "@inspector/core/cli/handlers/method-types.js";
+import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
 import {
   formatAppInfoHuman,
   formatAppInfoListHuman,
@@ -23,6 +24,7 @@ import {
   formatConnectionInfoHuman,
   formatConnectionsListHuman,
   formatElicitationPendingHuman,
+  formatLoadSummaryHuman,
   formatSkillVerifyListHuman,
   formatStreamEventHuman,
 } from "./format-human.js";
@@ -76,6 +78,7 @@ export type ConnectionWriteKind =
       exitCode?: number;
     }
   | { kind: "stream-event"; data: unknown }
+  | { kind: "load"; summary: LoadSummary }
   | {
       kind: "servers/list";
       servers: unknown[];
@@ -227,6 +230,8 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
       return payload.lines;
     case "stream-event":
       return payload.data;
+    case "load":
+      return payload.summary;
     case "servers/list":
       return {
         servers: payload.servers,
@@ -342,6 +347,8 @@ function humanPayload(
         : formatAppInfoListHuman(payload.lines, style);
     case "stream-event":
       return formatStreamEventHuman(payload.data, style);
+    case "load":
+      return formatLoadSummaryHuman(payload.summary, style);
     case "servers/list":
       return formatServersListHuman(payload.servers, style, payload.source);
     case "servers/show":

@@ -46,7 +46,10 @@
  */
 
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
-import { SKILLS_LIST_METHOD, type SkillEntry } from "../skillsSchemas.js";
+import {
+  SKILLS_LIST_METHOD,
+  type SkillEntry,
+} from "../../extension/skills/schemas.js";
 import { LIST_MAX_PAGES, isClientDecodeRejection } from "../listSalvage.js";
 import { isTerminalStatus } from "../types.js";
 import type { RequestMetadata } from "../types.js";
