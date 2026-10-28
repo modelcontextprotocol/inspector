@@ -12,6 +12,17 @@
 // release body to its Contributors strip, so that section is what puts the
 // reporters there.
 //
+// Security advisories (#2766) need a hand on both ends: a GHSA fix lands as
+// a merge from the advisory's private fork, not as a PR, so generate-notes
+// never lists it, and its reporter filed no issue, so nothing credits them.
+// Each `--advisory "<GHSA-id>: <markdown>"` adds a bullet under a
+// `### Security fixes` heading inside What's Changed (the PR list moves under
+// `### Other changes`) and credits the advisory's reporters, in every credit
+// state, alongside the issue reporters. The markdown describes the FIX; the
+// advisory's own summary describes the vulnerability, so it is no substitute.
+// An advisory whose patched versions do not name this release aborts the
+// run, since a wrong id would link and credit an unrelated advisory.
+//
 // FAIL FAST. Every `gh`/`git` call is checked and a failure throws: a
 // permission lookup that errors must never read as "community" (that could
 // credit a maintainer), and a rate-limited PR or issue lookup must never be
@@ -39,6 +50,28 @@ const COMMUNITY_PERMISSIONS = new Set(["triage", "read", "none"]);
 
 export const THANKS_LEAD_IN =
   "This release addresses issues reported by these community members. Thank you for taking the time to file them:";
+export const THANKS_LEAD_IN_BOTH =
+  "This release addresses issues and vulnerabilities reported by these community members. Thank you for taking the time to report them:";
+export const THANKS_LEAD_IN_ADVISORIES =
+  "This release addresses vulnerabilities reported by these community members. Thank you for taking the time to report them responsibly:";
+
+// The credit types that mean "this person reported it". The others
+// (remediation developer, coordinator, sponsor, …) are thanked for work this
+// section does not describe.
+const REPORTER_CREDIT_TYPES = new Set(["reporter", "finder"]);
+
+const GHSA_ID = /^GHSA(?:-[a-z0-9]{4}){3}$/;
+
+/** `"<GHSA-id>: <markdown>"` → `{ id, description }`; throws on anything else. */
+export function parseAdvisoryArg(value) {
+  const match = value.match(/^\s*([^:\s]+)\s*:\s*(\S[\s\S]*?)\s*$/);
+  if (!match || !GHSA_ID.test(match[1])) {
+    throw new Error(
+      `--advisory "${value}" is not "<GHSA-xxxx-xxxx-xxxx>: <markdown>"`,
+    );
+  }
+  return { id: match[1], description: match[2] };
+}
 
 export function parseNotesArgs(argv) {
   const { values } = parseArgs({
@@ -47,6 +80,7 @@ export function parseNotesArgs(argv) {
       "merge-branch": { type: "string" },
       "ledger-url": { type: "string" },
       "known-issue": { type: "string", multiple: true },
+      advisory: { type: "string", multiple: true },
       version: { type: "string" },
       "previous-tag": { type: "string" },
       draft: { type: "boolean" },
@@ -78,10 +112,17 @@ export function parseNotesArgs(argv) {
   if ((values.draft || values.publish) && values["previous-tag"]) {
     throw new Error("--previous-tag is preview-only");
   }
+  const advisories = (values.advisory ?? []).map(parseAdvisoryArg);
+  const seen = new Set();
+  for (const { id } of advisories) {
+    if (seen.has(id)) throw new Error(`--advisory ${id} is given twice`);
+    seen.add(id);
+  }
   return {
     mergeBranch,
     ledgerUrl,
     knownIssues: values["known-issue"] ?? [],
+    advisories,
     version: values.version,
     previousTag: values["previous-tag"],
     mode: values.publish ? "publish" : values.draft ? "draft" : "preview",
@@ -240,40 +281,151 @@ export function isMaintainer(spawn, login) {
   throw new Error(`unexpected permission "${permission}" for @${login}`);
 }
 
-/** Community reporter → the issues of theirs the listed PRs close. */
-export function collectReporters(spawn, pulls) {
+const COMPARE = {
+  "=": (c) => c === 0,
+  ">=": (c) => c >= 0,
+  ">": (c) => c > 0,
+  "<=": (c) => c <= 0,
+  "<": (c) => c < 0,
+};
+
+/**
+ * Whether one `patched_versions` string admits `version`. It is a
+ * comma-joined AND of `[op] x.y.z` constraints, a bare version meaning that
+ * version exactly. Anything else throws rather than being guessed at, since
+ * reading every numeric token as a match lets an exclusive bound through.
+ */
+export function patchedRangeAdmits(range, version) {
+  return range.split(",").every((part) => {
+    const match = part.trim().match(/^(>=|<=|>|<|=)?\s*(\d+\.\d+\.\d+)$/);
+    if (!match) {
+      throw new Error(`unsupported patched_versions "${range}"`);
+    }
+    return COMPARE[match[1] ?? "="](compareVersions(version, match[2]));
+  });
+}
+
+/**
+ * The advisory `id`, checked against the release: one of its patched ranges
+ * must admit `version`. A draft only warns — its link 404s until it is
+ * published, and the intended order is the Release first, then the advisory.
+ */
+export function fetchAdvisory(spawn, id, version) {
+  const advisory = JSON.parse(
+    run(spawn, "gh", ["api", `repos/${REPO}/security-advisories/${id}`]),
+  );
+  const ranges = (advisory.vulnerabilities ?? [])
+    .map((v) => v.patched_versions)
+    .filter(Boolean);
+  if (!ranges.some((range) => patchedRangeAdmits(range, version))) {
+    throw new Error(
+      `${id} does not list ${version} as patched (patched: ${ranges.join("; ") || "none"})`,
+    );
+  }
+  if (advisory.state === "draft") {
+    console.error(
+      `warning: ${id} is still a draft — its link 404s until it is published`,
+    );
+  }
+  return advisory;
+}
+
+/** The logins an advisory credits as reporting it, users only, any credit state. */
+export function advisoryReporters(advisory) {
+  return (advisory.credits_detailed ?? [])
+    .filter(
+      (credit) =>
+        REPORTER_CREDIT_TYPES.has(credit.type) && credit.user?.type === "User",
+    )
+    .map((credit) => credit.user.login);
+}
+
+/**
+ * Community reporter → `{ issues, advisories }`: the issues of theirs the
+ * listed PRs close, and the advisories (in `--advisory` order) crediting them.
+ */
+export function collectReporters(spawn, pulls, advisories = []) {
   const issues = new Set();
   for (const pr of pulls) {
     for (const n of issuesClosedBy(spawn, pr)) issues.add(n);
   }
   const reporters = new Map();
   const maintainer = new Map();
-  for (const n of [...issues].sort((a, b) => a - b)) {
-    const login = creditableAuthor(spawn, n);
-    if (login === null) continue;
+  const credit = (login) => {
     if (!maintainer.has(login)) {
       maintainer.set(login, isMaintainer(spawn, login));
     }
-    if (maintainer.get(login)) continue;
-    if (!reporters.has(login)) reporters.set(login, []);
-    reporters.get(login).push(n);
+    if (maintainer.get(login)) return null;
+    if (!reporters.has(login)) {
+      reporters.set(login, { issues: [], advisories: [] });
+    }
+    return reporters.get(login);
+  };
+  for (const n of [...issues].sort((a, b) => a - b)) {
+    const login = creditableAuthor(spawn, n);
+    if (login !== null) credit(login)?.issues.push(n);
+  }
+  for (const advisory of advisories) {
+    for (const login of new Set(advisoryReporters(advisory))) {
+      credit(login)?.advisories.push(advisory.ghsa_id);
+    }
   }
   return reporters;
 }
 
-/** One line per person, most issues first, then by name; "" when nobody. */
+/**
+ * One line per person, most issues first, then by name, so a reporter of
+ * advisories alone sorts after every issue reporter; "" when nobody.
+ */
 export function formatThanks(reporters) {
   if (reporters.size === 0) return "";
-  const lines = [...reporters]
+  const entries = [...reporters];
+  const anyIssues = entries.some(([, r]) => r.issues.length > 0);
+  const anyAdvisories = entries.some(([, r]) => r.advisories.length > 0);
+  const leadIn = !anyAdvisories
+    ? THANKS_LEAD_IN
+    : anyIssues
+      ? THANKS_LEAD_IN_BOTH
+      : THANKS_LEAD_IN_ADVISORIES;
+  const lines = entries
     .sort(
-      ([a, ia], [b, ib]) =>
-        ib.length - ia.length ||
+      ([a, ra], [b, rb]) =>
+        rb.issues.length - ra.issues.length ||
         a.localeCompare(b, "en", { sensitivity: "base" }),
     )
+    .map(([login, r]) => {
+      const refs = [...r.issues.map((n) => `#${n}`), ...r.advisories];
+      return `* @${login} (${refs.join(", ")})`;
+    });
+  return `## Thanks for helping us improve\n\n${leadIn}\n\n${lines.join("\n")}`;
+}
+
+/** One bullet per advisory, ending in its link, as 1.0.3 shipped them. */
+export function formatSecurityFixes(advisories) {
+  return advisories
     .map(
-      ([login, nums]) => `* @${login} (${nums.map((n) => `#${n}`).join(", ")})`,
-    );
-  return `## Thanks for helping us improve\n\n${THANKS_LEAD_IN}\n\n${lines.join("\n")}`;
+      ({ id, description }) =>
+        `* ${description} ([${id}](https://github.com/${REPO}/security/advisories/${id}))`,
+    )
+    .join("\n");
+}
+
+/**
+ * The generated list with a `### Security fixes` section at the top of What's
+ * Changed and the PRs under `### Other changes`; unchanged without advisories.
+ */
+export function withSecurityFixes(generated, advisories) {
+  if (advisories.length === 0) return generated;
+  const security = `### Security fixes\n\n${formatSecurityFixes(advisories)}`;
+  // `\r?`: a body edited in the Releases UI comes back CRLF.
+  const heading = /^## What's Changed[ \t]*\r?\n/m;
+  if (!heading.test(generated)) {
+    return `## What's Changed\n\n${security}\n\n${generated}`;
+  }
+  return generated.replace(
+    heading,
+    () => `## What's Changed\n\n${security}\n\n### Other changes\n\n`,
+  );
 }
 
 export function formatKnownIssues(knownIssues) {
@@ -318,6 +470,10 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
     args.previousTag ??
     previousStableTag(run(spawn, "git", ["tag", "-l"]).split("\n"), version);
   console.error(`release notes: ${previousTag} → ${version}`);
+  // Before anything slower: a wrong advisory id is the likeliest typo here.
+  const advisories = args.advisories.map(({ id }) =>
+    fetchAdvisory(spawn, id, version),
+  );
 
   const generated = run(spawn, "gh", [
     "api",
@@ -334,11 +490,11 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   const pulls = pullNumbersFrom(generated);
   console.error(`crediting reporters of issues closed by ${pulls.length} PRs`);
   const notes = assembleNotes({
-    generated,
+    generated: withSecurityFixes(generated, args.advisories),
     mergeBranch: args.mergeBranch,
     ledgerUrl: args.ledgerUrl,
     knownIssues: args.knownIssues,
-    thanks: formatThanks(collectReporters(spawn, pulls)),
+    thanks: formatThanks(collectReporters(spawn, pulls, advisories)),
   });
 
   if (args.mode === "preview") {

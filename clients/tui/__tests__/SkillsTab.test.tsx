@@ -2,9 +2,12 @@ import React from "react";
 import { describe, it, expect, vi } from "vitest";
 import { render } from "./helpers/renderTui";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas.js";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
-import { sha256Digest, textToBytes } from "@inspector/core/mcp/skills.js";
+import {
+  sha256Digest,
+  textToBytes,
+} from "@inspector/core/extension/skills/conformance.js";
 
 // MUST mock ink-scroll-view: the real ScrollView renders a placeholder minimap
 // in the non-TTY test env and never mounts its children.

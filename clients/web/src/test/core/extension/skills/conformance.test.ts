@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ServerCapabilities } from "@modelcontextprotocol/client";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
-import { SKILLS_EXTENSION_KEY } from "@inspector/core/mcp/skillsSchemas";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas";
+import { SKILLS_EXTENSION_KEY } from "@inspector/core/extension/skills/schemas";
 import {
   SKILL_MAX_RESOURCE_ENTRIES,
   SKILL_MAX_TOTAL_BYTES,
@@ -21,7 +21,7 @@ import {
   textToBytes,
   totalSkillBytes,
   verifySkillResource,
-} from "@inspector/core/mcp/skills";
+} from "@inspector/core/extension/skills/conformance";
 
 /** The digest of the string "hello", precomputed so the assertion is a fact
  * about SHA-256 rather than a restatement of what the code just did. */

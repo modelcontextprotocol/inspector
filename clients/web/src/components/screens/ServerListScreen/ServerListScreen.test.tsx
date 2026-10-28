@@ -162,6 +162,22 @@ describe("ServerListScreen", () => {
         container.querySelectorAll('[data-variant="errored"]'),
       ).toHaveLength(0);
     });
+
+    it("shows the failure reason only on the failed server's card (#2783)", () => {
+      renderWithMantine(
+        <ServerListScreen
+          {...baseProps}
+          erroredServerId="beta"
+          connectErrorMessage="Remote connect failed (500)"
+        />,
+      );
+      const alerts = screen.getAllByRole("alert");
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0]).toHaveTextContent("Remote connect failed (500)");
+      expect(alerts[0]!.closest('[data-variant="errored"]')).toHaveTextContent(
+        "Beta",
+      );
+    });
   });
 
   describe("just-connected highlight (#1682)", () => {

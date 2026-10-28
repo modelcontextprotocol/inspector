@@ -67,6 +67,7 @@ interface FakeInner {
   codeVerifier: ReturnType<typeof vi.fn>;
   saveDiscoveryState: ReturnType<typeof vi.fn>;
   discoveryState: ReturnType<typeof vi.fn>;
+  scopeForRefresh: ReturnType<typeof vi.fn>;
 }
 
 function createInner(): FakeInner {
@@ -86,6 +87,7 @@ function createInner(): FakeInner {
     codeVerifier: vi.fn(() => "verifier-xyz"),
     saveDiscoveryState: vi.fn(),
     discoveryState: vi.fn(),
+    scopeForRefresh: vi.fn(async () => "mcp tools:read"),
   };
 }
 
@@ -168,6 +170,14 @@ describe("EmaTransportOAuthProvider", () => {
     inner.discoveryState.mockReturnValue(state);
     expect(await provider.discoveryState()).toEqual(state);
     expect(inner.discoveryState).toHaveBeenCalled();
+  });
+
+  // #2805: the per-server setting lives on the inner provider, so the wrapper
+  // must forward it or an EMA connection silently refreshes without `scope`.
+  it("delegates scopeForRefresh to the inner provider", async () => {
+    const tokens = { access_token: "at", token_type: "Bearer" };
+    expect(await provider.scopeForRefresh(tokens)).toBe("mcp tools:read");
+    expect(inner.scopeForRefresh).toHaveBeenCalledWith(tokens);
   });
 
   it("tokens() returns stored tokens when the access token is still usable", async () => {

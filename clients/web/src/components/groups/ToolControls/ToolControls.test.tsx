@@ -399,6 +399,54 @@ describe("ToolControls", () => {
     expect(screen.queryByText("dupe")).not.toBeInTheDocument();
   });
 
+  // Asserts the given texts appear in this order in the rendered DOM.
+  const expectInDomOrder = (texts: string[]) => {
+    const nodes = texts.map((text) => screen.getByText(text));
+    for (let i = 1; i < nodes.length; i++) {
+      expect(
+        nodes[i - 1]!.compareDocumentPosition(nodes[i]!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
+  };
+
+  it("lists tools alphabetically by their displayed label (#2782)", () => {
+    // sampleTools arrives as List Files, Query DB, git_status, git_commit.
+    renderWithMantine(<ToolControls {...baseProps} />);
+    expectInDomOrder(["git_commit", "git_status", "List Files", "Query DB"]);
+  });
+
+  it("keeps the sorted order while a search narrows the list (#2782)", () => {
+    renderWithMantine(<ToolControls {...baseProps} searchText="git" />);
+    expectInDomOrder(["git_commit", "git_status"]);
+  });
+
+  it("reports the source-position row key for a sorted row (#2782)", async () => {
+    // Sorting moves git_commit (source index 3) to the top; its key must still
+    // name its position in the server's list, which is what the parent resolves.
+    const user = userEvent.setup();
+    const onSelectTool = vi.fn();
+    renderWithMantine(
+      <ToolControls {...baseProps} onSelectTool={onSelectTool} />,
+    );
+    await user.click(screen.getByText("git_commit"));
+    expect(onSelectTool).toHaveBeenCalledWith("3:git_commit");
+  });
+
+  it("lists excluded tools alphabetically by the name they show (#2782)", () => {
+    // Titles that would invert the order: an excluded row shows only `name`,
+    // so sorting by the resolved title would read as unsorted.
+    const excluded = [
+      { name: "zed_tool", title: "Alpha" },
+      { name: "alpha_tool", title: "Zulu" },
+    ].map((tool) => ({
+      tool: { ...tool, inputSchema: { type: "object" as const } },
+      reason: "invalid x-mcp-header",
+    }));
+    renderWithMantine(<ToolControls {...baseProps} excludedTools={excluded} />);
+    expectInDomOrder(["alpha_tool", "zed_tool"]);
+  });
+
   it("renders no load error by default", () => {
     renderWithMantine(<ToolControls {...baseProps} />);
     expect(screen.queryByText(/Couldn't load/)).not.toBeInTheDocument();

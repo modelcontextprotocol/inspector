@@ -114,6 +114,26 @@ describe("runner client auth options", () => {
     ).toBeUndefined();
   });
 
+  // #2805 — the refresh-scope opt-in reaches the CLI/TUI leg the same way.
+  it("buildRunnerClientAuthOptions forwards the refresh-scope opt-in", () => {
+    const base: InspectorServerSettings = {
+      requestTimeout: 0,
+      connectionTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 10,
+      metadata: {},
+      headers: [],
+      env: [],
+      roots: [],
+    };
+    expect(
+      buildRunnerClientAuthOptions({}, { ...base, oauthScopeOnRefresh: true })
+        .oauth?.scopeOnRefresh,
+    ).toBe(true);
+    // Off (the default) forwards nothing, so the provider keeps its default.
+    expect(buildRunnerClientAuthOptions({}, base).oauth).toBeUndefined();
+  });
+
   // #2018 — the CLI/TUI leg picks the authorization parameters up from the same
   // per-server settings the web leg reads, so all three clients agree.
   it("buildRunnerClientAuthOptions forwards custom authorization params", () => {

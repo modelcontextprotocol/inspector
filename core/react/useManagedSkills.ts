@@ -4,7 +4,7 @@ import type {
   ManagedSkillsState,
   SkillsPaginationState,
 } from "../mcp/state/managedSkillsState.js";
-import type { SkillEntry } from "../mcp/skillsSchemas.js";
+import type { SkillEntry } from "../extension/skills/schemas.js";
 import { useListError } from "./useListError.js";
 import { useStoreSnapshot } from "./useStoreSnapshot.js";
 

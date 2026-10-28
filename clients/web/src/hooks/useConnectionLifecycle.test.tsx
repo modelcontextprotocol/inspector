@@ -559,8 +559,8 @@ describe("useConnectionLifecycle", () => {
     });
 
     it("forwards the refresh-token opt-out on its own", () => {
-      // The last operand of the "is there any per-server OAuth?" chain, so it
-      // is the only shape that reaches it — every other field short-circuits.
+      // A late operand of the "is there any per-server OAuth?" chain, so it
+      // is the only shape that decides it — every earlier field short-circuits.
       const settings: InspectorServerSettings = {
         ...EMPTY_SETTINGS,
         oauthRequestRefreshToken: false,
@@ -572,6 +572,21 @@ describe("useConnectionLifecycle", () => {
 
       const client = h.published()!(entry("a", { settings }));
       expect(client.getServerSettings()?.oauthRequestRefreshToken).toBe(false);
+    });
+
+    it("forwards the refresh-scope opt-in on its own (#2805)", () => {
+      // Now the last operand of the "is there any per-server OAuth?" chain.
+      const settings: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        oauthScopeOnRefresh: true,
+      };
+      const h = harness({
+        servers: [entry("a", { settings })],
+        persisted: { a: settings },
+      });
+
+      const client = h.published()!(entry("a", { settings }));
+      expect(client.getServerSettings()?.oauthScopeOnRefresh).toBe(true);
     });
 
     it("threads the per-server authorization params and endpoint overrides", () => {

@@ -3,6 +3,7 @@ import { awaitableError } from "./utils/awaitable-log.js";
 import { isUnauthorizedError } from "../auth/index.js";
 import { SecretStoreUnavailableError } from "../auth/node/secret-store.js";
 import { OAuthStateFileUnrecognizedError } from "../auth/node/oauth-persist-file.js";
+import { HTTP_TOO_MANY_REQUESTS } from "../mcp/rateLimit.js";
 
 /**
  * Exit-code map. Non-zero codes let an automated caller (CI, an agent) branch
@@ -18,6 +19,8 @@ import { OAuthStateFileUnrecognizedError } from "../auth/node/oauth-persist-file
  *  - 7: `--verify` found a SEP-2640 violation
  *  - 8: `--verify` could not check the whole catalog within the read bounds
  *  - 9: `--verify --require-digests` found a skill that advertised no digests
+ *  - 10: a `--load` run breached a `--load-max-*` threshold
+ *  - 11: the server rate limited the request (HTTP 429)
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -68,6 +71,27 @@ export const EXIT_CODES = {
    * short".
    */
   SKILL_UNVERIFIABLE: 9,
+  /**
+   * A `--load` run completed and breached a threshold set with
+   * `--load-max-error-rate` or `--load-max-p99` (#2745). The summary has
+   * already been printed; the envelope `code` names the threshold
+   * (`load_error_rate_exceeded` / `load_p99_exceeded`).
+   *
+   * Not `TOOL_ERROR` (5): a load run's failed calls are measurements, and
+   * without a threshold the same run exits 0. Exit 5 from `--load` keeps
+   * meaning "the tool was not found", so a CI job can tell "the server missed
+   * its SLO" apart from "the job is pointed at the wrong tool".
+   */
+  LOAD_THRESHOLD_EXCEEDED: 10,
+  /**
+   * The server answered `429 Too Many Requests` (#2772).
+   *
+   * Its own code rather than the catch-all, because it is the one failure
+   * whose right response is "wait, then run the same command again" — and the
+   * envelope says how long, in `retryAfterMs`. Folding it into `1` would leave
+   * a script to scrape the prose message to tell throttling from a real error.
+   */
+  RATE_LIMITED: 11,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */
@@ -82,6 +106,48 @@ export interface ErrorEnvelope {
   status?: number;
   /** The server URL the failure was against, when known. */
   url?: string;
+  /**
+   * The JSON-RPC method a rate-limited request was for (#2772). This field and
+   * the two below are present only on a `rate_limited` envelope, lifted from
+   * the error's `AnnotatedRateLimitData` so a caller need not parse `message`.
+   */
+  method?: string;
+  /**
+   * The server's `Retry-After` header as sent — verbatim, so a malformed value
+   * is still reported. Absent when the server sent none.
+   */
+  retryAfter?: string;
+  /** `retryAfter` as a delay in ms; absent when it did not parse. */
+  retryAfterMs?: number;
+}
+
+/** The envelope fields that only a rate-limited failure carries. */
+type RateLimitFields = Pick<
+  ErrorEnvelope,
+  "method" | "retryAfter" | "retryAfterMs"
+>;
+
+/**
+ * Read the rate-limit fields off an error's `data`, where `annotateRateLimit`
+ * (core/mcp/rateLimit.ts) puts them. Each is type-checked rather than trusted,
+ * since `data` is an open record on the SDK's error and an unannotated 429
+ * carries none of them — a missing field is omitted, never emitted as `null`,
+ * matching every other optional envelope field.
+ */
+function rateLimitFieldsOf(error: unknown): RateLimitFields {
+  // Optional chaining covers null/undefined; any other primitive simply has
+  // no `data` property.
+  const data = (error as { data?: unknown } | null | undefined)?.data;
+  if (data == null || typeof data !== "object") return {};
+  const { method, retryAfter, retryAfterMs } = data as Record<string, unknown>;
+  return {
+    ...(typeof method === "string" && { method }),
+    ...(typeof retryAfter === "string" && { retryAfter }),
+    // Finite only: a delta-seconds header too long for a double parses to
+    // `Infinity`, which JSON serializes as `null`. The raw header stays.
+    ...(typeof retryAfterMs === "number" &&
+      Number.isFinite(retryAfterMs) && { retryAfterMs }),
+  };
 }
 
 /**
@@ -168,6 +234,11 @@ function redactEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
       cause: redactUrlsInText(envelope.cause),
     }),
     ...(envelope.url !== undefined && { url: redactUrlQuery(envelope.url) }),
+    // Kept verbatim when malformed, so it is server text like `message` and
+    // can carry a URL just the same (#2772).
+    ...(envelope.retryAfter !== undefined && {
+      retryAfter: redactUrlsInText(envelope.retryAfter),
+    }),
   };
 }
 
@@ -213,6 +284,17 @@ function classifyUnredacted(
         }),
         ...((error.envelope?.url ?? url) !== undefined && {
           url: error.envelope?.url ?? url,
+        }),
+        // A rate-limited failure relayed across mcpdo's daemon socket arrives
+        // pre-classified, carrying its structured fields on the envelope.
+        ...(error.envelope?.method !== undefined && {
+          method: error.envelope.method,
+        }),
+        ...(error.envelope?.retryAfter !== undefined && {
+          retryAfter: error.envelope.retryAfter,
+        }),
+        ...(error.envelope?.retryAfterMs !== undefined && {
+          retryAfterMs: error.envelope.retryAfterMs,
         }),
       },
     };
@@ -274,6 +356,24 @@ function classifyUnredacted(
     };
   }
 
+  // 429 → RATE_LIMITED, with the server's retry timing lifted off the
+  // annotated error's data so a caller can schedule the retry (#2772).
+  // Checked before the unreachable pattern: a throttled request's message
+  // embeds the server's response body, which could match it by accident.
+  if (status === HTTP_TOO_MANY_REQUESTS) {
+    return {
+      exitCode: EXIT_CODES.RATE_LIMITED,
+      envelope: {
+        code: "rate_limited",
+        message,
+        ...(cause !== undefined && { cause }),
+        status,
+        ...(url !== undefined && { url }),
+        ...rateLimitFieldsOf(error),
+      },
+    };
+  }
+
   // Network-layer failure → UNREACHABLE so the caller can retry via a proxy.
   if (UNREACHABLE_PATTERN.test(message + " " + (cause ?? ""))) {
     return {
@@ -312,6 +412,8 @@ function codeForExit(exitCode: number): string {
       return "tool_error";
     case EXIT_CODES.SCHEMA_UNPORTABLE:
       return "schema_unportable";
+    case EXIT_CODES.RATE_LIMITED:
+      return "rate_limited";
     default:
       return "error";
   }

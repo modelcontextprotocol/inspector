@@ -12,6 +12,7 @@ import {
 } from "@inspector/core/client/runner.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import {
+  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
@@ -65,6 +66,9 @@ export async function authorizeInFrontend(
     // at the bottom of the stack, for OAuth discovery and token requests to
     // reach it. Undefined when no proxy variable is set.
     fetch: createProxyFetch(),
+    // OAuth on the destination-guarded base (#2749), which refuses link-local
+    // and cloud-metadata targets; proxy-aware itself.
+    oauthFetch: createGuardedFetch(),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(

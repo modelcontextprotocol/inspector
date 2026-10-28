@@ -42,8 +42,11 @@ import type { TaskCapabilities } from "@modelcontextprotocol/ext-tasks/client";
 import { INACTIVE_SUBSCRIPTION_STREAM_STATE } from "../types.js";
 import type { MalformedListItem } from "../listSalvage.js";
 import type { ConnectionDiagnostics } from "../connectionDiagnostics.js";
-import type { SkillEntry, SkillResource } from "../skillsSchemas.js";
-import type { SkillsExtensionSupport } from "../skills.js";
+import type {
+  SkillEntry,
+  SkillResource,
+} from "../../extension/skills/schemas.js";
+import type { SkillsExtensionSupport } from "../../extension/skills/conformance.js";
 import type { JsonValue } from "../../json/jsonUtils.js";
 
 type ListResult<TKey extends string, TItem> = {

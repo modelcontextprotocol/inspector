@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { act, renderHook } from "@testing-library/react";
-import type { SkillEntry } from "@inspector/core/mcp/skillsSchemas";
+import type { SkillEntry } from "@inspector/core/extension/skills/schemas";
 import { FakeInspectorClient } from "@inspector/core/mcp/__tests__/fakeInspectorClient";
 import { ManagedSkillsState } from "@inspector/core/mcp/state/managedSkillsState";
 import { useManagedSkills } from "@inspector/core/react/useManagedSkills";

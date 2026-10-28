@@ -194,8 +194,11 @@ import {
   SKILLS_GET_METHOD,
   SKILLS_LIST_METHOD,
   type SkillEntry,
-} from "./skillsSchemas.js";
-import { getSkillsExtension, type SkillsExtensionSupport } from "./skills.js";
+} from "../extension/skills/schemas.js";
+import {
+  getSkillsExtension,
+  type SkillsExtensionSupport,
+} from "../extension/skills/conformance.js";
 import {
   getElicitationUiResourceUri,
   isFormElicitation,
@@ -275,6 +278,7 @@ import {
   type HandleAuthChallengeOptions,
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
+import { routeOAuthRequests } from "../auth/routeOAuthRequests.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
@@ -875,10 +879,33 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `this.fetchFn` directly. The overrides are read lazily — `oauthManager` is
     // created a few lines below, and `setOAuthConfig` can change them later — so
     // the wrapper is inert until a server actually configures one.
-    const withOverrides = withOAuthEndpointOverrides(
-      this.fetchFn ?? fetch,
-      () => this.oauthManager?.getEndpointOverrides(),
+    //
+    // #2749: OAuth work gets its own base when the environment supplies one —
+    // the Node clients' destination-guarded fetch. The auth chain sits on it
+    // outright; the transport chain routes to it everything that is not the
+    // MCP endpoint (`routeOAuthRequests`), which is exactly the
+    // transport-internal discovery described above. Absent, both chains share
+    // the one base as before.
+    const transportBase = this.fetchFn ?? fetch;
+    const oauthBase = options.environment.oauthFetch;
+    // Legacy SSE negotiates its message endpoint inside the stream, so its path
+    // is unknowable here and the exemption has to widen to the origin.
+    // Streamable HTTP sends everything to the configured URL, so the path rule
+    // is exact there and same-origin OAuth stays bounded (and guarded).
+    const isMcpEndpoint = exemptMcpEndpoint(
+      () => this.getServerUrl(),
+      () => this.transportConfig?.type === "sse",
     );
+    const getOverrides = () => this.oauthManager?.getEndpointOverrides();
+    const withOverrides = withOAuthEndpointOverrides(
+      oauthBase
+        ? routeOAuthRequests(transportBase, oauthBase, isMcpEndpoint)
+        : transportBase,
+      getOverrides,
+    );
+    const authWithOverrides = oauthBase
+      ? withOAuthEndpointOverrides(oauthBase, getOverrides)
+      : withOverrides;
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
     // the SDK validates as an OpenID provider document and rejects. Wraps the
@@ -900,14 +927,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       withOAuthRequestTimeout(
         withOverrides,
         DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
-        exemptMcpEndpoint(
-          () => this.getServerUrl(),
-          // Legacy SSE negotiates its message endpoint inside the stream, so
-          // its path is unknowable here and the exemption has to widen to the
-          // origin. Streamable HTTP sends everything to the configured URL, so
-          // the path rule is exact there and same-origin OAuth stays bounded.
-          () => this.transportConfig?.type === "sse",
-        ),
+        isMcpEndpoint,
       ),
     );
     // #2319: the auth chain is composed separately so the deadline sits
@@ -920,7 +940,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     // chain above: every request on this chain is OAuth work, so there is
     // nothing here to exempt.
     this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
-      withRfc8414OidcCompat(withOAuthRequestTimeout(withOverrides)),
+      withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
     );
 
     this.sessionId = options.sessionId;
@@ -1345,6 +1365,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       // from any non-"connecting" state captures the reason regardless of
       // ordering.
       if (this.status === "connecting") return;
+      // A user-requested teardown is not a failure (#2817). Closing a
+      // Streamable HTTP transport aborts its standalone GET stream, and that
+      // abort reaches here as an AbortError just after disconnect() has
+      // settled "disconnected" — so the TUI showed "error" for a disconnect
+      // the user asked for. Ignore anything raised while disconnect() owns the
+      // teardown, or by a transport the client has since released
+      // (disconnect() and dropCachedTransport() null `baseTransport`, and a
+      // reconnect replaces it). A crash keeps its error: `onclose` leaves
+      // `baseTransport` in place, so the trailing `onerror` still lands below.
+      if (this.disconnecting || this.baseTransport !== baseTransport) return;
       // A deterministic HTTP refusal of a POST is a refused REQUEST, not a
       // failed connection (#2776). The SDK's StreamableHTTP `_send` reports it
       // here and then rethrows it to the sender, so the request's rejection
@@ -4054,6 +4084,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   ): Promise<CallToolResult> {
     const session = this.taskSession;
     if (!session) throw new Error("Client is not connected");
+    // This path calls the task session directly rather than through
+    // `getRequestOptions`, so it folds in the ambient request signal itself
+    // (#1783): a modern-era or task-required call must abort with its caller
+    // too, or a daemon caller's hang-up leaves it holding the connection.
+    signal = combineAbortSignals(signal, this.ambientRequestSignal);
     const headers = this.mirroredTaskParamHeaders(tool, args);
     let lastTask: InspectorTask | undefined;
     let outcomeEmitted = false;
@@ -6143,6 +6178,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     tokenUrl?: string;
     /** Declare the `refresh_token` grant in client metadata (#2068). */
     requestRefreshToken?: boolean;
+    /** Send `scope` on the refresh-token request (#2805). */
+    scopeOnRefresh?: boolean;
   }): void {
     if (!this.oauthManager) {
       throw new Error(

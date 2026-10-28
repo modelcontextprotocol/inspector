@@ -10,7 +10,7 @@ import {
   type OAuthRevocationPlan,
   type TokenRevocationOutcome,
 } from "@inspector/core/auth/revocation.js";
-import { createProxyFetch } from "@inspector/core/mcp/node/proxyFetch.js";
+import { createGuardedFetch } from "@inspector/core/mcp/node/fetchGuard.js";
 
 /** Same canonicalisation as CLI `normalizeServerUrl` (avoid cycles). */
 function normalizeServerUrl(serverUrl: string): string {
@@ -113,7 +113,9 @@ async function sendPlans(
   plans: OAuthRevocationPlan[],
   budgetMs: number,
 ): Promise<TokenRevocationOutcome | undefined> {
-  const fetchFn = createProxyFetch() ?? fetch;
+  // Revocation endpoints come from authorization-server metadata, so they get
+  // the same destination guard as the rest of OAuth (#2749); proxy-aware too.
+  const fetchFn = createGuardedFetch();
   // Monotonic and epsilon-floored for the same reasons as the shared deadline
   // inside `executeOAuthRevocation` — see MIN_REVOCATION_REQUEST_BUDGET_MS.
   const deadlineAt = performance.now() + budgetMs;

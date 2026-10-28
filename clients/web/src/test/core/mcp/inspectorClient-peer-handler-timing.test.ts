@@ -1301,4 +1301,84 @@ describe("InspectorClient peer-handler timing (#1797)", () => {
       await client.disconnect();
     });
   });
+
+  /*
+   * Closing a Streamable HTTP transport aborts its standalone GET stream, and
+   * the SDK reports that abort through `onerror` just after disconnect() has
+   * settled "disconnected". It is the teardown the user asked for, not a
+   * failure, so it must not flip the client to "error" (#2817). A crash is
+   * still a failure.
+   */
+  describe("transport onerror after a deliberate disconnect (#2817)", () => {
+    const abortError = () =>
+      new DOMException("This operation was aborted", "AbortError");
+
+    /** A factory handing out a fresh transport per connect, so a reconnect has a released one. */
+    function clientWithFreshTransports() {
+      const transports: SampleAfterConnectTransport[] = [];
+      const client = new InspectorClient(
+        { type: "stdio", command: "noop", args: [] },
+        {
+          environment: {
+            transport: () => {
+              const transport = new SampleAfterConnectTransport();
+              transports.push(transport);
+              return { transport };
+            },
+          },
+        },
+      );
+      const errors: unknown[] = [];
+      const statuses: string[] = [];
+      client.addEventListener("error", (e) => errors.push(e.detail));
+      client.addEventListener("statusChange", (e) => statuses.push(e.detail));
+      return { client, transports, errors, statuses };
+    }
+
+    it("stays disconnected when the released transport reports its abort", async () => {
+      const { client, transports, errors, statuses } =
+        clientWithFreshTransports();
+      await client.connect();
+      await client.disconnect();
+      transports[0]!.onerror?.(abortError());
+      expect(client.getStatus()).toBe("disconnected");
+      expect(errors).toEqual([]);
+      expect(statuses.at(-1)).toBe("disconnected");
+    });
+
+    it("ignores an error the transport raises while disconnect() is closing it", async () => {
+      const { client, transports, errors } = clientWithFreshTransports();
+      await client.connect();
+      const transport = transports[0]!;
+      vi.spyOn(transport, "close").mockImplementation(async () => {
+        transport.onerror?.(abortError());
+      });
+      await client.disconnect();
+      expect(client.getStatus()).toBe("disconnected");
+      expect(errors).toEqual([]);
+    });
+
+    it("ignores a released transport's error once a reconnect holds a new one", async () => {
+      const { client, transports, errors } = clientWithFreshTransports();
+      await client.connect();
+      await client.disconnect();
+      await client.connect();
+      expect(transports).toHaveLength(2);
+      transports[0]!.onerror?.(abortError());
+      expect(client.getStatus()).toBe("connected");
+      expect(errors).toEqual([]);
+      await client.disconnect();
+    });
+
+    it("still errors the connection when the live transport crashes (onclose, then onerror)", async () => {
+      const { client, transports, errors } = clientWithFreshTransports();
+      await client.connect();
+      const crash = new Error("socket hang up");
+      transports[0]!.onclose?.();
+      transports[0]!.onerror?.(crash);
+      expect(client.getStatus()).toBe("error");
+      expect(errors).toEqual([crash]);
+      await client.disconnect();
+    });
+  });
 });

@@ -2,7 +2,7 @@
  * Fetch-and-verify: run every SEP-2640 check that needs the *bytes* of a skill's
  * files, over a whole set of entries (#2248).
  *
- * Separate from `skills.ts`, which is deliberately I/O-free —
+ * Separate from `conformance.ts`, which is deliberately I/O-free —
  * `checkSkillConformance` reads a manifest, `verifySkillResource` compares bytes
  * it is handed, `checkSkillFrontmatterMatch` compares text it is handed, and
  * none of them knows how to obtain a file. This module is the part that does,
@@ -24,9 +24,11 @@
  * CI diff of two reports shows what changed rather than what raced.
  */
 
-import { AuthRecoveryRequiredError } from "../auth/challenge.js";
-import type { InspectorClientProtocol } from "./inspectorClientProtocol.js";
-import type { RequestMetadata } from "./types.js";
+import { AuthRecoveryRequiredError } from "../../auth/challenge.js";
+import type {
+  RequestMetadata,
+  ResourceReadInvocation,
+} from "../../mcp/types.js";
 import {
   bytesToText,
   checkSkillConformance,
@@ -41,12 +43,15 @@ import {
   verifySkillResource,
   type SkillIssue,
   type SkillVerification,
-} from "./skills.js";
+} from "./conformance.js";
+
+/** The per-server settings {@link resolveSkillCatalogBudget} reads. */
+type SkillCatalogSettings = Parameters<typeof resolveSkillCatalogBudget>[0];
 import {
   DYNAMIC_RESOURCES,
   type SkillEntry,
   type SkillResource,
-} from "./skillsSchemas.js";
+} from "./schemas.js";
 
 /**
  * What a client tells its user to do about a skill the run's catalog budget
@@ -80,6 +85,30 @@ export const DEFAULT_SKILL_BUDGET_HINT: SkillBudgetHint = {
     "with the server's skillCatalogMaxSkills / skillCatalogMaxBytes settings",
   verifyOne: "by verifying this skill alone",
 };
+
+/**
+ * What the walk needs from a connection: `resources/read`, and the server's
+ * catalog-budget settings.
+ *
+ * Declared here rather than taking `InspectorClientProtocol`, so this module
+ * imports nothing from `InspectorClient` — the rule every
+ * `core/extension/<name>/` module keeps. `InspectorClient` satisfies it as is.
+ *
+ * ⚠️ **Not the SDK's `SkillsClient.read()`.** That method verifies a file and
+ * throws a `SkillVerificationError` on the first check that fails, and it
+ * refuses an entry that is not valid before any request. This walk reads every
+ * file of every entry it is given, valid or not, and records each check's
+ * outcome — including `unverifiable` for a missing or malformed digest and the
+ * read-budget cut-off — which is a report a thrown error cannot carry (#2804).
+ */
+export interface SkillResourceReader {
+  readResource(
+    uri: string,
+    metadata?: RequestMetadata,
+  ): Promise<ResourceReadInvocation>;
+  /** Optional, so a test double need not implement it — see `verifySkills`. */
+  getServerSettings?(): SkillCatalogSettings | undefined;
+}
 
 /** One manifest entry's outcome. `read-error` means the fetch itself failed. */
 export type SkillFileStatus = SkillVerification["status"] | "read-error";
@@ -346,7 +375,7 @@ function responseBytes(result: unknown): number {
  * could not be read, with no way offered to fix it.
  */
 export async function verifySkills(
-  client: InspectorClientProtocol,
+  client: SkillResourceReader,
   entries: readonly SkillEntry[],
   metadata?: RequestMetadata,
   budgetHint: SkillBudgetHint = DEFAULT_SKILL_BUDGET_HINT,

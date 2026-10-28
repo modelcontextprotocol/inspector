@@ -150,8 +150,8 @@ this is invisible in CI and hits exactly the developer whose shell exports
 
 ### Bundling: React-rendering dependencies must be inlined (#1952)
 
-`tsup.config.ts` splits the TUI's dependencies into bundled (`noExternal`) and
-externalized (`external`). For anything that **renders React components**, that
+`tsdown.config.ts` splits the TUI's dependencies into bundled
+(`deps.alwaysBundle`) and externalized (`deps.neverBundle`). For anything that **renders React components**, that
 choice decides which React instance it gets at runtime, and getting it wrong
 crashes the TUI in a way nothing in this repo can see.
 
@@ -201,13 +201,13 @@ ink -> react   node_modules/react/index.js   # same copy
 ```
 
 Narrow that range and the exemption turns straight back into #1952, one level
-up — breaking TUI startup rather than just its forms. `tsupConfig.test.ts` pins
+up — breaking TUI startup rather than just its forms. `tsdownConfig.test.ts` pins
 the root range to `ink`'s own peer floor so it can't drift silently. The
 residual after all this is a React **20**-era consumer that also depends on
 `ink`; that gets revisited when the Inspector moves to React 20.
 
-`__tests__/tsupConfig.test.ts` enforces the whole split: every dependency
-declaring a `react` peer must be in `noExternal` unless it is listed as external
+`__tests__/tsdownConfig.test.ts` enforces the whole split: every dependency
+declaring a `react` peer must be in `deps.alwaysBundle` unless it is listed as external
 by design, each exempt package must also be a root dependency (external means
 consumers install it), and the root `react` range must stay open to the major.
 Add a React-rendering dependency, and that test tells you to bundle it.

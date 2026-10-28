@@ -923,6 +923,7 @@ describe("ServerSettingsForm", () => {
       tokenUrl: "",
       enterpriseManaged: false,
       requestRefreshToken: true,
+      scopeOnRefresh: false,
       revokeOnClear: true,
     });
   });
@@ -965,6 +966,49 @@ describe("ServerSettingsForm", () => {
     await user.click(screen.getByLabelText("Request refresh token"));
     expect(onOAuthChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ requestRefreshToken: false }),
+    );
+  });
+
+  // #2805 — the refresh-scope opt-in. Off by default, so the SDK's refresh
+  // request stays exactly as it was unless the user asks otherwise.
+  it("renders Send scope on token refresh unchecked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Send scope on token refresh"),
+    ).not.toBeChecked();
+  });
+
+  it("renders Send scope on token refresh checked when the server opted in", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{ ...emptySettings, oauthScopeOnRefresh: true }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(screen.getByLabelText("Send scope on token refresh")).toBeChecked();
+  });
+
+  it("toggles Send scope on token refresh through onOAuthChange", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(screen.getByLabelText("Send scope on token refresh"));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ scopeOnRefresh: true }),
     );
   });
 
@@ -1513,6 +1557,7 @@ describe("ServerSettingsForm", () => {
       tokenUrl: "",
       enterpriseManaged: true,
       requestRefreshToken: true,
+      scopeOnRefresh: false,
       revokeOnClear: true,
     });
   });
@@ -1675,6 +1720,7 @@ describe("ServerSettingsForm", () => {
       tokenUrl: "",
       enterpriseManaged: false,
       requestRefreshToken: true,
+      scopeOnRefresh: false,
       revokeOnClear: true,
     });
   });

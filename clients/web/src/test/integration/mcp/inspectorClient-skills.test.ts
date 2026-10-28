@@ -2,12 +2,12 @@ import { describe, it, expect, afterEach } from "vitest";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import { eraToVersionNegotiation } from "@inspector/core/mcp/types.js";
-import { getSkillsExtension } from "@inspector/core/mcp/skills.js";
+import { getSkillsExtension } from "@inspector/core/extension/skills/conformance.js";
 import { ManagedSkillsState } from "@inspector/core/mcp/state/managedSkillsState.js";
 import {
   allSkillsVerified,
   verifySkills,
-} from "@inspector/core/mcp/skillsVerification.js";
+} from "@inspector/core/extension/skills/verification.js";
 import {
   createTestServerHttp,
   type TestServerHttp,

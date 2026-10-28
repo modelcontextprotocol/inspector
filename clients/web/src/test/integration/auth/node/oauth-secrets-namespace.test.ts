@@ -1306,15 +1306,14 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
   });
 
   /**
-   * The issue's (#2734) steps 1–4 and the strip of step 5: client A saved
-   * to `secrets.json` and absorbed, client B registered in the file under
-   * the same stamp, absorbed again — the keychain keeps A's value — then
-   * the stamp stripped and the file re-adopted on a memory backend.
+   * The issue's (#2734) steps 1–4: client A saved to `secrets.json` and
+   * absorbed, then (with `reregister`) client B registered in the file
+   * under the same stamp, and absorbed again — the keychain keeps A's value.
    */
-  async function repeatedHandOff(
+  async function handOffTwice(
     keyring: SecretStore,
     reregister: boolean,
-  ): Promise<{ ns1: string; ns2: string }> {
+  ): Promise<void> {
     const secretsFile = join(tempDir, "secrets.json");
     const fileStore = () =>
       new FileSecretStore({ filePath: secretsFile, passphrase: "" });
@@ -1345,6 +1344,17 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
       if (savedFileEnv === undefined) delete process.env[SECRET_FILE_ENV];
       else process.env[SECRET_FILE_ENV] = savedFileEnv;
     }
+  }
+
+  /**
+   * {@link handOffTwice}, then the strip of the issue's step 5: the stamp
+   * stripped and the file re-adopted on a memory backend.
+   */
+  async function repeatedHandOff(
+    keyring: SecretStore,
+    reregister: boolean,
+  ): Promise<{ ns1: string; ns2: string }> {
+    await handOffTwice(keyring, reregister);
     const ns1 = namespaceOf(fileA);
     await stripStamp(fileA);
     await writeOAuthSections(
@@ -1356,6 +1366,29 @@ describe("a stripped stamp re-adopted on another backend keeps what only the old
     await flushStoreFileWrites(fileA);
     return { ns1, ns2: namespaceOf(fileA) };
   }
+
+  it("an ordinary read does not pair the secret a repeated hand-off kept with the client registered since (#2768)", async () => {
+    const keyring = new KeyringSecretStore();
+    await handOffTwice(keyring, true);
+    const ns = namespaceOf(fileA);
+    // The keychain kept A's value under the namespace the file still holds,
+    // and its stamp correctly names A; the file says B.
+    expect(
+      await keyring.get(oauthSecretServerId(SERVER, ns), SECRET_FIELD),
+    ).toBe("secret-a");
+    expect(clientOf(await readOAuthStore(fileA, keyring))).toEqual({
+      client_id: "client-b",
+    });
+  });
+
+  it("an ordinary read still serves the secret a repeated hand-off kept for its own client (#2768)", async () => {
+    const keyring = new KeyringSecretStore();
+    await handOffTwice(keyring, false);
+    expect(clientOf(await readOAuthStore(fileA, keyring))).toEqual({
+      client_id: "client-a",
+      client_secret: "secret-a",
+    });
+  });
 
   it("does not pair a secret a repeated hand-off kept with the client the file registered since (#2734)", async () => {
     const keyring = new KeyringSecretStore();

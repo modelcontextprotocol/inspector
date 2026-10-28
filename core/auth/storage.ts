@@ -1,5 +1,6 @@
 import type {
   OAuthClientInformation,
+  StoredOAuthClientInformation,
   OAuthTokens,
   OAuthMetadata,
   OAuthDiscoveryState,
@@ -91,11 +92,13 @@ export interface OAuthStorage {
   ): Promise<void>;
 
   /**
-   * Save preregistered client information (static client from config)
+   * Save preregistered client information (static client from config). An
+   * `issuer` stamp on it (SEP-2352) is kept with the client and returned by
+   * the preregistered read (#2751).
    */
   savePreregisteredClientInformation(
     serverUrl: string,
-    clientInformation: OAuthClientInformation,
+    clientInformation: StoredOAuthClientInformation,
   ): Promise<void>;
 
   /**

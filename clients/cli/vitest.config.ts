@@ -20,6 +20,7 @@ export default defineConfig({
     setupFiles: [
       "__tests__/helpers/mock-open-url.ts",
       "__tests__/helpers/oauth-state-isolation.ts",
+      "__tests__/helpers/home-isolation.ts",
       NO_RETRY_SETUP,
     ],
     // OAuth tokens/client secrets are split into the selected secret store by

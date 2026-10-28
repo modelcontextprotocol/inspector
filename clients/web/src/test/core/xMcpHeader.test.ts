@@ -52,13 +52,12 @@ describe("scanXMcpHeaderDeclarations", () => {
     });
   });
 
-  it("accepts integer, boolean, and number typed properties", () => {
+  it("accepts integer and boolean typed properties", () => {
     const scan = scanXMcpHeaderDeclarations({
       type: "object",
       properties: {
         count: { type: "integer", [X_MCP_HEADER_KEY]: "Count" },
         flag: { type: "boolean", [X_MCP_HEADER_KEY]: "Flag" },
-        ratio: { type: "number", [X_MCP_HEADER_KEY]: "Ratio" },
       },
     });
     expect(scan.valid).toBe(true);
@@ -66,9 +65,48 @@ describe("scanXMcpHeaderDeclarations", () => {
       expect(scan.declarations.map((d) => d.headerName)).toEqual([
         "Count",
         "Flag",
-        "Ratio",
       ]);
     }
+  });
+
+  it("rejects a number-typed property, as the SDK does from 2.4.0", () => {
+    const scan = scanXMcpHeaderDeclarations({
+      type: "object",
+      properties: {
+        count: { type: "integer", [X_MCP_HEADER_KEY]: "Count" },
+        ratio: { type: "number", [X_MCP_HEADER_KEY]: "Ratio" },
+      },
+    });
+    expect(scan.valid).toBe(false);
+    if (!scan.valid) {
+      expect(scan.reason).toBe(
+        "ratio: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got number",
+      );
+    }
+  });
+
+  it("reports a number-typed fault in preference to a later fault", () => {
+    const scan = scanXMcpHeaderDeclarations({
+      type: "object",
+      properties: {
+        ratio: { type: "number", [X_MCP_HEADER_KEY]: "Ratio" },
+        obj: { type: "object", [X_MCP_HEADER_KEY]: "Obj" },
+      },
+    });
+    expect(scan.valid).toBe(false);
+    if (!scan.valid) expect(scan.reason).toContain("got number");
+  });
+
+  it("reports a fault that ends the walk before any number-typed one", () => {
+    const scan = scanXMcpHeaderDeclarations({
+      type: "object",
+      properties: {
+        obj: { type: "object", [X_MCP_HEADER_KEY]: "Obj" },
+        ratio: { type: "number", [X_MCP_HEADER_KEY]: "Ratio" },
+      },
+    });
+    expect(scan.valid).toBe(false);
+    if (!scan.valid) expect(scan.reason).toContain("got object");
   });
 
   it("collects declarations nested at any depth via properties chains", () => {
@@ -304,7 +342,6 @@ describe("buildMcpParamHeaders", () => {
       owner: { type: "string", [X_MCP_HEADER_KEY]: "owner" },
       count: { type: "integer", [X_MCP_HEADER_KEY]: "Count" },
       flag: { type: "boolean", [X_MCP_HEADER_KEY]: "Flag" },
-      ratio: { type: "number", [X_MCP_HEADER_KEY]: "Ratio" },
     },
   });
 
@@ -319,12 +356,10 @@ describe("buildMcpParamHeaders", () => {
       buildMcpParamHeaders(decls, {
         count: 42,
         flag: false,
-        ratio: 3.5,
       }),
     ).toEqual({
       [`${P}Count`]: "42",
       [`${P}Flag`]: "false",
-      [`${P}Ratio`]: "3.5",
     });
     expect(buildMcpParamHeaders(decls, { flag: true })).toEqual({
       [`${P}Flag`]: "true",
@@ -346,8 +381,8 @@ describe("buildMcpParamHeaders", () => {
   });
 
   it("omits non-finite numbers and unsafe integers", () => {
-    expect(buildMcpParamHeaders(decls, { ratio: Infinity })).toEqual({});
-    expect(buildMcpParamHeaders(decls, { ratio: NaN })).toEqual({});
+    expect(buildMcpParamHeaders(decls, { count: Infinity })).toEqual({});
+    expect(buildMcpParamHeaders(decls, { count: NaN })).toEqual({});
     expect(
       buildMcpParamHeaders(decls, { count: Number.MAX_SAFE_INTEGER + 2 }),
     ).toEqual({});

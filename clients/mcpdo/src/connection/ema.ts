@@ -22,7 +22,7 @@ import {
   parseRunnerOAuthCallbackUrl,
 } from "@inspector/core/auth/node/runner-oauth-callback.js";
 import { getClientConfigFilePath } from "@inspector/core/client/index.js";
-import { createProxyFetch } from "@inspector/core/mcp/node/proxyFetch.js";
+import { createGuardedFetch } from "@inspector/core/mcp/node/fetchGuard.js";
 import { loadRunnerClientConfig } from "@inspector/core/client/runner.js";
 import type { EnterpriseManagedAuthIdpConfig } from "@inspector/core/client/types.js";
 import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
@@ -233,9 +233,9 @@ export async function runEmaIdpInteractiveFlow(
   redirectUrlProvider.redirectUrl =
     formatRunnerOAuthRedirectUrl(callbackUrlConfig);
   // IdP discovery and the code exchange run outside `InspectorClient`, so
-  // nothing else puts HTTPS_PROXY / HTTP_PROXY under them (#2642). Undefined
-  // when no proxy variable is set, which leaves the built-in fetch in place.
-  const fetchFn = createProxyFetch();
+  // nothing else puts HTTPS_PROXY / HTTP_PROXY (#2642) or the OAuth
+  // destination guard (#2749) under them. The guarded fetch is both.
+  const fetchFn = createGuardedFetch();
 
   // Adapter over the server-bound runner-interactive-OAuth surface: EMA leg 1
   // is server-less, so authenticate/completeOAuthFlow map straight onto the

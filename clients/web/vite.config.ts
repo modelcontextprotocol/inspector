@@ -11,6 +11,7 @@ import { honoMiddlewarePlugin } from "./server/vite-hono-plugin";
 import {
   getStorybookOptimizeDeps,
   getViteBaseConfig,
+  getViteDevCors,
   getViteDevOptimizeDeps,
 } from "./server/vite-base-config";
 import { buildWebServerConfigFromEnv } from "./server/web-server-config";
@@ -62,7 +63,7 @@ const integrationGlob = "clients/web/src/test/integration/**/*.test.{ts,tsx}";
 // projects), and `applyToEnvironment` narrows it to the **browser** (`client`)
 // environment so a future SSR/node environment built from this config isn't
 // failed for a legitimate `node:*` import — the browser-only intent is
-// structural, not incidental. (The Node runner build is a separate tsup config.)
+// structural, not incidental. (The Node runner build is a separate tsdown config.)
 //
 // `buildStart` resets the gate so a `vite build --watch` rebuild doesn't inherit
 // a prior build's recorded warnings (the plugin instance is reused across
@@ -193,6 +194,10 @@ export default defineConfig(({ command }) => {
       // `devConfig` already read and validated, so dev and the prod listener
       // agree. Undefined (plain http) for build/vitest, which never bind.
       https: devConfig?.tls,
+      // Reflect only the configured `allowedOrigins`, not Vite's default of any
+      // loopback origin on any port (#2752). Undefined (Vite's default) for
+      // build/vitest, which have no `devConfig` and serve no Inspector page.
+      cors: devConfig ? getViteDevCors(devConfig.allowedOrigins) : undefined,
       fs: {
         allow: [path.resolve(dirname, "../..")],
       },

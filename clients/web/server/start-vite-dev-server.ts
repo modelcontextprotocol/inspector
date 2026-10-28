@@ -13,6 +13,7 @@ import type { WebServerConfig } from "./web-server-config.js";
 import { honoMiddlewarePlugin } from "./vite-hono-plugin.js";
 import {
   clearViteDepsCache,
+  getViteDevCors,
   getViteDevOptimizeDeps,
 } from "./vite-base-config.js";
 import { vitestSharedPaths } from "../../../vitest.shared.mts";
@@ -68,6 +69,9 @@ export async function startViteDevServer(
       // `vite.config.ts`. Vite serves it over HTTP/2 with an HTTP/1.1
       // fallback; the Hono plugin's /api bridge handles both.
       https: config.tls,
+      // Reflect only the Inspector's configured origins, not Vite's default of
+      // any loopback origin on any port (#2752), matching `vite.config.ts`.
+      cors: getViteDevCors(config.allowedOrigins),
       // Allow Vite to serve source files from the repo root (core/ lives
       // outside clients/web), matching `vite.config.ts`'s `server.fs.allow`.
       fs: {

@@ -1,6 +1,6 @@
 {
   "name": "@modelcontextprotocol/inspector",
-  "version": "2.12.0",
+  "version": "2.13.0",
   "description": "The Model Context Protocol Inspector",
   "keywords": [
     "MCP",
@@ -125,11 +125,11 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@modelcontextprotocol/client": "2.3.1",
-    "@modelcontextprotocol/core": "2.3.1",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/core": "2.4.0",
     "@modelcontextprotocol/ext-apps": "^2.0.0",
     "@modelcontextprotocol/ext-tasks": "^0.2.2",
-    "@modelcontextprotocol/server": "2.3.1",
+    "@modelcontextprotocol/server": "2.4.0",
     "@napi-rs/keyring": "^2.1.1",
     "@vitejs/plugin-react": "^6.0.0",
     "ajv": "^8.17.1",
@@ -142,7 +142,7 @@
     "pino": "^9.14.0",
     "proper-lockfile": "^4.1.2",
     "react": "^19.0.0",
-    "undici": "^8.11.2",
+    "undici": "^8.12.3",
     "vite": "^8.1.5",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
@@ -155,7 +155,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@modelcontextprotocol/server-legacy": "2.3.1",
+    "@modelcontextprotocol/server-legacy": "2.4.0",
     "@types/node": "^24.12.4",
     "@types/proper-lockfile": "^4.1.4",
     "@vitest/coverage-v8": "4.1.11",

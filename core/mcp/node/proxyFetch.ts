@@ -14,7 +14,7 @@ import type {
  * bridge a declaration gap rather than a real type difference, and they are kept
  * to this one module boundary instead of leaking into callers.
  */
-function asUndiciInit(init: RequestInit | undefined): UndiciRequestInit {
+export function asUndiciInit(init: RequestInit | undefined): UndiciRequestInit {
   return init as UndiciRequestInit;
 }
 
@@ -77,9 +77,10 @@ const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([
  * properties by declining to rebuild at all; this adapter has no such choice,
  * since the response arrives from the wrong realm, so it reinstates them
  * instead. They shadow the prototype getters as own properties, which is what
- * `Response` exposes them as to a consumer.
+ * `Response` exposes them as to a consumer. Exported for `fetchGuard.ts`, whose
+ * direct (unproxied) path calls undici's `fetch` too.
  */
-function toGlobalResponse(res: UndiciResponse): Response {
+export function toGlobalResponse(res: UndiciResponse): Response {
   const headers = new Headers();
   for (const [key, value] of res.headers) headers.append(key, value);
   const out = new Response(

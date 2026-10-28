@@ -20,6 +20,17 @@ import * as path from "node:path";
 import { resetNodeOAuthStorageCache } from "@inspector/core/auth/node/storage-node.js";
 import { runCli } from "./helpers/cli-runner.js";
 
+// The OAuth destination guard (#2749) calls undici directly, past the
+// `globalThis.fetch` spy these tests fake the authorization server with, so
+// route it back through the spy. The guard itself is tested in clients/web.
+vi.mock("@inspector/core/mcp/node/fetchGuard.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@inspector/core/mcp/node/fetchGuard.js")
+  >()),
+  createGuardedFetch: (): typeof fetch => (input, init) =>
+    globalThis.fetch(input, init),
+}));
+
 const SERVER_URL = "https://example.com/mcp";
 const AS_ISSUER = "https://as.example.com";
 const REVOKE_URL = `${AS_ISSUER}/revoke`;

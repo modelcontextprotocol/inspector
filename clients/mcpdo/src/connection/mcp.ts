@@ -55,6 +55,15 @@ import {
   CONNECTION_RPC_METHODS,
   type MethodArgs,
 } from "@inspector/core/cli/handlers/method-types.js";
+import {
+  positiveIntegerParser,
+  positiveNumberParser,
+} from "@inspector/core/cli/handlers/load-test.js";
+import {
+  fractionParser,
+  maxP99Parser,
+} from "@inspector/core/cli/handlers/load-thresholds.js";
+import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
 import { authorizeInFrontend } from "./authorize.js";
 import {
   AUTH_HELPER_COMMAND,
@@ -1342,7 +1351,50 @@ function registerRpcCommands(program: CommandType): void {
             "--task",
             "Request a task-augmented tool call (legacy servers; on modern the server decides)",
           )
-          .option("--app-info", "Probe MCP App metadata only");
+          .option("--app-info", "Probe MCP App metadata only")
+          // `--load` (#2744): the one-shot CLI's load mode, run inside the
+          // daemon against this connection. Same flags, same summary.
+          .option(
+            "--load",
+            "Load-test the tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Bounded by --load-duration (default 10s) and/or --load-requests. Later commands on this connection wait until the run ends.",
+          )
+          .option(
+            "--load-concurrency <n>",
+            "With --load: most calls in flight at once (positive integer; default 10).",
+            positiveIntegerParser("--load-concurrency"),
+          )
+          .option(
+            "--load-connections <n>",
+            "With --load: spread the calls over this many independent sessions to the connection's HTTP or SSE server, opened before timing starts with stored credentials only (positive integer, at most --load-concurrency; default 1).",
+            positiveIntegerParser("--load-connections"),
+          )
+          .option(
+            "--load-duration <sec>",
+            "With --load: stop starting calls after this many seconds; in-flight calls still finish (default 10 when --load-requests is not set).",
+            positiveNumberParser("--load-duration"),
+          )
+          .option(
+            "--load-requests <n>",
+            "With --load: stop after starting this many calls (positive integer).",
+            positiveIntegerParser("--load-requests"),
+          )
+          .option(
+            "--load-rate <n>",
+            "With --load: start at most this many calls per second, spread evenly (positive number; default unlimited).",
+            positiveNumberParser("--load-rate"),
+          )
+          // Thresholds (#2800): judged here, after the summary is printed,
+          // exactly as the one-shot CLI does (#2745).
+          .option(
+            "--load-max-error-rate <fraction>",
+            "With --load: exit 10 (load_error_rate_exceeded) when the share of failed calls is above this value, after printing the summary (0 to 1; 0 fails on any failed call).",
+            fractionParser("--load-max-error-rate"),
+          )
+          .option(
+            "--load-max-p99 <ms>",
+            "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+            maxP99Parser,
+          );
         cmd.action(
           async (
             toolNamePos: string | undefined,
@@ -1356,14 +1408,20 @@ function registerRpcCommands(program: CommandType): void {
               toolArgFlag: (o.toolArg ?? {}) as Record<string, JsonValue>,
               toolArgsJson: o.toolArgsJson as string | undefined,
             });
-            await runRpc(program, method, {
-              toolName,
-              toolArg,
-              toolMeta: o.toolMetadata,
-              metadata: o.metadata,
-              task: o.task === true,
-              appInfo: o.appInfo === true,
-            });
+            const load = resolveLoadFlags({ ...o, toolName });
+            await runRpc(
+              program,
+              method,
+              {
+                toolName,
+                toolArg,
+                toolMeta: o.toolMetadata,
+                metadata: o.metadata,
+                task: o.task === true,
+                appInfo: o.appInfo === true,
+              },
+              load,
+            );
           },
         );
         break;
@@ -1613,6 +1671,7 @@ async function runRpc(
   program: CommandType,
   method: string,
   methodArgs: MethodArgs,
+  load?: LoadFlags,
 ): Promise<void> {
   const opts = program.opts<GlobalOpts>();
   await dispatchConnectionRpc(method, methodArgs, {
@@ -1620,6 +1679,7 @@ async function runRpc(
     plain: opts.plain === true,
     connection: opts.connection,
     requireExplicit: requireExplicitConnection(),
+    load,
   });
 }
 
