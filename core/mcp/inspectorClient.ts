@@ -1365,6 +1365,16 @@ export class InspectorClient extends InspectorClientEventTarget {
       // from any non-"connecting" state captures the reason regardless of
       // ordering.
       if (this.status === "connecting") return;
+      // A user-requested teardown is not a failure (#2817). Closing a
+      // Streamable HTTP transport aborts its standalone GET stream, and that
+      // abort reaches here as an AbortError just after disconnect() has
+      // settled "disconnected" — so the TUI showed "error" for a disconnect
+      // the user asked for. Ignore anything raised while disconnect() owns the
+      // teardown, or by a transport the client has since released
+      // (disconnect() and dropCachedTransport() null `baseTransport`, and a
+      // reconnect replaces it). A crash keeps its error: `onclose` leaves
+      // `baseTransport` in place, so the trailing `onerror` still lands below.
+      if (this.disconnecting || this.baseTransport !== baseTransport) return;
       // A deterministic HTTP refusal of a POST is a refused REQUEST, not a
       // failed connection (#2776). The SDK's StreamableHTTP `_send` reports it
       // here and then rethrows it to the sender, so the request's rejection
