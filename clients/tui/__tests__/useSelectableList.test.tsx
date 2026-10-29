@@ -131,4 +131,17 @@ describe("useSelectableList", () => {
     // itemCount === 0 => no clamp, selection retained
     expect(lastFrame()).toBe("sel=8 first=4");
   });
+
+  it("keeps the selection in the window when visibleCount shrinks (#2826)", async () => {
+    const { lastFrame, stdin, rerender } = render(
+      <Harness itemCount={10} visibleCount={10} />,
+    );
+    stdin.write("9");
+    await tick();
+    expect(lastFrame()).toBe("sel=9 first=0");
+    // A terminal resize: the selection did not move, the window did.
+    rerender(<Harness itemCount={10} visibleCount={3} />);
+    await tick();
+    expect(lastFrame()).toBe("sel=9 first=7");
+  });
 });

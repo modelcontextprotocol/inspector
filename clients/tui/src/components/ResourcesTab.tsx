@@ -315,7 +315,9 @@ export function ResourcesTab({
                 }`;
                 return (
                   <Box key={key} paddingY={0} flexShrink={0}>
-                    <Text>
+                    {/* One rendered line per row (#2826); the detail pane
+                        shows the full name. */}
+                    <Text wrap="truncate-end">
                       {isSelected ? "▶ " : "  "}
                       {label}
                     </Text>
