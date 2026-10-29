@@ -18,6 +18,8 @@ import {
   nonLoopbackBindWarning,
   HOSTING_ON_A_NETWORK_DOC_URL,
   webServerConfigToInitialPayload,
+  weakAuthTokenWarning,
+  MIN_RECOMMENDED_AUTH_TOKEN_LENGTH,
   type WebServerConfig,
 } from "../../../../server/web-server-config.js";
 import { DEFAULT_SANDBOX_PORT } from "../../../../server/sandbox-controller.js";
@@ -54,6 +56,13 @@ const MUTATED_ENV_KEYS = [
   TLS_KEY_PATH_ENV,
   TLS_CERT_PATH_ENV,
 ] as const;
+
+// Custom tokens at least MIN_RECOMMENDED_AUTH_TOKEN_LENGTH long, so the
+// resolution tests below do not also trip the weak-token warning (#2827).
+const KEPT_TOKEN = "kept-token-0123456789abcdef012345";
+const PRIMARY_TOKEN = "primary-token-0123456789abcdef0123";
+const LEGACY_TOKEN = "legacy-token-0123456789abcdef01234";
+const SHARED_TOKEN = "shared-token-0123456789abcdef01234";
 
 let tlsFixture: SelfSignedTlsFixture;
 
@@ -207,30 +216,30 @@ describe("buildWebServerConfigFromEnv", () => {
     "keeps auth on for DANGEROUSLY_OMIT_AUTH=%j",
     (value) => {
       process.env.DANGEROUSLY_OMIT_AUTH = value;
-      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "kept";
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = KEPT_TOKEN;
       const cfg = buildWebServerConfigFromEnv();
       expect(cfg.dangerouslyOmitAuth).toBe(false);
-      expect(cfg.authToken).toBe("kept");
+      expect(cfg.authToken).toBe(KEPT_TOKEN);
     },
   );
 
   it("uses API_SERVER_ENV_VARS.AUTH_TOKEN when present", () => {
-    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "primary";
+    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = PRIMARY_TOKEN;
     const cfg = buildWebServerConfigFromEnv();
-    expect(cfg.authToken).toBe("primary");
+    expect(cfg.authToken).toBe(PRIMARY_TOKEN);
   });
 
   it("falls back to LEGACY_AUTH_TOKEN_ENV when the primary is unset", () => {
-    process.env[LEGACY_AUTH_TOKEN_ENV] = "legacy";
+    process.env[LEGACY_AUTH_TOKEN_ENV] = LEGACY_TOKEN;
     const cfg = buildWebServerConfigFromEnv();
-    expect(cfg.authToken).toBe("legacy");
+    expect(cfg.authToken).toBe(LEGACY_TOKEN);
   });
 
   it("prefers API_SERVER_ENV_VARS.AUTH_TOKEN over the legacy env", () => {
-    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "primary";
-    process.env[LEGACY_AUTH_TOKEN_ENV] = "legacy";
+    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = PRIMARY_TOKEN;
+    process.env[LEGACY_AUTH_TOKEN_ENV] = LEGACY_TOKEN;
     const cfg = buildWebServerConfigFromEnv();
-    expect(cfg.authToken).toBe("primary");
+    expect(cfg.authToken).toBe(PRIMARY_TOKEN);
   });
 
   it("has no extra allowed hosts by default", () => {
@@ -500,6 +509,71 @@ describe("buildWebServerConfigFromEnv", () => {
   });
 });
 
+describe("weak custom API token warning (#2827)", () => {
+  it("warns at startup for a custom token shorter than the minimum", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "testtok";
+      const cfg = buildWebServerConfigFromEnv();
+      expect(cfg.authToken).toBe("testtok");
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "(MCP_INSPECTOR_API_TOKEN) is 7 characters long",
+        ),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("applies to the legacy variable too", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env[LEGACY_AUTH_TOKEN_ENV] = "short";
+      buildWebServerConfigFromEnv();
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("is 5 characters long"),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it("stays silent for a long enough token, a generated one, or omitted auth", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "x".repeat(
+        MIN_RECOMMENDED_AUTH_TOKEN_LENGTH,
+      );
+      buildWebServerConfigFromEnv();
+      delete process.env[API_SERVER_ENV_VARS.AUTH_TOKEN];
+      buildWebServerConfigFromEnv();
+      process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "short";
+      process.env.DANGEROUSLY_OMIT_AUTH = "1";
+      buildWebServerConfigFromEnv();
+      expect(warnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining("characters long"),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it.each([
+    ["", null],
+    ["x".repeat(MIN_RECOMMENDED_AUTH_TOKEN_LENGTH), null],
+    ["a", "is 1 character long"],
+    [
+      "x".repeat(MIN_RECOMMENDED_AUTH_TOKEN_LENGTH - 1),
+      "is 31 characters long",
+    ],
+  ])("weakAuthTokenWarning(%j)", (token, expected) => {
+    const message = weakAuthTokenWarning(token);
+    if (expected === null) expect(message).toBeNull();
+    else expect(message).toContain(expected);
+  });
+});
+
 describe("defaultAllowedOrigins", () => {
   it.each(["localhost", "127.0.0.1", "::1", "[::1]", "LOCALHOST"])(
     "expands the loopback host %s into all three loopback origins",
@@ -644,7 +718,7 @@ describe("defaultAllowedOrigins", () => {
 
 describe("buildWebServerConfig", () => {
   it("matches buildWebServerConfigFromEnv when initialMcpConfig is omitted", () => {
-    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = "shared";
+    process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] = SHARED_TOKEN;
     expect(buildWebServerConfig()).toEqual(buildWebServerConfigFromEnv());
     expect(buildWebServerConfig({ initialMcpConfig: null })).toEqual(
       buildWebServerConfigFromEnv(),

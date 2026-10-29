@@ -449,6 +449,35 @@ export function defaultAllowedOrigins(
 }
 
 /**
+ * The shortest custom API token accepted without a warning (#2827) — the
+ * length of a 128-bit secret in hex. The token generated when none is set is
+ * `randomBytes(32)` in hex (64 characters), so this only ever fires for one an
+ * operator chose.
+ */
+export const MIN_RECOMMENDED_AUTH_TOKEN_LENGTH = 32;
+
+/**
+ * The startup warning for a custom `MCP_INSPECTOR_API_TOKEN` (or its legacy
+ * name) shorter than {@link MIN_RECOMMENDED_AUTH_TOKEN_LENGTH}, or `null` when
+ * there is nothing to say: no custom token (one is generated) or one long
+ * enough. A warning rather than a refusal — a short token still gates
+ * `/api/*`, and a deployment that set one deliberately (a test rig, a fixed
+ * token in a script) keeps working; what it should not do is pass silently,
+ * since the token is the only thing between a page that can reach the port
+ * and every MCP server the Inspector can spawn.
+ */
+export function weakAuthTokenWarning(token: string): string | null {
+  if (token === "" || token.length >= MIN_RECOMMENDED_AUTH_TOKEN_LENGTH) {
+    return null;
+  }
+  return (
+    `Warning: the custom API token (${API_SERVER_ENV_VARS.AUTH_TOKEN}) is ${token.length} character${token.length === 1 ? "" : "s"} long; ` +
+    `use at least ${MIN_RECOMMENDED_AUTH_TOKEN_LENGTH} random characters (e.g. \`openssl rand -hex 32\`), ` +
+    `or unset it to have one generated.`
+  );
+}
+
+/**
  * Build WebServerConfig from process.env and optional initial MCP server config.
  * Used by the launcher runner, Vite dev (`buildWebServerConfigFromEnv`), and prod standalone.
  */
@@ -490,6 +519,9 @@ export function buildWebServerConfig(
     : ((process.env[API_SERVER_ENV_VARS.AUTH_TOKEN] as string | undefined) ??
       (process.env[LEGACY_AUTH_TOKEN_ENV] as string | undefined) ??
       "");
+
+  const weakToken = weakAuthTokenWarning(authToken);
+  if (weakToken) console.warn(weakToken);
 
   const sandboxPort = resolveSandboxPort();
   // The app-origin listener starts BEFORE the web server binds (both in prod

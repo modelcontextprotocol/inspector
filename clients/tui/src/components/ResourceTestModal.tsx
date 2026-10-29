@@ -12,6 +12,7 @@ import {
 } from "@inspector/core/mcp/uriTemplate.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { redactErrorText, redactedJson } from "../utils/errorText.js";
+import { untitledForm } from "../utils/formHeader.js";
 
 // Helper to extract error message from various error types
 function getErrorMessage(error: unknown): string {
@@ -274,7 +275,7 @@ export function ResourceTestModal({
                 </Box>
               )}
               <Form
-                form={formStructure}
+                form={untitledForm(formStructure)}
                 onSubmit={(values: object) =>
                   handleFormSubmit(values as Record<string, string>)
                 }

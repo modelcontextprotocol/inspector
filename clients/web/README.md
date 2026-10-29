@@ -419,6 +419,8 @@ The origin allow-list only sees requests that carry an `Origin` header, and a br
 - The **port is not compared**, so a remapped port (`-p 127.0.0.1:8080:6274`) or a proxy on `:443` still matches; the name is what a re-pointed page cannot change. A request with no `Host` header is refused.
 - `GET /healthz` is exempt — it discloses nothing — so a probe that addresses the container by a service name keeps working.
 
+**The MCP Apps sandbox listener (`MCP_SANDBOX_PORT`, default 6275) applies the same rules** to `/sandbox`, in prod and `--dev` alike, and additionally admits the host of `MCP_SANDBOX_FULL_ADDRESS` when one is set; a refused `Host` gets the same 403 (#2827).
+
 `MCP_INSPECTOR_ALLOWED_HOSTS` is read by the prod server only; under `--dev`, Vite's own `server.allowedHosts` check applies instead (see below) — except over TLS, where Vite skips it because the certificate check already refuses a page loaded under another name.
 
 **Running the Inspector behind a `*.localhost` proxy.** A common local-dev shape gives each service a friendly name — `my-api.localhost`, `my-app.localhost`, `inspector.localhost` — instead of a set of ports. The Inspector works there, but the origin allow-list does not include those names by default, so set it explicitly:

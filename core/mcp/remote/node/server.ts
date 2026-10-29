@@ -7,7 +7,7 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { stat as fsStat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import type pino from "pino";
 import {
   getDefaultStorageDir,
@@ -68,7 +68,7 @@ import type {
   StoredMCPServer,
 } from "../../types.js";
 import {
-  DEFAULT_SEED_CONFIG,
+  defaultSeedConfig,
   expectedSecretFields,
   extractSecretsFromStored,
   INSPECTOR_FIELD_KEYS,
@@ -1893,7 +1893,7 @@ export function createRemoteApp(
       // `valObj` is the per-entry object we'll mutate in place via the
       // `delete` calls below. Safe because the only callers
       // (`readMcpConfig` and the GET handler's file-present branch — the
-      // seed branch returns `DEFAULT_SEED_CONFIG` without normalizing)
+      // seed branch returns `defaultSeedConfig(…)` without normalizing)
       // pass in freshly-parsed JSON they don't retain a reference to
       // elsewhere.
       const valObj = val as Record<string, unknown>;
@@ -2922,8 +2922,9 @@ export function createRemoteApp(
           // Still absent after taking the lock → no concurrent POST
           // beat us to it; seed the file ourselves. The seed has no
           // secrets so nothing else to do.
-          await writeMcpAndTrackMtime(serializeStore(DEFAULT_SEED_CONFIG));
-          return DEFAULT_SEED_CONFIG;
+          const seed = defaultSeedConfig(tmpdir());
+          await writeMcpAndTrackMtime(serializeStore(seed));
+          return seed;
         }
         const parsedInside = parseStore(rawInside) as {
           mcpServers?: unknown;
