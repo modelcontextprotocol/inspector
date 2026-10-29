@@ -403,7 +403,10 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   `"stoppedEarly": { "reason": "interrupted", "detail": "received SIGINT" }`,
   and the CLI exits `130` (`interrupted`) without checking any threshold. A
   second Ctrl+C exits `130` immediately, for in-flight calls that will not
-  settle.
+  settle. A repeat of the same signal within half a second of the first is
+  taken as a re-raise rather than a second press — a dependency of the CLI
+  (`when-exit`) re-sends the signal to the process after its own cleanup — so
+  the press that exits at once is one made after that.
 - **`connections`** appears only with `--load-connections` above `1` (see
   below), so a default run's summary is unchanged.
 
