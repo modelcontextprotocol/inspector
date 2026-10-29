@@ -922,12 +922,19 @@ export class RemoteClientTransport implements Transport {
    * the same "survives the unload" request with the header intact, and the
    * backend's detach grace timer still reaps the session when it is lost.
    *
+   * Keyed on the backend session id alone, not on `closed`: a navigation
+   * (a reload, measured in Chromium) cancels the page's events stream
+   * *before* `pagehide` fires, and the stream ending marks this transport
+   * closed while the backend session is still alive — exactly the session
+   * this exists to release. Only a deliberate `close()` clears the id, and it
+   * has sent its own disconnect by then.
+   *
    * Deliberately leaves the transport's own state alone: nothing will read it
    * after an unload, and a page that does survive keeps a coherent transport
    * whose next send simply reports the session gone.
    */
   releaseOnPageHide(): boolean {
-    if (this.closed || !this._sessionId) return false;
+    if (!this._sessionId) return false;
     this.fetchFn(`${this.baseUrl}/api/mcp/disconnect`, {
       method: "POST",
       headers: this.headers,

@@ -908,7 +908,32 @@ describe("RemoteClientTransport.releaseOnPageHide (#2824)", () => {
     await transport.close();
   });
 
-  it("sends nothing once the transport is closed", async () => {
+  it("still releases after the events stream ended on its own (a reload cancels it before pagehide)", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/connect")) {
+        return new Response(JSON.stringify({ sessionId: "sess-2" }), {
+          status: 200,
+        });
+      }
+      // An events stream that ends immediately, as a cancelled one does.
+      if (url.includes("/api/mcp/events")) return sseResponse("");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const transport = new RemoteClientTransport({ baseUrl, fetchFn }, config);
+    const onclose = vi.fn();
+    transport.onclose = onclose;
+    await transport.start();
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
+    fetchFn.mockClear();
+
+    expect(transport.releaseOnPageHide()).toBe(true);
+    expect(String(fetchFn.mock.calls[0]?.[0])).toBe(
+      "http://remote.example/api/mcp/disconnect",
+    );
+  });
+
+  it("sends nothing after a deliberate close(), which sent its own disconnect", async () => {
     const { transport, fetchFn } = startedTransport();
     await transport.start();
     await transport.close();
