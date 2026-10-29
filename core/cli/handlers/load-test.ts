@@ -35,8 +35,32 @@ export type LoadOptions = {
   rate?: number;
 };
 
-/** How one call ended. `tool_error` is a result carrying `isError: true`. */
-export type LoadCallOutcome = "ok" | "tool_error";
+/**
+ * How one call ended. `tool_error` is a result carrying `isError: true`; the
+ * object form carries the message that result held (#2836), so a run that is
+ * 100% `rate limited` says so in `toolErrorMessages`.
+ */
+export type LoadCallOutcome = "ok" | "tool_error" | LoadToolError;
+
+/** A tool error with the text its result carried (#2836). */
+export type LoadToolError = { outcome: "tool_error"; message: string };
+
+/**
+ * Why a run ended before its bounds did (#2834, #2835):
+ *
+ * - `interrupted`: the caller aborted it (Ctrl+C / SIGTERM, a hung-up client).
+ * - `connection_lost`: the caller saw the connection go terminal and aborted.
+ * - `consecutive_errors`: the engine's own circuit breaker tripped, because
+ *   calls had done nothing but throw for long enough that the server is
+ *   clearly gone (see {@link CIRCUIT_BREAKER_ERRORS}).
+ */
+export type LoadStopReason =
+  | "interrupted"
+  | "connection_lost"
+  | "consecutive_errors";
+
+/** An early stop, as reported in {@link LoadSummary.stoppedEarly}. */
+export type LoadStop = { reason: LoadStopReason; detail: string };
 
 /** Latency distribution in milliseconds, nearest-rank percentiles. */
 export type LoadLatency = {
@@ -56,6 +80,17 @@ export type LoadSummary = {
   rate?: number;
   /** Calls that completed, in any outcome. */
   requests: number;
+  /**
+   * With `rate` only (#2837): the calls the `1 / rate` grid called for over
+   * the run's start window — the whole `--load-duration` on a run that ran
+   * to it, capped at `--load-requests`. A slot nobody was free to take is
+   * dropped rather than owed, so this can exceed what was started.
+   */
+  plannedStarts?: number;
+  /** With `rate` only: `plannedStarts` minus the calls actually started. */
+  droppedSlots?: number;
+  /** With `rate` only: calls started per second over the start window. */
+  achievedRate?: number;
   ok: number;
   /** Calls that returned a result with `isError: true`. */
   toolErrors: number;
@@ -63,13 +98,37 @@ export type LoadSummary = {
   errors: number;
   /** `(toolErrors + errors) / requests` to four places; 0 when none completed. */
   errorRate: number;
+  /**
+   * Wall clock from the first start to the last completion. A run that ran
+   * to its `--load-duration` is measured to the end of that window at least
+   * (#2837), so a `--load-rate 1` run over 5s reports 1/s, not 1.25/s.
+   */
   elapsedMs: number;
-  /** Completed calls per second of wall clock. */
+  /** Completed calls per second of wall clock, in any outcome. */
   throughput: number;
-  /** `null` when no call completed. */
+  /** Successful (`ok`) calls per second of wall clock (#2836). */
+  okThroughput: number;
+  /**
+   * Latency of the successful (`ok`) calls only (#2836), so an instant
+   * failure never makes a struggling server look faster. `null` when no call
+   * succeeded.
+   */
   latencyMs: LoadLatency | null;
+  /** Latency of the failed calls, tool errors and thrown alike; `null` if none. */
+  errorLatencyMs: LoadLatency | null;
   /** Thrown messages by frequency, at most {@link MAX_ERROR_KINDS} of them. */
   errorMessages: { message: string; count: number }[];
+  /**
+   * The first text block of each `isError` result (#2836), trimmed and cut to
+   * {@link MAX_TOOL_ERROR_MESSAGE_LENGTH}, tallied like `errorMessages`.
+   */
+  toolErrorMessages: { message: string; count: number }[];
+  /**
+   * Present only when the run ended before its bounds did — interrupted, or
+   * stopped by the circuit breaker (#2834, #2835). The counts cover what
+   * completed before it stopped.
+   */
+  stoppedEarly?: LoadStop;
   /**
    * Present only when more than one connection was asked for, so a default
    * run's summary is exactly what it was before #2746.
@@ -174,6 +233,37 @@ export function resolveLoadOptions(flags: {
 /** Distinct error messages kept; the rest fold into one `(other)` entry. */
 export const MAX_ERROR_KINDS = 10;
 export const OTHER_ERRORS = "(other)";
+/**
+ * Longest tool-error text kept (#2836). A tool's error text is a whole
+ * result body, unlike a thrown message, and one tally entry per run should
+ * not carry kilobytes of it.
+ */
+export const MAX_TOOL_ERROR_MESSAGE_LENGTH = 200;
+/** Tallied for an `isError` result with no text block to report. */
+export const NO_TOOL_ERROR_TEXT = "(no text content)";
+
+/**
+ * Circuit breaker (#2835). Once this many calls IN A ROW have thrown, the
+ * run stops: a server that refuses every connection fails each call in
+ * microseconds, and the rest of the window would otherwise be a flood of
+ * instant failures that inflates throughput and deflates latency. Only
+ * thrown calls count — a tool error is the server answering — and any other
+ * outcome resets the streak.
+ */
+export const CIRCUIT_BREAKER_ERRORS = 50;
+/**
+ * The breaker also trips once calls have done nothing but throw for this
+ * long, after at least {@link CIRCUIT_BREAKER_MIN_ERRORS} of them, so a slow
+ * low-rate run against a dead server stops in about a second too.
+ */
+export const CIRCUIT_BREAKER_WINDOW_MS = 1000;
+export const CIRCUIT_BREAKER_MIN_ERRORS = 5;
+
+/**
+ * The share of `--load-rate` below which {@link loadRateShortfallWarning}
+ * speaks up (#2837).
+ */
+export const RATE_SHORTFALL_RATIO = 0.9;
 
 /**
  * Slots claimed between forced yields to the event loop. Without
@@ -288,6 +378,83 @@ class ErrorTally {
   }
 }
 
+/** Narrow an abort reason to a {@link LoadStop} a caller passed to `abort()`. */
+function isLoadStop(value: unknown): value is LoadStop {
+  if (typeof value !== "object" || value === null) return false;
+  const { reason, detail } = value as Record<string, unknown>;
+  return (
+    (reason === "interrupted" ||
+      reason === "connection_lost" ||
+      reason === "consecutive_errors") &&
+    typeof detail === "string"
+  );
+}
+
+/**
+ * The message to tally for an `isError` result: its first text block,
+ * trimmed and capped at {@link MAX_TOOL_ERROR_MESSAGE_LENGTH}.
+ */
+export function toolErrorText(content: unknown): string {
+  const blocks = Array.isArray(content) ? (content as unknown[]) : [];
+  for (const block of blocks) {
+    if (typeof block !== "object" || block === null) continue;
+    const { type, text } = block as Record<string, unknown>;
+    if (type !== "text" || typeof text !== "string") continue;
+    const trimmed = text.trim();
+    if (trimmed === "") continue;
+    return trimmed.length > MAX_TOOL_ERROR_MESSAGE_LENGTH
+      ? `${trimmed.slice(0, MAX_TOOL_ERROR_MESSAGE_LENGTH)}…`
+      : trimmed;
+  }
+  return NO_TOOL_ERROR_TEXT;
+}
+
+/**
+ * Envelope code for a `--load` flag combination either CLI refuses (#2834):
+ * a `--load-*` flag without `--load`, `--load-connections` above
+ * `--load-concurrency`, and the like. Exit 1 (`USAGE`) in both.
+ */
+export const LOAD_FLAG_CONFLICT = "load_flag_conflict";
+
+/**
+ * The stderr lines a front end prints after a load summary (#2835, #2837):
+ * an early stop the caller did not ask for, and a missed `--load-rate`.
+ * An `interrupted` run is left out — whoever interrupted it knows, and the
+ * CLI says so in its exit envelope.
+ */
+export function loadSummaryWarnings(summary: LoadSummary): string[] {
+  const warnings: string[] = [];
+  const stop = summary.stoppedEarly;
+  if (stop !== undefined && stop.reason !== "interrupted") {
+    warnings.push(
+      `Warning: the load run stopped early (${stop.reason}): ${stop.detail}.`,
+    );
+  }
+  const shortfall = loadRateShortfallWarning(summary);
+  if (shortfall !== undefined) warnings.push(shortfall);
+  return warnings;
+}
+
+/**
+ * The stderr warning for a `--load-rate` run that started well short of its
+ * target (#2837), or `undefined` when it held the rate (or had none).
+ * Slots nobody was free to take are dropped by design, which makes a
+ * saturated run look healthy unless something says so.
+ */
+export function loadRateShortfallWarning(
+  summary: LoadSummary,
+): string | undefined {
+  const { rate, achievedRate, plannedStarts, droppedSlots } = summary;
+  if (
+    rate === undefined ||
+    achievedRate === undefined ||
+    achievedRate >= rate * RATE_SHORTFALL_RATIO
+  ) {
+    return undefined;
+  }
+  return `Warning: --load-rate ${rate}/s was not reached: ${plannedStarts! - droppedSlots!} of ${plannedStarts} planned calls started (${achievedRate}/s); ${droppedSlots} slots were dropped because every worker was busy. Raise --load-concurrency or lower --load-rate.`;
+}
+
 /**
  * Run `call` under the given bounds and summarize what happened. Each call is
  * handed the index of the worker making it (0 to `concurrency - 1`), which
@@ -303,7 +470,10 @@ class ErrorTally {
  * recovering. A slot past the duration is never started.
  *
  * Aborting `signal` ends the run early: no further call starts, in-flight
- * calls are left to settle, and the summary covers what completed.
+ * calls are left to settle, and the summary covers what completed and says
+ * why in `stoppedEarly`. Abort with a {@link LoadStop} as the reason to name
+ * it; any other reason reports `interrupted`. The circuit breaker
+ * ({@link CIRCUIT_BREAKER_ERRORS}) ends a run the same way on its own.
  */
 export async function runLoad(
   call: (worker: number) => Promise<LoadCallOutcome>,
@@ -312,18 +482,64 @@ export async function runLoad(
   signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const { concurrency, durationMs, requests, rate } = options;
-  const latencies: number[] = [];
+  const okLatencies: number[] = [];
+  const errorLatencies: number[] = [];
   const tally = new ErrorTally();
+  const toolTally = new ErrorTally();
   let ok = 0;
   let toolErrors = 0;
   let errors = 0;
   let started = 0;
+  let lastStartAt = 0;
 
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
   const interval = rate === undefined ? 0 : 1000 / rate;
   // Earliest time the next slot may start.
   let nextStart = start;
+
+  // Everything inside the run watches `halt`, which the caller's `signal` and
+  // the circuit breaker both trip, so either ends the run the same way.
+  const halt = new AbortController();
+  let stoppedEarly: LoadStop | undefined;
+  let stoppedAt = 0;
+  const stopRun = (stop: LoadStop): void => {
+    if (stoppedEarly) return;
+    stoppedEarly = stop;
+    stoppedAt = clock.now();
+    halt.abort();
+  };
+  const onAbort = (): void => {
+    const reason: unknown = signal?.reason;
+    stopRun(
+      isLoadStop(reason)
+        ? reason
+        : { reason: "interrupted", detail: "the run was interrupted" },
+    );
+  };
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+
+  // Circuit breaker state (#2835): the current streak of thrown calls, and
+  // when the first of them completed.
+  let errorStreak = 0;
+  let streakSince = 0;
+  const noteThrown = (now: number): void => {
+    if (errorStreak++ === 0) streakSince = now;
+    const window = now - streakSince;
+    if (
+      errorStreak >= CIRCUIT_BREAKER_ERRORS ||
+      (errorStreak >= CIRCUIT_BREAKER_MIN_ERRORS &&
+        window >= CIRCUIT_BREAKER_WINDOW_MS)
+    ) {
+      stopRun({
+        reason: "consecutive_errors",
+        // No server text here: it reaches stderr as a warning, and the
+        // messages themselves are already tallied in `errorMessages`.
+        detail: `${errorStreak} calls in a row threw over ${round(window)}ms; the server looks unavailable`,
+      });
+    }
+  };
 
   // FIFO turnstile: workers wanting a slot queue on a promise chain, and only
   // the one at the head waits on the clock. Without it, every idle worker
@@ -351,7 +567,7 @@ export async function runLoad(
         await yieldToEventLoop();
       }
       for (;;) {
-        if (signal?.aborted) return false;
+        if (halt.signal.aborted) return false;
         if (requests !== undefined && started >= requests) return false;
         const now = clock.now();
         if (now >= deadline) return false;
@@ -359,6 +575,7 @@ export async function runLoad(
         if (scheduled >= deadline) return false;
         if (scheduled <= now) {
           started++;
+          lastStartAt = now;
           // A wake that is merely late — timers always are, by a fraction of
           // a millisecond — keeps the slot grid, so the average rate holds.
           // Only a slot missed entirely (a stall longer than one interval)
@@ -367,7 +584,7 @@ export async function runLoad(
             now - nextStart < interval ? nextStart + interval : now + interval;
           return true;
         }
-        await sleepUnlessAborted(clock, scheduled - now, signal);
+        await sleepUnlessAborted(clock, scheduled - now, halt.signal);
       }
     } finally {
       release();
@@ -378,29 +595,64 @@ export async function runLoad(
     while (await claimSlot()) {
       // Another worker's call can abort the run between this worker taking
       // its slot and resuming here.
-      if (signal?.aborted) return;
+      if (halt.signal.aborted) return;
       const t0 = clock.now();
       try {
         const outcome = await call(index);
-        if (outcome === "ok") ok++;
-        else toolErrors++;
+        const latency = clock.now() - t0;
+        errorStreak = 0;
+        if (outcome === "ok") {
+          ok++;
+          okLatencies.push(latency);
+        } else {
+          toolErrors++;
+          errorLatencies.push(latency);
+          toolTally.add(
+            typeof outcome === "object" ? outcome.message : NO_TOOL_ERROR_TEXT,
+          );
+        }
       } catch (err) {
+        const now = clock.now();
         errors++;
+        errorLatencies.push(now - t0);
         tally.add(err instanceof Error ? err.message : String(err));
+        noteThrown(now);
       }
-      latencies.push(clock.now() - t0);
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
+  try {
+    await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
 
-  const elapsedMs = clock.now() - start;
+  const end = clock.now();
+  const requestCapped = requests !== undefined && started >= requests;
+  // Ran to its `--load-duration`: neither stopped early nor ended by the
+  // request count. Measured to the end of that window at least (#2837).
+  const ranFullWindow =
+    durationMs !== undefined && stoppedEarly === undefined && !requestCapped;
+  const elapsedMs = ranFullWindow
+    ? Math.max(end - start, durationMs)
+    : end - start;
   const completed = ok + toolErrors + errors;
   return {
     concurrency,
     ...(durationMs !== undefined && { durationMs }),
     ...(requests !== undefined && { requestLimit: requests }),
-    ...(rate !== undefined && { rate }),
+    ...(rate !== undefined &&
+      rateFigures(rate, {
+        started,
+        requests,
+        windowMs: ranFullWindow
+          ? durationMs
+          : stoppedEarly !== undefined
+            ? stoppedAt - start
+            : // Ended by the request count: the starts covered the grid up
+              // to the last one, plus that slot's own interval.
+              lastStartAt - start + interval,
+      })),
     requests: completed,
     ok,
     toolErrors,
@@ -410,8 +662,39 @@ export async function runLoad(
       completed === 0 ? 0 : round((toolErrors + errors) / completed, 4),
     elapsedMs: round(elapsedMs),
     throughput: elapsedMs > 0 ? round((completed * 1000) / elapsedMs) : 0,
-    latencyMs: summarizeLatency(latencies),
+    okThroughput: elapsedMs > 0 ? round((ok * 1000) / elapsedMs) : 0,
+    latencyMs: summarizeLatency(okLatencies),
+    errorLatencyMs: summarizeLatency(errorLatencies),
     errorMessages: tally.entries(),
+    toolErrorMessages: toolTally.entries(),
+    ...(stoppedEarly !== undefined && { stoppedEarly }),
+  };
+}
+
+/**
+ * `rate`, plus the planned-versus-started figures for a `--load-rate` run
+ * (#2837), over `windowMs` — the span the run was starting calls in.
+ */
+function rateFigures(
+  rate: number,
+  run: { started: number; requests?: number; windowMs: number },
+): Pick<
+  LoadSummary,
+  "rate" | "plannedStarts" | "droppedSlots" | "achievedRate"
+> {
+  const { started, requests, windowMs } = run;
+  // The slots at 0, 1/rate, … that fall inside the window. The epsilon keeps
+  // floating-point noise (5000ms × 0.001/ms = 5.000000001) from adding one.
+  const slots = Math.ceil((windowMs * rate) / 1000 - 1e-9);
+  const plannedStarts = Math.max(
+    started,
+    Math.min(slots, requests ?? Infinity),
+  );
+  return {
+    rate,
+    plannedStarts,
+    droppedSlots: plannedStarts - started,
+    achievedRate: windowMs > 0 ? round((started * 1000) / windowMs) : 0,
   };
 }
 
@@ -556,7 +839,11 @@ export async function runToolLoad(
     if (invocation.result === null) {
       throw new Error(invocation.error ?? "Tool call failed");
     }
-    return invocation.result.isError === true ? "tool_error" : "ok";
+    if (invocation.result.isError !== true) return "ok";
+    return {
+      outcome: "tool_error",
+      message: toolErrorText(invocation.result.content),
+    };
   };
   const summary = await runLoadAcrossConnections(
     inspectorClient,

@@ -15,6 +15,7 @@ import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
 import {
   runToolLoad,
   type LoadOptions,
+  type LoadStop,
 } from "@inspector/core/cli/handlers/load-test.js";
 import {
   acceptDaemonConnection,
@@ -770,7 +771,14 @@ export class DaemonServer {
     const onStatus = (
       event: TypedEventGeneric<InspectorClientEventMap, "statusChange">,
     ) => {
-      if (isTerminalStatus(event.detail)) stop.abort();
+      if (!isTerminalStatus(event.detail)) return;
+      // Named, so the summary says why it stopped (#2835) rather than
+      // reading as an interrupt.
+      const lost: LoadStop = {
+        reason: "connection_lost",
+        detail: `the connection went ${event.detail}`,
+      };
+      stop.abort(lost);
     };
     client.addEventListener("statusChange", onStatus);
     // In-flight calls abort with the run, not only new ones (#1783).

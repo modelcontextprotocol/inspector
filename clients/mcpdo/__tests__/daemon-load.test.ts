@@ -106,8 +106,11 @@ const SUMMARY: LoadSummary = {
   errorRate: 0,
   elapsedMs: 10,
   throughput: 400,
+  okThroughput: 400,
   latencyMs: { min: 1, mean: 2, p50: 2, p90: 3, p99: 3, max: 3 },
+  errorLatencyMs: null,
   errorMessages: [],
+  toolErrorMessages: [],
 };
 
 const LOAD: LoadOptions = { concurrency: 2, requests: 4 };
@@ -276,6 +279,11 @@ describe("daemon rpc with --load", () => {
     expect(runSignal.aborted).toBe(false);
     fake.emitStatus("disconnected");
     expect(runSignal.aborted).toBe(true);
+    // Named, so the summary reports the drop rather than an interrupt.
+    expect(runSignal.reason).toEqual({
+      reason: "connection_lost",
+      detail: "the connection went disconnected",
+    });
     expect((await call).ok).toBe(true);
   });
 
