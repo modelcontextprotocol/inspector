@@ -259,22 +259,36 @@ export const PREVIEW_HTML_CSP =
 const CSP_META_TAG = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_HTML_CSP}">`;
 
 /**
+ * A leading doctype, the one token allowed ahead of the CSP meta. It must stay
+ * first: a doctype that follows any element is ignored by the HTML parser,
+ * which would drop a full document into quirks mode. Only whitespace (and a
+ * BOM) may precede it — anything cleverer, such as skipping leading comments,
+ * would mean re-implementing the tokenizer's comment rules (`--!>`, `<!-->`),
+ * and a disagreement there is exactly how markup could end up ahead of the
+ * policy. A document that puts a comment before its doctype therefore renders
+ * in quirks mode, which is harmless in a sandboxed preview.
+ */
+const LEADING_DOCTYPE = /^\uFEFF?\s*<!doctype[^>]*>/i;
+
+/**
  * Inject the preview CSP `<meta>` into an HTML document before it's served to a
- * sandboxed iframe. Handles three shapes: a full document with a `<head>` (inject
- * at the top of head), a document with `<html>` but no `<head>` (add a head), and
- * a bare fragment (wrap in a minimal document).
+ * sandboxed iframe. The meta is written as the document's first token (after a
+ * leading doctype, if any), never located by searching the input for `<head>`:
+ * a search can be fooled by a `<head>` inside a comment, a `<script>`, or an
+ * attribute value, landing the policy where the parser never applies it.
+ *
+ * As the first token, the parser has no choice about where it goes. It opens
+ * the implied `<html>` and `<head>` and inserts the meta there, ahead of any
+ * markup in the document, so the policy is in effect before anything loads.
+ * The document's own tags still parse normally after it: `<html>` attributes
+ * merge onto the root element, a duplicate `<head>` is ignored and its children
+ * stay in the head, and a bare fragment lands in an implied `<body>`. That is
+ * why the input is not wrapped in a fixed `<body>` the way `wrapSandboxedHtml`
+ * wraps app HTML — a full document previewed here must keep its own head.
  */
 export function wrapHtmlWithCsp(html: string): string {
-  if (/<head[\s>]/i.test(html)) {
-    return html.replace(/<head([^>]*)>/i, `<head$1>${CSP_META_TAG}`);
-  }
-  if (/<html[\s>]/i.test(html)) {
-    return html.replace(
-      /<html([^>]*)>/i,
-      `<html$1><head>${CSP_META_TAG}</head>`,
-    );
-  }
-  return `<html><head>${CSP_META_TAG}</head><body>${html}</body></html>`;
+  const doctype = LEADING_DOCTYPE.exec(html)?.[0] ?? "";
+  return `${doctype}${CSP_META_TAG}${html.slice(doctype.length)}`;
 }
 
 /**

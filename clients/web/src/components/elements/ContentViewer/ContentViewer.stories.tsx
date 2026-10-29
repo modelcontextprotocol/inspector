@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect } from "storybook/test";
 import { ContentViewer } from "./ContentViewer";
+import { wrapHtmlWithCsp } from "./contentViewerUtils";
 
 const meta: Meta<typeof ContentViewer> = {
   title: "Elements/ContentViewer",
@@ -139,6 +141,40 @@ export const HtmlSandboxed: Story = {
       mimeType: "text/html",
       text: "<h1>Report</h1><p>This renders in a <strong>sandboxed</strong> iframe.</p>",
     },
+  },
+};
+
+// A full document whose first `<head>` is inside a comment — the shape that
+// once pulled the preview CSP into the comment. Parsing the wrapped document
+// in the play function is deliberate: the iframe is `sandbox=""` (an opaque
+// origin the story cannot inspect), and happy-dom's parser does not place a
+// leading `<meta>` the way the HTML spec does, so only a real browser can
+// assert where the policy actually lands.
+const COMMENTED_HEAD_HTML =
+  '<!-- <head> --><html lang="en"><head><title>Report</title></head><body><h1>Report</h1></body></html>';
+
+export const HtmlCommentedHead: Story = {
+  args: {
+    contents: {
+      uri: "file:///commented-head.html",
+      mimeType: "text/html",
+      text: COMMENTED_HEAD_HTML,
+    },
+  },
+  play: async () => {
+    const doc = new DOMParser().parseFromString(
+      wrapHtmlWithCsp(COMMENTED_HEAD_HTML),
+      "text/html",
+    );
+    const csp = doc.head.querySelector(
+      'meta[http-equiv="Content-Security-Policy"]',
+    );
+    await expect(csp).not.toBeNull();
+    // Nothing from the document precedes the policy in the head.
+    await expect(doc.head.firstElementChild).toBe(csp);
+    await expect(doc.title).toBe("Report");
+    await expect(doc.documentElement.getAttribute("lang")).toBe("en");
+    await expect(doc.body.textContent).toBe("Report");
   },
 };
 
