@@ -148,7 +148,7 @@
     "zod": "^4.4.3"
   },
   "engines": {
-    "node": ">=22.19.0"
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
   },
   "allowScripts": {
     "fsevents": false

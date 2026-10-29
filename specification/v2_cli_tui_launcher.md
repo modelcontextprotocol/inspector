@@ -66,7 +66,7 @@ Root scripts `inspector`, `web`, and `web:dev` are thin wrappers around the laun
 
 **Production web caveat:** launcher `prebuild` chains `build:runner` for web, not a full `vite build`. Running `mcp-inspector --web` (without `--dev`) requires `clients/web/dist/` from a prior `cd clients/web && npm run build`. CI builds CLI, TUI, and launcher before the launcher smoke step but does not currently validate prod web startup end-to-end.
 
-**Build targets:** client `tsdown` bundles target `node22`, aligned with root `engines.node` (`>=22.19.0`).
+**Build targets:** client `tsdown` bundles target `node22`, aligned with root `engines.node` (`^22.23.4 || ^24.22.1 || >=26.12.1`).
 
 ---
 
