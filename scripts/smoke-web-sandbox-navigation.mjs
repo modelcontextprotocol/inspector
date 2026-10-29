@@ -15,7 +15,8 @@
  *      every navigation of its child frame — including one the child starts —
  *      so an app navigating to an undeclared origin is blocked before any
  *      request leaves the browser.
- *   2. Navigation detection: a second `load` on the srcdoc frame closes the
+ *   2. Navigation detection: a refused navigation (a policy violation on the
+ *      proxy document) or a second `load` on the srcdoc frame closes the
  *      relay, removes the frame and posts an error notification to the host.
  *
  * Why a browser smoke and not a unit test: both controls are browser
@@ -256,9 +257,11 @@ try {
       csp: {},
     });
     await waitForReceived(page, "app-hello");
-    // The blocked navigation still commits an error page, which is the
-    // frame's second load — so the notification is the signal the attempt
-    // has run to completion, and the negative checks below are not a race.
+    // The proxy reports a refused navigation from the policy violation it
+    // raises on the proxy document — the one signal every engine gives
+    // (Chromium then also commits an error page; Firefox leaves the original
+    // document in place). The block happens before the request is sent, so
+    // once the report has arrived the negative checks below are not a race.
     // A `tools/call` arriving first means the navigated page took the bridge
     // over, which is the failure itself; waiting on either names it at once
     // rather than after a timeout.

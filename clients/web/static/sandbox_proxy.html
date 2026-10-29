@@ -49,12 +49,14 @@
               subject to it), the dedicated app origin, or the app's approved
               `frameDomains`. It is a <meta> rather than a header because the
               sources are only known once the resource-ready message arrives.
-           2. Navigation detection (see `watchForNavigation`): the srcdoc
-              document fires exactly one `load`; a second one means the frame
-              navigated away (or was blocked by 1. onto an error page), so the
-              relay closes, the frame is removed, and the host is told. That
-              is defense in depth, not the boundary: a navigated page's
-              scripts can run before its `load` fires. -->
+           2. Navigation detection (see `closeNavigatedFrame` and its two
+              callers): a navigation 1. refuses raises a policy violation on
+              this document, and on the srcdoc path a second `load` means the
+              frame left its document anyway (a navigation 1. allowed, such as
+              to a declared frame domain). Either closes the relay, removes the
+              frame and tells the host. The `load` half is defense in depth,
+              not the boundary: a navigated page's scripts can run before its
+              `load` fires. -->
     <title>MCP-UI Proxy</title>
     <style>
       html,
@@ -219,19 +221,64 @@
       // based on the permissions requested by the app
       document.body.appendChild(inner);
 
-      // Set once the srcdoc frame is seen to navigate away. From then on the
-      // relay is closed in both directions and every message is dropped: the
-      // document in the frame is no longer the app the host loaded, even
-      // though it still satisfies `event.source === inner.contentWindow` and
-      // still serialises its origin as "null".
+      // Set once the inner frame is seen leaving the document the host loaded.
+      // From then on the relay is closed in both directions and every message
+      // is dropped: whatever the frame holds is no longer the app, even though
+      // it still satisfies `event.source === inner.contentWindow` and still
+      // serialises its origin as "null".
       let navigatedAway = false;
+
+      // Fail closed on a frame that tried to leave its document: stop
+      // relaying, remove the frame (which destroys whatever document it
+      // holds), and tell the host through the app's own logging channel,
+      // which it already surfaces. Idempotent, because one attempt can be
+      // seen twice (a blocked navigation is both a policy violation and, in
+      // Chromium, a second `load` onto an error page).
+      function closeNavigatedFrame(what) {
+        if (navigatedAway) return;
+        navigatedAway = true;
+        inner.remove();
+        console.error(
+          `[Sandbox] the app ${what}; the frame was removed and the relay closed.`,
+        );
+        window.parent.postMessage(
+          {
+            jsonrpc: "2.0",
+            method: "notifications/message",
+            params: {
+              level: "error",
+              logger: "mcp-inspector-sandbox",
+              data: `The MCP App ${what}. The Inspector removed the frame and stopped relaying messages; reload the app to try again.`,
+            },
+          },
+          EXPECTED_HOST_ORIGIN,
+        );
+      }
+
+      // A navigation the frame policy (installFramePolicy) refuses is
+      // reported HERE, on the policy's own document. Engines differ in what
+      // follows: Chromium commits an error page (a second `load`), while
+      // Firefox leaves the original document in place and fires nothing
+      // further. The violation is the one signal both give, so it is what
+      // makes the attempt visible to the host everywhere. The app's own
+      // nested-frame violations are reported to the app's document, not
+      // this one, so they do not reach this listener.
+      document.addEventListener("securitypolicyviolation", (e) => {
+        if (
+          e.effectiveDirective === "frame-src" ||
+          e.effectiveDirective === "child-src"
+        ) {
+          closeNavigatedFrame(
+            "tried to navigate its frame to an origin it did not declare",
+          );
+        }
+      });
 
       // Watch a srcdoc load for the frame navigating itself elsewhere. The
       // srcdoc document fires exactly one `load`, so any later one is a
-      // different document — another page, a blocked navigation's error page,
-      // or a reload. Fail closed on all of them: stop relaying, remove the
-      // frame (which destroys whatever document it holds), and tell the host
-      // through the app's own logging channel, which it already surfaces.
+      // different document — another page (one the frame policy allowed,
+      // such as a declared frame domain), a blocked navigation's error page,
+      // or a reload. All of them close the frame.
       //
       // The frame is detached while it is configured and re-attached after
       // the listener is on, so the only `load` it can fire first is the
@@ -246,22 +293,8 @@
           loads += 1;
           if (loads === 1) return;
           inner.removeEventListener("load", onLoad);
-          navigatedAway = true;
-          inner.remove();
-          console.error(
-            "[Sandbox] the app navigated its frame away from the document the host loaded; the frame was removed and the relay closed.",
-          );
-          window.parent.postMessage(
-            {
-              jsonrpc: "2.0",
-              method: "notifications/message",
-              params: {
-                level: "error",
-                logger: "mcp-inspector-sandbox",
-                data: "The MCP App navigated its frame away from the document the host loaded. The Inspector removed the frame and stopped relaying messages; reload the app to try again.",
-              },
-            },
-            EXPECTED_HOST_ORIGIN,
+          closeNavigatedFrame(
+            "navigated its frame away from the document the host loaded",
           );
         });
         document.body.appendChild(inner);
