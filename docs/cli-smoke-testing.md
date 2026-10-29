@@ -15,7 +15,7 @@ that composes those flags.
 > changed — see the [v1 → v2 migration guide](./v1-to-v2-migration.md) before
 > porting a v1 script.
 
-**Prerequisites:** Node `>= 22.19.0` and [`jq`](https://jqlang.github.io/jq/)
+**Prerequisites:** Node `^22.23.4 || ^24.22.1 || >=26.12.1` and [`jq`](https://jqlang.github.io/jq/)
 for the assertions. Every example invokes the CLI as
 `npx @modelcontextprotocol/inspector --cli`, which resolves the **latest**
 release each time it runs — fine while you are working at a terminal, wrong for

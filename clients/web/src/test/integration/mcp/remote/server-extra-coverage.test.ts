@@ -707,8 +707,8 @@ describe("server.ts supplemental coverage", () => {
       // client's `environment.fetch` is `createRemoteFetch()`, which forwards
       // OAuth discovery and token requests here. On the bare global `fetch` a
       // corporate-proxy user could connect to a server but never authorize
-      // against it, and Node's native NODE_USE_ENV_PROXY does not cover them
-      // (unsupported at the 22.19 engine floor).
+      // against it. Node's native NODE_USE_ENV_PROXY does not cover them
+      // unless the user opts in at process start, so it is no substitute.
       const { createServer } = await import("node:http");
       const { request } = await import("node:http");
       const seen: string[] = [];
