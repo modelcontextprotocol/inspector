@@ -909,6 +909,43 @@ export class RemoteClientTransport implements Transport {
     return (await res.json()) as RemoteSendResponse;
   }
 
+  /**
+   * Ask the backend to drop this session as the page goes away (#2824),
+   * without waiting for an answer the page will not live to read. Returns
+   * whether a request was sent.
+   *
+   * This is `fetch` with `keepalive`, not `navigator.sendBeacon`, on purpose:
+   * a beacon cannot carry request headers, and every `/api/*` route — this one
+   * included — authenticates with the `x-mcp-remote-auth` header. Making the
+   * beacon work would mean accepting the API token in a URL or body for one
+   * route, which puts it where logs and history keep it. A keepalive fetch is
+   * the same "survives the unload" request with the header intact, and the
+   * backend's detach grace timer still reaps the session when it is lost.
+   *
+   * Keyed on the backend session id alone, not on `closed`: a navigation
+   * (a reload, measured in Chromium) cancels the page's events stream
+   * *before* `pagehide` fires, and the stream ending marks this transport
+   * closed while the backend session is still alive — exactly the session
+   * this exists to release. Only a deliberate `close()` clears the id, and it
+   * has sent its own disconnect by then.
+   *
+   * Deliberately leaves the transport's own state alone: nothing will read it
+   * after an unload, and a page that does survive keeps a coherent transport
+   * whose next send simply reports the session gone.
+   */
+  releaseOnPageHide(): boolean {
+    if (!this._sessionId) return false;
+    this.fetchFn(`${this.baseUrl}/api/mcp/disconnect`, {
+      method: "POST",
+      headers: this.headers,
+      body: JSON.stringify({ sessionId: this._sessionId }),
+      keepalive: true,
+    }).catch(() => {
+      // Best-effort: the backend's detach grace reaps the session anyway.
+    });
+    return true;
+  }
+
   async close(): Promise<void> {
     if (this.closed) return;
 

@@ -1,5 +1,15 @@
 /**
  * Remote session - holds a transport and event queue for a remote client.
+ *
+ * A session outlives the browser stream that consumes it only for a bounded
+ * window (#2824). Closing or reloading a tab drops `/api/mcp/events` without
+ * any disconnect, and the session used to live — with its stdio child process
+ * — until the Inspector exited. The backend now arms a *detach grace* timer
+ * whenever no consumer is attached (see {@link RemoteSession.armDetachGrace}):
+ * a consumer that reattaches inside the window (the OAuth full-page redirect's
+ * `attachToSession`) cancels it, and otherwise the backend closes the transport
+ * and forgets the session. While detached, events queue for that reattach, and
+ * the queue is capped so a chatty server cannot grow it without bound.
  */
 
 import type { Transport } from "@modelcontextprotocol/client";
@@ -32,9 +42,29 @@ type RequestWait = {
 };
 
 export class RemoteSession {
+  /**
+   * How long a session may sit with no event consumer before the backend
+   * reaps it (#2824). Long enough for an OAuth full-page redirect — the one
+   * flow that reattaches to a live session — to come back from the
+   * authorization server; a reattach that misses it still recovers, since
+   * `resumeAfterOAuth` falls back to a fresh connect. A closed or reloaded tab
+   * does not wait this out: the web client sends a best-effort disconnect on
+   * `pagehide`, so this window only bounds the cases where that never arrives
+   * (a killed browser, a dropped network, a redirect that is never finished).
+   */
+  static readonly DEFAULT_DETACH_GRACE_MS = 60_000;
+  /**
+   * Upper bound on events held while no consumer is attached (#2824). Past it
+   * the oldest event is dropped, so the newest — including a terminal
+   * `transport_error` — survive, and the next consumer is told how many went.
+   */
+  static readonly MAX_QUEUED_EVENTS = 1_000;
+
   public readonly sessionId: string;
   public transport!: Transport;
   private eventQueue: SessionEvent[] = [];
+  private droppedEventCount = 0;
+  private detachTimer: ReturnType<typeof setTimeout> | undefined;
   private eventConsumer: ((event: SessionEvent) => void) | null = null;
   private transportDead: boolean = false;
   private transportError: string | null = null;
@@ -99,7 +129,19 @@ export class RemoteSession {
   }
 
   setEventConsumer(consumer: (event: SessionEvent) => void): void {
+    this.cancelDetachGrace();
     this.eventConsumer = consumer;
+    if (this.droppedEventCount > 0) {
+      const dropped = this.droppedEventCount;
+      this.droppedEventCount = 0;
+      consumer({
+        type: "stdio_log",
+        data: {
+          timestamp: new Date().toISOString(),
+          message: `[inspector] ${dropped} event(s) were dropped while no client was attached (the queue holds at most ${RemoteSession.MAX_QUEUED_EVENTS})`,
+        },
+      });
+    }
     // Flush queued events
     while (this.eventQueue.length > 0) {
       const ev = this.eventQueue.shift()!;
@@ -111,6 +153,51 @@ export class RemoteSession {
     this.eventConsumer = null;
     // If transport is dead and no client connected, signal to cleanup
     return this.transportDead;
+  }
+
+  /**
+   * Detach `consumer` only if it is still the attached one, and say whether
+   * it was. An events stream that is replaced (the browser's
+   * `attachToSession` stops the old stream and opens a new one) can deliver
+   * its abort *after* the new stream registered, and clearing then would
+   * orphan the live stream — and, since #2824, start reaping a session that
+   * is in use.
+   */
+  detachEventConsumer(consumer: (event: SessionEvent) => void): boolean {
+    if (this.eventConsumer !== consumer) {
+      return false;
+    }
+    this.eventConsumer = null;
+    return true;
+  }
+
+  /**
+   * Run `onExpire` after `graceMs` unless a consumer attaches (or
+   * {@link cancelDetachGrace} runs) first (#2824).
+   * Re-arming replaces any pending timer. The timer is unref'd: reaping an
+   * abandoned session is housekeeping, not work the process must stay alive
+   * for.
+   */
+  armDetachGrace(graceMs: number, onExpire: () => void): void {
+    this.cancelDetachGrace();
+    // No consumer check at expiry: `setEventConsumer` cancels this timer, so
+    // a pending one always means nobody has attached since it was armed.
+    this.detachTimer = setTimeout(() => {
+      this.detachTimer = undefined;
+      onExpire();
+    }, graceMs);
+    this.detachTimer.unref();
+  }
+
+  cancelDetachGrace(): void {
+    if (this.detachTimer !== undefined) {
+      clearTimeout(this.detachTimer);
+      this.detachTimer = undefined;
+    }
+  }
+
+  hasPendingDetachGrace(): boolean {
+    return this.detachTimer !== undefined;
   }
 
   markTransportDead(error: string): void {
@@ -287,6 +374,10 @@ export class RemoteSession {
     if (this.eventConsumer) {
       this.eventConsumer(event);
     } else {
+      if (this.eventQueue.length >= RemoteSession.MAX_QUEUED_EVENTS) {
+        this.eventQueue.shift();
+        this.droppedEventCount++;
+      }
       this.eventQueue.push(event);
     }
   }
