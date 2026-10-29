@@ -1,9 +1,10 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { connect } from "node:net";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
 } from "@inspector/core/auth/node/oauth-callback-server.js";
+import { runRunnerInteractiveOAuth } from "@inspector/core/auth/node/runner-interactive-oauth.js";
 
 /**
  * Send a raw HTTP request line over a socket so we can use request targets
@@ -108,6 +109,9 @@ describe("OAuthCallbackServer", () => {
     );
 
     expect(res.status).toBe(404);
+    const html = await res.text();
+    expect(html).toContain("not the OAuth callback");
+    expect(html).not.toContain("OAuth complete");
   });
 
   it("GET /oauth/callback?error=access_denied returns 400 and invokes onError", async () => {
@@ -128,7 +132,10 @@ describe("OAuthCallbackServer", () => {
     expect(res.status).toBe(400);
     const html = await res.text();
     expect(html).toContain("OAuth failed");
-    expect(html).toContain("access_denied");
+    // #2847: the query-string text is labeled as the server's words.
+    expect(html).toContain(
+      "The authorization server said: Error: access_denied.",
+    );
     expect(errors).toHaveLength(1);
     expect(errors[0]!.error).toBe("access_denied");
     expect(errors[0]!.error_description).toBe("User denied");
@@ -154,9 +161,10 @@ describe("OAuthCallbackServer", () => {
     const res = await fetch(`http://localhost:${result.port}/other`);
 
     expect(res.status).toBe(404);
+    expect(await res.text()).toContain("not the OAuth callback");
   });
 
-  it("POST /oauth/callback returns 405", async () => {
+  it("POST /oauth/callback returns 405 with the not-the-callback page", async () => {
     server = createOAuthCallbackServer();
     const result = await server.start({ port: 0 });
 
@@ -166,6 +174,9 @@ describe("OAuthCallbackServer", () => {
     );
 
     expect(res.status).toBe(405);
+    const html = await res.text();
+    expect(html).toContain("not the OAuth callback");
+    expect(html).not.toContain("OAuth complete");
   });
 
   it("stops server after first successful callback so second request fails", async () => {
@@ -235,6 +246,9 @@ describe("OAuthCallbackServer", () => {
     );
     const second = await secondP;
     expect(second.status).toBe(409);
+    const html = await second.text();
+    expect(html).toContain("already received its callback");
+    expect(html).not.toContain("OAuth complete");
     release();
     const first = await firstP;
     expect(first.status).toBe(200);
@@ -248,7 +262,9 @@ describe("OAuthCallbackServer", () => {
     // exercising the try/catch 400 branch in handleRequest.
     const raw = await rawRequest(result.port, "GET // HTTP/1.1");
     expect(raw).toContain("400 Bad Request");
-    expect(raw).toContain("OAuth complete");
+    // #2843: a request that is not the callback must not claim success.
+    expect(raw).toContain("not the OAuth callback");
+    expect(raw).not.toContain("OAuth complete");
   });
 
   it("returns 400 JSON for an unparseable URL when Accept: application/json", async () => {
@@ -387,6 +403,198 @@ describe("OAuthCallbackServer", () => {
 
     expect(result.redirectUrl).toBe(
       `http://[::1]:${result.port}/oauth/callback`,
+    );
+  });
+  describe("expectedState (#2847)", () => {
+    const STATE = "flow-state-123";
+
+    it("ignores a success callback with the wrong state and keeps listening", async () => {
+      server = createOAuthCallbackServer();
+      const codes: string[] = [];
+      const result = await server.start({
+        port: 0,
+        expectedState: STATE,
+        onCallback: async (p) => {
+          codes.push(p.code);
+        },
+      });
+      const base = `http://localhost:${result.port}/oauth/callback`;
+
+      const wrong = await fetch(`${base}?code=forged&state=other`);
+      expect(wrong.status).toBe(400);
+      const html = await wrong.text();
+      expect(html).toContain("does not belong to the sign-in in progress");
+      expect(html).not.toContain("OAuth complete");
+
+      const missing = await fetch(`${base}?code=forged`);
+      expect(missing.status).toBe(400);
+      expect(codes).toEqual([]);
+
+      const right = await fetch(`${base}?code=real&state=${STATE}`);
+      expect(right.status).toBe(200);
+      expect(codes).toEqual(["real"]);
+    });
+
+    it("ignores an error response with the wrong (or no) state, so it cannot end the flow", async () => {
+      server = createOAuthCallbackServer();
+      const errors: string[] = [];
+      const result = await server.start({
+        port: 0,
+        expectedState: STATE,
+        onError: (p) => errors.push(p.error),
+      });
+      const base = `http://localhost:${result.port}/oauth/callback`;
+
+      const injected = await fetch(
+        `${base}?error=access_denied&error_description=injected+by+another+process`,
+      );
+      expect(injected.status).toBe(400);
+      const html = await injected.text();
+      expect(html).not.toContain("injected by another process");
+      expect(html).toContain("was ignored");
+      expect(errors).toEqual([]);
+
+      const genuine = await fetch(`${base}?error=access_denied&state=${STATE}`);
+      expect(genuine.status).toBe(400);
+      expect(await genuine.text()).toContain("The authorization server said");
+      expect(errors).toEqual(["access_denied"]);
+    });
+
+    it("answers a state mismatch with JSON when Accept: application/json", async () => {
+      server = createOAuthCallbackServer();
+      const result = await server.start({ port: 0, expectedState: STATE });
+
+      const res = await fetch(
+        `http://localhost:${result.port}/oauth/callback?code=x&state=nope`,
+        { headers: { Accept: "application/json" } },
+      );
+      expect(res.status).toBe(400);
+      expect(await res.json()).toEqual({ error: "State mismatch" });
+    });
+
+    it("holds a callback that arrives before the state is known, then matches it", async () => {
+      let resolveState!: (s: string | undefined) => void;
+      const expectedState = new Promise<string | undefined>((r) => {
+        resolveState = r;
+      });
+      server = createOAuthCallbackServer();
+      const codes: string[] = [];
+      const result = await server.start({
+        port: 0,
+        expectedState,
+        onCallback: async (p) => {
+          codes.push(p.code);
+        },
+      });
+
+      const pending = fetch(
+        `http://localhost:${result.port}/oauth/callback?code=early&state=${STATE}`,
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      expect(codes).toEqual([]);
+      resolveState(STATE);
+      expect((await pending).status).toBe(200);
+      expect(codes).toEqual(["early"]);
+    });
+
+    it("matches only a stateless callback when the flow carries no state", async () => {
+      server = createOAuthCallbackServer();
+      const codes: string[] = [];
+      const result = await server.start({
+        port: 0,
+        expectedState: Promise.resolve(undefined),
+        onCallback: async (p) => {
+          codes.push(p.code);
+        },
+      });
+      const base = `http://localhost:${result.port}/oauth/callback`;
+
+      expect((await fetch(`${base}?code=a&state=x`)).status).toBe(400);
+      expect((await fetch(`${base}?code=b`)).status).toBe(200);
+      expect(codes).toEqual(["b"]);
+    });
+
+    it("answers a held callback with 503 when the listener stops first", async () => {
+      server = createOAuthCallbackServer();
+      const result = await server.start({
+        port: 0,
+        expectedState: new Promise<string | undefined>(() => {}),
+      });
+
+      const pending = fetch(
+        `http://localhost:${result.port}/oauth/callback?code=x&state=${STATE}`,
+      );
+      await new Promise((r) => setTimeout(r, 20));
+      await server.stop();
+      const res = await pending;
+      expect(res.status).toBe(503);
+      const html = await res.text();
+      expect(html).toContain("no longer waiting");
+      expect(html).not.toContain("OAuth complete");
+    });
+
+    it("answers 503 JSON when expectedState rejects", async () => {
+      server = createOAuthCallbackServer();
+      const result = await server.start({
+        port: 0,
+        expectedState: Promise.reject(new Error("no flow")),
+      });
+
+      const res = await fetch(
+        `http://localhost:${result.port}/oauth/callback?code=x&state=${STATE}`,
+        { headers: { Accept: "application/json" } },
+      );
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        error: "Not waiting for a callback",
+      });
+    });
+  });
+  it("runRunnerInteractiveOAuth survives an injected error callback and completes on the genuine one (#2847)", async () => {
+    const STATE = "genuine-flow-state";
+    const redirectUrlProvider = { redirectUrl: "" };
+    const requests: Promise<Response>[] = [];
+    const completeOAuthFlow = vi.fn(async () => {});
+
+    const result = await runRunnerInteractiveOAuth({
+      client: {
+        authenticate: async () => {
+          const base = redirectUrlProvider.redirectUrl;
+          // Another local process races the browser with a stateless error,
+          // then the genuine redirect lands. Neither is awaited here — a
+          // real navigation is not — and both arrive before the runner has
+          // learned the flow's state, so the listener holds them until then.
+          requests.push(
+            fetch(
+              `${base}?error=access_denied&error_description=injected+by+another+process`,
+            ),
+          );
+          await new Promise((r) => setTimeout(r, 20));
+          requests.push(fetch(`${base}?code=real-code&state=${STATE}`));
+          return new URL(`https://as.example/authorize?state=${STATE}`);
+        },
+        beginInteractiveAuthorization: async () => {},
+        completeOAuthFlow,
+        checkAuthChallengeSatisfied: async () => true,
+      },
+      redirectUrlProvider,
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 0,
+        pathname: "/oauth/callback",
+      },
+      callbackTimeoutMs: 10_000,
+    });
+
+    expect(result).toEqual({ kind: "success" });
+    const [forged, genuine] = await Promise.all(requests);
+    expect(forged!.status).toBe(400);
+    expect(await forged!.text()).not.toContain("injected by another process");
+    expect(genuine!.status).toBe(200);
+    expect(completeOAuthFlow).toHaveBeenCalledWith(
+      "real-code",
+      undefined,
+      STATE,
     );
   });
 });

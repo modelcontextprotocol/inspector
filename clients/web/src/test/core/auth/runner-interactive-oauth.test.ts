@@ -37,6 +37,7 @@ function mockClient(
 interface MockCallbackHandlers {
   onCallback?: OAuthCallbackServerStartOptions["onCallback"];
   onError?: OAuthCallbackServerStartOptions["onError"];
+  expectedState?: OAuthCallbackServerStartOptions["expectedState"];
 }
 
 function createMockCallbackServer(handlers: {
@@ -47,6 +48,7 @@ function createMockCallbackServer(handlers: {
       handlers.current = {
         onCallback: opts.onCallback,
         onError: opts.onError,
+        expectedState: opts.expectedState,
       };
       return {
         port: 6276,
@@ -352,7 +354,124 @@ describe("runRunnerInteractiveOAuth", () => {
         },
         createCallbackServer: () => createMockCallbackServer(handlers),
       }),
-    ).rejects.toThrow("user cancelled");
+    ).rejects.toThrow(
+      "OAuth authorization failed. The authorization server said: user cancelled (access_denied)",
+    );
+  });
+
+  it("hands the listener the state of the authorize URL authenticate() returns (#2847)", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current);
+        return new URL("https://as.example/authorize?state=connect-state");
+      }),
+    });
+
+    await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    });
+
+    await expect(handlers.current.expectedState).resolves.toBe("connect-state");
+  });
+
+  it("hands the listener the step-up authorize URL's state before navigating (#2847)", async () => {
+    let stateAtNavigation: string | undefined;
+    const client = mockClient({
+      beginInteractiveAuthorization: vi.fn(async () => {
+        stateAtNavigation = await handlers.current.expectedState;
+        await simulateCallback(handlers.current, "step-up-code");
+      }),
+    });
+
+    await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      authorizationUrl: new URL("https://as.example/authorize?state=step-up"),
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    });
+
+    expect(stateAtNavigation).toBe("step-up");
+  });
+
+  it("resolves an undefined expected state for an authorize URL without one", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        await simulateCallback(handlers.current);
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    });
+
+    await expect(handlers.current.expectedState).resolves.toBeUndefined();
+  });
+
+  it("leaves a listener-reported callback_error unlabeled — it is our failure, not the server's", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({
+          error: "callback_error",
+          error_description: "exchange blew up",
+        });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    const run = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    });
+    await expect(run).rejects.toThrow("exchange blew up");
+    await expect(run).rejects.not.toThrow("authorization server said");
+  });
+
+  it("falls back to a generic message for a callback_error without a description", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({ error: "callback_error" });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    await expect(
+      runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider: { redirectUrl: "" },
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => createMockCallbackServer(handlers),
+      }),
+    ).rejects.toThrow("OAuth callback failed");
   });
 
   it("times out when the browser callback never arrives", async () => {
@@ -459,7 +578,9 @@ describe("runRunnerInteractiveOAuth", () => {
         },
         createCallbackServer: () => createMockCallbackServer(handlers),
       }),
-    ).rejects.toThrow("access_denied");
+    ).rejects.toThrow(
+      "OAuth authorization failed. The authorization server said: access_denied",
+    );
   });
 
   it("defaults to createOAuthCallbackServer when none is provided", async () => {

@@ -78,6 +78,32 @@ function toRunnerOAuthError(err: unknown): Error {
   return err instanceof Error ? err : new Error(String(err));
 }
 
+/** The `state` an authorize URL carries — what its callback must echo. */
+function stateOf(authorizationUrl: URL): string | undefined {
+  return authorizationUrl.searchParams.get("state") ?? undefined;
+}
+
+/**
+ * The flow's failure message for an error the listener reported.
+ *
+ * An error *response* (`?error=…`) is text from the redirect's query string,
+ * so it is labeled as the authorization server's words rather than passed
+ * off as the Inspector's own diagnosis (#2847). `callback_error` is the
+ * listener reporting a rejected `onCallback` — our own failure, unlabeled.
+ */
+function callbackErrorMessage(params: {
+  error: string;
+  error_description?: string | null;
+}): string {
+  if (params.error === "callback_error") {
+    return params.error_description ?? "OAuth callback failed";
+  }
+  const said = params.error_description
+    ? `${params.error_description} (${params.error})`
+    : params.error;
+  return `OAuth authorization failed. The authorization server said: ${said}`;
+}
+
 /**
  * Run interactive OAuth for Node runners (TUI / CLI): loopback callback server,
  * browser redirect, authorization-code exchange via {@link completeOAuthFlow}.
@@ -144,12 +170,22 @@ export async function runRunnerInteractiveOAuth(
 
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
+  // The listener only acts on a callback carrying this flow's `state`
+  // (#2847). It has to be bound before the authorize URL exists, so the
+  // state is handed over once known; a callback that arrives first is held
+  // by the listener until then.
+  let resolveExpectedState!: (state: string | undefined) => void;
+  const expectedState = new Promise<string | undefined>((resolve) => {
+    resolveExpectedState = resolve;
+  });
+
   try {
     const { redirectUrl } = await racingSignals(
       server.start({
         hostname: options.callbackListen.hostname,
         port: options.callbackListen.port,
         path: options.callbackListen.pathname,
+        expectedState,
         onCallback: async (params) => {
           try {
             await options.client.completeOAuthFlow(
@@ -163,12 +199,7 @@ export async function runRunnerInteractiveOAuth(
           }
         },
         onError: (params) => {
-          flowReject(
-            new Error(
-              /* v8 ignore next -- params.error is a required non-null string, so the "OAuth error" fallback is unreachable */
-              params.error_description ?? params.error ?? "OAuth error",
-            ),
-          );
+          flowReject(new Error(callbackErrorMessage(params)));
         },
       }),
     );
@@ -203,6 +234,7 @@ export async function runRunnerInteractiveOAuth(
     void waitForCallback.catch(() => {});
 
     if (options.authorizationUrl) {
+      resolveExpectedState(stateOf(options.authorizationUrl));
       await racingSignals(
         options.client.beginInteractiveAuthorization(options.authorizationUrl),
       );
@@ -210,6 +242,7 @@ export async function runRunnerInteractiveOAuth(
     } else {
       const authUrl = await racingSignals(options.client.authenticate());
       if (authUrl !== undefined) {
+        resolveExpectedState(stateOf(authUrl));
         await waitForCallback;
       } else {
         return { kind: "already_authorized" };

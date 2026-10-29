@@ -524,7 +524,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
 2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a **stderr** TTY (so `2>&1 | tee` prints a plain URL into the log but does not auto-open); plain URL only when stderr is non-TTY. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher).
-3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
+3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC. Only a redirect echoing this flow's OAuth `state` is acted on — any other request to the listener, an `?error=` response included, gets a 400 and is ignored, so another local process or a web page cannot cancel the sign-in or choose the error it reports; the wait continues until the matching redirect or the 15-minute timeout
 
 Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
