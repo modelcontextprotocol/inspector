@@ -3,6 +3,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import {
+  LOAD_FLAG_CONFLICT,
   resolveLoadOptions,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -93,6 +94,6 @@ export function resolveLoadFlags(flags: {
   return { options, ...(thresholds && { thresholds }) };
 }
 
-function usage(message: string, code = "load_flag_conflict"): CliExitCodeError {
+function usage(message: string, code = LOAD_FLAG_CONFLICT): CliExitCodeError {
   return new CliExitCodeError(EXIT_CODES.USAGE, message, { code });
 }

@@ -94,14 +94,18 @@ function errorRateBreach(
   };
 }
 
+/**
+ * Judged on the successful calls only (#2836): `latencyMs` excludes failures,
+ * so an instant failure can never pull the p99 under the SLO.
+ */
 function p99Breach(summary: LoadSummary, max: number): Breach | undefined {
   const p99 = summary.latencyMs?.p99;
-  // No completed call means no latency to compare. Passing would let a run
-  // that measured nothing satisfy a latency SLO, so it fails — and says why.
+  // No successful call means no latency to compare. Passing would let a run
+  // that served nothing satisfy a latency SLO, so it fails — and says why.
   if (p99 === undefined) {
     return {
       code: LOAD_P99_EXCEEDED,
-      message: `no call completed, so there is no p99 latency to check against --load-max-p99 ${max}`,
+      message: `no call succeeded, so there is no p99 latency to check against --load-max-p99 ${max}`,
     };
   }
   if (p99 <= max) return undefined;
