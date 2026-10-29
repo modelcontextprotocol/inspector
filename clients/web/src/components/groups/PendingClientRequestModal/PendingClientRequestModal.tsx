@@ -10,6 +10,7 @@ import type { PendingRequestOrigin } from "@inspector/core/mcp/types.js";
 import { SamplingRequestPanel } from "../SamplingRequestPanel/SamplingRequestPanel";
 import { ElicitationFormPanel } from "../ElicitationFormPanel/ElicitationFormPanel";
 import { ElicitationUrlPanel } from "../ElicitationUrlPanel/ElicitationUrlPanel";
+import { isHttpUrl } from "../../../lib/downloadFile";
 import {
   collectSchemaDefaults,
   type InspectorFormSchema,
@@ -194,6 +195,17 @@ function ElicitationFormModalBody({
   );
 }
 
+/**
+ * Why a server-supplied elicitation URL may not be opened, or undefined when it
+ * may. Only http(s) is handed to `window.open` — the same allowlist the MCP
+ * Apps bridge applies to `openLink`, since a `javascript:`/`data:`/`file:` URL
+ * here is server-controlled input.
+ */
+function elicitationUrlRefusal(safeUrl: URL | null): string | undefined {
+  if (safeUrl) return undefined;
+  return "Refusing to open this URL: only http: and https: URLs can be opened from an elicitation request.";
+}
+
 function ElicitationUrlModalBody({
   id,
   message,
@@ -209,6 +221,7 @@ function ElicitationUrlModalBody({
 }) {
   const [isWaiting, setIsWaiting] = useState(false);
   const { responded, once } = useRespondOnce();
+  const safeUrl = isHttpUrl(url);
   return (
     <ElicitationUrlPanel
       message={message}
@@ -216,6 +229,7 @@ function ElicitationUrlModalBody({
       origin={origin}
       requestId={id}
       isWaiting={isWaiting}
+      openRefusal={elicitationUrlRefusal(safeUrl)}
       onCopyUrl={() => {
         void navigator.clipboard?.writeText(url);
         // Copying the URL is the other way to start the external flow (paste
@@ -224,7 +238,11 @@ function ElicitationUrlModalBody({
         setIsWaiting(true);
       }}
       onOpenInBrowser={() => {
-        window.open(url, "_blank", "noopener,noreferrer");
+        // The panel disables the button for a refused URL; this guard keeps the
+        // allowlist at the one place a URL is actually opened as well.
+        /* v8 ignore next -- unreachable from the UI: Open in Browser is disabled whenever safeUrl is null */
+        if (!safeUrl) return;
+        window.open(safeUrl.href, "_blank", "noopener,noreferrer");
         // Opening the URL only moves the panel into its waiting state — the
         // inspector can't observe completion of an external flow, so the
         // elicitation resolves only when the user explicitly confirms
