@@ -75,7 +75,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "eslint-plugin-storybook": "^10.5.5",
-    "happy-dom": "^20.11.2",
+    "happy-dom": "^21.0.4",
     "playwright": "^1.58.2",
     "storybook": "^10.5.5",
     "tsdown": "^0.23.1",

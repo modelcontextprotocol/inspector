@@ -116,7 +116,7 @@ Object.defineProperty(globalThis, "fetch", {
     ),
 });
 
-// happy-dom (v20) *does* implement `matchMedia`/`MediaQueryList`, so this isn't
+// happy-dom (v21) *does* implement `matchMedia`/`MediaQueryList`, so this isn't
 // a polyfill for a missing API — it's a deliberate **override** of happy-dom's
 // implementation, pinning `prefers-reduced-motion: reduce` and reporting `false`
 // for every other query (preserving the historical absent-matchMedia layout
