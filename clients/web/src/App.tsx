@@ -44,6 +44,7 @@ import { useLastPersistedSettings } from "./hooks/useLastPersistedSettings";
 import { usePaginatedListsOverride } from "./hooks/usePaginatedListsOverride";
 import { useValueChange } from "./hooks/useValueChange";
 import { useThemeToggle } from "./hooks/useThemeToggle";
+import { usePageHideRelease } from "./hooks/usePageHideRelease";
 import { useTabUiState } from "./hooks/useTabUiState";
 import { useSessionRef } from "./hooks/useSessionRef";
 import {
@@ -390,6 +391,9 @@ function App() {
   // screen renders from. Both hooks subscribe to the live client's events and
   // own their own toast-id bookkeeping.
   useProgressToasts(inspectorClient);
+  // Release the backend session (and any stdio child) when the tab is closed
+  // or reloaded, rather than leaving it to the backend's grace timer (#2824).
+  usePageHideRelease(inspectorClient);
   const { progressByTaskId, resetTaskProgress, activeToolCallTaskIdRef } =
     useTaskToasts(inspectorClient);
 
