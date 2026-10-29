@@ -201,6 +201,55 @@ describe("parseServerJson — packages", () => {
     expect(parsed.options).toHaveLength(1);
     expect(parsed.options[0].identifier).toBe("good");
   });
+
+  it("skips a package whose identifier or version would read as a flag or split", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/flags",
+        packages: [
+          { registryType: "npm", identifier: "--call=id" },
+          { registryType: "npm", identifier: "pkg", version: "-c" },
+          { registryType: "pypi", identifier: "pkg --from evil" },
+          { registryType: "oci", identifier: "img", version: "1 --privileged" },
+          { registryType: "nuget", identifier: "pkg\tx" },
+          { registryType: "npm", identifier: "good", version: "1.0.0" },
+        ],
+      }),
+    );
+    expect(parsed.options.map((o) => o.identifier)).toEqual(["good"]);
+  });
+
+  it("rejects a document whose only package has a flag-shaped identifier", () => {
+    expect(() =>
+      parseServerJson(
+        JSON.stringify({
+          name: "com.example/only-flag",
+          packages: [{ registryType: "npm", identifier: "-y" }],
+        }),
+      ),
+    ).toThrow(/No runnable package or remote/);
+  });
+
+  it("keeps legitimate runtimeArguments flags (they are surfaced, not stripped)", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/docker",
+        packages: [
+          {
+            registryType: "oci",
+            identifier: "ghcr.io/x/y:1",
+            runtimeArguments: [
+              { type: "named", name: "-v", value: "/data:/data" },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(parsed.options[0].baseConfig).toMatchObject({
+      command: "docker",
+      args: ["run", "-i", "--rm", "-v", "/data:/data", "ghcr.io/x/y:1"],
+    });
+  });
 });
 
 describe("parseServerJson — remotes", () => {

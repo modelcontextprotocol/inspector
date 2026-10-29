@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import {
+  describeLaunch,
   useServerJsonImport,
   VALIDATE_DEBOUNCE_MS,
   COLLAPSE_DELAY_MS,
@@ -51,6 +52,43 @@ function typeAndFlush(
   });
 }
 
+describe("describeLaunch", () => {
+  it("renders a stdio config as a quoted command line plus env names", () => {
+    expect(
+      describeLaunch({
+        type: "stdio",
+        command: "npx",
+        args: ["-c", "touch /tmp/x", "-y", "pkg"],
+        env: { API_KEY: "secret", REGION: "us" },
+      }),
+    ).toEqual({
+      kind: "command",
+      value: "npx -c 'touch /tmp/x' -y pkg",
+      envNames: ["API_KEY", "REGION"],
+    });
+  });
+
+  it("handles a stdio config with no args or env", () => {
+    expect(describeLaunch({ command: "uvx" })).toEqual({
+      kind: "command",
+      value: "uvx",
+      envNames: [],
+    });
+  });
+
+  it("renders a remote config as its URL", () => {
+    expect(
+      describeLaunch({ type: "sse", url: "https://example.com/sse" }),
+    ).toEqual({ kind: "url", value: "https://example.com/sse", envNames: [] });
+    expect(
+      describeLaunch({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      }),
+    ).toEqual({ kind: "url", value: "https://example.com/mcp", envNames: [] });
+  });
+});
+
 describe("useServerJsonImport", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -73,6 +111,32 @@ describe("useServerJsonImport", () => {
     ]);
     expect(result.current.packages).toBeUndefined();
     expect(result.current.envVars).toEqual([]);
+  });
+
+  it("previews the exact launch of the selected option, runtime args included", () => {
+    const { result } = setup();
+    expect(result.current.launchPreview).toBeUndefined();
+    typeAndFlush(
+      result,
+      JSON.stringify({
+        name: "io.github.acme/single",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "benign-pkg",
+            runtimeArguments: [
+              { type: "named", name: "-c", value: "touch /tmp/pwned" },
+            ],
+            environmentVariables: [{ name: "TOKEN", default: "t" }],
+          },
+        ],
+      }),
+    );
+    expect(result.current.launchPreview).toEqual({
+      kind: "command",
+      value: "npx -c 'touch /tmp/pwned' -y benign-pkg",
+      envNames: ["TOKEN"],
+    });
   });
 
   it("validates pasted content and enables Add", () => {

@@ -11,10 +11,12 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import type {
   EnvVarInfo,
+  LaunchPreview,
   PackageInfo,
   ValidationResult,
 } from "../components/groups/ImportServerJsonPanel/ImportServerJsonPanel";
 import { errorMessage } from "../utils/errorFormat";
+import { formatCommandLine } from "../utils/commandLine";
 
 /** Debounce (ms) before a textarea edit re-triggers parse/validation. */
 export const VALIDATE_DEBOUNCE_MS = 300;
@@ -41,6 +43,23 @@ type ParseState =
   | { ok: true; parsed: ParsedServerJson }
   | { ok: false; error: string }
   | { ok: null };
+
+/**
+ * Describe the config an import will save: the shell-quoted command line and
+ * the env var names for a stdio server, or the URL for a remote. Built from the
+ * same `buildServerConfigForSelection` output `submit` persists, so what the
+ * panel shows cannot drift from what gets saved.
+ */
+export function describeLaunch(config: MCPServerConfig): LaunchPreview {
+  if (config.type === "sse" || config.type === "streamable-http") {
+    return { kind: "url", value: config.url, envNames: [] };
+  }
+  return {
+    kind: "command",
+    value: formatCommandLine(config.command, config.args),
+    envNames: Object.keys(config.env ?? {}),
+  };
+}
 
 function parseDraft(rawText: string): ParseState {
   if (!rawText.trim()) return { ok: null };
@@ -69,6 +88,8 @@ export interface ServerJsonImportViewModel {
   validation: ValidationResult[];
   packages?: PackageInfo[];
   envVars: EnvVarInfo[];
+  /** What importing the selected option will save and run. */
+  launchPreview?: LaunchPreview;
   canAdd: boolean;
   /** Derived id from the server.json `name` (before any override). */
   defaultServerName: string;
@@ -182,6 +203,12 @@ export function useServerJsonImport({
     value: draft.envOverrides[v.name] ?? v.default ?? "",
   }));
 
+  const launchPreview = selectedOption
+    ? describeLaunch(
+        buildServerConfigForSelection(selectedOption, draft.envOverrides),
+      )
+    : undefined;
+
   const validation: ValidationResult[] = useMemo(() => {
     if (parseState.ok === null) {
       return [
@@ -294,6 +321,7 @@ export function useServerJsonImport({
     validation: allValidation,
     packages,
     envVars,
+    launchPreview,
     canAdd,
     defaultServerName: parsed?.serverName ?? "",
     fileContentsOpen,

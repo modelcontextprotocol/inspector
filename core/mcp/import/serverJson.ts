@@ -183,6 +183,19 @@ function runtimeForPackage(
   }
 }
 
+/**
+ * Whether a value would not survive as a single, non-option argv token: it
+ * starts with `-` (so the runtime would parse it as a flag) or contains
+ * whitespace (so a shell-pasted copy of the command would split it). A package
+ * `identifier` and `version` become the runtime's package reference
+ * (`npx -y <id>@<version>`, `docker run … <image>`), so either shape would let
+ * an imported document smuggle a runtime flag in through a field the import
+ * panel labels as a package name. No registry's naming rules admit either.
+ */
+function isUnsafePackageToken(value: string): boolean {
+  return value.startsWith("-") || /\s/.test(value);
+}
+
 /** Map a single `packages[]` entry to a launch option, or null if unsupported. */
 function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
   const registryType =
@@ -190,6 +203,14 @@ function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
   const identifier = asString(raw.identifier) ?? "";
   if (!registryType || !identifier) return null;
   const version = asString(raw.version);
+  // Treated like an unsupported package: skipped, so a document whose only
+  // package is malformed this way fails with the "no runnable package" error.
+  if (
+    isUnsafePackageToken(identifier) ||
+    (version !== undefined && isUnsafePackageToken(version))
+  ) {
+    return null;
+  }
   const runtime = runtimeForPackage(registryType, identifier, version);
   if (!runtime) return null;
 

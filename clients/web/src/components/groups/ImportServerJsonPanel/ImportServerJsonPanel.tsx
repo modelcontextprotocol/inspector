@@ -1,6 +1,7 @@
 import {
   Accordion,
   Button,
+  Code,
   Divider,
   FileButton,
   Group,
@@ -25,6 +26,21 @@ export interface PackageInfo {
   runtimeHint: string;
 }
 
+/**
+ * Exactly what importing the selected option will save and run, shown before
+ * the user commits. A server.json's `runtimeArguments` are spliced in ahead of
+ * the package reference, so the package label alone does not describe the
+ * spawned process — this does.
+ */
+export interface LaunchPreview {
+  /** `command` for a stdio package, `url` for a remote. */
+  kind: "command" | "url";
+  /** The full, shell-quoted command line (stdio) or the remote URL. */
+  value: string;
+  /** Names of the env vars the saved config sets — names only, never values. */
+  envNames: string[];
+}
+
 export interface EnvVarInfo {
   name: string;
   description?: string;
@@ -37,6 +53,8 @@ export interface ImportServerJsonPanelProps {
   validation: ValidationResult[];
   packages?: PackageInfo[];
   envVars: EnvVarInfo[];
+  /** The resolved launch of the selected option; shown whenever present. */
+  launchPreview?: LaunchPreview;
   onJsonChange: (content: string) => void;
   onSelectPackage: (index: number) => void;
   onEnvVarChange: (name: string, value: string) => void;
@@ -120,6 +138,19 @@ const OverrideNameInput = TextInput.withProps({
   rightSectionPointerEvents: "auto",
 });
 
+const LaunchCode = Code.withProps({
+  block: true,
+  variant: "wrapping",
+});
+
+function formatLaunchTitle(preview: LaunchPreview): string {
+  return preview.kind === "command" ? "Command to Run:" : "Remote URL:";
+}
+
+function formatEnvNames(names: string[]): string {
+  return `Environment variables set: ${names.join(", ")}`;
+}
+
 function formatPackageLabel(pkg: PackageInfo): string {
   return `${pkg.registryType}: ${pkg.identifier} (${pkg.runtimeHint})`;
 }
@@ -129,6 +160,7 @@ export function ImportServerJsonPanel({
   validation,
   packages,
   envVars,
+  launchPreview,
   onJsonChange,
   onSelectPackage,
   onEnvVarChange,
@@ -239,6 +271,23 @@ export function ImportServerJsonPanel({
                   ))}
                 </Stack>
               </Radio.Group>
+            </>
+          )}
+
+          {launchPreview && (
+            <>
+              <Divider />
+              <Title order={5}>{formatLaunchTitle(launchPreview)}</Title>
+              <HintText>
+                Review this before adding: it is exactly what will be saved and
+                run.
+              </HintText>
+              <LaunchCode aria-label="Resolved launch">
+                {launchPreview.value}
+              </LaunchCode>
+              {launchPreview.envNames.length > 0 && (
+                <HintText>{formatEnvNames(launchPreview.envNames)}</HintText>
+              )}
             </>
           )}
 
