@@ -18,6 +18,10 @@ import {
   ElicitationFormRequestData,
 } from "./ElicitationTab";
 import Ajv from "ajv";
+import {
+  patternsNotEvaluatedNote,
+  stripSchemaPatterns,
+} from "@/utils/stripSchemaPatterns";
 
 export type ElicitationRequestProps = {
   request: PendingElicitationRequest;
@@ -158,6 +162,11 @@ const ElicitationRequest = ({
 
   // After URL-mode early return, requestData is guaranteed to be form mode
   const formRequest = requestData as ElicitationFormRequestData;
+  // The requested schema comes from the server; its regex patterns are not
+  // evaluated (they would run on the backtracking native RegExp engine), and
+  // the form says so below.
+  const { schema: regexFreeSchema, stripped: strippedPatterns } =
+    stripSchemaPatterns(formRequest.requestedSchema);
 
   const validateEmailFormat = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -211,7 +220,7 @@ const ElicitationRequest = ({
       }
 
       const ajv = new Ajv();
-      const validate = ajv.compile(formRequest.requestedSchema);
+      const validate = ajv.compile(regexFreeSchema as object);
       const isValid = validate(formData);
 
       if (!isValid) {
@@ -275,6 +284,12 @@ const ElicitationRequest = ({
               setValidationError(null);
             }}
           />
+
+          {strippedPatterns > 0 && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              ⚠ {patternsNotEvaluatedNote(strippedPatterns)}
+            </div>
+          )}
 
           {validationError && (
             <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">

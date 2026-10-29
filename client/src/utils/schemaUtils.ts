@@ -3,11 +3,18 @@ import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+import {
+  patternsNotEvaluatedNote,
+  stripSchemaPatterns,
+} from "./stripSchemaPatterns";
 
 const ajv = new Ajv();
 
 // Cache for compiled validators
 const toolOutputValidators = new Map<string, ValidateFunction>();
+// How many server-supplied regexes were removed from each tool's schema
+// before compiling (see stripSchemaPatterns for why they are not evaluated).
+const toolOutputStrippedPatterns = new Map<string, number>();
 
 /**
  * Compiles and caches output schema validators for a list of tools
@@ -16,11 +23,16 @@ const toolOutputValidators = new Map<string, ValidateFunction>();
  */
 export function cacheToolOutputSchemas(tools: Tool[]): void {
   toolOutputValidators.clear();
+  toolOutputStrippedPatterns.clear();
   for (const tool of tools) {
     if (tool.outputSchema) {
       try {
-        const validator = ajv.compile(tool.outputSchema);
+        // Compile a regex-free copy: the schema comes from the server, and
+        // its patterns would run on the backtracking native RegExp engine.
+        const { schema, stripped } = stripSchemaPatterns(tool.outputSchema);
+        const validator = ajv.compile(schema as object);
         toolOutputValidators.set(tool.name, validator);
+        if (stripped > 0) toolOutputStrippedPatterns.set(tool.name, stripped);
       } catch (error) {
         console.warn(
           `Failed to compile output schema for tool ${tool.name}:`,
@@ -48,26 +60,31 @@ export function getToolOutputValidator(
  * Returns validation result with detailed error messages
  * @param toolName Name of the tool
  * @param structuredContent The structured content to validate
- * @returns An object with isValid boolean and optional error message
+ * @returns An object with isValid boolean, optional error message, and an
+ *   optional note when some of the schema's regex patterns were not evaluated
  */
 export function validateToolOutput(
   toolName: string,
   structuredContent: unknown,
-): { isValid: boolean; error?: string } {
+): { isValid: boolean; error?: string; note?: string } {
   const validator = getToolOutputValidator(toolName);
   if (!validator) {
     return { isValid: true }; // No validator means no schema to validate against
   }
 
+  const stripped = toolOutputStrippedPatterns.get(toolName);
+  const note =
+    stripped === undefined ? {} : { note: patternsNotEvaluatedNote(stripped) };
   const isValid = validator(structuredContent);
   if (!isValid) {
     return {
       isValid: false,
       error: ajv.errorsText(validator.errors),
+      ...note,
     };
   }
 
-  return { isValid: true };
+  return { isValid: true, ...note };
 }
 
 /**

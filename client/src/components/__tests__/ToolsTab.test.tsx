@@ -545,6 +545,35 @@ describe("ToolsTab", () => {
       expect(screen.getByText(/Validation Error:/)).toBeInTheDocument();
     });
 
+    it("should note that the output schema's regex patterns were not evaluated", () => {
+      const patternTool: Tool = {
+        ...toolWithOutputSchema,
+        outputSchema: {
+          type: "object" as const,
+          properties: { data: { type: "string", pattern: "^(a+)+$" } },
+        },
+      };
+      cacheToolOutputSchemas([patternTool]);
+
+      renderToolsTab({
+        tools: [patternTool],
+        selectedTool: patternTool,
+        toolResult: {
+          content: [],
+          structuredContent: { data: `${"a".repeat(10_000)}!` },
+        },
+      });
+
+      expect(
+        screen.getByText(/Valid according to output schema/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /1 regex pattern\(s\) in this schema were not evaluated/,
+        ),
+      ).toBeInTheDocument();
+    });
+
     it("should show error when tool with output schema doesn't return structured content", () => {
       const resultWithoutStructured = {
         content: [{ type: "text", text: "some result" }],
