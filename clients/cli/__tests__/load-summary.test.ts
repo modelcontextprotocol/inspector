@@ -27,6 +27,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import {
+  REPEAT_GRACE_MS,
   assertNotInterrupted,
   withLoadInterrupt,
 } from "../src/handlers/load-interrupt.js";
@@ -582,17 +583,40 @@ describe("withLoadInterrupt (#2834)", () => {
     expect(process.listenerCount("SIGTERM")).toBe(before);
   });
 
-  it("exits 130 on the second signal", async () => {
+  it("exits 130 on a second press, after the re-raise window", async () => {
     const exit = vi.fn();
     const existing = process.listeners("SIGINT");
+    let t = 0;
     let finish!: () => void;
     const run = withLoadInterrupt(
       () => new Promise<void>((resolve) => (finish = resolve)),
-      { quiet: true, exit },
+      { quiet: true, exit, now: () => t },
     );
     signalLoadRun("SIGINT", existing);
-    expect(exit).not.toHaveBeenCalled();
+    // `when-exit` re-raises the first signal a moment later: not a press.
+    t = 5;
     signalLoadRun("SIGINT", existing);
+    t = REPEAT_GRACE_MS - 1;
+    signalLoadRun("SIGINT", existing);
+    expect(exit).not.toHaveBeenCalled();
+    t = REPEAT_GRACE_MS;
+    signalLoadRun("SIGINT", existing);
+    expect(exit).toHaveBeenCalledWith(EXIT_CODES.INTERRUPTED);
+    finish();
+    await run;
+  });
+
+  it("exits at once on a different signal, inside the window too", async () => {
+    const exit = vi.fn();
+    const ints = process.listeners("SIGINT");
+    const terms = process.listeners("SIGTERM");
+    let finish!: () => void;
+    const run = withLoadInterrupt(
+      () => new Promise<void>((resolve) => (finish = resolve)),
+      { quiet: true, exit, now: () => 0 },
+    );
+    signalLoadRun("SIGINT", ints);
+    signalLoadRun("SIGTERM", terms);
     expect(exit).toHaveBeenCalledWith(EXIT_CODES.INTERRUPTED);
     finish();
     await run;
@@ -602,14 +626,16 @@ describe("withLoadInterrupt (#2834)", () => {
     const exit = vi
       .spyOn(process, "exit")
       .mockImplementation((() => undefined) as never);
-    const existing = process.listeners("SIGINT");
+    const ints = process.listeners("SIGINT");
+    const terms = process.listeners("SIGTERM");
     let finish!: () => void;
     const run = withLoadInterrupt(
       () => new Promise<void>((resolve) => (finish = resolve)),
       { quiet: true },
     );
-    signalLoadRun("SIGINT", existing);
-    signalLoadRun("SIGINT", existing);
+    // Different signals, so the real clock's re-raise window never applies.
+    signalLoadRun("SIGINT", ints);
+    signalLoadRun("SIGTERM", terms);
     expect(exit).toHaveBeenCalledWith(130);
     finish();
     await run;
