@@ -99,14 +99,30 @@ export function deriveServerId(fullName: string): string {
   return cleaned || "server";
 }
 
-/** Parse an `environmentVariables` array into our env-var descriptors. */
-function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] {
+/**
+ * A portable environment variable identifier. The registry schema types
+ * `name` as a bare string, so this is the POSIX shape rather than a schema
+ * rule. It matters because a declared name is not only an env key: for an OCI
+ * package it becomes the `-e NAME` argument to `docker run`, where a name such
+ * as `--privileged` would be read as a docker flag.
+ */
+const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Parse an `environmentVariables` array into our env-var descriptors, or null
+ * when any declared name is not a valid identifier. Null rejects the whole
+ * package rather than dropping the one variable: a dropped variable may be a
+ * required one, and launching without it would be a silently misconfigured
+ * server, so the package is made unrunnable the way a bad identifier is.
+ */
+function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] | null {
   const out: ServerJsonEnvVar[] = [];
   for (const entry of rawList) {
     const obj = asObject(entry);
     if (!obj) continue;
     const name = asString(obj.name);
     if (!name) continue;
+    if (!ENV_VAR_NAME.test(name)) return null;
     const required = Boolean(pick(obj, "isRequired", "is_required"));
     const isSecret = Boolean(pick(obj, "isSecret", "is_secret"));
     // The schema's `value` is a *fixed* value and `default` a suggestion; we
@@ -217,6 +233,7 @@ function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
   const envVars = parseEnvVars(
     asArray(pick(raw, "environmentVariables", "environment_variables")),
   );
+  if (!envVars) return null;
   const runtimeArgs = resolveArguments(
     asArray(pick(raw, "runtimeArguments", "runtime_arguments")),
   );

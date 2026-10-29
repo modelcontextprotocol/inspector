@@ -230,6 +230,64 @@ describe("parseServerJson — packages", () => {
     ).toThrow(/No runnable package or remote/);
   });
 
+  it("skips a docker package declaring an env var name that is not an identifier", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/env-docker",
+        packages: [
+          {
+            registryType: "oci",
+            identifier: "ghcr.io/x/y:1",
+            environmentVariables: [
+              { name: "OK_NAME" },
+              { name: "--privileged" },
+            ],
+          },
+          { registryType: "npm", identifier: "fallback" },
+        ],
+      }),
+    );
+    expect(parsed.options.map((o) => o.identifier)).toEqual(["fallback"]);
+  });
+
+  it("rejects an npm package declaring an invalid env var name", () => {
+    for (const name of ["1ABC", "A B", "A=B", "-x"]) {
+      expect(() =>
+        parseServerJson(
+          JSON.stringify({
+            name: "com.example/env-npm",
+            packages: [
+              {
+                registryType: "npm",
+                identifier: "pkg",
+                environmentVariables: [{ name, isRequired: true }],
+              },
+            ],
+          }),
+        ),
+      ).toThrow(/No runnable package or remote/);
+    }
+  });
+
+  it("still forwards a valid env var name to docker as -e NAME", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/env-ok",
+        packages: [
+          {
+            registryType: "oci",
+            identifier: "img:1",
+            environmentVariables: [{ name: "_API_KEY2" }],
+          },
+        ],
+      }),
+    );
+    expect(parsed.options[0].baseConfig).toMatchObject({
+      command: "docker",
+      args: ["run", "-i", "--rm", "-e", "_API_KEY2", "img:1"],
+    });
+  });
+
   it("keeps legitimate runtimeArguments flags (they are surfaced, not stripped)", () => {
     const parsed = parseServerJson(
       JSON.stringify({
