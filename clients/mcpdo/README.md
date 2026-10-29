@@ -228,10 +228,18 @@ mcpdo connect https://example.com/mcp --elicit url
 [load mode](../cli/README.md#load-testing-a-tool---load), run against an open
 connection ([#2744](https://github.com/modelcontextprotocol/inspector/issues/2744)).
 It calls one tool repeatedly and concurrently and prints a single summary in
-place of a result: `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
-latency `min`/`mean`/`p50`/`p90`/`p99`/`max`, and the most frequent error
-messages. Both CLIs run the same engine, so the flags, their defaults and the
-summary fields mean the same thing in each.
+place of a result: `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`
+and the success-only `okThroughput`, latency `min`/`mean`/`p50`/`p90`/`p99`/`max`
+of the successful calls (`latencyMs`) and of the failed ones
+(`errorLatencyMs`), the most frequent thrown messages (`errorMessages`) and
+`isError` texts (`toolErrorMessages`), and — with `--load-rate` —
+`plannedStarts`, `droppedSlots` and `achievedRate`. Both CLIs run the same
+engine, so the flags, their defaults and the summary fields mean the same
+thing in each; the [CLI's load section](../cli/README.md#load-testing-a-tool---load)
+defines each field ([#2836](https://github.com/modelcontextprotocol/inspector/issues/2836),
+[#2837](https://github.com/modelcontextprotocol/inspector/issues/2837)). A
+`--load-rate` run that achieves under 90% of its target also prints a warning
+on stderr after the summary.
 
 ```bash
 # 20 calls in flight for 30 seconds
@@ -250,7 +258,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
 | `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
-| `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency is above this many milliseconds, or no call completed. |
+| `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
 
 Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
 `--app-info`. `--format json` prints the summary object itself, with no
@@ -292,8 +300,16 @@ How a run behaves on a shared daemon connection:
   cancelled, so the connection is free for the next command at once. No summary
   is printed, since the caller has gone.
 - **A dropped connection ends the run early** with the summary of what
-  completed, rather than spending the rest of the window counting instant
-  failures. The next command revives the connection as usual.
+  completed, marked `"stoppedEarly": { "reason": "connection_lost", … }`,
+  rather than spending the rest of the window counting instant failures. The
+  next command revives the connection as usual.
+- **A server that stops answering ends the run early too**, even when the
+  connection never changes state — over Streamable HTTP a refused request
+  need not ([#2835](https://github.com/modelcontextprotocol/inspector/issues/2835)).
+  The shared engine's circuit breaker stops starting calls once 50 in a row
+  have thrown, or a second has passed with nothing but thrown calls; the
+  summary carries `"stoppedEarly": { "reason": "consecutive_errors", … }` and
+  a warning follows on stderr.
 - **Elicitations are cancelled.** Many calls are in flight at once and none of
   them can be answered mid-run, so a server that elicits during a load run sees
   each request cancelled. Use `connect --elicit off` to keep the server from

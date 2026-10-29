@@ -6,7 +6,10 @@ import {
   registerCompletionOption,
 } from "./completion.js";
 type McpResponse = Record<string, unknown>;
-import { awaitableLog } from "@inspector/core/cli/utils/awaitable-log.js";
+import {
+  awaitableError,
+  awaitableLog,
+} from "@inspector/core/cli/utils/awaitable-log.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -61,10 +64,16 @@ import { consumeMethodOutcome } from "./handlers/consume-outcome.js";
 import {
   positiveIntegerParser,
   positiveNumberParser,
+  LOAD_FLAG_CONFLICT,
+  loadSummaryWarnings,
   resolveLoadOptions,
   runToolLoad,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  assertNotInterrupted,
+  withLoadInterrupt,
+} from "./handlers/load-interrupt.js";
 import {
   checkLoadThresholds,
   fractionParser,
@@ -166,6 +175,7 @@ async function callMethod(
     throw new CliExitCodeError(
       EXIT_CODES.USAGE,
       "--load-connections above 1 requires an HTTP or SSE server; over stdio each connection would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
     );
   }
 
@@ -332,23 +342,39 @@ async function callMethod(
     // `--load` (#2439): many calls of one tool, then a single summary, in
     // place of the one result a plain `tools/call` prints.
     if (load) {
-      const summary = await withCliAuthRecoveryRetry(
-        inspectorClient,
-        serverConfig,
-        redirectUrlProvider,
-        callbackUrlConfig,
-        serverSettings,
-        () =>
-          runToolLoad(inspectorClient, args, load, {
-            openConnection: openLoadConnection,
-          }),
-        { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+      // Ctrl+C / SIGTERM end the run early rather than the process (#2834),
+      // so the partial summary below still gets out.
+      const summary = await withLoadInterrupt(
+        (signal) =>
+          withCliAuthRecoveryRetry(
+            inspectorClient,
+            serverConfig,
+            redirectUrlProvider,
+            callbackUrlConfig,
+            serverSettings,
+            () =>
+              runToolLoad(inspectorClient, args, load, {
+                openConnection: openLoadConnection,
+                signal,
+              }),
+            { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+          ),
+        { quiet: args.quiet },
       );
       await writeFormattedResult(
         summary,
         args.format === "json" ? "json" : "text",
       );
-      // After the summary is out, so a breached run still shows its numbers.
+      // Advisory, so `--quiet` drops them (#2435): a missed `--load-rate`
+      // (#2837) and an early stop the summary also records (#2835).
+      if (!args.quiet) {
+        for (const warning of loadSummaryWarnings(summary)) {
+          await awaitableError(`${warning}\n`);
+        }
+      }
+      // After the summary is out, so a cut-short or breached run still shows
+      // its numbers. An interrupted run exits 130 and is not graded.
+      assertNotInterrupted(summary);
       checkLoadThresholds(summary, loadThresholds);
       return;
     }
@@ -1138,7 +1164,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--load-max-p99 <ms>",
-      "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+      "With --load: exit 10 (load_p99_exceeded) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
       maxP99Parser,
     )
     .option(
@@ -1437,24 +1463,24 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
-      throw new Error(`${flag} requires --load.`);
+      throw loadFlagConflict(`${flag} requires --load.`);
     }
   }
   if (options.load) {
     if (options.method !== "tools/call") {
-      throw new Error("--load requires --method tools/call.");
+      throw loadFlagConflict("--load requires --method tools/call.");
     }
     // Each of these shapes a single result; a load run prints a summary.
     if (options.appInfo) {
-      throw new Error("--load cannot be combined with --app-info.");
+      throw loadFlagConflict("--load cannot be combined with --app-info.");
     }
     if (options.listStoredAuth || options.printHandoff) {
-      throw new Error(
+      throw loadFlagConflict(
         "--load cannot be combined with --list-stored-auth or --print-handoff.",
       );
     }
     if (options.output !== undefined || options.outputFormat !== undefined) {
-      throw new Error(
+      throw loadFlagConflict(
         "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",
       );
     }
@@ -1774,15 +1800,45 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
     ...(options.load && {
-      load: resolveLoadOptions({
-        concurrency: options.loadConcurrency,
-        connections: options.loadConnections,
-        durationSec: options.loadDuration,
-        requests: options.loadRequests,
-        rate: options.loadRate,
-      }),
+      load: resolveCliLoadOptions(options),
     }),
   };
+}
+
+/**
+ * A `--load` flag combination the CLI refuses, under the envelope code mcpdo
+ * uses for the same mistakes (#2834), so a script can branch on one code
+ * whichever CLI it drove. Still exit 1, as before.
+ */
+function loadFlagConflict(message: string): CliExitCodeError {
+  return new CliExitCodeError(EXIT_CODES.USAGE, message, {
+    code: LOAD_FLAG_CONFLICT,
+  });
+}
+
+/**
+ * {@link resolveLoadOptions}, with its one refusal (`--load-connections`
+ * above `--load-concurrency`) raised as a {@link loadFlagConflict}. The engine
+ * only ever throws an `Error` there.
+ */
+function resolveCliLoadOptions(options: {
+  loadConcurrency?: number;
+  loadConnections?: number;
+  loadDuration?: number;
+  loadRequests?: number;
+  loadRate?: number;
+}): LoadOptions {
+  try {
+    return resolveLoadOptions({
+      concurrency: options.loadConcurrency,
+      connections: options.loadConnections,
+      durationSec: options.loadDuration,
+      requests: options.loadRequests,
+      rate: options.loadRate,
+    });
+  } catch (err) {
+    throw loadFlagConflict((err as Error).message);
+  }
 }
 
 /** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */

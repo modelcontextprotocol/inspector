@@ -1392,7 +1392,7 @@ function registerRpcCommands(program: CommandType): void {
           )
           .option(
             "--load-max-p99 <ms>",
-            "With --load: exit 10 (load_p99_exceeded) when the p99 latency is above this many milliseconds, or when no call completed, after printing the summary (positive number).",
+            "With --load: exit 10 (load_p99_exceeded) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
             maxP99Parser,
           );
         cmd.action(
