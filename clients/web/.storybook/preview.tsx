@@ -3,6 +3,7 @@ import { MantineProvider, useMantineColorScheme } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
+import "../src/theme/fonts/fonts.css";
 import "../src/App.css";
 import { theme } from "../src/theme/theme";
 import { cssVariablesResolver } from "../src/theme/cssVariables";

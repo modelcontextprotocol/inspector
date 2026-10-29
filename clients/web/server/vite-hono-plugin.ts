@@ -77,6 +77,7 @@ export function honoMiddlewarePlugin(config: WebServerConfig): Plugin {
         host: config.sandboxHost,
         allowedOrigins: config.allowedOrigins,
         publicUrl: config.sandboxPublicUrl,
+        allowedHosts: config.allowedHosts,
       });
       await sandboxController.start();
       // The dedicated origin apps declaring `_meta.ui.domain` are served from

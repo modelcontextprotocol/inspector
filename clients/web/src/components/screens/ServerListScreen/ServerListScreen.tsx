@@ -156,12 +156,13 @@ const ReadOnlyAlert = Alert.withProps({
   title: "Read-only session",
 });
 
-// Semantic h3 (visually h4) so it doesn't skip a level under the disconnected
-// header's h2 "MCP Inspector" (heading-order a11y). The other panels render h4
-// directly because they only show while connected, when the header carries no
-// heading to skip under.
+// Semantic h2 (visually h4), directly under the page's visually hidden h1
+// (#2827), like every connected screen's panel headings. Not h3 under the
+// disconnected header's h2 "MCP Inspector": this screen also shows while
+// connected, when the header carries no heading, and an h3 there would skip a
+// level (axe `heading-order`). A sibling of that h2 is valid in both states.
 const PanelTitle = Title.withProps({
-  order: 3,
+  order: 2,
   size: "h4",
 });
 

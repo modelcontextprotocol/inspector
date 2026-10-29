@@ -10,6 +10,10 @@ import {
 import type { PromptMessage } from "@modelcontextprotocol/client";
 import { MessageBubble } from "../../elements/MessageBubble/MessageBubble";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface PromptMessagesDisplayProps {
   messages: PromptMessage[];
   onCopyAll?: () => void;
@@ -76,7 +80,7 @@ export function PromptMessagesDisplay({
           {onClose && (
             <CloseButton aria-label="Close messages" onClick={onClose} />
           )}
-          <Title order={4}>Messages</Title>
+          <PanelHeading>Messages</PanelHeading>
         </HeaderLeft>
         {onCopyAll && messages.length > 0 && (
           <CopyAllButton onClick={onCopyAll}>Copy All</CopyAllButton>

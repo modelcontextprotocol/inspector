@@ -16,36 +16,12 @@ export function resolveDisplayLabel(name: string, title?: string): string {
   return title ?? name;
 }
 
-// Case-insensitive, with digit runs compared numerically, so `tool_2` sorts
-// before `tool_10` and `Git` beside `git` — the order a person scanning the
-// list expects, rather than raw code-unit order.
-const toolLabelCollator = new Intl.Collator(undefined, {
-  sensitivity: "base",
-  numeric: true,
-});
-
-/**
- * Orders two row labels the way the Tools sidebar sorts (#2782). Exported for
- * rows that show something other than the resolved label — the excluded rows
- * show the bare `name` — so each list sorts by the text it actually displays.
- */
-export function compareToolLabels(a: string, b: string): number {
-  return toolLabelCollator.compare(a, b);
-}
-
-/**
- * Orders tools by the label their row shows ({@link resolveDisplayLabel}: the
- * `title` when present, else the `name`), so the Tools sidebar reads
- * alphabetically however the server ordered `tools/list` (#2782). Ties return
- * 0, and `Array.prototype.sort` is stable, so duplicates keep their source
- * order.
- */
-export function compareToolsByLabel(a: Tool, b: Tool): number {
-  return compareToolLabels(
-    resolveDisplayLabel(a.name, a.title),
-    resolveDisplayLabel(b.name, b.title),
-  );
-}
+// The sort itself lives in core so the TUI lists tools in the same order
+// (#2827); re-exported here so web call sites keep one import surface.
+export {
+  compareToolLabels,
+  compareToolsByLabel,
+} from "@inspector/core/mcp/toolOrder.js";
 
 /**
  * True when the tool's input schema declares at least one property — used by

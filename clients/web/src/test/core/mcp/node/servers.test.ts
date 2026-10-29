@@ -291,7 +291,7 @@ describe("loadServerEntries", () => {
       headers: { Authorization: "Bearer t" },
       protocolEra: "modern",
     });
-    expect(servers.default?.settings).toMatchObject({
+    expect(servers.x?.settings).toMatchObject({
       protocolEra: "modern",
       headers: [{ key: "Authorization", value: "Bearer t" }],
     });
@@ -347,19 +347,19 @@ describe("loadServerEntries", () => {
       transport: "http",
       skillCatalogMaxSkills: 5,
     });
-    expect(servers.default?.settings).toMatchObject({
+    expect(servers.x?.settings).toMatchObject({
       skillCatalogMaxSkills: 5,
       headers: [],
       connectionTimeout: DEFAULT_CONNECTION_TIMEOUT_MS,
     });
-    expect(servers.default?.settings?.skillCatalogMaxBytes).toBeUndefined();
+    expect(servers.x?.settings?.skillCatalogMaxBytes).toBeUndefined();
 
     const bytesOnly = await loadServerEntries({
       serverUrl: "http://x/mcp",
       transport: "http",
       skillCatalogMaxBytes: 7,
     });
-    expect(bytesOnly.default?.settings).toMatchObject({
+    expect(bytesOnly.x?.settings).toMatchObject({
       skillCatalogMaxBytes: 7,
       headers: [],
     });
@@ -367,7 +367,7 @@ describe("loadServerEntries", () => {
 
   it("gives an ad-hoc target with neither flag no settings (legacy default)", async () => {
     const servers = await loadServerEntries({ target: ["my-server"] });
-    expect(servers.default?.settings).toBeUndefined();
+    expect(servers["my-server"]?.settings).toBeUndefined();
   });
 
   it("builds a single ad-hoc server from a positional target", async () => {
@@ -375,13 +375,13 @@ describe("loadServerEntries", () => {
       target: ["my-server", "--flag"],
       headers: { Authorization: "Bearer t" },
     });
-    expect(Object.keys(servers)).toEqual(["default"]);
-    expect(servers.default?.config).toMatchObject({
+    expect(Object.keys(servers)).toEqual(["my-server"]);
+    expect(servers["my-server"]?.config).toMatchObject({
       type: "stdio",
       command: "my-server",
       args: ["--flag"],
     });
-    expect(servers.default?.settings?.headers).toEqual([
+    expect(servers["my-server"]?.settings?.headers).toEqual([
       { key: "Authorization", value: "Bearer t" },
     ]);
   });

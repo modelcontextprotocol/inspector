@@ -10,7 +10,7 @@ import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
 } from "../types.js";
-import { mcpConfigToServerEntries } from "../serverList.js";
+import { adHocServerName, mcpConfigToServerEntries } from "../serverList.js";
 import {
   applyOverrides,
   resolveServerConfigs,
@@ -180,9 +180,12 @@ export async function loadServerEntries(
       "At least one server is required. Use --catalog/--config <path> or an ad-hoc target (command/URL).",
     );
   }
+  // Named by the same rule the web client applies to an ad-hoc launch, so
+  // one command shows one name on every surface (#2827).
+  const config = configs[0]!;
   return {
-    default: {
-      config: configs[0]!,
+    [adHocServerName(config)]: {
+      config,
       settings: mergeSettings(undefined, serverOptions),
     },
   };
@@ -196,7 +199,7 @@ export async function loadServerEntries(
  * The unknown-name error is source-agnostic ("not found" rather than "not found
  * in config file") because `entries` may come from a file *or* a single ad-hoc
  * target — e.g. `--server foo` alongside a positional command resolves to just
- * `{ default }`, where "in config file" would be misleading.
+ * `{ <adHocServerName> }`, where "in config file" would be misleading.
  *
  * The lookup is an own-property read (`getOwnEntry`), so `--server constructor`
  * (or any other inherited `Object.prototype` name) absent from `entries`
