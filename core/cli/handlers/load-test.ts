@@ -613,8 +613,12 @@ export async function runLoad(
   const worker = async (index: number): Promise<void> => {
     while (await claimSlot()) {
       // Another worker's call can abort the run between this worker taking
-      // its slot and resuming here.
-      if (halt.signal.aborted) return;
+      // its slot and resuming here. The slot was never used, so it is handed
+      // back: `started` feeds the `--load-rate` figures.
+      if (halt.signal.aborted) {
+        started--;
+        return;
+      }
       const t0 = clock.now();
       try {
         const outcome = await call(index);

@@ -18,6 +18,7 @@ import {
   runLoad,
   toolErrorText,
   type LoadCallOutcome,
+  type LoadClock,
   type LoadStop,
   type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -412,6 +413,29 @@ describe("planned and achieved rate (#2837)", () => {
     );
     expect(summary.stoppedEarly?.reason).toBe("interrupted");
     expect(summary).toMatchObject({ plannedStarts: 10, droppedSlots: 0 });
+  });
+
+  it("does not count a slot claimed after the run stopped as started", async () => {
+    // A clock that moves 1ms per read, so at 1000/s every claim finds its
+    // slot already due and never waits on a timer.
+    let t = 0;
+    const clock: LoadClock = { now: () => (t += 1), sleep: async () => {} };
+    const abort = new AbortController();
+    let calls = 0;
+    const summary = await runLoad(
+      async () => {
+        calls++;
+        // Worker 1 has claimed its slot by now; this abort lands before it
+        // resumes, so its call never runs.
+        abort.abort();
+        return "ok";
+      },
+      { concurrency: 2, requests: 10, rate: 1000 },
+      clock,
+      abort.signal,
+    );
+    expect(calls).toBe(1);
+    expect(summary.plannedStarts! - summary.droppedSlots!).toBe(1);
   });
 
   it("does not warn on a fractional rate it held", async () => {
