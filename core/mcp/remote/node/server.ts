@@ -1392,9 +1392,9 @@ export function createRemoteApp(
       // out to the network: the web client's `environment.fetch` is
       // `createRemoteFetch()`, which forwards OAuth discovery and token
       // requests here. Left on the global `fetch`, a corporate-proxy user could
-      // connect to a server but never authorize against it — and Node's native
-      // `NODE_USE_ENV_PROXY` does not cover them either, being unsupported at
-      // our 22.19 engine floor (#2067). The guard (#2749) reads the same proxy
+      // connect to a server but never authorize against it. Node's native
+      // `NODE_USE_ENV_PROXY` is present at our floor but opt-in at process
+      // start and still experimental (#2067). The guard (#2749) reads the same proxy
       // variables and routes through the same `EnvHttpProxyAgent` class.
       //
       // Guarded because some of these URLs come from the server under test:

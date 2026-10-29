@@ -71,11 +71,11 @@
     "@types/react-dom": "^19.2.3",
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.0.0",
-    "@vitest/browser-playwright": "4.1.11",
+    "@vitest/browser-playwright": "4.1.12",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "eslint-plugin-storybook": "^10.5.5",
-    "happy-dom": "^20.11.2",
+    "happy-dom": "^21.0.4",
     "playwright": "^1.58.2",
     "storybook": "^10.5.5",
     "tsdown": "^0.23.1",
@@ -86,7 +86,7 @@
     "@types/node": "^24.12.4",
     "esbuild": "^0.28.2",
     "open": "^11.0.4",
-    "vitest": "4.1.11",
+    "vitest": "4.1.12",
     "rolldown": "1.2.13"
   }
 }

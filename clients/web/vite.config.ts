@@ -321,9 +321,20 @@ export default defineConfig(({ command }) => {
             // `AsyncTaskManager destroyed` output. The component tests only assert
             // on the iframe element/attributes, not its loaded document, so
             // disabling frame navigation removes the noise without losing coverage.
+            //
+            // `enableIframePageLoading` keeps that arrangement on happy-dom 21,
+            // which turned iframe loading OFF by default (an SSRF fix). With it
+            // off, every sandbox iframe logs a `NotSupportedError` "Iframe page
+            // loading is disabled" and gets no `contentWindow`. Turned back on,
+            // the iframe gets its child frame as before, and the
+            // navigation flag above still stops that frame before it fetches
+            // anything, so no request leaves the test process either way.
             environmentOptions: {
               happyDOM: {
-                settings: { navigation: { disableChildFrameNavigation: true } },
+                settings: {
+                  enableIframePageLoading: true,
+                  navigation: { disableChildFrameNavigation: true },
+                },
               },
             },
             // Root the unit project at the repo root so vitest's coverage

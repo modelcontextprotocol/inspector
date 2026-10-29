@@ -88,7 +88,7 @@ export const isRequiredSource = (rel) =>
 /**
  * Whether a tracked test file is matched by one of the `test:scripts` command's
  * globs. Delegates to node's own `path.matchesGlob` (22.5.0+; the repo floor is
- * `>=22.19.0`) rather than hand-translating the glob to a RegExp — `node --test`
+ * `^22.23.4`) rather than hand-translating the glob to a RegExp — `node --test`
  * is the thing whose matching we're modeling, so measuring with node's matcher
  * is exact for every form it accepts (`**` incl. zero depth, `*`, `?` as exactly
  * one non-separator char, brace alternation, character classes) instead of
