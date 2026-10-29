@@ -699,6 +699,15 @@ function App({
     selectedInspectorClient,
     selectedManagedToolsState,
   );
+  // Alphabetical by the name each row shows, the order the web Tools sidebar
+  // uses (#2782, #2827) — not the server's `tools/list` order. A copy (the
+  // hook's array is the store's snapshot), memoized on that snapshot alone:
+  // ToolsTab resets its selection when its list's identity changes, so a
+  // fresh array on an unrelated update (a stderr line) would lose the cursor.
+  const sortedTools = useMemo(
+    () => [...managedTools].sort(compareToolsByName),
+    [managedTools],
+  );
 
   // Resources, resource templates, prompts from managed state managers
   const selectedManagedResourcesState = useMemo(
@@ -1274,10 +1283,7 @@ function App({
       resources: managedResources,
       resourceTemplates: managedResourceTemplates,
       prompts: managedPrompts,
-      // Alphabetical by the name each row shows, the order the web Tools
-      // sidebar uses (#2782, #2827) — not the server's `tools/list` order.
-      // A copy: the hook's array is the store's snapshot.
-      tools: [...managedTools].sort(compareToolsByName),
+      tools: sortedTools,
       stderrLogs: inspectorStderrLogs, // InspectorClient manages this
     };
   }, [
@@ -1291,7 +1297,7 @@ function App({
     managedResources,
     managedResourceTemplates,
     managedPrompts,
-    managedTools,
+    sortedTools,
     inspectorStderrLogs,
   ]);
 

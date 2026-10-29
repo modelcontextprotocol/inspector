@@ -7,9 +7,14 @@
  *
  * The files are Google Fonts' own variable woff2 subsets, unmodified, split by
  * `unicode-range` so a browser downloads only the subsets a page actually uses:
- *   - Fredoka (wght 300–700) — SIL Open Font License 1.1
- *   - Roboto Mono (wght 100–700, normal + italic) — Apache License 2.0
- * Both licenses permit redistribution. To refresh them, request the same css2
+ *   - Fredoka (wght 300–700)
+ *   - Roboto Mono (wght 100–700, normal + italic)
+ * Both are under the SIL Open Font License 1.1, which permits redistribution
+ * provided the copyright notice and license travel with the fonts. The full
+ * upstream texts (google/fonts ofl/fredoka/OFL.txt and ofl/robotomono/OFL.txt)
+ * live in public/fonts/, which Vite copies verbatim into dist/fonts/ — so they
+ * ship in every build and in the npm tarball (`clients/web/dist`) beside the
+ * hashed font files in dist/assets/. To refresh the fonts, request the same css2
  * URL the old <link> used with a modern browser User-Agent and re-download the
  * listed files; the @font-face blocks below mirror that response one to one.
  *

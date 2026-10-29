@@ -1183,6 +1183,30 @@ describe("App (status, layout, modals)", () => {
     expect(order).toEqual([...order].sort((a, b) => a - b));
   });
 
+  it("keeps the tool selection across an unrelated update such as a stderr line (#2827)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      { ...sampleTool, name: "zeta" },
+      { ...sampleTool, name: "beta" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, DOWN]);
+    await expectFrame(r, "▶ zeta");
+    // A new stderr array re-derives the server state; the sorted tools must
+    // keep their identity, or ToolsTab resets the cursor to the top.
+    h.ctrl.stderrLogs = [stderrLog];
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await tick();
+    await tick();
+    expect(r.lastFrame() ?? "").toContain("▶ zeta");
+  });
+
   it("opens the tool test modal with Enter from the list pane", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];

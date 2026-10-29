@@ -45,9 +45,11 @@ import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { errorMessage } from "../../../utils/errorFormat";
 
-// h3: a section under this screen's h2 panel heading (#2827), sized as the h5
-// it was so the look is unchanged.
-const SubHeading = Title.withProps({ order: 3, size: "h5" });
+// h2, sized as the h5 it was (#2827). A sibling of the sidebar's h2 rather than
+// an h3 under it: maximizing the app hides the sidebar, and the app panel's own
+// title is not a heading, so an h3 would then follow the page h1 directly and
+// skip a level (axe `heading-order`). h2 is valid in both layouts.
+const MessagesHeading = Title.withProps({ order: 2, size: "h5" });
 
 export interface AppsScreenProps {
   tools: Tool[];
@@ -738,7 +740,9 @@ export function AppsScreen({
             )}
             {running && messages.length > 0 && (
               <PinnedPanel data-testid="apps-messages">
-                <SubHeading>Messages from app ({messages.length})</SubHeading>
+                <MessagesHeading>
+                  Messages from app ({messages.length})
+                </MessagesHeading>
                 <LogScroll>
                   <MessageLogStack>
                     {messages.map((message, index) => (

@@ -32,4 +32,18 @@ describe("self-hosted fonts", () => {
       expect(existsSync(join(here, url))).toBe(true);
     }
   });
+
+  it("ships the full upstream license for each family (#2827)", () => {
+    for (const [file, notice] of [
+      ["Fredoka-OFL.txt", "The Fredoka Project Authors"],
+      ["RobotoMono-OFL.txt", "The Roboto Mono Project Authors"],
+    ]) {
+      const text = readFileSync(
+        join(here, "../../../public/fonts", file),
+        "utf-8",
+      );
+      expect(text).toContain(notice);
+      expect(text).toContain("SIL OPEN FONT LICENSE Version 1.1");
+    }
+  });
 });
