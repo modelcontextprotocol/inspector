@@ -83,7 +83,7 @@ import {
 import { toRecord } from "../../../json/jsonUtils.js";
 import { isSkillCatalogLimit } from "../../../extension/skills/conformance.js";
 import { resolveImportSource } from "../../import/resolveSource.js";
-import { RemoteSession } from "./remote-session.js";
+import { RemoteSession, type SessionEvent } from "./remote-session.js";
 import { createRemoteAuthProvider } from "./tokenAuthProvider.js";
 import { API_SERVER_ENV_VARS } from "../constants.js";
 import {
@@ -250,6 +250,15 @@ export interface RemoteServerOptions {
 
   /** Optional pino file logger. When set, /api/log forwards received events to it. */
   logger?: pino.Logger;
+
+  /**
+   * How long an MCP session may go with no `/api/mcp/events` consumer before
+   * its transport is closed and the session dropped (#2824) — a closed tab
+   * otherwise leaks the session and its stdio child until the Inspector
+   * exits. Default {@link RemoteSession.DEFAULT_DETACH_GRACE_MS}; tests pass a
+   * small value.
+   */
+  sessionDetachGraceMs?: number;
 
   /** Optional storage directory for /api/storage/:storeId. Default: ~/.mcp-inspector/storage */
   storageDir?: string;
@@ -652,6 +661,27 @@ export function createRemoteApp(
 
   const app = new Hono<Env>();
   const sessions = new Map<string, RemoteSession>();
+  const sessionDetachGraceMs =
+    options.sessionDetachGraceMs ?? RemoteSession.DEFAULT_DETACH_GRACE_MS;
+  /**
+   * Arm the detach grace on `session` (#2824): unless a consumer attaches
+   * within the window, close its transport — which ends a stdio child — and
+   * drop it. Removed from the map *before* the close, so the transport's
+   * `onclose` finds no session to mark dead and queue a 30s sweep for. Every
+   * step is idempotent, so a session the dead-transport sweep already dropped
+   * is reaped harmlessly a second time.
+   */
+  const armSessionReap = (session: RemoteSession): void => {
+    session.armDetachGrace(sessionDetachGraceMs, () => {
+      sessions.delete(session.sessionId);
+      session.rejectActiveRequestWaits(
+        new Error("Session closed: no client attached"),
+      );
+      session.transport.close().catch(() => {
+        // Best-effort: the session is already forgotten either way.
+      });
+    });
+  };
   const { logger: fileLogger, allowedOrigins } = options;
   const storageDir = options.storageDir ?? getDefaultStorageDir();
   const mcpConfigPath = options.mcpConfigPath ?? getDefaultMcpConfigPath();
@@ -1055,6 +1085,9 @@ export function createRemoteApp(
 
     // Transport started successfully - add to sessions
     sessions.set(sessionId, session);
+    // Covers a browser that goes away between this 200 and opening
+    // /api/mcp/events; the events route cancels it on attach.
+    armSessionReap(session);
 
     return c.json({ sessionId });
   });
@@ -1203,13 +1236,14 @@ export function createRemoteApp(
     }
 
     return streamSSE(c, async (stream) => {
-      session.setEventConsumer((event) => {
+      const consumer = (event: SessionEvent): void => {
         const data = JSON.stringify(event);
         void stream.writeSSE({
           event: event.type,
           data,
         });
-      });
+      };
+      session.setEventConsumer(consumer);
 
       // Crash-on-startup path: if the subprocess died between POST
       // /api/mcp/connect (which returned 200) and this GET, the session is
@@ -1234,13 +1268,19 @@ export function createRemoteApp(
       // registered ahead of that priming write and the stream is then held
       // open until the client aborts — see primeAndHoldSseStream (#1999).
       await primeAndHoldSseStream(stream, () => {
-        // Client disconnected - clear event consumer
-        const shouldCleanup = session.clearEventConsumer();
+        // Client disconnected. A stream that was already replaced by a newer
+        // one owns nothing any more, so it must not touch the session.
+        if (!session.detachEventConsumer(consumer)) return;
 
         // If transport is dead and no client connected, cleanup session
-        if (shouldCleanup || session.isTransportDead()) {
+        if (session.isTransportDead()) {
           sessions.delete(sessionId);
+          return;
         }
+        // Otherwise give a reattach (the OAuth redirect's) the grace window,
+        // then close the transport — a closed tab must not keep a stdio
+        // child alive until the Inspector exits (#2824).
+        armSessionReap(session);
       });
     });
   });
@@ -1260,6 +1300,7 @@ export function createRemoteApp(
 
     const session = sessions.get(sessionId);
     if (session) {
+      session.cancelDetachGrace();
       session.clearEventConsumer();
       await session.transport.close();
       sessions.delete(sessionId);

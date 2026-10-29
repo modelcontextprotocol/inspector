@@ -6,7 +6,7 @@
  * no network) so the integration runner is comfortable for it.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import type { Transport, JSONRPCMessage } from "@modelcontextprotocol/client";
 import { RemoteSession } from "@inspector/core/mcp/remote/node/remote-session.js";
 import type { FetchRequestEntryBase } from "@inspector/core/mcp/types.js";
@@ -503,5 +503,135 @@ describe("RemoteSession", () => {
       access_token: "new",
       token_type: "Bearer",
     });
+  });
+});
+
+describe("RemoteSession detach grace (#2824)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("fires onExpire once the grace elapses with no consumer attached", () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("grace-expire");
+    const onExpire = vi.fn();
+    session.armDetachGrace(1_000, onExpire);
+    expect(session.hasPendingDetachGrace()).toBe(true);
+
+    vi.advanceTimersByTime(999);
+    expect(onExpire).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(onExpire).toHaveBeenCalledTimes(1);
+    expect(session.hasPendingDetachGrace()).toBe(false);
+  });
+
+  it("a consumer attaching inside the window cancels the reap", () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("grace-reattach");
+    const onExpire = vi.fn();
+    session.armDetachGrace(1_000, onExpire);
+
+    vi.advanceTimersByTime(500);
+    session.setEventConsumer(() => {});
+    expect(session.hasPendingDetachGrace()).toBe(false);
+    vi.advanceTimersByTime(10_000);
+    expect(onExpire).not.toHaveBeenCalled();
+  });
+
+  it("cancelDetachGrace stops a pending reap and is a no-op when none is pending", () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("grace-cancel");
+    expect(() => session.cancelDetachGrace()).not.toThrow();
+    const onExpire = vi.fn();
+    session.armDetachGrace(1_000, onExpire);
+    session.cancelDetachGrace();
+    vi.advanceTimersByTime(10_000);
+    expect(onExpire).not.toHaveBeenCalled();
+  });
+
+  it("re-arming replaces the pending timer rather than stacking a second", () => {
+    vi.useFakeTimers();
+    const session = new RemoteSession("grace-rearm");
+    const first = vi.fn();
+    const second = vi.fn();
+    session.armDetachGrace(1_000, first);
+    vi.advanceTimersByTime(800);
+    session.armDetachGrace(1_000, second);
+    vi.advanceTimersByTime(800);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it("detachEventConsumer clears only the consumer that is still attached", () => {
+    const session = new RemoteSession("detach-owner");
+    const stale = vi.fn();
+    const live = vi.fn();
+    session.setEventConsumer(stale);
+    // A replacement stream registers before the old stream's abort lands.
+    session.setEventConsumer(live);
+
+    expect(session.detachEventConsumer(stale)).toBe(false);
+    expect(session.hasEventConsumer()).toBe(true);
+    session.onStderr({ timestamp: new Date(), message: "still live" });
+    expect(live).toHaveBeenCalledTimes(1);
+    expect(stale).not.toHaveBeenCalled();
+
+    expect(session.detachEventConsumer(live)).toBe(true);
+    expect(session.hasEventConsumer()).toBe(false);
+  });
+});
+
+describe("RemoteSession event queue cap (#2824)", () => {
+  it("drops the oldest events past the cap and tells the next consumer how many went", () => {
+    const session = new RemoteSession("queue-cap");
+    const cap = RemoteSession.MAX_QUEUED_EVENTS;
+    for (let i = 0; i < cap + 5; i++) {
+      session.onStderr({ timestamp: new Date(), message: `line ${i}` });
+    }
+
+    const received: { type: string; message: string }[] = [];
+    session.setEventConsumer((event) => {
+      const data = event.data as { message: string };
+      received.push({ type: event.type, message: data.message });
+    });
+
+    expect(received).toHaveLength(cap + 1);
+    expect(received[0]?.message).toMatch(
+      new RegExp(`5 event\\(s\\) were dropped.*at most ${cap}`),
+    );
+    // The oldest five went; the newest survive, in order.
+    expect(received[1]?.message).toBe("line 5");
+    expect(received[cap]?.message).toBe(`line ${cap + 4}`);
+  });
+
+  it("reports a drop once: a later attach with nothing dropped gets no notice", () => {
+    const session = new RemoteSession("queue-cap-once");
+    for (let i = 0; i < RemoteSession.MAX_QUEUED_EVENTS + 1; i++) {
+      session.onStderr({ timestamp: new Date(), message: `line ${i}` });
+    }
+    const first = vi.fn();
+    session.setEventConsumer(first);
+    session.clearEventConsumer();
+
+    session.onStderr({ timestamp: new Date(), message: "after" });
+    const second: string[] = [];
+    session.setEventConsumer((event) => {
+      second.push((event.data as { message: string }).message);
+    });
+    expect(second).toEqual(["after"]);
+  });
+
+  it("keeps a terminal transport_error even when the queue is full", () => {
+    const session = new RemoteSession("queue-cap-error");
+    for (let i = 0; i < RemoteSession.MAX_QUEUED_EVENTS; i++) {
+      session.onStderr({ timestamp: new Date(), message: `line ${i}` });
+    }
+    session.markTransportDead("child exited");
+    const types: string[] = [];
+    session.setEventConsumer((event) => types.push(event.type));
+    expect(types.at(-1)).toBe("transport_error");
   });
 });
