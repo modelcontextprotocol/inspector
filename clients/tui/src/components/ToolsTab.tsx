@@ -224,13 +224,19 @@ export function ToolsTab({
                     paddingY={0}
                     flexShrink={0}
                   >
-                    <Text>
+                    {/* One rendered line per row (#2826): the window counts
+                        items, so a wrapped name would push the selected row
+                        out of view. The marker sits outside the truncated
+                        text so an ellipsis never swallows it. */}
+                    <Text wrap="truncate-end">
                       {isSelected ? "▶ " : "  "}
                       {tool.name || `Tool ${ordinal + 1}`}
-                      {marker && (
-                        <Text color={marker.color}> {marker.glyph}</Text>
-                      )}
                     </Text>
+                    {marker && (
+                      <Box flexShrink={0}>
+                        <Text color={marker.color}> {marker.glyph}</Text>
+                      </Box>
+                    )}
                   </Box>
                 );
               })}
@@ -249,10 +255,15 @@ export function ToolsTab({
         {selectedTool ? (
           <>
             {/* Fixed header */}
+            {/* The title shows the full name (rows truncate it), and the
+                hint wraps onto its own line when the two do not fit side by
+                side rather than overlapping the title (#2826). */}
             <Box
               flexShrink={0}
               flexDirection="row"
+              flexWrap="wrap"
               justifyContent="space-between"
+              columnGap={1}
               paddingTop={1}
             >
               <Text
@@ -265,11 +276,11 @@ export function ToolsTab({
                 {selectedTool.name}
               </Text>
               {isConnected && (
-                <Text>
+                <Box flexShrink={0}>
                   <Text color="cyan" bold>
                     [Enter to Test]
                   </Text>
-                </Text>
+                </Box>
               )}
             </Box>
 
