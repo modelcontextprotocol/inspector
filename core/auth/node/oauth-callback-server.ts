@@ -164,6 +164,12 @@ export class OAuthCallbackServer {
   private handled = false;
   private onCallback?: OAuthCallbackHandler;
   private onError?: OAuthErrorHandler;
+  /**
+   * The verdict every callback waits on: the flow's `state` once known, or
+   * {@link STOPPED} if the listener stops first. Raced once per `start()`,
+   * not per request, so an ignored request leaves no reaction on the stop
+   * signal behind it for the rest of a wait that can last 15 minutes.
+   */
   private expectedState: Promise<
     string | undefined | typeof ANY_STATE | typeof STOPPED
   > = Promise.resolve(ANY_STATE);
@@ -195,11 +201,16 @@ export class OAuthCallbackServer {
     this.callbackPath = path;
     // A rejected expectedState names no flow, so it is read as "stopped":
     // nothing can match it, and the waiting callback must still be answered.
+    this.stopSignal = createStopSignal();
     this.expectedState =
       "expectedState" in options
-        ? Promise.resolve(options.expectedState).catch(() => STOPPED)
+        ? Promise.race([
+            Promise.resolve(options.expectedState).catch(
+              (): typeof STOPPED => STOPPED,
+            ),
+            this.stopSignal.stopped,
+          ])
         : Promise.resolve(ANY_STATE);
-    this.stopSignal = createStopSignal();
 
     return new Promise((resolve, reject) => {
       this.server = createServer((req, res) => this.handleRequest(req, res));
@@ -293,9 +304,8 @@ export class OAuthCallbackServer {
 
     // void: the promise owns its outcome — every branch of handleCallback
     // answers the request, and it has no rejection path to surface.
-    void Promise.race([this.expectedState, this.stopSignal.stopped]).then(
-      (expected) =>
-        this.handleCallback(expected, state, search, needJson, send),
+    void this.expectedState.then((expected) =>
+      this.handleCallback(expected, state, search, needJson, send),
     );
   }
 
