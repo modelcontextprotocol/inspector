@@ -91,6 +91,15 @@ export type OAuthCallbackHandler = (params: {
 export type OAuthErrorHandler = (params: {
   error: string;
   error_description?: string | null;
+  /**
+   * Where the error came from (#2847). `"redirect"`: an `?error=` response,
+   * whose `error` and `error_description` are query-string text the
+   * Inspector did not write. `"callback"`: the host's own `onCallback`
+   * rejected (the token exchange failed) — the Inspector's own message.
+   * Both strings are copied from the request in the first case, so neither
+   * can tell the two apart; this field is the only reliable discriminant.
+   */
+  source: "redirect" | "callback";
 }) => void;
 
 export interface OAuthCallbackServerStartOptions {
@@ -336,7 +345,11 @@ export class OAuthCallbackServer {
           })
           .catch((err) => {
             const msg = err instanceof Error ? err.message : String(err);
-            this.onError?.({ error: "callback_error", error_description: msg });
+            this.onError?.({
+              error: "callback_error",
+              error_description: msg,
+              source: "callback",
+            });
             send(500, exchangeErrorHtml(msg));
             void this.stop();
           });
@@ -352,6 +365,7 @@ export class OAuthCallbackServer {
     this.onError?.({
       error: params.error,
       error_description: params.error_description ?? undefined,
+      source: "redirect",
     });
     send(400, errorHtml(msg));
   }

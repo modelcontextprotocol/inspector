@@ -7,6 +7,7 @@ import { issuerBindingFailureCopy } from "../oauthUx.js";
 import {
   createOAuthCallbackServer,
   type OAuthCallbackServer,
+  type OAuthErrorHandler,
 } from "./oauth-callback-server.js";
 import type { RunnerOAuthCallbackConfig } from "./runner-oauth-callback.js";
 
@@ -86,21 +87,21 @@ function stateOf(authorizationUrl: URL): string | undefined {
 /**
  * The flow's failure message for an error the listener reported.
  *
- * An error *response* (`?error=…`) is text from the redirect's query string,
- * so it is labeled as the authorization server's words rather than passed
- * off as the Inspector's own diagnosis (#2847). `callback_error` is the
- * listener reporting a rejected `onCallback` — our own failure, unlabeled.
+ * A redirect error (`?error=…`) is text from the redirect's query string, so
+ * it is labeled as the authorization server's words rather than passed off
+ * as the Inspector's own diagnosis (#2847). Only the listener's `source`
+ * marks a failure as ours — `error` itself is copied from the request, so a
+ * redirect can carry any value there, `callback_error` included.
  */
-function callbackErrorMessage(params: {
-  error: string;
-  error_description?: string | null;
-}): string {
-  if (params.error === "callback_error") {
+function callbackErrorMessage(
+  params: Parameters<OAuthErrorHandler>[0],
+): string {
+  if (params.source === "callback") {
     return params.error_description ?? "OAuth callback failed";
   }
   // Nothing the server said to label — `error` is required by the protocol,
-  // but a listener (or a host's fake) reporting an empty one must still
-  // produce a readable failure rather than "said: ".
+  // but a listener reporting an empty one must still produce a readable
+  // failure rather than "said: ".
   if (!params.error && !params.error_description) {
     return "OAuth error";
   }

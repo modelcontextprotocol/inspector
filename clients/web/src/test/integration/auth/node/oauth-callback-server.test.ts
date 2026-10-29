@@ -26,6 +26,21 @@ function rawRequest(port: number, requestLine: string): Promise<string> {
   });
 }
 
+/**
+ * Resolves when the listener has received its next HTTP request — the
+ * server-side signal that a request has actually arrived, which a client-side
+ * sleep cannot establish under load. Element access reads the private
+ * `server` field (TypeScript permits it for exactly this kind of test seam);
+ * the class deliberately exposes no request hook of its own.
+ */
+function nextRequest(listener: OAuthCallbackServer): Promise<void> {
+  const http = listener["server"];
+  if (!http) throw new Error("listener not started");
+  return new Promise((resolve) => {
+    http.once("request", () => resolve());
+  });
+}
+
 describe("OAuthCallbackServer", () => {
   let server: OAuthCallbackServer;
 
@@ -487,10 +502,11 @@ describe("OAuthCallbackServer", () => {
         },
       });
 
+      const arrived = nextRequest(server);
       const pending = fetch(
         `http://localhost:${result.port}/oauth/callback?code=early&state=${STATE}`,
       );
-      await new Promise((r) => setTimeout(r, 20));
+      await arrived;
       expect(codes).toEqual([]);
       resolveState(STATE);
       expect((await pending).status).toBe(200);
@@ -521,10 +537,11 @@ describe("OAuthCallbackServer", () => {
         expectedState: new Promise<string | undefined>(() => {}),
       });
 
+      const arrived = nextRequest(server);
       const pending = fetch(
         `http://localhost:${result.port}/oauth/callback?code=x&state=${STATE}`,
       );
-      await new Promise((r) => setTimeout(r, 20));
+      await arrived;
       await server.stop();
       const res = await pending;
       expect(res.status).toBe(503);
@@ -550,11 +567,14 @@ describe("OAuthCallbackServer", () => {
       });
     });
   });
+
   it("runRunnerInteractiveOAuth survives an injected error callback and completes on the genuine one (#2847)", async () => {
     const STATE = "genuine-flow-state";
     const redirectUrlProvider = { redirectUrl: "" };
     const requests: Promise<Response>[] = [];
     const completeOAuthFlow = vi.fn(async () => {});
+    const listener = createOAuthCallbackServer();
+    server = listener;
 
     const result = await runRunnerInteractiveOAuth({
       client: {
@@ -564,13 +584,16 @@ describe("OAuthCallbackServer", () => {
           // then the genuine redirect lands. Neither is awaited here — a
           // real navigation is not — and both arrive before the runner has
           // learned the flow's state, so the listener holds them until then.
+          const forgedArrived = nextRequest(listener);
           requests.push(
             fetch(
               `${base}?error=access_denied&error_description=injected+by+another+process`,
             ),
           );
-          await new Promise((r) => setTimeout(r, 20));
+          await forgedArrived;
+          const genuineArrived = nextRequest(listener);
           requests.push(fetch(`${base}?code=real-code&state=${STATE}`));
+          await genuineArrived;
           return new URL(`https://as.example/authorize?state=${STATE}`);
         },
         beginInteractiveAuthorization: async () => {},
@@ -584,6 +607,7 @@ describe("OAuthCallbackServer", () => {
         pathname: "/oauth/callback",
       },
       callbackTimeoutMs: 10_000,
+      createCallbackServer: () => listener,
     });
 
     expect(result).toEqual({ kind: "success" });

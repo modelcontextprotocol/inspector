@@ -338,6 +338,7 @@ describe("runRunnerInteractiveOAuth", () => {
         handlers.current.onError?.({
           error: "access_denied",
           error_description: "user cancelled",
+          source: "redirect",
         });
         return new URL("https://as.example/authorize");
       }),
@@ -433,6 +434,7 @@ describe("runRunnerInteractiveOAuth", () => {
         handlers.current.onError?.({
           error: "callback_error",
           error_description: "exchange blew up",
+          source: "callback",
         });
         return new URL("https://as.example/authorize");
       }),
@@ -452,10 +454,38 @@ describe("runRunnerInteractiveOAuth", () => {
     await expect(run).rejects.not.toThrow("authorization server said");
   });
 
+  it("labels a redirect error even when it spells its code callback_error", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({
+          error: "callback_error",
+          error_description: "Server-supplied diagnosis",
+          source: "redirect",
+        });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    await expect(
+      runRunnerInteractiveOAuth({
+        client,
+        redirectUrlProvider: { redirectUrl: "" },
+        callbackListen: {
+          hostname: "127.0.0.1",
+          port: 6276,
+          pathname: "/oauth/callback",
+        },
+        createCallbackServer: () => createMockCallbackServer(handlers),
+      }),
+    ).rejects.toThrow(
+      "The authorization server said: Server-supplied diagnosis (callback_error)",
+    );
+  });
+
   it("reports a bare 'OAuth error' when the listener reports no error text at all", async () => {
     const client = mockClient({
       authenticate: vi.fn(async () => {
-        handlers.current.onError?.({ error: "" });
+        handlers.current.onError?.({ error: "", source: "redirect" });
         return new URL("https://as.example/authorize");
       }),
     });
@@ -476,7 +506,10 @@ describe("runRunnerInteractiveOAuth", () => {
   it("falls back to a generic message for a callback_error without a description", async () => {
     const client = mockClient({
       authenticate: vi.fn(async () => {
-        handlers.current.onError?.({ error: "callback_error" });
+        handlers.current.onError?.({
+          error: "callback_error",
+          source: "callback",
+        });
         return new URL("https://as.example/authorize");
       }),
     });
@@ -583,7 +616,10 @@ describe("runRunnerInteractiveOAuth", () => {
     const redirectUrlProvider = { redirectUrl: "" };
     const client = mockClient({
       authenticate: vi.fn(async () => {
-        handlers.current.onError?.({ error: "access_denied" });
+        handlers.current.onError?.({
+          error: "access_denied",
+          source: "redirect",
+        });
         return new URL("https://as.example/authorize");
       }),
     });
