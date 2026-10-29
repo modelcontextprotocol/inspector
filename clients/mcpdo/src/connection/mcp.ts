@@ -31,7 +31,12 @@ import {
   getSecretStorageInfo,
   warnAboutSecretStorage,
 } from "@inspector/core/auth/node/secret-store-selection.js";
-import { callDaemon, ensureDaemon } from "../daemon/index.js";
+import {
+  assertSocketPathWithinLimit,
+  callDaemon,
+  ensureDaemon,
+  getDaemonSocketPath,
+} from "../daemon/index.js";
 import type {
   ConnectionInfo,
   ConnectionShowResult,
@@ -123,6 +128,19 @@ function isDaemonUnreachable(error: unknown): boolean {
 }
 
 /**
+ * For commands that read "daemon unreachable" as "nothing is connected"
+ * without starting the daemon (`connections/list`, MRU name inference):
+ * rethrow anything that is not an unreachable daemon, and fail with
+ * `ensureDaemon()`'s own socket-path error when the daemon could never bind
+ * in this environment at all (#2823). Without the check, an over-limit
+ * socket path reads as a healthy empty machine while `connect` refuses.
+ */
+function assertNoDaemonMeansNothingConnected(error: unknown): void {
+  if (!isDaemonUnreachable(error)) throw error;
+  assertSocketPathWithinLimit(getDaemonSocketPath());
+}
+
+/**
  * `servers/show` with no name falls back to the MRU connection's entry name,
  * under the same non-interactive gate as MRU connection targeting: an agent
  * shell must name the entry explicitly. When there is no MRU (no daemon, or
@@ -145,7 +163,7 @@ async function resolveMruEntryName(): Promise<string> {
     );
     connections = result.connections;
   } catch (error) {
-    if (!isDaemonUnreachable(error)) throw error;
+    assertNoDaemonMeansNothingConnected(error);
   }
   const mru = connections.find((c) => c.isMru);
   if (!mru) {
@@ -1062,14 +1080,11 @@ function registerConnectionAdmin(program: CommandType): void {
           connections: result.connections,
         });
       } catch (error) {
-        if (isDaemonUnreachable(error)) {
-          await writeConnectionOutput(outOpts(opts), {
-            kind: "connections/list",
-            connections: [],
-          });
-          return;
-        }
-        throw error;
+        assertNoDaemonMeansNothingConnected(error);
+        await writeConnectionOutput(outOpts(opts), {
+          kind: "connections/list",
+          connections: [],
+        });
       }
     });
 

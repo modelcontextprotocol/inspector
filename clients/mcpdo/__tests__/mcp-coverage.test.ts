@@ -537,6 +537,48 @@ describe("mcp.ts coverage", () => {
     expect(unknown.stderr).toContain(`(config ${configPath}`);
   });
 
+  // Windows named pipes have no sun_path limit, so the check is a no-op there.
+  it.skipIf(process.platform === "win32")(
+    "an over-limit daemon socket path fails connections/list and MRU inference like connect does (#2823)",
+    async () => {
+      configPath = createSampleTestConfig();
+      const e = env();
+      // Never created: the point is that nothing could ever bind here.
+      const longDir = path.join(storageDir!, "d".repeat(120));
+      const longEnv = { ...e, MCP_INSPECTOR_DAEMON_DIR: longDir };
+
+      const listed = await runMcp(["connections/list", "--format", "json"], {
+        env: longEnv,
+      });
+      expectCliFailure(listed);
+      expect(listed.stdout).not.toMatch(/connections/);
+      expect(listed.stderr).toMatch(/socket path is too long/);
+      expect(listed.stderr).toContain(path.join(longDir, "mcpdod.sock"));
+
+      const noMru = await runMcp(["servers/show", "--config", configPath], {
+        env: longEnv,
+        timeout: 20000,
+      });
+      expectCliFailure(noMru);
+      expect(noMru.stderr).toMatch(/socket path is too long/);
+      expect(noMru.stderr).not.toMatch(/no most-recently-used connection/);
+
+      // Neither command starts the daemon, or even creates its directory.
+      expect(fs.existsSync(longDir)).toBe(false);
+
+      // Same error, same exit code as the command that would start it.
+      const connected = await runMcp(
+        ["connect", "test-stdio", "--config", configPath],
+        { env: longEnv, timeout: 20000 },
+      );
+      expectCliFailure(connected);
+      expect(connected.stderr).toMatch(/socket path is too long/);
+
+      expect(listed.exitCode).toBe(connected.exitCode);
+      expect(noMru.exitCode).toBe(connected.exitCode);
+    },
+  );
+
   it("connections/list and daemon status do not auto-spawn the daemon", async () => {
     const e = env();
     const listed = await runMcp(["connections/list", "--format", "json"], {
