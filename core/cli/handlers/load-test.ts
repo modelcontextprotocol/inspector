@@ -83,7 +83,8 @@ export type LoadSummary = {
   /**
    * With `rate` only (#2837): the calls the `1 / rate` grid called for over
    * the run's start window — the whole `--load-duration` on a run that ran
-   * to it, capped at `--load-requests`. A slot nobody was free to take is
+   * to it, or up to the last start of a run ended by `--load-requests`. A
+   * slot nobody was free to take is
    * dropped rather than owed, so this can exceed what was started.
    */
   plannedStarts?: number;
@@ -447,12 +448,18 @@ export function loadRateShortfallWarning(
   const { rate, achievedRate, plannedStarts, droppedSlots } = summary;
   if (
     rate === undefined ||
-    achievedRate === undefined ||
-    achievedRate >= rate * RATE_SHORTFALL_RATIO
+    plannedStarts === undefined ||
+    droppedSlots === undefined ||
+    plannedStarts === 0
   ) {
     return undefined;
   }
-  return `Warning: --load-rate ${rate}/s was not reached: ${plannedStarts! - droppedSlots!} of ${plannedStarts} planned calls started (${achievedRate}/s); ${droppedSlots} slots were dropped because every worker was busy. Raise --load-concurrency or lower --load-rate.`;
+  // Judged on the exact counts rather than the two-place `achievedRate`,
+  // which rounds a fractional `--load-rate` (0.014/s → 0.01/s) far enough to
+  // read as a shortfall that never happened.
+  const started = plannedStarts - droppedSlots;
+  if (started >= plannedStarts * RATE_SHORTFALL_RATIO) return undefined;
+  return `Warning: --load-rate ${rate}/s was not reached: ${started} of ${plannedStarts} planned calls started (${achievedRate}/s); ${droppedSlots} slots were dropped because every worker was busy. Raise --load-concurrency or lower --load-rate.`;
 }
 
 /**
@@ -504,7 +511,13 @@ export async function runLoad(
   let stoppedEarly: LoadStop | undefined;
   let stoppedAt = 0;
   const stopRun = (stop: LoadStop): void => {
-    if (stoppedEarly) return;
+    if (stoppedEarly) {
+      // An explicit interrupt outranks a breaker stop recorded while calls
+      // were still draining, so Ctrl+C still exits 130; the stop time stays
+      // the first one, which is when starts actually ended.
+      if (stop.reason === "interrupted") stoppedEarly = stop;
+      return;
+    }
     stoppedEarly = stop;
     stoppedAt = clock.now();
     halt.abort();
@@ -527,10 +540,18 @@ export async function runLoad(
   const noteThrown = (now: number): void => {
     if (errorStreak++ === 0) streakSince = now;
     const window = now - streakSince;
+    // Only while another call could still start: once the bounds have
+    // ended starts, the failures are in-flight calls draining, and calling
+    // that an early stop would misreport a run that ran to its bounds.
+    const canStart =
+      (requests === undefined || started < requests) &&
+      now < deadline &&
+      nextStart < deadline;
     if (
-      errorStreak >= CIRCUIT_BREAKER_ERRORS ||
-      (errorStreak >= CIRCUIT_BREAKER_MIN_ERRORS &&
-        window >= CIRCUIT_BREAKER_WINDOW_MS)
+      canStart &&
+      (errorStreak >= CIRCUIT_BREAKER_ERRORS ||
+        (errorStreak >= CIRCUIT_BREAKER_MIN_ERRORS &&
+          window >= CIRCUIT_BREAKER_WINDOW_MS))
     ) {
       stopRun({
         reason: "consecutive_errors",
@@ -644,7 +665,6 @@ export async function runLoad(
     ...(rate !== undefined &&
       rateFigures(rate, {
         started,
-        requests,
         windowMs: ranFullWindow
           ? durationMs
           : stoppedEarly !== undefined
@@ -677,19 +697,19 @@ export async function runLoad(
  */
 function rateFigures(
   rate: number,
-  run: { started: number; requests?: number; windowMs: number },
+  run: { started: number; windowMs: number },
 ): Pick<
   LoadSummary,
   "rate" | "plannedStarts" | "droppedSlots" | "achievedRate"
 > {
-  const { started, requests, windowMs } = run;
+  const { started, windowMs } = run;
   // The slots at 0, 1/rate, … that fall inside the window. The epsilon keeps
   // floating-point noise (5000ms × 0.001/ms = 5.000000001) from adding one.
   const slots = Math.ceil((windowMs * rate) / 1000 - 1e-9);
-  const plannedStarts = Math.max(
-    started,
-    Math.min(slots, requests ?? Infinity),
-  );
+  // Not capped at `--load-requests`: a request-bound run that was saturated
+  // throughout still missed slots while it was starting its calls, and a cap
+  // would report none. The limit bounds what is started, not the grid.
+  const plannedStarts = Math.max(started, slots);
   return {
     rate,
     plannedStarts,

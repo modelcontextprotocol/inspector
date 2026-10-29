@@ -176,6 +176,55 @@ describe("circuit breaker (#2835)", () => {
     expect(summary.elapsedMs).toBe(1250);
   });
 
+  it("does not call draining in-flight failures an early stop", async () => {
+    const clock = fakeClock();
+    let release!: () => void;
+    const allStarted = new Promise<void>((r) => (release = r));
+    let starts = 0;
+    // All five calls start at once, then fail 300ms apart, well past the
+    // breaker's one-second window — but no further call could start anyway.
+    const summary = await runLoad(
+      async () => {
+        if (++starts === 5) release();
+        await allStarted;
+        clock.advance(300);
+        throw new Error("timed out");
+      },
+      { concurrency: 5, requests: 5 },
+      clock,
+    );
+    expect(summary.errors).toBe(5);
+    expect(summary.stoppedEarly).toBeUndefined();
+  });
+
+  it("lets an interrupt override a breaker stop while calls drain", async () => {
+    const abort = new AbortController();
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => (releaseSlow = r));
+    let thrown = 0;
+    const call = async (worker: number): Promise<LoadCallOutcome> => {
+      if (worker === 0) {
+        await slow;
+        return "ok";
+      }
+      if (++thrown === CIRCUIT_BREAKER_ERRORS) {
+        // The breaker has tripped; Ctrl+C arrives while worker 0 drains.
+        setImmediate(() => {
+          abort.abort();
+          releaseSlow();
+        });
+      }
+      throw new Error("fetch failed");
+    };
+    const summary = await runLoad(
+      call,
+      { concurrency: 2, requests: 1000 },
+      fakeClock(),
+      abort.signal,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("interrupted");
+  });
+
   it("resets on any answer from the server, tool errors included", async () => {
     let n = 0;
     const call = async (): Promise<LoadCallOutcome> => {
@@ -297,6 +346,35 @@ describe("planned and achieved rate (#2837)", () => {
     });
   });
 
+  it("counts the slots a saturated request-bound run missed", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      async () => {
+        clock.advance(500);
+        return "ok";
+      },
+      { concurrency: 1, requests: 3, rate: 10 },
+      clock,
+    );
+    // Starts at 0, 500 and 1000ms: the grid to 1100ms held 11 slots.
+    expect(summary).toMatchObject({
+      requests: 3,
+      plannedStarts: 11,
+      droppedSlots: 8,
+    });
+    expect(loadRateShortfallWarning(summary)).toContain("3 of 11 planned");
+  });
+
+  it("does not warn on a fractional rate it held", async () => {
+    const summary = await runLoad(
+      async () => "ok",
+      { concurrency: 1, durationMs: 70_000, rate: 0.014 },
+      fakeClock(),
+    );
+    expect(summary).toMatchObject({ plannedStarts: 1, droppedSlots: 0 });
+    expect(loadRateShortfallWarning(summary)).toBeUndefined();
+  });
+
   it("plans an interrupted run up to the moment it stopped", async () => {
     const clock = fakeClock();
     const abort = new AbortController();
@@ -333,6 +411,7 @@ describe("planned and achieved rate (#2837)", () => {
       droppedSlots: 0,
       achievedRate: 0,
     });
+    expect(loadRateShortfallWarning(summary)).toBeUndefined();
   });
 
   it("leaves the rate figures out of a run with no rate", async () => {

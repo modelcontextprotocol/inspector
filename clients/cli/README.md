@@ -376,12 +376,13 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   `--load-rate` ([#2837](https://github.com/modelcontextprotocol/inspector/issues/2837)).
   `plannedStarts` is what the `1/rate` grid called for over the window the run
   was starting calls in (the whole `--load-duration` for a run that reached
-  it, capped at `--load-requests`); `droppedSlots` is how many of those were
+  it, or up to the last start of a run that `--load-requests` ended);
+  `droppedSlots` is how many of those were
   never started because every worker was busy; `achievedRate` is the calls
   started per second over that window. Dropping slots keeps a stall from
   turning into a burst, but it also makes the run closed-loop: a server too
   slow for the target rate reports healthy latency while most of the planned
-  load never ran. So when `achievedRate` is under 90% of `--load-rate`, a
+  load never ran. So when fewer than 90% of `plannedStarts` were started, a
   warning naming the shortfall is printed on stderr after the summary
   (dropped by `--quiet`). Raise `--load-concurrency` or lower the rate.
 - **The run stops early when the server is clearly gone**
