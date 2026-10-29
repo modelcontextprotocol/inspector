@@ -44,6 +44,7 @@ import {
 } from "@inspector/core/mcp/node/index.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
 import { useManagedTools } from "@inspector/core/react/useManagedTools.js";
+import { compareToolsByName } from "@inspector/core/mcp/toolOrder.js";
 import { useManagedResources } from "@inspector/core/react/useManagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedPrompts } from "@inspector/core/react/useManagedPrompts.js";
@@ -429,9 +430,10 @@ function App({
             }),
           ...(savedSettings && { serverSettings: savedSettings }),
           // Advertise the roots configured for this server in mcp.json, as web
-          // and the CLI do. The TUI has no roots editor, but a user who set
-          // roots in the web UI expects them to apply to the same server here
-          // (#1797).
+          // and the CLI do (#1797). This is the starting list: the roots
+          // editor (#2432, `e` on the Info tab) changes it for this session
+          // through `InspectorClient.setRoots`, but never writes mcp.json, so
+          // these configured roots return on the next launch.
           roots: cleanRoots(savedSettings?.roots ?? []),
           // Per-server protocol era (SEP §7.8) from mcp.json → SDK
           // versionNegotiation; absent era defaults to legacy (#1626).
@@ -1272,7 +1274,10 @@ function App({
       resources: managedResources,
       resourceTemplates: managedResourceTemplates,
       prompts: managedPrompts,
-      tools: managedTools,
+      // Alphabetical by the name each row shows, the order the web Tools
+      // sidebar uses (#2782, #2827) — not the server's `tools/list` order.
+      // A copy: the hook's array is the store's snapshot.
+      tools: [...managedTools].sort(compareToolsByName),
       stderrLogs: inspectorStderrLogs, // InspectorClient manages this
     };
   }, [

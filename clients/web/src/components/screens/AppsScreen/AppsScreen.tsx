@@ -45,6 +45,10 @@ import { hasInputFields, resolveDisplayLabel } from "../../../utils/toolUtils";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { errorMessage } from "../../../utils/errorFormat";
 
+// h3: a section under this screen's h2 panel heading (#2827), sized as the h5
+// it was so the look is unchanged.
+const SubHeading = Title.withProps({ order: 3, size: "h5" });
+
 export interface AppsScreenProps {
   tools: Tool[];
   listChanged: boolean;
@@ -734,7 +738,7 @@ export function AppsScreen({
             )}
             {running && messages.length > 0 && (
               <PinnedPanel data-testid="apps-messages">
-                <Title order={5}>Messages from app ({messages.length})</Title>
+                <SubHeading>Messages from app ({messages.length})</SubHeading>
                 <LogScroll>
                   <MessageLogStack>
                     {messages.map((message, index) => (

@@ -23,6 +23,10 @@ import {
   unmetRequiredGroups,
 } from "../../../utils/uriTemplate";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface ResourceTemplatePanelProps {
   template: ResourceTemplate;
   onReadResource: (uri: string) => void;
@@ -299,7 +303,7 @@ export function ResourceTemplatePanel({
   return (
     <Stack gap="md">
       <HeaderRow>
-        <Title order={4}>{title ?? name} Template</Title>
+        <PanelHeading>{title ?? name} Template</PanelHeading>
         <UriGroup>
           <UriText>{preview}</UriText>
           <CopyButton value={preview} />

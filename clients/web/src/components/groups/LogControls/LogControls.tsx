@@ -12,6 +12,14 @@ import type { LoggingLevel, ProtocolEra } from "@modelcontextprotocol/client";
 import { FilterToggleButton } from "../../elements/FilterToggleButton/FilterToggleButton";
 import { isModernEra } from "../../elements/EraBadge/eraUtils";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
+// h3: a section under this screen's h2 panel heading (#2827), sized as the h5
+// it was so the look is unchanged.
+const SubHeading = Title.withProps({ order: 3, size: "h5" });
+
 const LOG_LEVELS: LoggingLevel[] = [
   "debug",
   "info",
@@ -93,7 +101,7 @@ const LegacyLevelControl = ({
   onSetLevel,
 }: Pick<LogControlsProps, "currentLevel" | "onSetLevel">) => (
   <>
-    <Title order={5}>Set Active Level</Title>
+    <SubHeading>Set Active Level</SubHeading>
     <Group wrap="nowrap">
       <ActiveLevelSelect
         data={LEVEL_OPTIONS}
@@ -119,7 +127,7 @@ const ModernLevelControl = ({
   onSetModernLogLevel,
 }: Pick<LogControlsProps, "modernLogLevel" | "onSetModernLogLevel">) => (
   <>
-    <Title order={5}>Log Level per Request</Title>
+    <SubHeading>Log Level per Request</SubHeading>
     <HelpText>
       Modern servers only emit logs for requests that opt in. The level you
       choose is stamped on every request, and logs arrive on the originating
@@ -156,7 +164,7 @@ export function LogControls({
 }: LogControlsProps) {
   return (
     <Stack gap="md">
-      <Title order={4}>Logging</Title>
+      <PanelHeading>Logging</PanelHeading>
 
       <TextInput
         placeholder="Search..."
@@ -181,7 +189,7 @@ export function LogControls({
       )}
 
       <Group justify="space-between">
-        <Title order={5}>Filter by Level</Title>
+        <SubHeading>Filter by Level</SubHeading>
         <SubtleButton onClick={onToggleAllLevels}>
           {Object.values(visibleLevels).every(Boolean)
             ? "Deselect All"

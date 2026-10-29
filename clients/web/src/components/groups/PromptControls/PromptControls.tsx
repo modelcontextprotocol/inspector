@@ -13,6 +13,10 @@ import { PromptListItem } from "../PromptListItem/PromptListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 import { formatCountedLabel, listCountOf } from "../../../utils/listCount";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 // Fill the full-height `sidebar` Card (a flex column) so the list runs to the
 // bottom of the card before it scrolls, instead of being capped short by a
 // fixed max-height. `mih: 0` lets the scroll child shrink and scroll.
@@ -94,7 +98,7 @@ export function PromptControls({
   return (
     <SidebarStack>
       <Group justify="space-between">
-        <Title order={4}>{title}</Title>
+        <PanelHeading>{title}</PanelHeading>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <SearchInput

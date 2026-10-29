@@ -151,9 +151,9 @@ const ResourceLinksInner = Stack.withProps({
 });
 
 const ResourceLinksHeader = Title.withProps({
-  // The panel "Results" title is h3 (size h4); this sub-box heading is h4 so the
+  // The panel "Results" title is h2 (size h4); this sub-box heading is h3 so the
   // heading order doesn't skip a level (axe `heading-order`).
-  order: 4,
+  order: 3,
   size: "h5",
 });
 
@@ -170,11 +170,11 @@ const ResourceLinksStack = Stack.withProps({
   gap: "sm",
 });
 
-// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
-// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
-// `size="h4"` preserves the visual size.
+// h2, size h4: a panel heading under the page's visually hidden h1 (#2827),
+// which also keeps request modals' `h2` `Modal.Title` from being skipped to
+// (axe `heading-order`); `size="h4"` preserves the visual size.
 const ResultsTitle = Title.withProps({
-  order: 3,
+  order: 2,
   size: "h4",
 });
 

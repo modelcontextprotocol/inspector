@@ -15,7 +15,7 @@ import {
   useServers,
 } from "@inspector/core/react/useServers";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server";
-import { DEFAULT_SEED_CONFIG } from "@inspector/core/mcp/serverList";
+import { defaultSeedConfig } from "@inspector/core/mcp/serverList";
 import { InMemorySecretStore } from "@inspector/core/auth/node/secret-store";
 import type { MCPConfig } from "@inspector/core/mcp/types";
 
@@ -1416,14 +1416,14 @@ describe("useServers", () => {
     expect(result.current.error).toBe("keyring unavailable");
   });
 
-  it("uses DEFAULT_SEED_CONFIG keys on the first load (seed-write contract)", async () => {
+  it("uses the default seed keys on the first load (seed-write contract)", async () => {
     const { result } = renderHook(() =>
       useServers({ baseUrl: "http://test.local", fetchFn: h.fetchFn }),
     );
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.servers.map((s) => s.id)).toEqual(
-      Object.keys(DEFAULT_SEED_CONFIG.mcpServers),
+      Object.keys(defaultSeedConfig(tmpdir()).mcpServers),
     );
   });
 });

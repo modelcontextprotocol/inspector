@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   cleanAuthorizationParams,
   cleanRoots,
-  DEFAULT_SEED_CONFIG,
+  adHocServerName,
+  defaultSeedConfig,
   EXAMPLE_SERVER_URL,
   envPairsToRecord,
   envRecordToPairs,
@@ -1040,7 +1041,28 @@ describe("serializeMcpConfig", () => {
   });
 });
 
-describe("DEFAULT_SEED_CONFIG", () => {
+describe("adHocServerName (#2827)", () => {
+  it.each([
+    [{ type: "stdio", command: "node", args: ["server.js"] }, "node"],
+    [{ type: "stdio", command: "/usr/local/bin/my-server" }, "my-server"],
+    [{ type: "stdio", command: "C:\\tools\\srv.exe" }, "srv.exe"],
+    [{ command: "npx" }, "npx"],
+    [{ type: "stdio", command: "" }, "server"],
+    [
+      { type: "streamable-http", url: "http://localhost:3000/mcp" },
+      "localhost:3000",
+    ],
+    [{ type: "sse", url: "https://example.com/sse" }, "example.com"],
+    [{ type: "streamable-http", url: "not a url" }, "server"],
+    [{ type: "sse", url: "file:///x" }, "server"],
+  ] as const)("%j -> %s", (config, expected) => {
+    expect(adHocServerName(config as MCPServerConfig)).toBe(expected);
+  });
+});
+
+describe("defaultSeedConfig", () => {
+  const DEFAULT_SEED_CONFIG = defaultSeedConfig("/tmp");
+
   it("contains the three canonical seed servers", () => {
     expect(Object.keys(DEFAULT_SEED_CONFIG.mcpServers)).toEqual([
       "filesystem-server-default",
@@ -1062,11 +1084,14 @@ describe("DEFAULT_SEED_CONFIG", () => {
     }
   });
 
-  it("scopes the filesystem server to /tmp by default", () => {
-    const fs = DEFAULT_SEED_CONFIG.mcpServers["filesystem-server-default"];
-    if (fs?.type === "stdio") {
-      expect(fs.args).toContain("/tmp");
-    }
+  it("scopes the filesystem server to the temp dir it is given (#2827)", () => {
+    const fs = defaultSeedConfig("C:\\Users\\me\\AppData\\Local\\Temp")
+      .mcpServers["filesystem-server-default"];
+    expect(fs?.type === "stdio" && fs.args).toEqual([
+      "-y",
+      "@modelcontextprotocol/server-filesystem",
+      "C:\\Users\\me\\AppData\\Local\\Temp",
+    ]);
   });
 
   it("seeds the MCP org example server over streamable-http", () => {

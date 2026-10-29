@@ -1164,6 +1164,25 @@ describe("App (status, layout, modals)", () => {
     expect(f).toContain("alpha");
   });
 
+  it("lists tools alphabetically by name, as the web sidebar does (#2827)", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [
+      { ...sampleTool, name: "zeta" },
+      { ...sampleTool, name: "tool_10" },
+      { ...sampleTool, name: "Beta" },
+      { ...sampleTool, name: "tool_2" },
+    ];
+    const r = await mount(oneStdio());
+    await press(r, ["t"]);
+    await expectFrame(r, "Tools (4)");
+    const f = r.lastFrame() ?? "";
+    const order = ["Beta", "tool_2", "tool_10", "zeta"].map((n) =>
+      f.indexOf(n),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
   it("opens the tool test modal with Enter from the list pane", async () => {
     h.ctrl.status = "connected";
     h.ctrl.tools = [sampleTool];
