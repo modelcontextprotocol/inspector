@@ -497,7 +497,6 @@ export async function runLoad(
   let toolErrors = 0;
   let errors = 0;
   let started = 0;
-  let lastStartAt = 0;
 
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
@@ -596,7 +595,6 @@ export async function runLoad(
         if (scheduled >= deadline) return false;
         if (scheduled <= now) {
           started++;
-          lastStartAt = now;
           // A wake that is merely late — timers always are, by a fraction of
           // a millisecond — keeps the slot grid, so the average rate holds.
           // Only a slot missed entirely (a stall longer than one interval)
@@ -658,6 +656,22 @@ export async function runLoad(
     ? Math.max(end - start, durationMs)
     : end - start;
   const completed = ok + toolErrors + errors;
+  /**
+   * When the run stopped starting calls, for the `--load-rate` figures: the
+   * earliest of the bounds that applied. The duration deadline; for a run the
+   * request count ended, the grid slot after its last start — the scheduler's
+   * own `nextStart`, so a final timer that woke a little late does not count
+   * as a missed slot; and the moment an early stop landed. So an interrupt
+   * while calls drain past a bound does not stretch the window either.
+   */
+  const startWindowEnd = (): number => {
+    let windowEnd = deadline;
+    if (requestCapped) windowEnd = Math.min(windowEnd, nextStart);
+    if (stoppedEarly !== undefined) windowEnd = Math.min(windowEnd, stoppedAt);
+    /* v8 ignore next -- defensive: a run with no duration, no request cap
+       and no stop never ends, so one of the three always applies. */
+    return Number.isFinite(windowEnd) ? windowEnd : end;
+  };
   return {
     concurrency,
     ...(durationMs !== undefined && { durationMs }),
@@ -665,13 +679,7 @@ export async function runLoad(
     ...(rate !== undefined &&
       rateFigures(rate, {
         started,
-        windowMs: ranFullWindow
-          ? durationMs
-          : stoppedEarly !== undefined
-            ? stoppedAt - start
-            : // Ended by the request count: the starts covered the grid up
-              // to the last one, plus that slot's own interval.
-              lastStartAt - start + interval,
+        windowMs: startWindowEnd() - start,
       })),
     requests: completed,
     ok,

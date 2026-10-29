@@ -365,6 +365,55 @@ describe("planned and achieved rate (#2837)", () => {
     expect(loadRateShortfallWarning(summary)).toContain("3 of 11 planned");
   });
 
+  it("does not count a slightly late final timer as a dropped slot", async () => {
+    const summary = await runLoad(
+      async () => "ok",
+      { concurrency: 1, requests: 3, rate: 10 },
+      fakeClock({ jitter: 0.1 }),
+    );
+    // Starts at 0, 100.1 and 200.1ms keep the grid; the window ends at 300.
+    expect(summary).toMatchObject({ plannedStarts: 3, droppedSlots: 0 });
+    expect(loadRateShortfallWarning(summary)).toBeUndefined();
+  });
+
+  it("ends the window at the request bound when an interrupt lands later", async () => {
+    const clock = fakeClock();
+    const abort = new AbortController();
+    const summary = await runLoad(
+      async () => {
+        clock.advance(5000);
+        abort.abort();
+        return "ok";
+      },
+      { concurrency: 1, requests: 1, rate: 1 },
+      clock,
+      abort.signal,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("interrupted");
+    expect(summary).toMatchObject({ plannedStarts: 1, droppedSlots: 0 });
+  });
+
+  it("ends the window at the deadline when an interrupt lands later", async () => {
+    const clock = fakeClock();
+    const abort = new AbortController();
+    let calls = 0;
+    const summary = await runLoad(
+      async () => {
+        // The tenth call, started at 900ms, outlives the 1s window.
+        if (++calls === 10) {
+          clock.advance(4000);
+          abort.abort();
+        }
+        return "ok";
+      },
+      { concurrency: 1, durationMs: 1000, rate: 10 },
+      clock,
+      abort.signal,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("interrupted");
+    expect(summary).toMatchObject({ plannedStarts: 10, droppedSlots: 0 });
+  });
+
   it("does not warn on a fractional rate it held", async () => {
     const summary = await runLoad(
       async () => "ok",
