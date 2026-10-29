@@ -111,6 +111,7 @@
     "smoke:web:browser": "node scripts/install-smoke-browser.mjs && node scripts/smoke-web-browser.mjs",
     "smoke:web:app": "node scripts/install-smoke-browser.mjs && node scripts/smoke-web-app.mjs",
     "smoke:web:elicit": "node scripts/install-smoke-browser.mjs && node scripts/smoke-web-elicitation.mjs",
+    "smoke:web:sandbox": "node scripts/install-smoke-browser.mjs && node scripts/smoke-web-sandbox-navigation.mjs",
     "smoke:web:tabs": "node scripts/install-smoke-browser.mjs chromium && node scripts/smoke-web-tabs.mjs chromium",
     "smoke:web:engine": "node scripts/run-engine-smokes.mjs",
     "smoke:web:chromium": "node scripts/run-engine-smokes.mjs chromium",

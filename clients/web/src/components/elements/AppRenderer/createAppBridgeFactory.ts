@@ -412,6 +412,13 @@ export function createAppBridgeFactory(
             src?: string;
           } = {
             html: wrapped,
+            // The approved (post-filter) grant, in the spec's own `csp` slot.
+            // The proxy reads `frameDomains` from it to restrict what the
+            // inner frame may be navigated to: a sandboxed frame can always
+            // navigate itself, and only a policy on the proxy document — the
+            // frame's parent — governs that. The inner document's own CSP is
+            // still the wrapped <meta>; the proxy never builds one from this.
+            csp: approvedCsp,
             permissions: approvedPermissions,
             ...(src ? { src } : {}),
           };
