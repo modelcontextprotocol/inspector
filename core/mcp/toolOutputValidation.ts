@@ -15,7 +15,9 @@ import type {
  * Apps forward the result verbatim to the running view, so the host must not
  * reject it — but it should still surface the mismatch as a non-fatal advisory.
  *
- * @param provider A JSON Schema validator provider (the SDK's Ajv provider).
+ * @param provider A JSON Schema validator provider. InspectorClient passes
+ *   `LinearPatternJsonSchemaValidator`, whose `pattern` checks run in
+ *   bounded time — the schema is server-controlled.
  * @param tool The tool that was called (carries the declared outputSchema).
  * @param result The delivered CallToolResult.
  */
