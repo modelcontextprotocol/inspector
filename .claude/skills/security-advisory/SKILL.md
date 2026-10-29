@@ -65,16 +65,24 @@ a real GitHub issue".
 - **Body:** `**Advisory:** <html_url>` on the first line, then severity and
   reported date. The link first, because a maintainer reading the card has no
   other route back to the private advisory.
-  ⚠️ **Do not copy the vulnerability description onto the card.** Project
-  access and advisory access are **separate permission sets**, so the board's
-  audience is not the advisory's audience — anyone with project access reads
-  the card, whether or not they are an advisory collaborator. The boards are
-  private ([`/issue-triage`](../issue-triage/SKILL.md)), so this is a wider
-  audience than intended rather than a public leak, but a reproduction or a PoC
-  is the part worth keeping to the people handling it. The card carries the
-  **link and triage metadata only**; the link is how a reader with access gets
-  the details, and the absence of details is how a reader without access is
-  told they do not have them.
+  **The card may carry the full analysis**: the vulnerability description, the
+  reproduction, the ownership verdict (step 2), the affected lines and the fix
+  plan. It is often the only place that analysis can live. An advisory has no
+  comment API, REST or GraphQL, so research cannot be scripted into its thread,
+  and the card is the one place the rest of the team can see it.
+  ⚠️ **That rests on one premise: access to board #28 is managed**, so the
+  people who can read a card are the people who should be handling the
+  advisory. Project access and advisory access are still separate permission
+  sets, and the boards are private
+  ([`/issue-triage`](../issue-triage/SKILL.md)). They are not public. **If board
+  access is ever widened** beyond the people handling advisories, the premise
+  fails. Revisit this rule then, and go back to keeping only the link and the
+  triage metadata on the card.
+  ⚠️ **None of this touches publication.** A card is private and a converted
+  issue is not. The public issue still waits for publication (step 6), and an
+  upstream finding still goes through the upstream's **private** channel
+  (step 2). A detailed card is a reason to review its body before converting,
+  not a reason to convert sooner.
 - **Status `Incoming`**, plus a **provisional** Priority scored with the
   `/issue-triage` rubric. `Incoming` is correct even though somebody clearly
   triaged it to make the card: nobody has approved shipping a fix yet, and a
@@ -91,15 +99,13 @@ a real GitHub issue".
   dated. `/issue-triage` says to record it as an issue comment, and a draft
   card has no comments — so without this the Priority is a bare word with
   nothing behind it, and the step-2 re-score cannot tell what it is revising.
-  Write the two axes, the bonuses you claimed, and the total as **numbers and
-  rubric names only** — `Severity 4`, `+1 security`, `Total 6`. That is
-  deliberately *not* the comment form: its template follows each axis with a
-  free-text justification ("Severity 3 — a real feature is broken…"), and for
-  an advisory that justification is the impact and the affected surface, which
-  is exactly what the warning above keeps off the card. The reasoning behind a
-  number belongs in the private advisory. Leave the provisional line in place
-  when you re-score and add the new one under it, so the change of view is
-  legible.
+  Use the same form as an ordinary `/issue-triage` score comment: each axis
+  followed by its free-text justification ("Severity 3 — a real feature is
+  broken…"), the bonuses you claimed, and the total. For an advisory the
+  justification is the impact and the affected surface. That is exactly what
+  makes the score arguable, so it belongs on the card with the number. Leave
+  the provisional score in place when you re-score and add the new one under
+  it, so the change of view is legible.
   ⚠️ **Set both fields.** The board audit's non-Issue check now exempts
   `[GHSA-` drafts, so a half-made card no longer trips it; the audit carries a
   narrow replacement check (see `/issue-triage`) and it is the only thing
@@ -332,6 +338,13 @@ the way it does:
 1. **Convert the draft card to an issue** on board #28 (the card keeps its
    place and its field values; the issue is created from the card's title and
    body).
+   ⚠️ **Converting makes the card's body public.** It becomes the body of an
+   issue on a public repo, along with any analysis step 1 allowed onto it.
+   Publication has already disclosed the vulnerability, but the advisory
+   discloses only what it chose to say. A card can still hold a working PoC,
+   a reporter's details, or notes that were never meant to go out. **Review
+   the body and trim it before converting.** Keep the advisory link, and
+   anything the published advisory already says.
 2. Apply a **type label** and the **version label of the line the fix shipped
    on**, then a milestone — and those two are not independent:
 
