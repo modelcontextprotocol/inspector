@@ -98,6 +98,12 @@ function callbackErrorMessage(params: {
   if (params.error === "callback_error") {
     return params.error_description ?? "OAuth callback failed";
   }
+  // Nothing the server said to label — `error` is required by the protocol,
+  // but a listener (or a host's fake) reporting an empty one must still
+  // produce a readable failure rather than "said: ".
+  if (!params.error && !params.error_description) {
+    return "OAuth error";
+  }
   const said = params.error_description
     ? `${params.error_description} (${params.error})`
     : params.error;

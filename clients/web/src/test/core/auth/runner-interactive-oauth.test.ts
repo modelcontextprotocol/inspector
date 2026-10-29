@@ -452,6 +452,27 @@ describe("runRunnerInteractiveOAuth", () => {
     await expect(run).rejects.not.toThrow("authorization server said");
   });
 
+  it("reports a bare 'OAuth error' when the listener reports no error text at all", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({ error: "" });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    const run = runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    });
+    await expect(run).rejects.toThrow(/^OAuth error$/);
+  });
+
   it("falls back to a generic message for a callback_error without a description", async () => {
     const client = mockClient({
       authenticate: vi.fn(async () => {
