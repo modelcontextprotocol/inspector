@@ -44,7 +44,7 @@ import {
  */
 function signalLoadRun(
   signal: "SIGINT" | "SIGTERM",
-  existing: ReturnType<typeof process.listeners>,
+  existing: NodeJS.SignalsListener[],
 ): boolean {
   const added = process
     .listeners(signal)
