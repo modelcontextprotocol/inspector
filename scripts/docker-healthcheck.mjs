@@ -23,8 +23,26 @@
  * `core/node/hostUrl.ts`; the few lines of host handling below lean on
  * `new URL()` for canonicalization, the same primitive `canonicalUrlHost`
  * uses, so legacy spellings (`HOST=0`, `0x0`, `::0`) resolve to the wildcard
- * the socket actually binds. `/` needs no auth, and Node's global `fetch` is
- * used because the slim image has no curl or wget.
+ * the socket actually binds. Node's own `http`/`https` clients are used
+ * because the slim image has no curl or wget.
+ *
+ * It probes `GET /healthz` (#2438) rather than `/`: the health route needs no
+ * token, is exempt from the Host allow-list (so a specific `HOST` the probe
+ * addresses by name still answers), and returns a fixed body, where `/` reads
+ * and token-injects `index.html` on every probe.
+ *
+ * The scheme follows the server's own TLS rule (#2825): with both
+ * `INSPECTOR_TLS_KEY_PATH` and `INSPECTOR_TLS_CERT_PATH` set (a blank value is
+ * unset, as `clients/web/server/tls.ts` reads them) the listener speaks only
+ * https, so an `http:` probe failed every time and a correctly running TLS
+ * container was reported unhealthy forever. The https probe skips certificate
+ * verification: it connects to the container's own listener, a self-signed or
+ * private-CA certificate is the normal case there, and the certificate names
+ * the public hostname rather than the loopback address probed — so the check
+ * would fail on exactly the deployments it is for while proving nothing about
+ * liveness. That is also why the probe is not `fetch`: Node's global `fetch`
+ * offers no per-request way to skip verification without importing `undici`,
+ * which the script, copied outside the installed package, cannot resolve.
  *
  * Only `--web` has a server to probe (#2415). `--cli` and `--tui` run the same
  * image with different args, and a HEALTHCHECK baked into the image cannot be
@@ -39,11 +57,27 @@
  */
 
 import { readFileSync } from "node:fs";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { basename } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = "6274";
+
+/** The web backend's unauthenticated health route (`HEALTH_PATH`, #2438). */
+const HEALTH_PATH = "/healthz";
+
+/**
+ * True when the web listener serves https: both TLS variables set, a blank
+ * value counting as unset — the rule `resolveTlsConfig` applies. A half-set
+ * pair is a startup error there, so it never reaches a running listener.
+ */
+export function tlsEnabled(env) {
+  return Boolean(
+    env.INSPECTOR_TLS_KEY_PATH?.trim() && env.INSPECTOR_TLS_CERT_PATH?.trim(),
+  );
+}
 
 /**
  * Wildcard bind hosts, as `new URL().hostname` spells them, mapped to the
@@ -57,8 +91,8 @@ const WILDCARD_TO_LOOPBACK = new Map([
 ]);
 
 /**
- * The URL the healthcheck fetches, derived from `HOST` and `CLIENT_PORT` in
- * `env`. Throws when `HOST` is not a valid URL host, which the caller reports
+ * The URL the healthcheck fetches, derived from `HOST`, `CLIENT_PORT` and the
+ * TLS variables in `env`. Throws when `HOST` is not a valid URL host, which the caller reports
  * as unhealthy — a server could not have bound it either.
  */
 export function probeUrl(env) {
@@ -70,10 +104,11 @@ export function probeUrl(env) {
     .trim()
     .replace(/^\[(.*)\]$/, "$1")
     .split("%")[0];
-  if (bare === "") return `http://${DEFAULT_HOST}:${port}/`;
+  const scheme = tlsEnabled(env) ? "https" : "http";
+  if (bare === "") return `${scheme}://${DEFAULT_HOST}:${port}${HEALTH_PATH}`;
   const authority = bare.includes(":") ? `[${bare}]` : bare;
   const host = new URL(`http://${authority}`).hostname;
-  return `http://${WILDCARD_TO_LOOPBACK.get(host) ?? host}:${port}/`;
+  return `${scheme}://${WILDCARD_TO_LOOPBACK.get(host) ?? host}:${port}${HEALTH_PATH}`;
 }
 
 /** The image's ENTRYPOINT, as the launcher's argv names it. */
@@ -118,14 +153,26 @@ export function readPid1Argv(path = "/proc/1/cmdline") {
   }
 }
 
-/** True when the web UI answers `/` with a 2xx; false on any failure. */
+/**
+ * True when the web backend answers the health route with a 2xx; false on any
+ * failure. An https probe does not verify the certificate — see the header.
+ */
 export async function probe(env) {
+  let url;
   try {
-    const res = await fetch(probeUrl(env));
-    return res.ok;
+    url = new URL(probeUrl(env));
   } catch {
     return false;
   }
+  const send = url.protocol === "https:" ? httpsRequest : httpRequest;
+  return new Promise((resolve) => {
+    const req = send(url, { rejectUnauthorized: false }, (res) => {
+      res.resume();
+      resolve(res.statusCode >= 200 && res.statusCode < 300);
+    });
+    req.on("error", () => resolve(false));
+    req.end();
+  });
 }
 
 /**

@@ -7,6 +7,11 @@
  * its own family. The `probe` cases run it against a real listener, since the
  * exit status is the whole contract Docker reads.
  *
+ * #2825 made the scheme follow the server's TLS rule — https when both
+ * `INSPECTOR_TLS_*` paths are set — and moved the probe to `/healthz`; the
+ * https `probe` case runs against a real TLS listener with a throwaway
+ * self-signed certificate, which the probe must accept.
+ *
  * `launchMode` is #2415: only `--web` has a server, so the verdict reads the
  * mode from PID 1's argv and a `--cli`/`--tui` container is not probed.
  *
@@ -15,8 +20,10 @@
  */
 
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -26,7 +33,13 @@ import {
   probe,
   probeUrl,
   readPid1Argv,
+  tlsEnabled,
 } from "./docker-healthcheck.mjs";
+
+const TLS = {
+  INSPECTOR_TLS_KEY_PATH: "/tls/key.pem",
+  INSPECTOR_TLS_CERT_PATH: "/tls/cert.pem",
+};
 
 describe("probeUrl", () => {
   const cases = [
@@ -52,21 +65,42 @@ describe("probeUrl", () => {
   for (const [host, expected] of cases) {
     it(`HOST=${JSON.stringify(host)} probes ${expected}`, () => {
       const env = host === undefined ? {} : { HOST: host };
-      assert.equal(probeUrl(env), `http://${expected}:6274/`);
+      assert.equal(probeUrl(env), `http://${expected}:6274/healthz`);
     });
   }
 
   it("takes the port from CLIENT_PORT", () => {
     assert.equal(
       probeUrl({ HOST: "172.17.0.2", CLIENT_PORT: "8080" }),
-      "http://172.17.0.2:8080/",
+      "http://172.17.0.2:8080/healthz",
     );
   });
 
   it("trims CLIENT_PORT and treats an empty one as unset, as the server does", () => {
-    assert.equal(probeUrl({ CLIENT_PORT: " 8080 " }), "http://127.0.0.1:8080/");
-    assert.equal(probeUrl({ CLIENT_PORT: "   " }), "http://127.0.0.1:6274/");
-    assert.equal(probeUrl({ CLIENT_PORT: "" }), "http://127.0.0.1:6274/");
+    assert.equal(
+      probeUrl({ CLIENT_PORT: " 8080 " }),
+      "http://127.0.0.1:8080/healthz",
+    );
+    assert.equal(
+      probeUrl({ CLIENT_PORT: "   " }),
+      "http://127.0.0.1:6274/healthz",
+    );
+    assert.equal(
+      probeUrl({ CLIENT_PORT: "" }),
+      "http://127.0.0.1:6274/healthz",
+    );
+  });
+
+  it("probes https when both TLS paths are set", () => {
+    assert.equal(probeUrl(TLS), "https://127.0.0.1:6274/healthz");
+    assert.equal(
+      probeUrl({ ...TLS, HOST: "::", CLIENT_PORT: "8443" }),
+      "https://[::1]:8443/healthz",
+    );
+    assert.equal(
+      probeUrl({ ...TLS, HOST: "" }),
+      "https://127.0.0.1:6274/healthz",
+    );
   });
 
   it("throws on a HOST no server could bind", () => {
@@ -74,13 +108,34 @@ describe("probeUrl", () => {
   });
 });
 
+describe("tlsEnabled", () => {
+  const cases = [
+    // [env, expected] — the rule `resolveTlsConfig` applies.
+    [{}, false],
+    [TLS, true],
+    [{ ...TLS, INSPECTOR_TLS_KEY_PATH: "" }, false],
+    [{ ...TLS, INSPECTOR_TLS_CERT_PATH: "" }, false],
+    [{ ...TLS, INSPECTOR_TLS_KEY_PATH: "   " }, false],
+    [{ INSPECTOR_TLS_KEY_PATH: "/tls/key.pem" }, false],
+    [{ INSPECTOR_TLS_CERT_PATH: "/tls/cert.pem" }, false],
+  ];
+  for (const [env, expected] of cases) {
+    it(`${JSON.stringify(env)} is ${expected}`, () => {
+      assert.equal(tlsEnabled(env), expected);
+    });
+  }
+});
+
 describe("probe", () => {
   let server;
   let port;
   let status = 200;
 
+  let path;
+
   before(async () => {
-    server = createServer((_req, res) => {
+    server = createServer((req, res) => {
+      path = req.url;
       res.statusCode = status;
       res.end();
     });
@@ -89,12 +144,13 @@ describe("probe", () => {
   });
   after(() => new Promise((resolve) => server.close(resolve)));
 
-  it("is healthy when / answers 2xx", async () => {
+  it("is healthy when /healthz answers 2xx", async () => {
     status = 200;
     assert.equal(await probe({ HOST: "127.0.0.1", CLIENT_PORT: port }), true);
+    assert.equal(path, "/healthz");
   });
 
-  it("is unhealthy when / answers non-2xx", async () => {
+  it("is unhealthy when /healthz answers non-2xx", async () => {
     status = 503;
     assert.equal(await probe({ HOST: "127.0.0.1", CLIENT_PORT: port }), false);
   });
@@ -112,6 +168,61 @@ describe("probe", () => {
 
   it("is unhealthy, not a crash, on an unparseable HOST", async () => {
     assert.equal(await probe({ HOST: "not a host", CLIENT_PORT: port }), false);
+  });
+});
+
+describe("probe over https", () => {
+  let dir;
+  let server;
+  let port;
+
+  before(async () => {
+    // Generated rather than committed, as in clients/web's selfSignedTls
+    // fixture: a checked-in key trips secret scanners and a checked-in
+    // certificate expires on a date nobody chose.
+    dir = mkdtempSync(join(tmpdir(), "healthcheck-tls-"));
+    const keyPath = join(dir, "key.pem");
+    const certPath = join(dir, "cert.pem");
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-days",
+        "1",
+        "-subj",
+        "/CN=localhost",
+      ],
+      { stdio: "ignore" },
+    );
+    server = createHttpsServer(
+      { key: readFileSync(keyPath), cert: readFileSync(certPath) },
+      (req, res) => {
+        res.statusCode = req.url === "/healthz" ? 200 : 404;
+        res.end();
+      },
+    );
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    port = String(server.address().port);
+  });
+  after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is healthy against a self-signed TLS listener", async () => {
+    assert.equal(await probe({ ...TLS, CLIENT_PORT: port }), true);
+  });
+
+  it("is unhealthy when the TLS variables are unset (http to an https port)", async () => {
+    assert.equal(await probe({ CLIENT_PORT: port }), false);
   });
 });
 
