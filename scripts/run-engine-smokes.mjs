@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Run the three headless web smokes in one browser engine (#2086).
+ * Run the headless web smokes in one browser engine (#2086).
  *
  * `SMOKE_BROWSER=firefox npm run smoke:web:engine` needs the variable to reach
- * three child processes, and a POSIX `VAR=x npm run …` prefix does not work
+ * every child process, and a POSIX `VAR=x npm run …` prefix does not work
  * under Windows' `cmd.exe`, which npm uses there. Setting it in the child env
  * from Node does, on every platform — the same reason `install-smoke-browser`
  * exists rather than an inline shell expansion.
@@ -43,6 +43,7 @@ import {
  */
 export const ENGINE_SMOKES = [
   "smoke-web-browser.mjs",
+  "smoke-web-sandbox-navigation.mjs",
   "smoke-web-app.mjs",
   "smoke-web-elicitation.mjs",
 ];

@@ -33,7 +33,31 @@
          src/utils/sandbox-csp.ts). The proxy assigns that pre-wrapped document
          to `srcdoc` verbatim — it never parses or injects into the untrusted
          bytes — so the CSP `<meta>` is guaranteed to be the first `<head>`
-         child of the inner document. -->
+         child of the inner document.
+
+         Self-navigation: a sandboxed frame may always navigate ITSELF —
+         `allow-top-navigation` governs other frames, not its own — and the
+         sandbox flags follow it, so a page the app navigates to is still
+         opaque ("null") and still `inner.contentWindow`. Nothing in the app's
+         own CSP can stop that (CSP has no shipped navigation directive), so
+         two controls here do instead:
+           1. A `frame-src` / `child-src` policy on THIS document, installed
+              per render before the inner frame is loaded (see
+              `installFramePolicy`). A parent's `frame-src` governs every
+              navigation of its child frame, including one the child starts,
+              so the inner frame can load only the srcdoc (not a fetch, so not
+              subject to it), the dedicated app origin, or the app's approved
+              `frameDomains`. It is a <meta> rather than a header because the
+              sources are only known once the resource-ready message arrives.
+           2. Navigation detection (see `closeNavigatedFrame` and its
+              callers): a navigation 1. refuses raises a policy violation on
+              this document, and on the srcdoc path the frame leaving its
+              document anyway (a navigation 1. allowed, such as to a declared
+              frame domain) is reported by the host wrapper's departure
+              script, and also shows as a second `load`. Any of them closes
+              the relay, removes the frame and tells the host. This half is
+              defense in depth, not the boundary: a navigated page's scripts
+              can run before either signal arrives. -->
     <title>MCP-UI Proxy</title>
     <style>
       html,
@@ -74,6 +98,38 @@
         if (permissions["clipboardWrite"]) allowList.push("clipboard-write");
 
         return allowList.join("; ");
+      }
+
+      // The approved `frameDomains` from the resource-ready message's `csp`
+      // (the host has already filtered them; see approveCspSources in
+      // src/utils/sandbox-csp.ts). Re-screened here because they become CSP
+      // source expressions on THIS document: anything carrying whitespace, a
+      // directive or list separator, or a quote (a keyword such as 'self',
+      // which would name this proxy's own origin) is dropped.
+      function approvedFrameSources(csp) {
+        const list = csp && Array.isArray(csp.frameDomains) ? csp.frameDomains : [];
+        return list.filter(
+          (s) => typeof s === "string" && s !== "" && !/[\s;,'"]/.test(s),
+        );
+      }
+
+      // Restrict what the inner frame may be navigated to, by installing a
+      // `frame-src` / `child-src` policy on this document (see the head
+      // comment for why a parent's policy is the control that works). Must run
+      // BEFORE the inner frame starts its navigation. Policies only ever
+      // intersect, so a second call can narrow but never widen what an
+      // earlier one allowed — a re-render in the same proxy document fails
+      // closed. `child-src` is set alongside so the restriction holds even in
+      // a browser that falls back to it for frames; the srcdoc document
+      // inherits this policy too, which is harmless because its own policy
+      // already limits frames to the same `frameDomains` and workers to
+      // 'none'.
+      function installFramePolicy(sources) {
+        const list = sources.length > 0 ? sources.join(" ") : "'none'";
+        const meta = document.createElement("meta");
+        meta.httpEquiv = "Content-Security-Policy";
+        meta.content = `frame-src ${list}; child-src ${list}`;
+        document.head.appendChild(meta);
       }
 
       // The exact embedder origins this proxy accepts, injected by the sandbox
@@ -166,6 +222,95 @@
       // based on the permissions requested by the app
       document.body.appendChild(inner);
 
+      // Set once the inner frame is seen leaving the document the host loaded.
+      // From then on the relay is closed in both directions and every message
+      // is dropped: whatever the frame holds is no longer the app, even though
+      // it still satisfies `event.source === inner.contentWindow` and still
+      // serialises its origin as "null".
+      let navigatedAway = false;
+
+      // Fail closed on a frame that tried to leave its document: stop
+      // relaying, remove the frame (which destroys whatever document it
+      // holds), and tell the host through the app's own logging channel,
+      // which it already surfaces. Idempotent, because one attempt can be
+      // seen twice (a blocked navigation is both a policy violation and, in
+      // Chromium, a second `load` onto an error page).
+      function closeNavigatedFrame(what) {
+        if (navigatedAway) return;
+        navigatedAway = true;
+        inner.remove();
+        console.error(
+          `[Sandbox] the app ${what}; the frame was removed and the relay closed.`,
+        );
+        window.parent.postMessage(
+          {
+            jsonrpc: "2.0",
+            method: "notifications/message",
+            params: {
+              level: "error",
+              logger: "mcp-inspector-sandbox",
+              data: `The MCP App ${what}. The Inspector removed the frame and stopped relaying messages; reload the app to try again.`,
+            },
+          },
+          EXPECTED_HOST_ORIGIN,
+        );
+      }
+
+      // A navigation the frame policy (installFramePolicy) refuses is
+      // reported HERE, on the policy's own document. Engines differ in what
+      // follows: Chromium commits an error page (a second `load`), while
+      // Firefox leaves the original document in place and fires nothing
+      // further. The violation is the one signal both give, so it is what
+      // makes the attempt visible to the host everywhere. The app's own
+      // nested-frame violations are reported to the app's document, not
+      // this one, so they do not reach this listener.
+      document.addEventListener("securitypolicyviolation", (e) => {
+        if (
+          e.effectiveDirective === "frame-src" ||
+          e.effectiveDirective === "child-src"
+        ) {
+          closeNavigatedFrame(
+            "tried to navigate its frame to an origin it did not declare",
+          );
+        }
+      });
+
+      // Watch a srcdoc load for the frame navigating itself elsewhere. The
+      // srcdoc document fires at most one `load`, so any later one is a
+      // different document — another page (one the frame policy allowed,
+      // such as a declared frame domain), a blocked navigation's error page,
+      // or a reload. All of them close the frame. A navigation started while
+      // the srcdoc is still loading aborts it before its `load`, so the next
+      // document's `load` is the FIRST one; that case is caught by the
+      // departure message instead (see DEPARTURE_MESSAGE_KEY).
+      //
+      // The frame is detached while it is configured and re-attached after
+      // the listener is on, so the only `load` it can fire first is the
+      // srcdoc's: inserting a frame that already carries `srcdoc` skips the
+      // initial about:blank `load` that a bare frame would fire, which is what
+      // makes "the second load" unambiguous across engines.
+      function loadSrcdocWatchingForNavigation(html) {
+        inner.remove();
+        inner.srcdoc = html;
+        let loads = 0;
+        inner.addEventListener("load", function onLoad() {
+          loads += 1;
+          if (loads === 1) return;
+          inner.removeEventListener("load", onLoad);
+          closeNavigatedFrame(
+            "navigated its frame away from the document the host loaded",
+          );
+        });
+        document.body.appendChild(inner);
+      }
+
+      // The host wrapper (wrapSandboxedHtml in src/utils/sandbox-csp.ts)
+      // runs a script ahead of the app's code that posts
+      // `{ mcpInspectorSandbox: "departing" }` when the srcdoc document starts
+      // to leave (`beforeunload` / `pagehide`), whether or not it ever
+      // finished loading. It is consumed here and never relayed.
+      const DEPARTURE_MESSAGE_KEY = "mcpInspectorSandbox";
+
       const RESOURCE_READY_NOTIFICATION =
         "ui/notifications/sandbox-resource-ready";
       const PROXY_READY_NOTIFICATION = "ui/notifications/sandbox-proxy-ready";
@@ -190,6 +335,9 @@
       // never parses or injects into the untrusted bytes.
 
       window.addEventListener("message", async (event) => {
+        // Closed for good once the frame navigated away (see
+        // loadSrcdocWatchingForNavigation): nothing is relayed either way.
+        if (navigatedAway) return;
         if (event.source === window.parent) {
           // Validate that messages from parent come from the expected host origin.
           // This prevents malicious pages from sending messages to this sandbox.
@@ -204,7 +352,7 @@
           }
 
           if (event.data && event.data.method === RESOURCE_READY_NOTIFICATION) {
-            const { html, sandbox, permissions, src } = event.data.params;
+            const { html, sandbox, permissions, src, csp } = event.data.params;
             // The host asked for the dedicated-origin path: it published the
             // wrapped document to its own app-origin listener and is handing
             // us the URL. Only an absolute http(s) URL is honored — anything
@@ -299,6 +447,10 @@
               // an app silently rendering the wrong bytes.
               inner.removeAttribute("srcdoc");
               innerOrigin = srcUrl.origin;
+              // The frame may hold only the app-origin document. That
+              // document's own nested frames are governed by its own header
+              // (it is not srcdoc, so it does not inherit this policy).
+              installFramePolicy([srcUrl.origin]);
               inner.src = srcUrl.href;
             } else if (typeof html === "string") {
               // The host has already wrapped the app's HTML in a fixed shell
@@ -323,16 +475,25 @@
                 .filter((t) => t && t.toLowerCase() !== "allow-same-origin");
               inner.setAttribute("sandbox", fallbackTokens.join(" "));
               innerOrigin = "null";
-              inner.srcdoc = html;
+              // The srcdoc load itself is not a fetch, so `frame-src` does not
+              // apply to it; what it does stop is the frame being navigated to
+              // anything but the app's approved `frameDomains` afterwards.
+              installFramePolicy(approvedFrameSources(csp));
+              loadSrcdocWatchingForNavigation(html);
             }
           } else {
             if (inner && inner.contentWindow) {
               // Target the inner frame's real origin on the dedicated-origin
               // path, so a frame that navigated itself elsewhere stops
               // receiving host messages. The opaque default has no targetable
-              // origin ("null" is not a valid targetOrigin), so it keeps "*" —
-              // safe there because the frame is `srcdoc` and cannot navigate
-              // to another origin's document without allow-top-navigation.
+              // origin ("null" is not a valid targetOrigin), so it has to use
+              // "*" — which on its own would deliver to WHATEVER document the
+              // frame holds: a sandboxed frame can navigate itself to another
+              // origin without allow-top-navigation, and the new page keeps the
+              // opaque origin and the same contentWindow. What keeps "*" from
+              // reaching such a page is the frame policy (installFramePolicy),
+              // which blocks the navigation, and the navigation watch, which
+              // closes this relay if the frame leaves its document anyway.
               inner.contentWindow.postMessage(
                 event.data,
                 innerOrigin === "null" ? "*" : innerOrigin,
@@ -352,6 +513,16 @@
               "expected:",
               innerOrigin,
             );
+            return;
+          }
+          if (event.data && event.data[DEPARTURE_MESSAGE_KEY] === "departing") {
+            // Only the opaque srcdoc path watches for departure: a
+            // dedicated-origin app is targeted by its real origin instead.
+            if (innerOrigin === "null") {
+              closeNavigatedFrame(
+                "navigated its frame away from the document the host loaded",
+              );
+            }
             return;
           }
           // Relay messages from inner frame to parent window.
