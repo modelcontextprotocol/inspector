@@ -221,8 +221,30 @@ export function escapeHtmlAttr(s: string): string {
 }
 
 /**
+ * The message the wrapper's departure script posts to the sandbox proxy when
+ * the wrapped document is being unloaded. The proxy (static/sandbox_proxy.html,
+ * which spells the same literal) treats it as the frame leaving the document
+ * the host loaded. Not JSON-RPC, and never relayed to the host.
+ */
+export const SANDBOX_DEPARTURE_MESSAGE = { mcpInspectorSandbox: "departing" };
+
+/**
+ * Posts {@link SANDBOX_DEPARTURE_MESSAGE} to the proxy when the document starts
+ * to leave: on `beforeunload`, which a navigation fires even when it aborts the
+ * document before its own `load` (where `pagehide` does not fire, and where
+ * the proxy's load watch alone cannot tell the next document's `load` from the
+ * srcdoc's), and on `pagehide` as well. It runs before any app script, so it
+ * captures `parent` (replaceable by the app) and its listeners are registered
+ * first, in the capture phase, where no later listener can stop them. The app
+ * can still post the message itself, which only closes its own frame.
+ */
+const DEPARTURE_SCRIPT = `<script>(function(){var p=parent;function f(){p.postMessage(${JSON.stringify(SANDBOX_DEPARTURE_MESSAGE)},"*")}addEventListener("beforeunload",f,true);addEventListener("pagehide",f,true)})()</script>`;
+
+/**
  * Wrap an app's untrusted HTML in a host-authored document whose first
- * `<head>` child is the CSP `<meta>`. The wrapper bytes are fixed — the
+ * `<head>` child is the CSP `<meta>`, followed by the host's departure script
+ * ({@link DEPARTURE_SCRIPT}; the policy always allows inline scripts, see
+ * {@link buildSandboxCspPolicy}). The wrapper bytes are fixed — the
  * untrusted content lands inside `<body>` and never precedes the policy, so a
  * `<head>`/`<!-- -->` token in the app's HTML cannot push the meta inert or
  * load resources before the policy applies. If the app's HTML is itself a full
@@ -235,5 +257,5 @@ export function wrapSandboxedHtml(
   policy: string,
 ): string {
   const meta = `<meta http-equiv="Content-Security-Policy" content="${escapeHtmlAttr(policy)}">`;
-  return `<!DOCTYPE html><html><head>${meta}<meta charset="utf-8"></head><body>${untrustedHtml}</body></html>`;
+  return `<!DOCTYPE html><html><head>${meta}<meta charset="utf-8">${DEPARTURE_SCRIPT}</head><body>${untrustedHtml}</body></html>`;
 }

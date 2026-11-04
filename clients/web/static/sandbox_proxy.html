@@ -49,14 +49,15 @@
               subject to it), the dedicated app origin, or the app's approved
               `frameDomains`. It is a <meta> rather than a header because the
               sources are only known once the resource-ready message arrives.
-           2. Navigation detection (see `closeNavigatedFrame` and its two
+           2. Navigation detection (see `closeNavigatedFrame` and its
               callers): a navigation 1. refuses raises a policy violation on
-              this document, and on the srcdoc path a second `load` means the
-              frame left its document anyway (a navigation 1. allowed, such as
-              to a declared frame domain). Either closes the relay, removes the
-              frame and tells the host. The `load` half is defense in depth,
-              not the boundary: a navigated page's scripts can run before its
-              `load` fires. -->
+              this document, and on the srcdoc path the frame leaving its
+              document anyway (a navigation 1. allowed, such as to a declared
+              frame domain) is reported by the host wrapper's departure
+              script, and also shows as a second `load`. Any of them closes
+              the relay, removes the frame and tells the host. This half is
+              defense in depth, not the boundary: a navigated page's scripts
+              can run before either signal arrives. -->
     <title>MCP-UI Proxy</title>
     <style>
       html,
@@ -275,10 +276,13 @@
       });
 
       // Watch a srcdoc load for the frame navigating itself elsewhere. The
-      // srcdoc document fires exactly one `load`, so any later one is a
+      // srcdoc document fires at most one `load`, so any later one is a
       // different document — another page (one the frame policy allowed,
       // such as a declared frame domain), a blocked navigation's error page,
-      // or a reload. All of them close the frame.
+      // or a reload. All of them close the frame. A navigation started while
+      // the srcdoc is still loading aborts it before its `load`, so the next
+      // document's `load` is the FIRST one; that case is caught by the
+      // departure message instead (see DEPARTURE_MESSAGE_KEY).
       //
       // The frame is detached while it is configured and re-attached after
       // the listener is on, so the only `load` it can fire first is the
@@ -299,6 +303,13 @@
         });
         document.body.appendChild(inner);
       }
+
+      // The host wrapper (wrapSandboxedHtml in src/utils/sandbox-csp.ts)
+      // runs a script ahead of the app's code that posts
+      // `{ mcpInspectorSandbox: "departing" }` when the srcdoc document starts
+      // to leave (`beforeunload` / `pagehide`), whether or not it ever
+      // finished loading. It is consumed here and never relayed.
+      const DEPARTURE_MESSAGE_KEY = "mcpInspectorSandbox";
 
       const RESOURCE_READY_NOTIFICATION =
         "ui/notifications/sandbox-resource-ready";
@@ -482,7 +493,7 @@
               // opaque origin and the same contentWindow. What keeps "*" from
               // reaching such a page is the frame policy (installFramePolicy),
               // which blocks the navigation, and the navigation watch, which
-              // closes this relay if a second document loads anyway.
+              // closes this relay if the frame leaves its document anyway.
               inner.contentWindow.postMessage(
                 event.data,
                 innerOrigin === "null" ? "*" : innerOrigin,
@@ -502,6 +513,16 @@
               "expected:",
               innerOrigin,
             );
+            return;
+          }
+          if (event.data && event.data[DEPARTURE_MESSAGE_KEY] === "departing") {
+            // Only the opaque srcdoc path watches for departure: a
+            // dedicated-origin app is targeted by its real origin instead.
+            if (innerOrigin === "null") {
+              closeNavigatedFrame(
+                "navigated its frame away from the document the host loaded",
+              );
+            }
             return;
           }
           // Relay messages from inner frame to parent window.

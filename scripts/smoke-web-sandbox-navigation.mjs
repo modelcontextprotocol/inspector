@@ -35,14 +35,16 @@
  * way the host wraps one: a fixed shell whose first `<head>` child is the
  * app's CSP `<meta>`.
  *
- * Three cases, each on a fresh page (a fresh proxy document):
+ * Four cases, each on a fresh page (a fresh proxy document):
  *   - a well-behaved app keeps a working bridge (host messages reach it, its
  *     replies reach the host) — the controls must not break the normal path;
  *   - an app navigating itself to an undeclared origin is blocked: the
  *     "attacker" listener sees no request, no message from it reaches the
  *     host, and the host is told the frame was removed;
- *   - an app navigating to a DECLARED frame domain (which control 1 allows by
- *     design) is still caught by control 2.
+ *   - an app navigating to a DECLARED frame domain (which control 1 admits by
+ *     design — a nested frame to it must load) is still caught by control 2;
+ *   - the same, started while the srcdoc's own load is still pending, so the
+ *     destination fires the frame's first `load`.
  *
  * Usage: `npm run smoke:web:sandbox` (expects `clients/web/dist` and
  * `clients/launcher/build` to be built, like the other web smokes).
@@ -118,7 +120,10 @@ async function shutdown() {
     }
     browser = null;
   }
-  for (const s of listeners) s.close();
+  for (const s of listeners) {
+    s.closeAllConnections();
+    s.close();
+  }
   await server.stop();
 }
 
@@ -129,8 +134,17 @@ async function fail(message) {
 }
 
 /**
+ * The host wrapper's departure script, verbatim (DEPARTURE_SCRIPT in
+ * clients/web/src/utils/sandbox-csp.ts): it tells the proxy when the srcdoc
+ * document unloads, which is how a navigation away before the srcdoc's own
+ * `load` is detected.
+ */
+const DEPARTURE_SCRIPT = `<script>(function(){var p=parent;function f(){p.postMessage({"mcpInspectorSandbox":"departing"},"*")}addEventListener("beforeunload",f,true);addEventListener("pagehide",f,true)})()</script>`;
+
+/**
  * Wrap app markup the way the host does (src/utils/sandbox-csp.ts): a fixed
- * shell whose first `<head>` child is the app's CSP, with `frame-src` limited
+ * shell whose first `<head>` child is the app's CSP (then the departure
+ * script), with `frame-src` limited
  * to the declared frame domains and no network egress at all.
  */
 function wrapApp(appScript, frameDomains) {
@@ -142,7 +156,7 @@ function wrapApp(appScript, frameDomains) {
     `frame-src ${frameSrc}`,
     "form-action 'none'",
   ].join("; ");
-  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><meta charset="utf-8"></head><body><script>${appScript}</script></body></html>`;
+  return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><meta charset="utf-8">${DEPARTURE_SCRIPT}</head><body><script>${appScript}</script></body></html>`;
 }
 
 // Every app echoes what it receives, so "the host's messages reach the app"
@@ -151,6 +165,16 @@ const ECHO = `addEventListener("message", (e) => parent.postMessage({ kind: "app
 const HELLO = `parent.postMessage({ kind: "app-hello" }, "*");`;
 const navigateTo = (url) =>
   `setTimeout(() => { location.href = ${JSON.stringify(url)}; }, 50);`;
+/**
+ * Add a nested frame, which holds the srcdoc's `load` until it finishes, and
+ * optionally run `then` once it has loaded.
+ */
+const nestFrame = (url, then = "") =>
+  `{ const f = document.createElement("iframe"); f.src = ${JSON.stringify(url)}; f.onload = () => { ${then} }; document.body.appendChild(f); }`;
+const navigateNow = (url) => `location.href = ${JSON.stringify(url)};`;
+/** Navigate once the srcdoc itself has loaded (after every nested frame). */
+const navigateAfterLoad = (url) =>
+  `addEventListener("load", () => setTimeout(() => { ${navigateNow(url)} }));`;
 
 /**
  * The page the frame is navigated to. It does what a takeover would: claim
@@ -205,6 +229,41 @@ const received = (page) => page.evaluate(() => [...window.__received]);
 /** The resource-ready params the host page will send for the current case. */
 let current = null;
 
+/**
+ * Run an app that frames the declared domain and, once that nested frame has
+ * loaded (`appScript` decides exactly when), navigates its own frame to
+ * `/declared` on the same domain. Require
+ * that the nested frame was fetched — proof that the frame policy admits the
+ * declared domain, since the srcdoc inherits it and a policy refusing every
+ * navigation (`frame-src 'none'`) would block the nested frame too — and that
+ * the proxy then closed the frame and told the host. `/declared` itself is
+ * not required to arrive: the departure message usually removes the frame
+ * before that request is sent.
+ */
+async function expectDeclaredNavigationClosed(what, appScript) {
+  attackerHits.length = 0;
+  const page = await openCase({
+    html: wrapApp(appScript, [attackerOrigin]),
+    csp: { frameDomains: [attackerOrigin] },
+  });
+  await waitForReceived(page, "notifications/message");
+  // The navigation starts only after the nested frame's `load`, so by the time
+  // the notification arrives the nested request has been served.
+  if (!attackerHits.includes("/nested")) {
+    await fail(
+      `the declared frame domain was not admitted (listener saw: ${attackerHits.join(", ") || "nothing"})`,
+    );
+  }
+  const frames = await page.frameLocator("#f").locator("iframe").count();
+  if (frames !== 0) {
+    await fail(`the frame navigated to ${what} was not removed from the proxy`);
+  }
+  await page.close();
+  console.log(
+    `${LABEL}: navigation to ${what} is detected and the frame removed`,
+  );
+}
+
 try {
   await server.waitForReady();
   const configRes = await fetch(`${server.baseUrl}/api/config`, {
@@ -222,6 +281,9 @@ try {
   });
   await listen(ATTACKER_PORT, (req, res) => {
     attackerHits.push(req.url);
+    // Never answered, so a frame nesting it never finishes loading; the
+    // connection is dropped at shutdown.
+    if (req.url === "/slow") return;
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(ATTACKER_PAGE);
   });
@@ -288,25 +350,19 @@ try {
   }
 
   // 3. A declared frame domain passes the policy; the watch still closes it.
-  {
-    attackerHits.length = 0;
-    const page = await openCase({
-      html: wrapApp(
-        `${ECHO}${HELLO}${navigateTo(`${attackerOrigin}/declared`)}`,
-        [attackerOrigin],
-      ),
-      csp: { frameDomains: [attackerOrigin] },
-    });
-    await waitForReceived(page, "notifications/message");
-    const frames = await page.frameLocator("#f").locator("iframe").count();
-    if (frames !== 0) {
-      await fail("the navigated frame was not removed from the proxy");
-    }
-    await page.close();
-    console.log(
-      `${LABEL}: navigation to a declared frame domain is detected and the frame removed`,
-    );
-  }
+  await expectDeclaredNavigationClosed(
+    "a declared frame domain",
+    `${ECHO}${HELLO}${nestFrame(`${attackerOrigin}/nested`)}${navigateAfterLoad(`${attackerOrigin}/declared`)}`,
+  );
+
+  // 4. The same navigation started while the srcdoc's own load is still
+  //    pending — held open by a nested frame that never finishes — so the
+  //    srcdoc never fires `load` and the destination's would be the frame's
+  //    first. The departure message is what catches it.
+  await expectDeclaredNavigationClosed(
+    "a declared frame domain while the original load is pending",
+    `${ECHO}${HELLO}${nestFrame(`${attackerOrigin}/slow`)}${nestFrame(`${attackerOrigin}/nested`, navigateNow(`${attackerOrigin}/declared`))}`,
+  );
 
   console.log(`${LABEL} OK`);
   await shutdown();
