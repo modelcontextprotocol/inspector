@@ -1220,6 +1220,35 @@ describe("InspectorClient raw-wire channel (#1631)", () => {
     );
   });
 
+  it("validates a server-supplied catastrophic pattern without backtracking", async () => {
+    // `^(a+)+$` against a long near-match takes exponential time on the
+    // native RegExp engine; callTool must still settle with the mismatch.
+    const client = makeClient();
+    const nearMatch: CallToolResult = {
+      content: [],
+      structuredContent: { data: `${"a".repeat(10_000)}!` },
+    };
+    attachTaskBoundary(
+      client,
+      vi.fn(async () => ({
+        settle: vi.fn(async () => ({
+          outcome: { status: "completed", result: nearMatch },
+        })),
+      })),
+    );
+    const redosTool: Tool = {
+      ...taskTool,
+      outputSchema: {
+        type: "object",
+        properties: { data: { type: "string", pattern: "^(a+)+$" } },
+      },
+    };
+
+    await expect(client.callTool(redosTool, {})).rejects.toThrow(
+      'must match pattern "^(a+)+$"',
+    );
+  });
+
   it("projects every ext-tasks event boundary", () => {
     const client = makeClient();
     const boundary = taskInternals(client);
