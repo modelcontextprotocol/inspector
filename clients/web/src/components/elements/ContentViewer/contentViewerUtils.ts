@@ -259,22 +259,42 @@ export const PREVIEW_HTML_CSP =
 const CSP_META_TAG = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_HTML_CSP}">`;
 
 /**
+ * A leading simple doctype, the one token allowed ahead of the CSP meta. It
+ * must stay first: a doctype that follows any element is ignored by the HTML
+ * parser, which would drop a full document into quirks mode. Only the plain
+ * `<!DOCTYPE html>` form is matched, with nothing but HTML whitespace inside
+ * it and only HTML whitespace (and a BOM) before it. Anything cleverer — a
+ * PUBLIC or SYSTEM identifier, a leading comment — would mean re-implementing
+ * the tokenizer's rules for those (quoted identifiers, `--!>`, `<!-->`), and a
+ * disagreement there is exactly how the meta could be swallowed into a
+ * declaration or land behind markup. Leading text the parser does not treat as
+ * whitespace (U+00A0, say) opens the body, so a meta after the doctype would
+ * land there, unapplied. Any other document gets the meta at the very
+ * start, before every declaration, and renders in quirks mode, which is
+ * harmless in a sandboxed preview.
+ */
+const LEADING_DOCTYPE =
+  /^\uFEFF?[\t\n\f\r ]*<!doctype[\t\n\f\r ]+html[\t\n\f\r ]*>/i;
+
+/**
  * Inject the preview CSP `<meta>` into an HTML document before it's served to a
- * sandboxed iframe. Handles three shapes: a full document with a `<head>` (inject
- * at the top of head), a document with `<html>` but no `<head>` (add a head), and
- * a bare fragment (wrap in a minimal document).
+ * sandboxed iframe. The meta is written as the document's first token (after a
+ * leading simple `<!DOCTYPE html>`, if any), never located by searching the input for `<head>`:
+ * a search can be fooled by a `<head>` inside a comment, a `<script>`, or an
+ * attribute value, landing the policy where the parser never applies it.
+ *
+ * As the first token, the parser has no choice about where it goes. It opens
+ * the implied `<html>` and `<head>` and inserts the meta there, ahead of any
+ * markup in the document, so the policy is in effect before anything loads.
+ * The document's own tags still parse normally after it: `<html>` attributes
+ * merge onto the root element, a duplicate `<head>` is ignored and its children
+ * stay in the head, and a bare fragment lands in an implied `<body>`. That is
+ * why the input is not wrapped in a fixed `<body>` the way `wrapSandboxedHtml`
+ * wraps app HTML — a full document previewed here must keep its own head.
  */
 export function wrapHtmlWithCsp(html: string): string {
-  if (/<head[\s>]/i.test(html)) {
-    return html.replace(/<head([^>]*)>/i, `<head$1>${CSP_META_TAG}`);
-  }
-  if (/<html[\s>]/i.test(html)) {
-    return html.replace(
-      /<html([^>]*)>/i,
-      `<html$1><head>${CSP_META_TAG}</head>`,
-    );
-  }
-  return `<html><head>${CSP_META_TAG}</head><body>${html}</body></html>`;
+  const doctype = LEADING_DOCTYPE.exec(html)?.[0] ?? "";
+  return `${doctype}${CSP_META_TAG}${html.slice(doctype.length)}`;
 }
 
 /**

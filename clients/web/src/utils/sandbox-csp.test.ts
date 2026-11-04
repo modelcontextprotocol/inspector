@@ -6,6 +6,8 @@ import {
   buildSandboxCspPolicy,
   escapeHtmlAttr,
   wrapSandboxedHtml,
+  SANDBOX_DEPARTURE_MESSAGE,
+  scriptLiteral,
 } from "./sandbox-csp";
 
 describe("SAFE_CSP_SOURCE", () => {
@@ -219,10 +221,57 @@ describe("wrapSandboxedHtml", () => {
     expect(wrapped.startsWith("<!DOCTYPE html><html><head><meta")).toBe(true);
   });
 
+  it("reports the document's departure to the proxy from a host script that runs before any untrusted bytes", () => {
+    const wrapped = wrapSandboxedHtml("<p>hi</p>", "default-src 'none'");
+    const script = wrapped.indexOf("<script>");
+    expect(script).toBeGreaterThan(wrapped.indexOf("Content-Security-Policy"));
+    expect(script).toBeLessThan(wrapped.indexOf("<body>"));
+    expect(wrapped).toContain('addEventListener("beforeunload"');
+    expect(wrapped).toContain('addEventListener("pagehide"');
+    expect(wrapped).toContain(JSON.stringify(SANDBOX_DEPARTURE_MESSAGE));
+  });
+
+  it("posts the departure message to the parent on beforeunload and pagehide, from capture listeners", () => {
+    // Run the script against stand-ins for the frame's globals; the real
+    // engine behaviour (a navigation firing them, even mid-load) is pinned by
+    // smoke:web:sandbox.
+    const wrapped = wrapSandboxedHtml("", "default-src 'none'");
+    // The wrapper writes these exact bytes, so slice them rather than parse
+    // HTML.
+    const open = wrapped.indexOf("<script>") + "<script>".length;
+    const source = wrapped.slice(open, wrapped.indexOf("</script>", open));
+    const parent = { postMessage: vi.fn() };
+    const listeners: Array<() => void> = [];
+    const addEventListener = vi.fn<
+      (type: string, fn: () => void, capture: boolean) => void
+    >((_type, fn) => {
+      listeners.push(fn);
+    });
+    new Function("parent", "addEventListener", source)(
+      parent,
+      addEventListener,
+    );
+    expect(
+      addEventListener.mock.calls.map(([type, , capture]) => [type, capture]),
+    ).toEqual([
+      ["beforeunload", true],
+      ["pagehide", true],
+    ]);
+    expect(parent.postMessage).not.toHaveBeenCalled();
+    listeners.forEach((fn) => fn());
+    expect(parent.postMessage).toHaveBeenCalledTimes(2);
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      SANDBOX_DEPARTURE_MESSAGE,
+      "*",
+    );
+  });
+
   it("attribute-encodes the policy value", () => {
     const wrapped = wrapSandboxedHtml("", `x"><script>`);
     expect(wrapped).toContain('content="x&quot;&gt;&lt;script&gt;"');
-    expect(wrapped).not.toContain('"><script>');
+    expect(wrapped).not.toContain('content="x">');
+    // The only <script> is the host's departure script.
+    expect(wrapped.split("<script>")).toHaveLength(2);
   });
 
   it("places untrusted full-document HTML inside <body> so its own <head> token cannot precede the policy", () => {
@@ -246,5 +295,14 @@ describe("wrapSandboxedHtml", () => {
     // brought itself.
     const wrapped = wrapSandboxedHtml("<p>no frames here</p>", "default-src *");
     expect(wrapped).not.toMatch(/<iframe/i);
+  });
+});
+
+describe("scriptLiteral", () => {
+  it("escapes what could end an inline script or statement, and still parses back", () => {
+    const value = { s: "</script><b>\u2028\u2029" };
+    const literal = scriptLiteral(value);
+    expect(literal).not.toMatch(/[<>\u2028\u2029]/);
+    expect(JSON.parse(literal)).toEqual(value);
   });
 });

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import {
+  describeLaunch,
   useServerJsonImport,
   VALIDATE_DEBOUNCE_MS,
   COLLAPSE_DELAY_MS,
@@ -51,6 +52,43 @@ function typeAndFlush(
   });
 }
 
+describe("describeLaunch", () => {
+  it("renders a stdio config as a quoted command line plus env names", () => {
+    expect(
+      describeLaunch({
+        type: "stdio",
+        command: "npx",
+        args: ["-c", "touch /tmp/x", "-y", "pkg"],
+        env: { API_KEY: "secret", REGION: "us" },
+      }),
+    ).toEqual({
+      kind: "command",
+      value: "npx -c 'touch /tmp/x' -y pkg",
+      envNames: ["API_KEY", "REGION"],
+    });
+  });
+
+  it("handles a stdio config with no args or env", () => {
+    expect(describeLaunch({ command: "uvx" })).toEqual({
+      kind: "command",
+      value: "uvx",
+      envNames: [],
+    });
+  });
+
+  it("renders a remote config as its URL", () => {
+    expect(
+      describeLaunch({ type: "sse", url: "https://example.com/sse" }),
+    ).toEqual({ kind: "url", value: "https://example.com/sse", envNames: [] });
+    expect(
+      describeLaunch({
+        type: "streamable-http",
+        url: "https://example.com/mcp",
+      }),
+    ).toEqual({ kind: "url", value: "https://example.com/mcp", envNames: [] });
+  });
+});
+
 describe("useServerJsonImport", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -73,6 +111,32 @@ describe("useServerJsonImport", () => {
     ]);
     expect(result.current.packages).toBeUndefined();
     expect(result.current.envVars).toEqual([]);
+  });
+
+  it("previews the exact launch of the selected option, runtime args included", () => {
+    const { result } = setup();
+    expect(result.current.launchPreview).toBeUndefined();
+    typeAndFlush(
+      result,
+      JSON.stringify({
+        name: "io.github.acme/single",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "benign-pkg",
+            runtimeArguments: [
+              { type: "named", name: "-c", value: "touch /tmp/pwned" },
+            ],
+            environmentVariables: [{ name: "TOKEN", default: "t" }],
+          },
+        ],
+      }),
+    );
+    expect(result.current.launchPreview).toEqual({
+      kind: "command",
+      value: "npx -c 'touch /tmp/pwned' -y benign-pkg",
+      envNames: ["TOKEN"],
+    });
   });
 
   it("validates pasted content and enables Add", () => {
@@ -241,6 +305,48 @@ describe("useServerJsonImport", () => {
     });
     expect(ok).toBe(false);
     expect(onAddServer).not.toHaveBeenCalled();
+  });
+
+  it("refuses a valid-to-valid edit submitted before the preview catches up", async () => {
+    const onAddServer = vi.fn(async () => {});
+    const { result } = setup({ onAddServer });
+    typeAndFlush(result, VALID_SERVER_JSON);
+    expect(result.current.canAdd).toBe(true);
+    const replacement = JSON.stringify({
+      name: "io.github.acme/weather",
+      packages: [
+        {
+          registryType: "npm",
+          identifier: "weather-mcp",
+          runtimeArguments: [
+            { type: "named", name: "-c", value: "touch /tmp/x" },
+          ],
+        },
+      ],
+    });
+    // Still inside the debounce window: the preview shows the old launch.
+    act(() => result.current.setRawText(replacement));
+    expect(result.current.canAdd).toBe(false);
+    expect(result.current.launchPreview?.value).toBe("npx -y weather-mcp");
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.submit();
+    });
+    expect(ok).toBe(false);
+    expect(onAddServer).not.toHaveBeenCalled();
+    expect(
+      result.current.validation.some((v) =>
+        v.message.includes("Wait for validation to finish"),
+      ),
+    ).toBe(true);
+    // Once the debounce settles the new launch is shown and Add re-enables.
+    act(() => {
+      vi.advanceTimersByTime(VALIDATE_DEBOUNCE_MS);
+    });
+    expect(result.current.canAdd).toBe(true);
+    expect(result.current.launchPreview?.value).toBe(
+      "npx -c 'touch /tmp/x' -y weather-mcp",
+    );
   });
 
   it("submit surfaces an onAddServer failure", async () => {

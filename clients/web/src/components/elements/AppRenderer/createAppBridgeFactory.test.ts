@@ -228,9 +228,11 @@ describe("createAppBridgeFactory", () => {
       csp?: unknown;
     };
     expect(call.permissions).toEqual({ geolocation: {} });
-    // csp is NOT sent inline — it is enforced via the wrapped <meta> and echoed
-    // through hostCapabilities.sandbox instead.
-    expect(call.csp).toBeUndefined();
+    // The inner document's CSP is enforced via the wrapped <meta>, never built
+    // by the proxy. The approved grant still travels in the spec's `csp` slot,
+    // because the proxy needs its `frameDomains` to restrict what the inner
+    // frame may be navigated to (a policy only the frame's parent can set).
+    expect(call.csp).toEqual({ connectDomains: ["https://api.example.com"] });
     expect(call.html).toContain('http-equiv="Content-Security-Policy"');
     expect(call.html).toContain("connect-src https://api.example.com");
     expect(call.html).toContain("<body><h1>weather</h1></body>");
@@ -244,6 +246,36 @@ describe("createAppBridgeFactory", () => {
       permissions: { geolocation: {} },
       csp: { connectDomains: ["https://api.example.com"] },
     });
+  });
+
+  it("hands the proxy only the APPROVED frameDomains, which bound where the inner frame may navigate", async () => {
+    // The proxy turns `csp.frameDomains` into a frame-src policy on its own
+    // document, so a sandboxed app cannot navigate its frame to an origin of
+    // its choosing. What it receives must be the filtered grant, not the raw
+    // request: a rejected entry must not become a navigation target.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const readResource = vi.fn().mockResolvedValue(
+      uiResource("<p>map</p>", {
+        csp: {
+          frameDomains: ["https://tiles.example.com", "'self'; frame-src *"],
+        },
+      }),
+    );
+    const factory = createAppBridgeFactory({
+      getClient: () => fakeClient,
+      readResource,
+    });
+    await factory(makeIframe(), { kind: "tool", tool });
+    const bridge = bridgeInstances[0];
+
+    bridge.emit("sandboxready");
+    await flush();
+
+    const call = bridge.sendSandboxResourceReady.mock.calls[0][0] as {
+      csp?: unknown;
+    };
+    expect(call.csp).toEqual({ frameDomains: ["https://tiles.example.com"] });
+    warn.mockRestore();
   });
 
   it("falls back to the read result's _meta.ui when the content item carries none", async () => {

@@ -38,6 +38,12 @@ export interface ElicitationUrlPanelProps {
    * again). Copy URL stays enabled — it doesn't resolve the request.
    */
   busy?: boolean;
+  /**
+   * Why the URL may not be opened (e.g. a non-http(s) scheme). When set, Open
+   * in Browser is disabled and the reason is shown, so a refused URL reads as
+   * refused rather than as a button that silently does nothing.
+   */
+  openRefusal?: string;
 }
 
 const ItalicMessage = Text.withProps({
@@ -65,6 +71,12 @@ const WarningAlert = Alert.withProps({
   title: "Warning",
 });
 
+const RefusalAlert = Alert.withProps({
+  color: "red",
+  variant: "light",
+  title: "URL refused",
+});
+
 function formatRequestId(id: string): string {
   return `Request ID: ${id}`;
 }
@@ -80,6 +92,7 @@ export function ElicitationUrlPanel({
   onCancel,
   origin = "server-request",
   busy = false,
+  openRefusal,
 }: ElicitationUrlPanelProps) {
   return (
     <Stack gap="md">
@@ -92,10 +105,15 @@ export function ElicitationUrlPanel({
         <Button variant="light" onClick={onCopyUrl}>
           Copy URL
         </Button>
-        <Button variant="light" onClick={onOpenInBrowser} disabled={busy}>
+        <Button
+          variant="light"
+          onClick={onOpenInBrowser}
+          disabled={busy || openRefusal !== undefined}
+        >
           {isWaiting ? "Reopen in Browser" : "Open in Browser"}
         </Button>
       </Group>
+      {openRefusal !== undefined && <RefusalAlert>{openRefusal}</RefusalAlert>}
       <Divider />
       {isWaiting && (
         <Group>

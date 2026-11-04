@@ -197,32 +197,66 @@ describe("formatXml", () => {
 });
 
 describe("wrapHtmlWithCsp", () => {
-  it("injects the CSP meta at the top of an existing <head>", () => {
-    const out = wrapHtmlWithCsp(
-      "<html><head><title>t</title></head><body>x</body></html>",
-    );
-    expect(out).toContain(`<head><meta http-equiv="Content-Security-Policy"`);
-    expect(out.indexOf("Content-Security-Policy")).toBeLessThan(
-      out.indexOf("<title>"),
-    );
+  // String-shape assertions only: happy-dom's parser does not place a leading
+  // `<meta>` the way the HTML spec does, so where the policy lands once parsed
+  // is asserted in a real browser by the `HtmlCommentedHead` story.
+  const meta = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_HTML_CSP}">`;
+
+  it("writes the CSP meta as the first token of a full document", () => {
+    const html = "<html><head><title>t</title></head><body>x</body></html>";
+    expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
   });
 
-  it("adds a <head> when the document has <html> but no head", () => {
-    const out = wrapHtmlWithCsp("<html><body>x</body></html>");
-    expect(out).toContain("<head><meta http-equiv");
-    expect(out).toContain("<body>x</body>");
-  });
-
-  it("wraps a bare fragment in a minimal document", () => {
-    const out = wrapHtmlWithCsp("<p>hi</p>");
-    expect(out).toBe(
-      `<html><head><meta http-equiv="Content-Security-Policy" content="${PREVIEW_HTML_CSP}"></head><body><p>hi</p></body></html>`,
+  it("keeps a leading doctype (and BOM/whitespace) ahead of the meta", () => {
+    expect(
+      wrapHtmlWithCsp("  <!DOCTYPE html><html><body>x</body></html>"),
+    ).toBe(`  <!DOCTYPE html>${meta}<html><body>x</body></html>`);
+    expect(wrapHtmlWithCsp("\uFEFF<!doctype html><p>x</p>")).toBe(
+      `\uFEFF<!doctype html>${meta}<p>x</p>`,
     );
   });
 
-  it("preserves attributes on <head>/<html>", () => {
-    const out = wrapHtmlWithCsp('<head lang="en"></head>');
-    expect(out).toContain('<head lang="en"><meta http-equiv');
+  it("puts the meta before a doctype carrying a PUBLIC or SYSTEM identifier", () => {
+    // Only the simple form is kept ahead of the meta; where the policy lands
+    // once parsed is asserted by the HtmlDoctypeQuoted* stories.
+    for (const html of [
+      '<!DOCTYPE html SYSTEM "x>"><img src="https://example.com/pixel">',
+      '<!DOCTYPE html PUBLIC "a>" "b>"><img src="https://example.com/pixel">',
+      '<!DOCTYPE html SYSTEM "about:legacy-compat"><p>x</p>',
+    ]) {
+      expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
+    }
+  });
+
+  it("keeps only HTML whitespace inside or before a kept doctype", () => {
+    expect(wrapHtmlWithCsp("<!DOCTYPE\thtml\n><p>x</p>")).toBe(
+      `<!DOCTYPE\thtml\n>${meta}<p>x</p>`,
+    );
+    // U+00A0 is not HTML whitespace: it is text, so it must not precede
+    // (asserted in a browser by the HtmlDoctypeAfterNbsp story).
+    const nbsp = "\u00A0<!DOCTYPE html><p>x</p>";
+    expect(wrapHtmlWithCsp(nbsp)).toBe(`${meta}${nbsp}`);
+  });
+
+  it("is not fooled by a <head> inside a comment before the real head", () => {
+    const html =
+      "<!-- <head> --><html><head><title>t</title></head><body>x</body></html>";
+    // The meta precedes the comment rather than being spliced into it.
+    expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
+  });
+
+  it("is not fooled by a <head> inside a script or attribute", () => {
+    const html = '<script>"<head>"</script><p title="<head>">x</p>';
+    expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
+  });
+
+  it("does not treat a doctype after a comment as leading", () => {
+    const html = "<!-- c --><!DOCTYPE html><p>x</p>";
+    expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
+  });
+
+  it("leaves a bare fragment unwrapped behind the meta", () => {
+    expect(wrapHtmlWithCsp("<p>hi</p>")).toBe(`${meta}<p>hi</p>`);
   });
 
   it("omits script-src so it falls through to default-src none", () => {
