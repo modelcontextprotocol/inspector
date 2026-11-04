@@ -36,6 +36,10 @@ import type {
 } from "@modelcontextprotocol/client";
 import {
   compileLinearRegExp,
+  isCompileBudgetExhausted,
+  MAX_COMPILE_STEPS,
+  MAX_PROGRAM_SIZE,
+  type CompileBudget,
   type LinearRegExpCompilation,
 } from "../json/linearRegExp.js";
 
@@ -49,6 +53,18 @@ import {
  * measured while it runs.
  */
 export const PATTERN_EVALUATION_BUDGET = 20_000_000;
+
+/**
+ * Upper bound on pattern COMPILATION in one schema, shared by every pattern
+ * the schema compiles, as the evaluation budget is shared by every test. The
+ * per-pattern limits restart for each pattern, so without this a schema of a
+ * thousand distinct near-limit patterns would build millions of instructions
+ * before a single value is validated. Ten patterns at the per-pattern limit.
+ */
+export const SCHEMA_COMPILE_BUDGET: Readonly<CompileBudget> = {
+  steps: 10 * MAX_COMPILE_STEPS,
+  size: 10 * MAX_PROGRAM_SIZE,
+};
 
 /** Longest pattern quoted verbatim in a "not evaluated" message. */
 const MAX_QUOTED_PATTERN = 120;
@@ -162,14 +178,17 @@ class LinearPattern implements RegExpLike {
   }
 }
 
-function createRegExpEngine(ledger: PatternLedger): RegExpEngine {
+function createRegExpEngine(
+  ledger: PatternLedger,
+  budget: () => CompileBudget | undefined,
+): RegExpEngine {
   const engine = (pattern: string, flags: string): RegExpLike =>
     new LinearPattern(
       pattern,
       flags,
       // Throws a SyntaxError for an invalid pattern, which Ajv surfaces as a
       // schema compilation failure — the same as the native engine.
-      compileLinearRegExp(pattern, flags.includes("u")),
+      compileLinearRegExp(pattern, flags.includes("u"), budget()),
       ledger,
     );
   // `code` is only read when Ajv generates standalone source, which this
@@ -183,6 +202,10 @@ type AjvEngine = Ajv | Ajv2019 | Ajv2020;
 export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
   private readonly ledger = new PatternLedger();
   private readonly engines = new Map<Dialect, AjvEngine>();
+  /** The budget of the schema compilation in progress, if any. */
+  private compileBudget: CompileBudget | undefined;
+  /** Compiled schemas whose patterns overspent {@link SCHEMA_COMPILE_BUDGET}. */
+  private readonly overBudget = new WeakSet<ValidateFunction>();
 
   private engineFor(dialect: Dialect): AjvEngine {
     let engine = this.engines.get(dialect);
@@ -192,7 +215,9 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
         validateFormats: true,
         validateSchema: false,
         allErrors: true,
-        code: { regExp: createRegExpEngine(this.ledger) },
+        code: {
+          regExp: createRegExpEngine(this.ledger, () => this.compileBudget),
+        },
       };
       engine =
         dialect === "2020-12"
@@ -211,11 +236,19 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
     const id: unknown = (schema as { $id?: unknown }).$id;
     const validate: ValidateFunction =
       (typeof id === "string" ? engine.getSchema(id) : undefined) ??
-      engine.compile(schema);
+      this.compile(engine, schema);
+    const overBudget = this.overBudget.has(validate);
     return (input: unknown) => {
       this.ledger.reset();
       const valid = validate(input);
       const unevaluated = [...this.ledger.unevaluated];
+      if (overBudget) {
+        // Some of the schema's patterns were never compiled, so a value that
+        // reaches none of them is still not one the schema was checked for.
+        unevaluated.unshift(
+          "the schema's patterns exceed the compilation budget",
+        );
+      }
       if (valid && unevaluated.length === 0) {
         // Ajv's `validate` is a type guard only in its generic form; the
         // provider contract hands the caller its own `T`.
@@ -233,5 +266,18 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
         errorMessage: messages.join("; "),
       };
     };
+  }
+
+  /** Compile `schema` with every pattern it compiles charged to one budget. */
+  private compile(engine: AjvEngine, schema: JsonSchemaType): ValidateFunction {
+    const budget = { ...SCHEMA_COMPILE_BUDGET };
+    this.compileBudget = budget;
+    try {
+      const validate = engine.compile(schema);
+      if (isCompileBudgetExhausted(budget)) this.overBudget.add(validate);
+      return validate;
+    } finally {
+      this.compileBudget = undefined;
+    }
   }
 }

@@ -18,6 +18,7 @@ import type {
 import {
   LinearPatternJsonSchemaValidator,
   PATTERN_EVALUATION_BUDGET,
+  SCHEMA_COMPILE_BUDGET,
 } from "@inspector/core/mcp/linearPatternValidator";
 import { validateToolOutput } from "@inspector/core/mcp/toolOutputValidation";
 
@@ -184,6 +185,51 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern evaluation", () =
 
     // The budget is per validation: the next one starts afresh.
     expect(validate(["aaa"]).valid).toBe(true);
+  });
+});
+
+describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () => {
+  // A thousand distinct patterns, each under the per-pattern limits, but far
+  // past the schema-wide budget together.
+  const properties = Object.fromEntries(
+    Array.from({ length: 1_000 }, (_, i) => [
+      `p${i}`,
+      { type: "string", pattern: `^a{9000}b${i}$` },
+    ]),
+  );
+  const schema: JsonSchemaType = { type: "object", properties };
+
+  it("reports a schema whose patterns overspend the budget as unverified, even for an empty value", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const result = provider.getValidator(schema)({});
+    expect(result.valid).toBe(false);
+    expect(result.errorMessage).toBe(
+      "the schema's patterns exceed the compilation budget, so the value could not be verified against the schema",
+    );
+    // A cached schema keeps reporting it rather than reading as compiled.
+    expect(provider.getValidator(schema)({}).valid).toBe(false);
+  });
+
+  it("names a pattern the budget left uncompiled when a value reaches it", () => {
+    const result = check(schema, { p999: `${"a".repeat(9000)}b999` });
+    expect(result.valid).toBe(false);
+    expect(result.errorMessage).toContain(
+      'pattern "^a{9000}b999$" was not evaluated (the patterns together exceed the compilation budget)',
+    );
+  });
+
+  it("gives each schema a budget of its own", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    expect(SCHEMA_COMPILE_BUDGET.size).toBeGreaterThan(9_005);
+    provider.getValidator(schema);
+    const validate = provider.getValidator({
+      type: "string",
+      pattern: "^(a{9000}|z)$",
+    });
+    expect(validate("z").valid).toBe(true);
+    expect(validate("az").errorMessage).toBe(
+      'data must match pattern "^(a{9000}|z)$"',
+    );
   });
 });
 

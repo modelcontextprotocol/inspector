@@ -9,7 +9,9 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  COMPILE_BUDGET_EXHAUSTED,
   compileLinearRegExp,
+  isCompileBudgetExhausted,
   MAX_COMPILE_STEPS,
   MAX_PROGRAM_SIZE,
   type LinearRegExp,
@@ -60,6 +62,12 @@ const SHARED_CORPUS: [string, string[]][] = [
   ["^((ab)+c)+$", ["abcababc", "abca"]],
   ["(\\d{1,3}\\.){3}\\d{1,3}", ["10.0.0.1", "10.0.1"]],
   ["^é+$", ["éé", "e"]],
+  // A quantified group around an assertion is valid natively, unlike a bare
+  // quantified assertion.
+  ["(\\b)?a", ["a", " a", "ba", ""]],
+  ["(^)*a", ["a", "ba", ""]],
+  ["($){0}a", ["a", "b"]],
+  ["^(\\b|$)+$", ["", "a"]],
 ];
 
 /** Patterns whose meaning depends on the `u` flag. */
@@ -189,6 +197,27 @@ describe("compileLinearRegExp — unsupported constructs", () => {
     const copies = Math.ceil(MAX_COMPILE_STEPS / 21) + 1;
     expect(copies).toBeLessThan(MAX_PROGRAM_SIZE);
     expect(unsupportedReason(`${body}{${copies}}`)).toBe("pattern too complex");
+  });
+
+  it("spends a shared budget across compilations and declines once it is gone", () => {
+    // Each copy emits its program less the final `match`, which is not charged.
+    const emitted = compiled("^a{9000}b$").size - 1;
+    const budget = { steps: MAX_COMPILE_STEPS, size: 2 * emitted };
+    expect(compileLinearRegExp("^a{9000}b$", true, budget).ok).toBe(true);
+    expect(compileLinearRegExp("^a{9000}c$", true, budget).ok).toBe(true);
+    expect(isCompileBudgetExhausted(budget)).toBe(false);
+    const third = compileLinearRegExp("^a{9000}d$", true, budget);
+    expect(third).toEqual({ ok: false, reason: COMPILE_BUDGET_EXHAUSTED });
+    expect(isCompileBudgetExhausted(budget)).toBe(true);
+    // Once exhausted, even a trivial pattern is declined, at no cost.
+    expect(compileLinearRegExp("a", true, budget).ok).toBe(false);
+
+    const steps = { steps: 3, size: MAX_PROGRAM_SIZE };
+    expect(compileLinearRegExp("abcd", true, steps)).toEqual({
+      ok: false,
+      reason: COMPILE_BUDGET_EXHAUSTED,
+    });
+    expect(isCompileBudgetExhausted(steps)).toBe(true);
   });
 
   it("lets an invalid pattern throw, as the native engine would", () => {

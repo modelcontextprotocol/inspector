@@ -93,6 +93,29 @@ export const MAX_PROGRAM_SIZE = 10_000;
  */
 export const MAX_COMPILE_STEPS = 10 * MAX_PROGRAM_SIZE;
 
+/**
+ * Compile work several patterns share, so a schema of many distinct patterns,
+ * each under the per-pattern limits, cannot add up to unbounded work and
+ * memory between them. Both counters are what REMAINS and are spent by every
+ * compilation the budget is passed to; once either goes negative the budget
+ * is exhausted and every further compilation charged to it is declined.
+ */
+export interface CompileBudget {
+  /** AST node visits still allowed. */
+  steps: number;
+  /** Program instructions still allowed. */
+  size: number;
+}
+
+/** The reason a compilation gives when its shared budget ran out. */
+export const COMPILE_BUDGET_EXHAUSTED =
+  "the patterns together exceed the compilation budget";
+
+/** Whether `budget` has been spent past its end. */
+export function isCompileBudgetExhausted(budget: CompileBudget): boolean {
+  return budget.steps < 0 || budget.size < 0;
+}
+
 const QUANTIFIER_BRACES = /^\{(\d+)(?:(,)(\d*))?\}/;
 const HEX4 = /^[0-9a-fA-F]{4}$/;
 const HEX2 = /^[0-9a-fA-F]{2}$/;
@@ -141,10 +164,10 @@ class Parser {
     const atom = this.parseAtom(depth);
     const quantifier = this.readQuantifier();
     if (!quantifier) return atom;
-    /* v8 ignore next 3 -- a quantified assertion is a native "nothing to repeat" error */
-    if (atom.kind === "assert") {
-      throw new Unsupported("quantified assertion");
-    }
+    // A bare quantified assertion (`\b?`, `^*`) is a native "nothing to
+    // repeat" error, so an `assert` atom here is a group around one —
+    // `(\b)?`, which native accepts. Its body is zero-width, so the repeat
+    // compiles like any other nullable body.
     // A trailing `?` makes the quantifier lazy, which cannot change whether a
     // match exists.
     if (this.src[this.pos] === "?") this.pos++;
@@ -360,15 +383,20 @@ class Compiler {
   readonly prog: Inst[] = [];
   private readonly matchers = new Map<string, CharMatcher>();
   private readonly unicode: boolean;
+  private readonly budget: CompileBudget | undefined;
   private steps = 0;
 
-  constructor(unicode: boolean) {
+  constructor(unicode: boolean, budget: CompileBudget | undefined) {
     this.unicode = unicode;
+    this.budget = budget;
   }
 
   private emit(inst: Inst): number {
     if (this.prog.length >= MAX_PROGRAM_SIZE) {
       throw new Unsupported("pattern too complex");
+    }
+    if (this.budget && --this.budget.size < 0) {
+      throw new Unsupported(COMPILE_BUDGET_EXHAUSTED);
     }
     this.prog.push(inst);
     return this.prog.length - 1;
@@ -392,6 +420,9 @@ class Compiler {
   compile(node: Node): void {
     if (++this.steps > MAX_COMPILE_STEPS) {
       throw new Unsupported("pattern too complex");
+    }
+    if (this.budget && --this.budget.steps < 0) {
+      throw new Unsupported(COMPILE_BUDGET_EXHAUSTED);
     }
     switch (node.kind) {
       case "char":
@@ -610,16 +641,18 @@ export type LinearRegExpCompilation =
  *
  * A valid pattern that uses a construct an automaton cannot evaluate
  * (lookaround, backreferences, group modifiers) or that compiles past
- * {@link MAX_PROGRAM_SIZE} returns `{ ok: false, reason }`.
+ * {@link MAX_PROGRAM_SIZE} returns `{ ok: false, reason }`. So does one that
+ * would overspend `budget`, when given, with {@link COMPILE_BUDGET_EXHAUSTED}.
  */
 export function compileLinearRegExp(
   pattern: string,
   unicode: boolean,
+  budget?: CompileBudget,
 ): LinearRegExpCompilation {
   new RegExp(pattern, unicode ? "u" : "");
   try {
     const ast = new Parser(pattern, unicode).parse();
-    const compiler = new Compiler(unicode);
+    const compiler = new Compiler(unicode, budget);
     compiler.compile(ast);
     compiler.prog.push({ op: "match" });
     return { ok: true, regExp: new LinearRegExp(compiler.prog, unicode) };
