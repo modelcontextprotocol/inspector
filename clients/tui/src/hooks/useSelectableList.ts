@@ -57,5 +57,13 @@ export function useSelectableList(
     }
   }, [itemCount, selectedIndex, visibleCount]);
 
-  return { selectedIndex, firstVisible, setSelection };
+  // The stored window is re-clamped on every render, not only on a selection
+  // move: a terminal resize shrinks `visibleCount` without moving the
+  // selection, and the stale window would then slice the selected row off the
+  // bottom of the list (#2826). Pure, so it is safe to compute during render.
+  return {
+    selectedIndex,
+    firstVisible: clampFirstVisible(firstVisible, selectedIndex, visibleCount),
+    setSelection,
+  };
 }

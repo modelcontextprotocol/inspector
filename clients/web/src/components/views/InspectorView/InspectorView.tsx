@@ -5,6 +5,7 @@ import {
   Group,
   Stack,
   Transition,
+  VisuallyHidden,
   type MantineTransition,
 } from "@mantine/core";
 import { useLocalStorage } from "@mantine/hooks";
@@ -121,6 +122,18 @@ function useListCompact(
 }
 
 const SERVERS_TAB = INSPECTOR_SERVERS_TAB;
+
+/**
+ * The page's `<h1>` (#2827): the app and the screen on show, e.g.
+ * "MCP Inspector: Tools". Visually hidden — the header already shows the
+ * product name or the connected server, and the tab bar the screen — but it
+ * gives every screen the single top-level heading a screen reader user (and
+ * axe's `page-has-heading-one`) navigates by. Before this only the Servers
+ * screen had any heading above its panels, and it was an `h2`.
+ */
+function screenHeadingText(activeTab: string): string {
+  return `MCP Inspector: ${activeTab}`;
+}
 const SKILLS_TAB = "Skills";
 const TASKS_TAB = "Tasks";
 const LOGS_TAB = "Logs";
@@ -1138,6 +1151,11 @@ export function InspectorView({
         data-error-message={connectErrorMessage}
         data-deeplink={deepLinkStatus}
       >
+        {/* First in the DOM so every other heading on the page sits below it
+            (axe `heading-order`). One static prop, so it stays inline. */}
+        <VisuallyHidden component="h1">
+          {screenHeadingText(activeTab)}
+        </VisuallyHidden>
         {connectionStatus === "connected" && initializeResult ? (
           <ViewHeader
             connected

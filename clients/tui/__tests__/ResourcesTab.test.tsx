@@ -482,3 +482,21 @@ describe("ResourcesTab list filter — template titles (#2430)", () => {
     expect(frame).not.toContain("other");
   });
 });
+
+describe("ResourcesTab in a narrow terminal (#2826)", () => {
+  it("truncates a long row to one line and shows the full name in the pane", () => {
+    const { lastFrame } = render(
+      <ResourcesTab
+        resources={[makeResource({ name: "a_very_long_resource_nm" })]}
+        inspectorClient={null}
+        width={42}
+        height={17}
+      />,
+    );
+    const lines = (lastFrame() ?? "").split("\n");
+    const listColumn = lines.map((l) => l.split("│")[0] ?? "");
+    expect(listColumn.some((l) => /▶ a_very_lo\S*…/.test(l))).toBe(true);
+    expect(listColumn.some((l) => l.includes("_nm"))).toBe(false);
+    expect(lines.some((l) => l.includes("a_very_long_resource_nm"))).toBe(true);
+  });
+});

@@ -6450,6 +6450,18 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * Best-effort release of the remote backend session as the page unloads
+   * (#2824) — see {@link RemoteClientTransport.releaseOnPageHide}. Returns
+   * whether a release was sent; `false` for any non-remote transport.
+   */
+  releaseRemoteSessionOnPageHide(): boolean {
+    if (this.baseTransport instanceof RemoteClientTransport) {
+      return this.baseTransport.releaseOnPageHide();
+    }
+    return false;
+  }
+
+  /**
    * Finish OAuth after a full-page redirect and reconnect (or reattach) the MCP session.
    */
   async resumeAfterOAuth(

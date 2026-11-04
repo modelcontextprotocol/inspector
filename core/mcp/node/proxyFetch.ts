@@ -115,8 +115,8 @@ export function toGlobalResponse(res: UndiciResponse): Response {
  * ships 8, so a userland undici 8 agent handed a built-in undici 7 handler is
  * rejected with `invalid onRequestStart method` and the request never leaves the
  * process (#2067). Using undici's own `fetch` keeps the handler on both sides of
- * the call inside one copy, which is why it works unchanged from the Node 22.19
- * engine floor through Node 26.
+ * the call inside one copy, which is why it works unchanged on every line the
+ * engine floor admits, Node 22 through Node 26.
  */
 /**
  * Process-wide, so every client shares one `EnvHttpProxyAgent` and therefore one

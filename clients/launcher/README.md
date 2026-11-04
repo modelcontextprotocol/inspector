@@ -35,8 +35,8 @@ transport and sets the era that connection negotiates, so a non-legacy era
 needs no `mcp.json` entry.
 
 **Seed contents are web-specific.** When the web backend creates a missing
-writable catalog it seeds `DEFAULT_SEED_CONFIG` (`core/mcp/serverList.ts`) — a
-`filesystem-server-default` scoped to `/tmp`, the canonical
+writable catalog it seeds `defaultSeedConfig` (`core/mcp/serverList.ts`) — a
+`filesystem-server-default` scoped to the platform temp dir (`os.tmpdir()`), the canonical
 `everything-server-default`, and `example-server-default`, the MCP org's
 remote feature-reference server (Streamable HTTP, no local process and no API
 key needed) — so a first launch has something to connect to.

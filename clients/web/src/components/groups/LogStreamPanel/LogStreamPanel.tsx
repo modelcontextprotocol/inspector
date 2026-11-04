@@ -10,6 +10,10 @@ import {
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface LogStreamPanelProps {
   entries: LogEntryData[];
   filterText: string;
@@ -93,7 +97,7 @@ export function LogStreamPanel({
   return (
     <PanelContainer>
       <HeaderRow>
-        <Title order={4}>Log Stream</Title>
+        <PanelHeading>Log Stream</PanelHeading>
         <Group>
           <SortToggle
             value={sortDirection}

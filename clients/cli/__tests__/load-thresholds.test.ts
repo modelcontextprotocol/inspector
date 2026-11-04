@@ -33,8 +33,11 @@ function summary(overrides: Partial<LoadSummary> = {}): LoadSummary {
     errorRate: 0,
     elapsedMs: 100,
     throughput: 1000,
+    okThroughput: 1000,
     latencyMs: { min: 1, mean: 2, p50: 2, p90: 3, p99: 4, max: 5 },
+    errorLatencyMs: null,
     errorMessages: [],
+    toolErrorMessages: [],
     ...overrides,
   };
 }
@@ -149,13 +152,13 @@ describe("load thresholds", () => {
       );
     });
 
-    it("fails a p99 threshold when no call completed, and says why", () => {
+    it("fails a p99 threshold when no call succeeded, and says why", () => {
       const err = judge(summary({ requests: 0, ok: 0, latencyMs: null }), {
         maxP99Ms: 100,
       });
       expect(err?.envelope?.code).toBe(LOAD_P99_EXCEEDED);
       expect(err?.message).toContain(
-        "no call completed, so there is no p99 latency to check",
+        "no call succeeded, so there is no p99 latency to check",
       );
     });
 

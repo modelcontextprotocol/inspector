@@ -45,8 +45,11 @@ const SUMMARY: LoadSummary = {
   errorRate: 0.1,
   elapsedMs: 1500,
   throughput: 20,
+  okThroughput: 18,
   latencyMs: { min: 1, mean: 2.5, p50: 2, p90: 4, p99: 5, max: 6 },
+  errorLatencyMs: null,
   errorMessages: [{ message: "Request timed out", count: 2 }],
+  toolErrorMessages: [],
 };
 
 describe("resolveLoadFlags", () => {
@@ -137,7 +140,7 @@ describe("formatLoadSummaryHuman", () => {
     expect(text).toBe(
       [
         "Load test `echo` (concurrency 4, duration 1.5s, limit 40, rate 20/s)",
-        "  Requests:   30 in 1.50s (20/s)",
+        "  Requests:   30 in 1.50s (20/s, 18/s ok)",
         "  Outcomes:   27 ok, 1 tool errors, 2 errors",
         "  Error rate: 10.00%",
         "  Latency:    min 1 / mean 2.5 / p50 2 / p90 4 / p99 5 / max 6 ms",
@@ -157,14 +160,56 @@ describe("formatLoadSummaryHuman", () => {
       errorRate: 0,
       elapsedMs: 0,
       throughput: 0,
+      okThroughput: 0,
       latencyMs: null,
+      errorLatencyMs: null,
       errorMessages: [],
+      toolErrorMessages: [],
     });
     expect(text).toContain("Load test (concurrency 1)");
     expect(text).toContain("Error rate: 0.00%");
-    expect(text).toContain("Latency:    no calls completed");
+    expect(text).toContain("Latency:    no calls succeeded");
+    expect(text).not.toContain("Failed in:");
+    expect(text).not.toContain("Rate:");
+    expect(text).not.toContain("Stopped early");
     expect(text).not.toContain("Top errors");
     expect(text).not.toContain("Sessions:");
+  });
+
+  it("renders failure latency, tool errors, the rate shortfall and an early stop", () => {
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        plannedStarts: 30,
+        droppedSlots: 12,
+        achievedRate: 12,
+        errorLatencyMs: { min: 0, mean: 1, p50: 1, p90: 2, p99: 2, max: 2 },
+        toolErrorMessages: [{ message: "rate limited", count: 1 }],
+        stoppedEarly: {
+          reason: "consecutive_errors",
+          detail:
+            "50 calls in a row threw over 3ms; the server looks unavailable",
+        },
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      "  Rate:       12/s achieved; 30 planned, 12 dropped\n",
+    );
+    expect(text).toContain(
+      "  Failed in:  min 0 / mean 1 / p50 1 / p90 2 / p99 2 / max 2 ms\n",
+    );
+    expect(text).toContain("  Top tool errors:\n    1× rate limited");
+    expect(text).toContain(
+      "  Stopped early (consecutive_errors): 50 calls in a row threw over 3ms; the server looks unavailable",
+    );
+    // A rate held in full reports nothing dropped.
+    expect(
+      formatLoadSummaryHuman(
+        { ...SUMMARY, plannedStarts: 30, droppedSlots: 0, achievedRate: 20 },
+        PLAIN,
+      ),
+    ).toContain("  Rate:       20/s achieved; 30 planned, 0 dropped");
   });
 
   it("renders the sessions of a multi-connection run, failures included", () => {
@@ -355,6 +400,34 @@ describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
       }),
     );
   }
+
+  it("warns on stderr when a --load-rate run falls short (#2837)", async () => {
+    const e = env();
+    await connectStdio(e);
+    // No single worker starts 100k calls a second.
+    const result = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-rate",
+        "100000",
+        "--load-concurrency",
+        "1",
+        "--load-duration",
+        "0.3",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(result);
+    const summary = JSON.parse(result.stdout);
+    expect(summary).toMatchObject({ rate: 100000, plannedStarts: 30000 });
+    expect(summary.droppedSlots).toBeGreaterThan(0);
+    expect(result.stderr).toContain("Warning: --load-rate 100000/s");
+  });
 
   it("prints the summary, then fails a breached threshold with the CLI's code", async () => {
     const e = env();

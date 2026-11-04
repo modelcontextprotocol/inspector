@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { serve } from "@hono/node-server";
 import type { ServerType } from "@hono/node-server";
 import { createRemoteApp } from "@inspector/core/mcp/remote/node/server.js";
-import { DEFAULT_SEED_CONFIG } from "@inspector/core/mcp/serverList.js";
+import { defaultSeedConfig } from "@inspector/core/mcp/serverList.js";
 import {
   InMemorySecretStore,
   KeychainUnavailableError,
@@ -135,11 +135,13 @@ describe("/api/servers routes", () => {
       const res = await fetch(`${h.baseUrl}/api/servers`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as MCPConfig;
-      expect(body).toEqual(DEFAULT_SEED_CONFIG);
+      // Scoped to this platform's temp dir, never a hard-coded /tmp (#2827).
+      const seed = defaultSeedConfig(tmpdir());
+      expect(body).toEqual(seed);
 
       // File was created with the same content
       expect(existsSync(h.configPath)).toBe(true);
-      expect(readConfig(h.configPath)).toEqual(DEFAULT_SEED_CONFIG);
+      expect(readConfig(h.configPath)).toEqual(seed);
     });
 
     it("returns the existing file content when present (no overwrite)", async () => {

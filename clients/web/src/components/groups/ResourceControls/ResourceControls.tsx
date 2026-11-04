@@ -35,6 +35,10 @@ import { listRowKey } from "../../../utils/listRowKey";
 import { ResourceListItem } from "../ResourceListItem/ResourceListItem";
 import { ResourceSubscribedItem } from "../ResourceSubscribedItem/ResourceSubscribedItem";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 // A tight, non-wrapping horizontal row (search field + toggle; count + stream
 // badge).
 const TightRow = Group.withProps({ gap: "xs", wrap: "nowrap" });
@@ -303,7 +307,7 @@ export function ResourceControls({
   return (
     <SidebarStack>
       <Group justify="space-between">
-        <Title order={4}>Resources</Title>
+        <PanelHeading>Resources</PanelHeading>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <TightRow>

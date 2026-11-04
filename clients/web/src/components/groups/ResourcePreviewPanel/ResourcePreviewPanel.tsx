@@ -22,6 +22,10 @@ import { CopyButton } from "../../elements/CopyButton/CopyButton";
 import { SubscribeButton } from "../../elements/SubscribeButton/SubscribeButton";
 import { inferMimeFromUri } from "../../../utils/inferMimeFromUri";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface ResourcePreviewPanelProps {
   resource: Resource;
   contents: (TextResourceContents | BlobResourceContents)[];
@@ -205,7 +209,7 @@ export function ResourcePreviewPanel({
           {onClose && (
             <CloseButton aria-label="Close preview" onClick={onClose} />
           )}
-          <Title order={4}>Resource</Title>
+          <PanelHeading>Resource</PanelHeading>
         </HeaderLeft>
         <UriGroup>
           <UriText>{uri}</UriText>

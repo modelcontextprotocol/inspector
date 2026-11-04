@@ -97,11 +97,12 @@ const SidebarStack = Stack.withProps({
   mih: 0,
 });
 
-// h3 (not h4), size h4: the sampling/elicitation request modals open over this
-// screen with an `h2` `Modal.Title`, so an `h4` section would skip a level
-// (axe `heading-order`); `size="h4"` keeps the look.
+// h2, size h4: a panel heading under the page's visually hidden h1 (#2827),
+// so neither it nor the `h2` `Modal.Title` of a sampling/elicitation request
+// opened over this screen skips a level (axe `heading-order`); `size="h4"`
+// keeps the look.
 const ToolsTitle = Title.withProps({
-  order: 3,
+  order: 2,
   size: "h4",
 });
 

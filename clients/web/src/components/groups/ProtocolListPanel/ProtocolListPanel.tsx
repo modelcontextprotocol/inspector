@@ -29,6 +29,14 @@ import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/Embedd
 import { extractMethod, groupProtocolEntries } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
+// h3: a section under this screen's h2 panel heading (#2827), sized as the h5
+// it was so the look is unchanged.
+const SubHeading = Title.withProps({ order: 3, size: "h5" });
+
 export interface ProtocolListPanelProps {
   entries: MessageEntry[];
   pinnedIds: Set<string>;
@@ -194,7 +202,7 @@ function CollapsibleSection({
   if (!collapsible) {
     return (
       <Stack gap="md">
-        {hideHeaderWhenAlone ? null : <Title order={5}>{title}</Title>}
+        {hideHeaderWhenAlone ? null : <SubHeading>{title}</SubHeading>}
         <Stack gap="md">{children}</Stack>
       </Stack>
     );
@@ -353,7 +361,7 @@ export function ProtocolListPanel({
     <PanelContainer>
       <HeaderRow>
         <Group gap="sm">
-          <Title order={4}>Messages</Title>
+          <PanelHeading>Messages</PanelHeading>
           {protocolEra && <EraBadge era={protocolEra} />}
         </Group>
         <Group gap="xs">

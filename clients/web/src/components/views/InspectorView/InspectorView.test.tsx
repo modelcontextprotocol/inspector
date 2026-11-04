@@ -431,6 +431,33 @@ describe("InspectorView", () => {
     expect(screen.getByRole("switch")).toBeChecked();
   });
 
+  it("gives every screen one h1 naming the screen on show (#2827)", () => {
+    const { unmount } = renderWithMantine(
+      <StatefulInspectorViewHost {...makeProps()} />,
+    );
+    const home = screen.getAllByRole("heading", { level: 1 });
+    expect(home).toHaveLength(1);
+    expect(home[0]).toHaveTextContent("MCP Inspector: Servers");
+    unmount();
+
+    renderWithMantine(
+      <StatefulInspectorViewHost
+        {...makeProps({
+          shell: { activeTab: "Tools" },
+          connection: {
+            activeServer: "alpha",
+            connectionStatus: "connected",
+            initializeResult: connectedInit,
+          },
+          servers: { servers: [sampleServer] },
+        })}
+      />,
+    );
+    const connected = screen.getAllByRole("heading", { level: 1 });
+    expect(connected).toHaveLength(1);
+    expect(connected[0]).toHaveTextContent("MCP Inspector: Tools");
+  });
+
   it("falls back to the catalog name in the header when the reported serverInfo name is empty (#1774)", () => {
     // A non-conforming server reports serverInfo with an empty name string.
     // `App`'s `??` fallback only fires when the whole object is absent, so the

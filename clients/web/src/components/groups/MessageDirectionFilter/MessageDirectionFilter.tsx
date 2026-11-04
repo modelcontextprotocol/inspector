@@ -7,10 +7,10 @@ const SubtleButton = Button.withProps({
   size: "xs",
 });
 
-// h5 (not h6) to sit one level below the screen's h4 heading (avoids an
-// axe `heading-order` skip); `size="h6"` preserves the visual size.
+// h3 (not h6) to sit one level below the screen's h2 heading (#2827; avoids
+// an axe `heading-order` skip); `size="h6"` preserves the visual size.
 const SectionTitle = Title.withProps({
-  order: 5,
+  order: 3,
   size: "h6",
 });
 

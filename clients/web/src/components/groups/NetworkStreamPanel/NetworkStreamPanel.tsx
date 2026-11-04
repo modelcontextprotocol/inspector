@@ -13,6 +13,10 @@ import {
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface NetworkStreamPanelProps {
   entries: FetchRequestEntry[];
   filterText: string;
@@ -132,7 +136,7 @@ export function NetworkStreamPanel({
   return (
     <PanelContainer>
       <HeaderRow>
-        <Title order={4}>{formatTitle(filteredEntries.length)}</Title>
+        <PanelHeading>{formatTitle(filteredEntries.length)}</PanelHeading>
         <Group gap="xs">
           <SortToggle
             value={sortDirection}

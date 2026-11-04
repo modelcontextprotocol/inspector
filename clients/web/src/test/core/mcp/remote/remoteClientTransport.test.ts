@@ -844,3 +844,101 @@ describe("RemoteClientTransport", () => {
     });
   });
 });
+
+describe("RemoteClientTransport.releaseOnPageHide (#2824)", () => {
+  function startedTransport(
+    authToken?: string,
+    disconnect: () => Promise<Response> = async () =>
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+  ) {
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/connect")) {
+        return new Response(JSON.stringify({ sessionId: "sess-1" }), {
+          status: 200,
+        });
+      }
+      if (url.includes("/api/mcp/events")) return sseStreamResponse();
+      return disconnect();
+    });
+    const transport = new RemoteClientTransport(
+      { baseUrl, fetchFn, ...(authToken && { authToken }) },
+      config,
+    );
+    return { transport, fetchFn };
+  }
+
+  it("sends nothing before the transport has a backend session", () => {
+    const { transport, fetchFn } = startedTransport();
+    expect(transport.releaseOnPageHide()).toBe(false);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it("posts a keepalive disconnect carrying the API auth header", async () => {
+    const { transport, fetchFn } = startedTransport("tok-123");
+    await transport.start();
+    fetchFn.mockClear();
+
+    expect(transport.releaseOnPageHide()).toBe(true);
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchFn.mock.calls[0]!;
+    expect(String(url)).toBe("http://remote.example/api/mcp/disconnect");
+    expect(init).toMatchObject({
+      method: "POST",
+      keepalive: true,
+      body: JSON.stringify({ sessionId: "sess-1" }),
+      headers: { "x-mcp-remote-auth": "Bearer tok-123" },
+    });
+    await transport.close();
+  });
+
+  it("swallows a failed request — the backend's grace reaps the session anyway", async () => {
+    const { transport, fetchFn } = startedTransport(undefined, async () => {
+      throw new TypeError("network gone");
+    });
+    await transport.start();
+    expect(transport.releaseOnPageHide()).toBe(true);
+    // Let the rejected request settle; an unhandled rejection fails the run.
+    await vi.waitFor(() =>
+      expect(
+        fetchFn.mock.calls.some(([u]) => String(u).endsWith("/disconnect")),
+      ).toBe(true),
+    );
+    await Promise.resolve();
+    await transport.close();
+  });
+
+  it("still releases after the events stream ended on its own (a reload cancels it before pagehide)", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.endsWith("/api/mcp/connect")) {
+        return new Response(JSON.stringify({ sessionId: "sess-2" }), {
+          status: 200,
+        });
+      }
+      // An events stream that ends immediately, as a cancelled one does.
+      if (url.includes("/api/mcp/events")) return sseResponse("");
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+    const transport = new RemoteClientTransport({ baseUrl, fetchFn }, config);
+    const onclose = vi.fn();
+    transport.onclose = onclose;
+    await transport.start();
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
+    fetchFn.mockClear();
+
+    expect(transport.releaseOnPageHide()).toBe(true);
+    expect(String(fetchFn.mock.calls[0]?.[0])).toBe(
+      "http://remote.example/api/mcp/disconnect",
+    );
+  });
+
+  it("sends nothing after a deliberate close(), which sent its own disconnect", async () => {
+    const { transport, fetchFn } = startedTransport();
+    await transport.start();
+    await transport.close();
+    fetchFn.mockClear();
+    expect(transport.releaseOnPageHide()).toBe(false);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+});

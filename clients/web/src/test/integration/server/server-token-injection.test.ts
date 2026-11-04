@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startHonoServer } from "../../../../server/server.js";
+import { isApiPath, startHonoServer } from "../../../../server/server.js";
 import type { WebServerConfig } from "../../../../server/web-server-config.js";
 import type { WebServerHandle } from "../../../../server/types.js";
 import { INSPECTOR_API_TOKEN_GLOBAL } from "../../../../../../core/mcp/remote/constants.js";
@@ -144,5 +144,25 @@ describe("startHonoServer index.html token injection (/ -> /api/*)", () => {
     expect(res.status).toBe(404);
     const body = await res.text();
     expect(body).not.toContain(INSPECTOR_API_TOKEN_GLOBAL);
+  });
+
+  it("serves the SPA for a non-API path that merely starts with /api (#2827)", async () => {
+    const res = await fetch(`${baseUrl}/apixyz`);
+    expect(res.status).toBe(200);
+    expect(tokenFromHtml(await res.text())).toBe(TOKEN);
+  });
+});
+
+describe("isApiPath (#2827)", () => {
+  it.each([
+    ["/api", true],
+    ["/api/", true],
+    ["/api/config", true],
+    ["/apixyz", false],
+    ["/api-docs", false],
+    ["/oauth/callback", false],
+    ["/", false],
+  ])("%s -> %s", (path, expected) => {
+    expect(isApiPath(path)).toBe(expected);
   });
 });

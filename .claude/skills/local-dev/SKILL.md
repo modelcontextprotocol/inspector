@@ -12,7 +12,7 @@ running and where a package goes.
 
 ## Install
 
-Requires Node `>=22.19.0`.
+Requires Node `^22.23.4 || ^24.22.1 || >=26.12.1`.
 
 ```sh
 npm install     # at the REPO ROOT

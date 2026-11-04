@@ -59,9 +59,9 @@ body:
     attributes:
       label: Node version
       description: >
-        Output of `node --version`. The current v2 line requires Node >=
-        22.19.0; the deprecated v1 line has its own, older floor.
-      placeholder: "v22.19.0"
+        Output of `node --version`. The current v2 line requires Node ^22.23.4,
+        ^24.22.1 or >=26.12.1; the deprecated v1 line has its own, older floor.
+      placeholder: "v22.23.4"
     validations:
       required: true
 

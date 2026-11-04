@@ -1000,21 +1000,46 @@ export function formatLoadSummaryHuman(
   const rate = `${(summary.errorRate * 100).toFixed(2)}%`;
   const lines = [
     `${heading(style, "Load test")}${tool} ${style.dim(`(${bounds.join(", ")})`)}`,
-    `  Requests:   ${summary.requests} in ${(summary.elapsedMs / 1000).toFixed(2)}s (${summary.throughput}/s)`,
+    `  Requests:   ${summary.requests} in ${(summary.elapsedMs / 1000).toFixed(2)}s (${summary.throughput}/s, ${summary.okThroughput}/s ok)`,
     `  Outcomes:   ${style.green(`${summary.ok} ok`)}, ${summary.toolErrors} tool errors, ${summary.errors} errors`,
     `  Error rate: ${failed > 0 ? style.red(rate) : rate}`,
   ];
+  // `--load-rate` only (#2837): the planned starts the run missed.
+  if (summary.plannedStarts !== undefined) {
+    const dropped = `${summary.droppedSlots} dropped`;
+    lines.push(
+      `  Rate:       ${summary.achievedRate}/s achieved; ${summary.plannedStarts} planned, ${summary.droppedSlots! > 0 ? style.red(dropped) : dropped}`,
+    );
+  }
   const l = summary.latencyMs;
   lines.push(
     l === null
-      ? `  Latency:    ${style.dim("no calls completed")}`
+      ? `  Latency:    ${style.dim("no calls succeeded")}`
       : `  Latency:    min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p99 ${l.p99} / max ${l.max} ms`,
   );
+  // Failures are timed apart from successes (#2836).
+  const e = summary.errorLatencyMs;
+  if (e !== null) {
+    lines.push(
+      `  Failed in:  min ${e.min} / mean ${e.mean} / p50 ${e.p50} / p90 ${e.p90} / p99 ${e.p99} / max ${e.max} ms`,
+    );
+  }
   if (summary.errorMessages.length > 0) {
     lines.push(`  ${style.bold("Top errors:")}`);
     for (const { message, count } of summary.errorMessages) {
       lines.push(`    ${count}× ${message}`);
     }
+  }
+  if (summary.toolErrorMessages.length > 0) {
+    lines.push(`  ${style.bold("Top tool errors:")}`);
+    for (const { message, count } of summary.toolErrorMessages) {
+      lines.push(`    ${count}× ${message}`);
+    }
+  }
+  if (summary.stoppedEarly !== undefined) {
+    lines.push(
+      `  ${style.red("Stopped early")} (${summary.stoppedEarly.reason}): ${summary.stoppedEarly.detail}`,
+    );
   }
   // `--load-connections` above 1 (#2800). Connect failures are not call
   // errors, so they are listed under this line rather than "Top errors".
