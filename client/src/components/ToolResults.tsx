@@ -157,10 +157,18 @@ const ToolResults = ({
                       : "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200"
                   }`}
                 >
-                  {validationResult.isValid ? (
+                  {"validated" in validationResult &&
+                  validationResult.validated === false ? (
+                    "Not validated against output schema"
+                  ) : validationResult.isValid ? (
                     "✓ Valid according to output schema"
                   ) : (
                     <>✗ Validation Error: {validationResult.error}</>
+                  )}
+                  {"note" in validationResult && validationResult.note && (
+                    <div className="mt-1 text-xs opacity-80">
+                      ⚠ {validationResult.note}
+                    </div>
                   )}
                 </div>
               )}
@@ -181,6 +189,11 @@ const ToolResults = ({
             <div className="mb-4">
               <div className="bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 p-2 rounded text-sm">
                 ✗ Validation Error: {validationResult.error}
+                {"note" in validationResult && validationResult.note && (
+                  <div className="mt-1 text-xs opacity-80">
+                    ⚠ {validationResult.note}
+                  </div>
+                )}
               </div>
             </div>
           )}

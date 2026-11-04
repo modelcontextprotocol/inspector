@@ -559,6 +559,94 @@ describe("Output Schema Validation", () => {
       // If it is, this should fail
       expect(result.isValid).toBe(true); // By default, additional properties are allowed
     });
+
+    describe("server-supplied regex patterns", () => {
+      const redosTool = {
+        name: "redosTool",
+        inputSchema: { type: "object" as const },
+        outputSchema: {
+          type: "object" as const,
+          properties: {
+            data: { type: "string", pattern: "^(a+)+$", minLength: 3 },
+            kind: { type: "string", enum: ["x", "y"] },
+          },
+          required: ["data", "kind"],
+        },
+      };
+
+      test("are not evaluated, and the result says so", () => {
+        cacheToolOutputSchemas([redosTool]);
+        // Exponential on the native RegExp engine; not evaluated at all here.
+        expect(
+          validateToolOutput("redosTool", {
+            data: `${"a".repeat(10_000)}!`,
+            kind: "x",
+          }),
+        ).toEqual({
+          isValid: true,
+          note: "1 regex pattern(s) in this schema were not evaluated",
+        });
+      });
+
+      test("a schema with identifiers is reported, not validated", () => {
+        cacheToolOutputSchemas([
+          {
+            name: "idTool",
+            inputSchema: { type: "object" },
+            outputSchema: {
+              type: "object",
+              properties: {
+                x: { $id: "a/", not: { $id: "leaf", pattern: "^x" } },
+                y: { $id: "b/", not: { $id: "leaf", type: "number" } },
+              },
+            },
+          },
+        ]);
+        expect(getToolOutputValidator("idTool")).toBeUndefined();
+        const result = validateToolOutput("idTool", { x: 1, y: "s" });
+        expect(result.isValid).toBe(true);
+        expect(result.note).toMatch(/was not validated/);
+        expect(result.validated).toBe(false);
+        expect(hasOutputSchema("idTool")).toBe(true);
+      });
+
+      test("leave the other constraints validating", () => {
+        cacheToolOutputSchemas([redosTool]);
+        const tooShort = validateToolOutput("redosTool", {
+          data: "a",
+          kind: "x",
+        });
+        expect(tooShort.isValid).toBe(false);
+        expect(tooShort.error).toContain("should NOT be shorter than 3");
+        expect(tooShort.note).toBe(
+          "1 regex pattern(s) in this schema were not evaluated",
+        );
+        const badEnum = validateToolOutput("redosTool", {
+          data: "aaa",
+          kind: "z",
+        });
+        expect(badEnum.error).toContain("should be equal to one of");
+        const missing = validateToolOutput("redosTool", { data: "aaa" });
+        expect(missing.error).toContain("required");
+        const wrongType = validateToolOutput("redosTool", {
+          data: 1,
+          kind: "x",
+        });
+        expect(wrongType.error).toContain("should be string");
+      });
+
+      test("leave the tool's own schema untouched", () => {
+        cacheToolOutputSchemas([redosTool]);
+        expect(redosTool.outputSchema.properties.data.pattern).toBe("^(a+)+$");
+      });
+
+      test("add no note when the schema has none", () => {
+        cacheToolOutputSchemas(mockTools);
+        expect(
+          validateToolOutput("weatherTool", { temperature: 1, humidity: 2 }),
+        ).toEqual({ isValid: true });
+      });
+    });
   });
 
   describe("getToolOutputValidator", () => {

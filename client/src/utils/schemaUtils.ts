@@ -3,11 +3,15 @@ import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
+import { schemaNote, stripSchemaPatterns } from "./stripSchemaPatterns";
 
 const ajv = new Ajv();
 
 // Cache for compiled validators
 const toolOutputValidators = new Map<string, ValidateFunction>();
+// The note for each tool whose schema had server-supplied regexes (or checks
+// depending on them) removed before compiling (see stripSchemaPatterns).
+const toolOutputSchemaNotes = new Map<string, string>();
 
 /**
  * Compiles and caches output schema validators for a list of tools
@@ -16,11 +20,25 @@ const toolOutputValidators = new Map<string, ValidateFunction>();
  */
 export function cacheToolOutputSchemas(tools: Tool[]): void {
   toolOutputValidators.clear();
+  toolOutputSchemaNotes.clear();
   for (const tool of tools) {
     if (tool.outputSchema) {
       try {
-        const validator = ajv.compile(tool.outputSchema);
-        toolOutputValidators.set(tool.name, validator);
+        // Compile a regex-free copy: the schema comes from the server, and
+        // its patterns would run on the backtracking native RegExp engine.
+        const result = stripSchemaPatterns(tool.outputSchema);
+        const note = schemaNote(result);
+        // A schema that may not be validated gets no validator, only a note
+        // (and still counts as an output schema; see hasOutputSchema).
+        if (result.validate) {
+          toolOutputValidators.set(
+            tool.name,
+            ajv.compile(result.schema as object),
+          );
+        }
+        // Set after a successful compile, so a schema that fails to compile
+        // stays absent, as before.
+        if (note !== undefined) toolOutputSchemaNotes.set(tool.name, note);
       } catch (error) {
         console.warn(
           `Failed to compile output schema for tool ${tool.name}:`,
@@ -48,15 +66,21 @@ export function getToolOutputValidator(
  * Returns validation result with detailed error messages
  * @param toolName Name of the tool
  * @param structuredContent The structured content to validate
- * @returns An object with isValid boolean and optional error message
+ * @returns An object with isValid boolean, optional error message, and an
+ *   optional note when some of the schema's regex patterns were not evaluated
  */
 export function validateToolOutput(
   toolName: string,
   structuredContent: unknown,
-): { isValid: boolean; error?: string } {
+): { isValid: boolean; error?: string; note?: string; validated?: false } {
   const validator = getToolOutputValidator(toolName);
+  const toolNote = toolOutputSchemaNotes.get(toolName);
+  const note = toolNote === undefined ? {} : { note: toolNote };
   if (!validator) {
-    return { isValid: true }; // No validator means no schema to validate against
+    // No validator: no schema, or one that is reported as not validated.
+    return toolNote === undefined
+      ? { isValid: true }
+      : { isValid: true, validated: false, note: toolNote };
   }
 
   const isValid = validator(structuredContent);
@@ -64,10 +88,11 @@ export function validateToolOutput(
     return {
       isValid: false,
       error: ajv.errorsText(validator.errors),
+      ...note,
     };
   }
 
-  return { isValid: true };
+  return { isValid: true, ...note };
 }
 
 /**
@@ -76,7 +101,10 @@ export function validateToolOutput(
  * @returns true if the tool has an output schema
  */
 export function hasOutputSchema(toolName: string): boolean {
-  return toolOutputValidators.has(toolName);
+  // A schema reported as not validated has a note but no validator.
+  return (
+    toolOutputValidators.has(toolName) || toolOutputSchemaNotes.has(toolName)
+  );
 }
 
 /**

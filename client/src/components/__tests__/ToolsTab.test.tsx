@@ -545,6 +545,80 @@ describe("ToolsTab", () => {
       expect(screen.getByText(/Validation Error:/)).toBeInTheDocument();
     });
 
+    it("should note that the output schema's regex patterns were not evaluated", () => {
+      const patternTool: Tool = {
+        ...toolWithOutputSchema,
+        outputSchema: {
+          type: "object" as const,
+          properties: { data: { type: "string", pattern: "^(a+)+$" } },
+        },
+      };
+      cacheToolOutputSchemas([patternTool]);
+
+      renderToolsTab({
+        tools: [patternTool],
+        selectedTool: patternTool,
+        toolResult: {
+          content: [],
+          structuredContent: { data: `${"a".repeat(10_000)}!` },
+        },
+      });
+
+      expect(
+        screen.getByText(/Valid according to output schema/),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          /1 regex pattern\(s\) in this schema were not evaluated/,
+        ),
+      ).toBeInTheDocument();
+    });
+
+    describe("an output schema that declares identifiers", () => {
+      const idTool: Tool = {
+        ...toolWithOutputSchema,
+        outputSchema: {
+          type: "object" as const,
+          properties: {
+            x: { $id: "a/", not: { $id: "leaf", pattern: "^x" } },
+            y: { $id: "b/", not: { $id: "leaf", type: "number" } },
+          },
+        },
+      };
+
+      it("says it was not validated", () => {
+        cacheToolOutputSchemas([idTool]);
+        renderToolsTab({
+          tools: [idTool],
+          selectedTool: idTool,
+          toolResult: { content: [], structuredContent: { x: 1 } },
+        });
+        expect(
+          screen.getByText(/Not validated against output schema/),
+        ).toBeInTheDocument();
+        expect(
+          screen.getByText(/this schema was not validated/),
+        ).toBeInTheDocument();
+        expect(
+          screen.queryByText(/Valid according to output schema/),
+        ).not.toBeInTheDocument();
+      });
+
+      it("still reports missing structured content", () => {
+        cacheToolOutputSchemas([idTool]);
+        renderToolsTab({
+          tools: [idTool],
+          selectedTool: idTool,
+          toolResult: { content: [{ type: "text", text: "some result" }] },
+        });
+        expect(
+          screen.getByText(
+            /Tool has an output schema but did not return structured content/,
+          ),
+        ).toBeInTheDocument();
+      });
+    });
+
     it("should show error when tool with output schema doesn't return structured content", () => {
       const resultWithoutStructured = {
         content: [{ type: "text", text: "some result" }],

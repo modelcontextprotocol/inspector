@@ -21,6 +21,7 @@ import {
 import { handleError } from "./error-handler.js";
 import { createTransport, TransportOptions } from "./transport.js";
 import { awaitableLog } from "./utils/awaitable-log.js";
+import { RegexFreeJsonSchemaValidator } from "./utils/regexFreeSchemaValidator.js";
 
 // JSON value type for CLI arguments
 type JsonValue =
@@ -122,7 +123,14 @@ async function callMethod(args: Args): Promise<void> {
   const version = packageJson.version;
   const clientIdentity = { name, version };
 
-  const client = new Client(clientIdentity);
+  // Tool output schemas come from the server; the SDK validates results
+  // against them, so give it a provider that never runs their regexes on the
+  // native backtracking RegExp engine (skipped patterns are noted on stderr).
+  const client = new Client(clientIdentity, {
+    jsonSchemaValidator: new RegexFreeJsonSchemaValidator((note) =>
+      console.error(`Warning: ${note}`),
+    ),
+  });
 
   try {
     await connect(client, transport);

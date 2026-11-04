@@ -6,14 +6,16 @@ import { PendingElicitationRequest } from "../ElicitationTab";
 
 jest.mock("../DynamicJsonForm", () => {
   return function MockDynamicJsonForm({
+    schema,
     value,
     onChange,
   }: {
+    schema: unknown;
     value: unknown;
     onChange: (value: unknown) => void;
   }) {
     return (
-      <div data-testid="dynamic-json-form">
+      <div data-testid="dynamic-json-form" data-schema={JSON.stringify(schema)}>
         <input
           data-testid="form-input"
           value={
@@ -197,6 +199,74 @@ describe("ElicitationRequest", () => {
         1,
         expect.objectContaining({ action: "accept" }),
       );
+    });
+  });
+
+  describe("Server-supplied regex patterns", () => {
+    const patternRequest = () =>
+      createMockRequest({
+        request: {
+          id: 1,
+          message: "Please provide your information",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              name: { type: "string", pattern: "^(a+)+$", minLength: 2 },
+            },
+            required: ["name"],
+          },
+        },
+      });
+
+    it("are not evaluated, and the form says so", async () => {
+      renderElicitationRequest(patternRequest());
+      expect(
+        screen.getByText(
+          /1 regex pattern\(s\) in this schema were not evaluated/,
+        ),
+      ).toBeInTheDocument();
+
+      await act(async () => {
+        fireEvent.change(screen.getByTestId("form-input"), {
+          target: { value: JSON.stringify({ name: `${"a".repeat(10_000)}!` }) },
+        });
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+      });
+      expect(mockOnResolve).toHaveBeenCalledWith(1, {
+        action: "accept",
+        content: { name: `${"a".repeat(10_000)}!` },
+      });
+    });
+
+    it("hands the form renderer the regex-free schema", () => {
+      renderElicitationRequest(patternRequest());
+      // DynamicJsonForm forwards a string `pattern` to the native input's
+      // constraint validation, so it must never see the server's regex.
+      const formSchema = JSON.parse(
+        screen.getByTestId("dynamic-json-form").getAttribute("data-schema")!,
+      );
+      expect(formSchema.properties.name).toEqual({
+        type: "string",
+        minLength: 2,
+      });
+    });
+
+    it("still enforces the schema's other constraints", async () => {
+      renderElicitationRequest(patternRequest());
+      await act(async () => {
+        fireEvent.change(screen.getByTestId("form-input"), {
+          target: { value: JSON.stringify({ name: "a" }) },
+        });
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /submit/i }));
+      });
+      expect(mockOnResolve).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/should NOT be shorter than 2/),
+      ).toBeInTheDocument();
     });
   });
 

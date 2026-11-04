@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,6 +18,7 @@ import {
   ElicitationFormRequestData,
 } from "./ElicitationTab";
 import Ajv from "ajv";
+import { schemaNote, stripSchemaPatterns } from "@/utils/stripSchemaPatterns";
 
 export type ElicitationRequestProps = {
   request: PendingElicitationRequest;
@@ -34,6 +35,24 @@ const ElicitationRequest = ({
 
   const requestData = request.request;
   const isUrlMode = requestData.mode === "url";
+
+  // The requested schema comes from the server; its regex patterns are not
+  // evaluated (they would run on the backtracking native RegExp engine), and
+  // the form says so below. The form renderer gets the regex-free copy too,
+  // so no server pattern reaches a native input's constraint validation; the
+  // original is kept only for display. Sanitized once per request, not on
+  // every render.
+  const sanitized = useMemo(
+    () =>
+      isUrlMode
+        ? undefined
+        : stripSchemaPatterns(
+            (requestData as ElicitationFormRequestData).requestedSchema,
+          ),
+    [isUrlMode, requestData],
+  );
+  const regexFreeSchema = sanitized?.schema;
+  const sanitizedNote = sanitized && schemaNote(sanitized);
 
   useEffect(() => {
     if (isUrlMode) return;
@@ -210,14 +229,17 @@ const ElicitationRequest = ({
         return;
       }
 
-      const ajv = new Ajv();
-      const validate = ajv.compile(formRequest.requestedSchema);
-      const isValid = validate(formData);
+      // A schema reported as not validated (see the note) is not compiled.
+      if (sanitized?.validate) {
+        const ajv = new Ajv();
+        const validate = ajv.compile(regexFreeSchema as object);
+        const isValid = validate(formData);
 
-      if (!isValid) {
-        const errorMessage = ajv.errorsText(validate.errors);
-        setValidationError(errorMessage);
-        return;
+        if (!isValid) {
+          const errorMessage = ajv.errorsText(validate.errors);
+          setValidationError(errorMessage);
+          return;
+        }
       }
 
       onResolve(request.id, {
@@ -268,13 +290,19 @@ const ElicitationRequest = ({
         <div className="space-y-2">
           <h4 className="font-medium">Response Form</h4>
           <DynamicJsonForm
-            schema={formRequest.requestedSchema}
+            schema={regexFreeSchema as JsonSchemaType}
             value={formData}
             onChange={(newValue: JsonValue) => {
               setFormData(newValue);
               setValidationError(null);
             }}
           />
+
+          {sanitizedNote && (
+            <div className="mt-2 text-xs text-muted-foreground">
+              ⚠ {sanitizedNote}
+            </div>
+          )}
 
           {validationError && (
             <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
