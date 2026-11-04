@@ -766,7 +766,15 @@ export class DaemonServer {
     // the rest of the window into a loop of instant failures that holds the
     // queue for nothing. The summary still reports what completed.
     const stop = new AbortController();
-    const onCallerGone = () => stop.abort();
+    // The in-flight requests get a signal of their own, aborted alongside
+    // `stop` but never with the LoadStop: the SDK turns an abort reason into
+    // its rejection message (and the cancellation it sends) with `String()`,
+    // so a plain-object reason was tallied as "[object Object]" (#2866).
+    const abortRequests = new AbortController();
+    const onCallerGone = () => {
+      stop.abort();
+      abortRequests.abort();
+    };
     signal?.addEventListener("abort", onCallerGone, { once: true });
     const onStatus = (
       event: TypedEventGeneric<InspectorClientEventMap, "statusChange">,
@@ -779,10 +787,15 @@ export class DaemonServer {
         detail: `the connection went ${event.detail}`,
       };
       stop.abort(lost);
+      abortRequests.abort(
+        new DOMException(`load run stopped: ${lost.detail}`, "AbortError"),
+      );
     };
     client.addEventListener("statusChange", onStatus);
     // In-flight calls abort with the run, not only new ones (#1783).
-    const clearAmbientSignal = client.setAmbientRequestSignal(stop.signal);
+    const clearAmbientSignal = client.setAmbientRequestSignal(
+      abortRequests.signal,
+    );
     // Extra sessions this run opened (#2800). The engine disconnects each in
     // its own `finally`; this releases what the daemon set up around them.
     const extras: { client: InspectorClient; release: () => void }[] = [];
@@ -793,11 +806,13 @@ export class DaemonServer {
           openConnection: async () => {
             // The run's signal reaches the dial too, so a stalled handshake
             // does not hold the queue past Ctrl-C or a dropped primary.
-            const extra = await openLoadClient(client, stop.signal);
+            const extra = await openLoadClient(client, abortRequests.signal);
             // The same treatment as the primary: the caller hanging up
             // aborts the extras' in-flight calls too, and their elicitations
             // are cancelled rather than left pending with nobody to answer.
-            const clearExtraSignal = extra.setAmbientRequestSignal(stop.signal);
+            const clearExtraSignal = extra.setAmbientRequestSignal(
+              abortRequests.signal,
+            );
             const unwireExtra = wireElicitationBridge(
               extra,
               autoCancelElicitationChannel,
