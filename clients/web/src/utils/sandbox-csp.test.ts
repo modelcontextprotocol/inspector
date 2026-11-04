@@ -236,8 +236,10 @@ describe("wrapSandboxedHtml", () => {
     // engine behaviour (a navigation firing them, even mid-load) is pinned by
     // smoke:web:sandbox.
     const wrapped = wrapSandboxedHtml("", "default-src 'none'");
-    const source =
-      /<script\b[^>]*>([\s\S]*?)<\/script\s*>/i.exec(wrapped)?.[1] ?? "";
+    // The wrapper writes these exact bytes, so slice them rather than parse
+    // HTML.
+    const open = wrapped.indexOf("<script>") + "<script>".length;
+    const source = wrapped.slice(open, wrapped.indexOf("</script>", open));
     const parent = { postMessage: vi.fn() };
     const listeners: Array<() => void> = [];
     const addEventListener = vi.fn<
