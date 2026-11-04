@@ -183,6 +183,11 @@ function getAt(node: SchemaObject, rel: Rel): unknown {
 function parseLocalRef(ref: string): string[] | null {
   if (ref === "#") return [];
   if (!ref.startsWith("#/")) return null;
+  // An encoded `/` is ambiguous: Ajv 6 splits before decoding (one segment,
+  // `x/y`), while Ajv 8 decodes first (two segments, `x` then `y`), so the
+  // two can resolve different schemas. Give it up rather than guess. A NUL
+  // could collide with the internal child keys, so it is given up too.
+  if (/%2f|%00/i.test(ref) || ref.includes("\u0000")) return null;
   try {
     return ref
       .slice(2)

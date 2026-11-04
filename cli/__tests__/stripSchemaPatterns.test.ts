@@ -129,6 +129,51 @@ describe("stripSchemaPatterns (cli)", () => {
     expect(valid({ v: 1 })).toBe(true);
   });
 
+  it("gives up an encoded `/`, which Ajv 6 and Ajv 8 resolve differently", () => {
+    // Ajv 8 reads `x%2Fy` as `x` then `y`; Ajv 6 as the key `x/y`.
+    for (const [slashed, nested] of [
+      ["number", "string"],
+      ["string", "number"],
+    ]) {
+      const original = {
+        definitions: { "x/y": { type: slashed }, x: { y: { type: nested } } },
+        properties: { r: { $ref: "#/definitions/x%2Fy" } },
+      };
+      const before = new AjvJsonSchemaValidator().getValidator(
+        original as JsonSchemaType,
+      );
+      const { skipped, valid } = strip(original);
+      expect(skipped).toBe(1);
+      for (const r of ["s", 1]) {
+        expect(before({ r }).valid || valid({ r })).toBe(true);
+        expect(valid({ r })).toBe(true);
+      }
+    }
+  });
+
+  it("keeps percent-encoded and escaped pointers resolving as Ajv 8 does", () => {
+    const original = {
+      properties: {
+        "a~b": { type: "number" },
+        "a b": { type: "number" },
+        "a%": { type: "number", pattern: "^1" },
+        t: { $ref: "#/properties/a~0b" },
+        s: { $ref: "#/properties/a%20b" },
+        p: { $ref: "#/properties/a%25" },
+      },
+    };
+    const before = new AjvJsonSchemaValidator().getValidator(
+      original as JsonSchemaType,
+    );
+    const { skipped, valid } = strip(original);
+    expect(skipped).toBe(0);
+    for (const key of ["t", "s", "p"]) {
+      expect(before({ [key]: 1 }).valid).toBe(true);
+      expect(valid({ [key]: 1 })).toBe(true);
+      expect(valid({ [key]: "x" })).toBe(false);
+    }
+  });
+
   it("never rejects a value the original accepts (corpus)", () => {
     // Safe, linear patterns only, so the original can be evaluated too.
     const corpus: [unknown, unknown[]][] = [

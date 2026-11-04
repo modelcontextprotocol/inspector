@@ -172,6 +172,32 @@ describe("stripSchemaPatterns", () => {
       expect(validate({ ref: 1 })).toBe(false);
     });
 
+    it("gives up an encoded `/`, which Ajv 6 and Ajv 8 resolve differently", () => {
+      // Ajv 6 reads `x%2Fy` as the key `x/y`; Ajv 8 as `x` then `y`.
+      for (const [slashed, nested] of [
+        ["number", "string"],
+        ["string", "number"],
+      ]) {
+        const original = {
+          definitions: { "x/y": { type: slashed }, x: { y: { type: nested } } },
+          properties: { r: { $ref: "#/definitions/x%2Fy" } },
+        };
+        const { schema, skipped } = stripSchemaPatterns(original);
+        expect(skipped).toBe(1);
+        expect((schema as { properties: { r: unknown } }).properties.r).toEqual(
+          {},
+        );
+        const validate = compile(schema);
+        expect(validate({ r: "s" })).toBe(true);
+        expect(validate({ r: 1 })).toBe(true);
+      }
+      expect(
+        stripSchemaPatterns({
+          properties: { r: { $ref: "#/properties\u0000a" } },
+        }).skipped,
+      ).toBe(1);
+    });
+
     it("keeps a reference cycle intact", () => {
       const original = {
         $ref: "#/definitions/node",
