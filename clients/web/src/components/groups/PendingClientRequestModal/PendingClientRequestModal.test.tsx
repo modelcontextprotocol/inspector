@@ -256,6 +256,29 @@ describe("PendingClientRequestModal", () => {
     openSpy.mockRestore();
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "data:text/html,<b>x</b>",
+    "file:///etc/passwd",
+    "not a url",
+  ])("refuses to open a non-http(s) elicitation URL (%s)", (url) => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    renderWithMantine(
+      <PendingClientRequestModal
+        {...baseProps}
+        request={{ ...urlContent, url }}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Open in Browser" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/only http: and https: URLs can be opened/),
+    ).toBeInTheDocument();
+    expect(openSpy).not.toHaveBeenCalled();
+    openSpy.mockRestore();
+  });
+
   it("accepts a URL elicitation only after the user confirms completion", async () => {
     const user = userEvent.setup();
     const openSpy = vi.spyOn(window, "open").mockReturnValue(null);

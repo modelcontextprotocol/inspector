@@ -229,9 +229,9 @@ import {
   ResourceTemplateSchema,
   PromptSchema,
 } from "@modelcontextprotocol/core";
-import { AjvJsonSchemaValidator } from "@modelcontextprotocol/client/validators/ajv";
 import { z } from "zod/v4";
 import { validateToolOutput } from "./toolOutputValidation.js";
+import { LinearPatternJsonSchemaValidator } from "./linearPatternValidator.js";
 import {
   LIST_MAX_PAGES,
   ModernResultEnvelopeSchema,
@@ -531,9 +531,11 @@ export class InspectorClient extends InspectorClientEventTarget {
   private taskSession: TaskEnabledSession | null = null;
   /** Receiver-side Tasks binding, replaced with each connected session. */
   private taskReceiverBinding: TaskReceiverBinding | null = null;
-  // Lazily-built validator used only on the skipOutputValidation path to detect
-  // (non-fatally) when a delivered result violates the tool's outputSchema.
-  private outputValidator: AjvJsonSchemaValidator | null = null;
+  // Lazily-built validator for server-supplied schemas (a tool's outputSchema,
+  // an app elicitation's requestedSchema). Its `pattern` checks run in bounded
+  // time: the schema is server-controlled, and the native backtracking RegExp
+  // would let a crafted pattern freeze the thread that validates it.
+  private outputValidator: LinearPatternJsonSchemaValidator | null = null;
   private transport: Transport | MessageTrackingTransport | null = null;
   private baseTransport: Transport | null = null;
   // The `rawDispatch` ext-tasks requires: below-SDK requests whose responses
@@ -2852,7 +2854,7 @@ export class InspectorClient extends InspectorClientEventTarget {
         params: request.params,
         signal: controller.signal,
       });
-      this.outputValidator ??= new AjvJsonSchemaValidator();
+      this.outputValidator ??= new LinearPatternJsonSchemaValidator();
       const invalid = validateAppElicitResult(
         this.outputValidator,
         request.params,
@@ -4342,14 +4344,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   /**
    * Non-fatally validate a delivered tool result against the tool's outputSchema
    * (used by the skipOutputValidation path). Delegates to the pure
-   * {@link validateToolOutput} helper with this client's lazily-built Ajv
-   * validator. Returns an advisory message, or undefined when valid.
+   * {@link validateToolOutput} helper with this client's lazily-built
+   * bounded-time validator. Returns an advisory message, or undefined when valid.
    */
   private validateToolOutput(
     tool: Tool,
     result: CallToolResult,
   ): string | undefined {
-    this.outputValidator ??= new AjvJsonSchemaValidator();
+    this.outputValidator ??= new LinearPatternJsonSchemaValidator();
     return validateToolOutput(this.outputValidator, tool, result);
   }
 

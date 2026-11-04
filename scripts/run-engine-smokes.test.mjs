@@ -30,6 +30,7 @@ describe("ENGINE_SMOKES", () => {
     // claim, so a test that computed it from disk would agree with any mistake.
     assert.deepEqual(ENGINE_SMOKES, [
       "smoke-web-browser.mjs",
+      "smoke-web-sandbox-navigation.mjs",
       "smoke-web-app.mjs",
       "smoke-web-elicitation.mjs",
     ]);
@@ -42,7 +43,7 @@ describe("ENGINE_SMOKES", () => {
   });
 
   it("runs the cheapest smoke first", () => {
-    // smoke-web-browser only boots the bundle; the other two drive a whole App
+    // smoke-web-browser only boots the bundle; the App smokes drive a whole App
     // flow with 45s waits. Ordering it first is what makes "this engine cannot
     // run the bundle at all" fail in seconds rather than after two timeouts.
     assert.equal(ENGINE_SMOKES[0], "smoke-web-browser.mjs");
@@ -61,6 +62,7 @@ describe("every engine tier consumes ENGINE_SMOKES", () => {
     assert.match(scripts.smoke, /smoke:web:chromium/);
     for (const individual of [
       "smoke:web:browser",
+      "smoke:web:sandbox",
       "smoke:web:app",
       "smoke:web:elicit",
     ]) {
@@ -132,6 +134,7 @@ describe("each smoke's own docs point at its own command", () => {
     "smoke-web-browser.mjs": "smoke:web:browser",
     "smoke-web-app.mjs": "smoke:web:app",
     "smoke-web-elicitation.mjs": "smoke:web:elicit",
+    "smoke-web-sandbox-navigation.mjs": "smoke:web:sandbox",
   };
 
   it("never tells the reader to run a sibling smoke", () => {

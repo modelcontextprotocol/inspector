@@ -2,10 +2,10 @@
  * The headless browser the web smokes drive: which engine, how it is launched,
  * and the two error channels a page reports on (#2086).
  *
- * All three smokes (`smoke:web:browser`, `smoke:web:app`, `smoke:web:elicit`)
- * and `pack:verify` go through here, so the engine is a parameter in exactly
+ * The engine-sensitive smokes (`smoke:web:browser`, `smoke:web:sandbox`,
+ * `smoke:web:app`, `smoke:web:elicit`) and `pack:verify` go through here, so the engine is a parameter in exactly
  * one place and the diagnostics split is stated once rather than hand-rolled
- * four times.
+ * in every smoke.
  *
  * Every browser-driven check in this repo used to be Chromium-only. That is
  * fine for most of the web client, whose behavior is React and Mantine — and it
