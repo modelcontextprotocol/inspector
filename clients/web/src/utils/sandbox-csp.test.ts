@@ -7,6 +7,7 @@ import {
   escapeHtmlAttr,
   wrapSandboxedHtml,
   SANDBOX_DEPARTURE_MESSAGE,
+  scriptLiteral,
 } from "./sandbox-csp";
 
 describe("SAFE_CSP_SOURCE", () => {
@@ -235,7 +236,8 @@ describe("wrapSandboxedHtml", () => {
     // engine behaviour (a navigation firing them, even mid-load) is pinned by
     // smoke:web:sandbox.
     const wrapped = wrapSandboxedHtml("", "default-src 'none'");
-    const source = /<script>(.*?)<\/script>/.exec(wrapped)?.[1] ?? "";
+    const source =
+      /<script\b[^>]*>([\s\S]*?)<\/script\s*>/i.exec(wrapped)?.[1] ?? "";
     const parent = { postMessage: vi.fn() };
     const listeners: Array<() => void> = [];
     const addEventListener = vi.fn<
@@ -291,5 +293,14 @@ describe("wrapSandboxedHtml", () => {
     // brought itself.
     const wrapped = wrapSandboxedHtml("<p>no frames here</p>", "default-src *");
     expect(wrapped).not.toMatch(/<iframe/i);
+  });
+});
+
+describe("scriptLiteral", () => {
+  it("escapes what could end an inline script or statement, and still parses back", () => {
+    const value = { s: "</script><b>\u2028\u2029" };
+    const literal = scriptLiteral(value);
+    expect(literal).not.toMatch(/[<>\u2028\u2029]/);
+    expect(JSON.parse(literal)).toEqual(value);
   });
 });

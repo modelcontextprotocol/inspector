@@ -229,6 +229,18 @@ export function escapeHtmlAttr(s: string): string {
 export const SANDBOX_DEPARTURE_MESSAGE = { mcpInspectorSandbox: "departing" };
 
 /**
+ * `value` as a JavaScript literal that is safe to splice into an inline
+ * `<script>`: `JSON.stringify`, with `<`, `>` and the two line separators
+ * escaped so no value can close the element or end the statement early.
+ */
+export function scriptLiteral(value: unknown): string {
+  return JSON.stringify(value).replace(
+    /[<>\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
+/**
  * Posts {@link SANDBOX_DEPARTURE_MESSAGE} to the proxy when the document starts
  * to leave: on `beforeunload`, which a navigation fires even when it aborts the
  * document before its own `load` (where `pagehide` does not fire, and where
@@ -238,7 +250,7 @@ export const SANDBOX_DEPARTURE_MESSAGE = { mcpInspectorSandbox: "departing" };
  * first, in the capture phase, where no later listener can stop them. The app
  * can still post the message itself, which only closes its own frame.
  */
-const DEPARTURE_SCRIPT = `<script>(function(){var p=parent;function f(){p.postMessage(${JSON.stringify(SANDBOX_DEPARTURE_MESSAGE)},"*")}addEventListener("beforeunload",f,true);addEventListener("pagehide",f,true)})()</script>`;
+const DEPARTURE_SCRIPT = `<script>(function(){var p=parent;function f(){p.postMessage(${scriptLiteral(SANDBOX_DEPARTURE_MESSAGE)},"*")}addEventListener("beforeunload",f,true);addEventListener("pagehide",f,true)})()</script>`;
 
 /**
  * Wrap an app's untrusted HTML in a host-authored document whose first

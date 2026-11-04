@@ -159,19 +159,29 @@ function wrapApp(appScript, frameDomains) {
   return `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="${policy}"><meta charset="utf-8">${DEPARTURE_SCRIPT}</head><body><script>${appScript}</script></body></html>`;
 }
 
+/**
+ * `value` as a JavaScript literal safe to splice into an inline script:
+ * `JSON.stringify` with `<`, `>` and the line separators escaped.
+ */
+const jsLiteral = (value) =>
+  JSON.stringify(value).replace(
+    /[<>\u2028\u2029]/g,
+    (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+
 // Every app echoes what it receives, so "the host's messages reach the app"
 // is observable from the host page.
 const ECHO = `addEventListener("message", (e) => parent.postMessage({ kind: "app-echo" }, "*"));`;
 const HELLO = `parent.postMessage({ kind: "app-hello" }, "*");`;
 const navigateTo = (url) =>
-  `setTimeout(() => { location.href = ${JSON.stringify(url)}; }, 50);`;
+  `setTimeout(() => { location.href = ${jsLiteral(url)}; }, 50);`;
 /**
  * Add a nested frame, which holds the srcdoc's `load` until it finishes, and
  * optionally run `then` once it has loaded.
  */
 const nestFrame = (url, then = "") =>
-  `{ const f = document.createElement("iframe"); f.src = ${JSON.stringify(url)}; f.onload = () => { ${then} }; document.body.appendChild(f); }`;
-const navigateNow = (url) => `location.href = ${JSON.stringify(url)};`;
+  `{ const f = document.createElement("iframe"); f.src = ${jsLiteral(url)}; f.onload = () => { ${then} }; document.body.appendChild(f); }`;
+const navigateNow = (url) => `location.href = ${jsLiteral(url)};`;
 /** Navigate once the srcdoc itself has loaded (after every nested frame). */
 const navigateAfterLoad = (url) =>
   `addEventListener("load", () => setTimeout(() => { ${navigateNow(url)} }));`;
@@ -197,8 +207,8 @@ addEventListener("message", (e) => {
   if (e.source !== f.contentWindow) return;
   const d = e.data || {};
   if (d.method === "ui/notifications/sandbox-proxy-ready") {
-    f.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/sandbox-resource-ready", params: ${JSON.stringify(params).replace(/</g, "\\u003c")} }, ${JSON.stringify(sandboxOrigin)});
-    setInterval(() => f.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { content: [] } }, ${JSON.stringify(sandboxOrigin)}), 100);
+    f.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/sandbox-resource-ready", params: ${jsLiteral(params)} }, ${jsLiteral(sandboxOrigin)});
+    setInterval(() => f.contentWindow.postMessage({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { content: [] } }, ${jsLiteral(sandboxOrigin)}), 100);
     return;
   }
   window.__received.push(d.kind || d.method || "unknown");
