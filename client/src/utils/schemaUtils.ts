@@ -12,9 +12,9 @@ const ajv = new Ajv();
 
 // Cache for compiled validators
 const toolOutputValidators = new Map<string, ValidateFunction>();
-// How many server-supplied regexes were removed from each tool's schema
-// before compiling (see stripSchemaPatterns for why they are not evaluated).
-const toolOutputStrippedPatterns = new Map<string, number>();
+// The note for each tool whose schema had server-supplied regexes (or checks
+// depending on them) removed before compiling (see stripSchemaPatterns).
+const toolOutputSchemaNotes = new Map<string, string>();
 
 /**
  * Compiles and caches output schema validators for a list of tools
@@ -23,16 +23,23 @@ const toolOutputStrippedPatterns = new Map<string, number>();
  */
 export function cacheToolOutputSchemas(tools: Tool[]): void {
   toolOutputValidators.clear();
-  toolOutputStrippedPatterns.clear();
+  toolOutputSchemaNotes.clear();
   for (const tool of tools) {
     if (tool.outputSchema) {
       try {
         // Compile a regex-free copy: the schema comes from the server, and
         // its patterns would run on the backtracking native RegExp engine.
-        const { schema, stripped } = stripSchemaPatterns(tool.outputSchema);
+        const { schema, stripped, skipped } = stripSchemaPatterns(
+          tool.outputSchema,
+        );
         const validator = ajv.compile(schema as object);
         toolOutputValidators.set(tool.name, validator);
-        if (stripped > 0) toolOutputStrippedPatterns.set(tool.name, stripped);
+        if (stripped > 0 || skipped > 0) {
+          toolOutputSchemaNotes.set(
+            tool.name,
+            patternsNotEvaluatedNote(stripped, skipped),
+          );
+        }
       } catch (error) {
         console.warn(
           `Failed to compile output schema for tool ${tool.name}:`,
@@ -72,9 +79,8 @@ export function validateToolOutput(
     return { isValid: true }; // No validator means no schema to validate against
   }
 
-  const stripped = toolOutputStrippedPatterns.get(toolName);
-  const note =
-    stripped === undefined ? {} : { note: patternsNotEvaluatedNote(stripped) };
+  const schemaNote = toolOutputSchemaNotes.get(toolName);
+  const note = schemaNote === undefined ? {} : { note: schemaNote };
   const isValid = validator(structuredContent);
   if (!isValid) {
     return {

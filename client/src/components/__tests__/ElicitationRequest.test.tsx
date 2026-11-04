@@ -6,14 +6,16 @@ import { PendingElicitationRequest } from "../ElicitationTab";
 
 jest.mock("../DynamicJsonForm", () => {
   return function MockDynamicJsonForm({
+    schema,
     value,
     onChange,
   }: {
+    schema: unknown;
     value: unknown;
     onChange: (value: unknown) => void;
   }) {
     return (
-      <div data-testid="dynamic-json-form">
+      <div data-testid="dynamic-json-form" data-schema={JSON.stringify(schema)}>
         <input
           data-testid="form-input"
           value={
@@ -235,6 +237,19 @@ describe("ElicitationRequest", () => {
       expect(mockOnResolve).toHaveBeenCalledWith(1, {
         action: "accept",
         content: { name: `${"a".repeat(10_000)}!` },
+      });
+    });
+
+    it("hands the form renderer the regex-free schema", () => {
+      renderElicitationRequest(patternRequest());
+      // DynamicJsonForm forwards a string `pattern` to the native input's
+      // constraint validation, so it must never see the server's regex.
+      const formSchema = JSON.parse(
+        screen.getByTestId("dynamic-json-form").getAttribute("data-schema")!,
+      );
+      expect(formSchema.properties.name).toEqual({
+        type: "string",
+        minLength: 2,
       });
     });
 

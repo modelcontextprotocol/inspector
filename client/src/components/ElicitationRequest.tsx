@@ -164,9 +164,14 @@ const ElicitationRequest = ({
   const formRequest = requestData as ElicitationFormRequestData;
   // The requested schema comes from the server; its regex patterns are not
   // evaluated (they would run on the backtracking native RegExp engine), and
-  // the form says so below.
-  const { schema: regexFreeSchema, stripped: strippedPatterns } =
-    stripSchemaPatterns(formRequest.requestedSchema);
+  // the form says so below. The form renderer gets the regex-free copy too,
+  // so no server pattern reaches a native input's constraint validation; the
+  // original is kept only for display.
+  const {
+    schema: regexFreeSchema,
+    stripped: strippedPatterns,
+    skipped: skippedChecks,
+  } = stripSchemaPatterns(formRequest.requestedSchema);
 
   const validateEmailFormat = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -277,7 +282,7 @@ const ElicitationRequest = ({
         <div className="space-y-2">
           <h4 className="font-medium">Response Form</h4>
           <DynamicJsonForm
-            schema={formRequest.requestedSchema}
+            schema={regexFreeSchema as JsonSchemaType}
             value={formData}
             onChange={(newValue: JsonValue) => {
               setFormData(newValue);
@@ -285,9 +290,9 @@ const ElicitationRequest = ({
             }}
           />
 
-          {strippedPatterns > 0 && (
+          {(strippedPatterns > 0 || skippedChecks > 0) && (
             <div className="mt-2 text-xs text-muted-foreground">
-              ⚠ {patternsNotEvaluatedNote(strippedPatterns)}
+              ⚠ {patternsNotEvaluatedNote(strippedPatterns, skippedChecks)}
             </div>
           )}
 

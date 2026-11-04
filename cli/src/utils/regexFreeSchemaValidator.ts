@@ -38,12 +38,16 @@ export class RegexFreeJsonSchemaValidator implements jsonSchemaValidator {
   }
 
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-    const { schema: regexFree, stripped } = stripSchemaPatterns(schema);
+    const {
+      schema: regexFree,
+      stripped,
+      skipped,
+    } = stripSchemaPatterns(schema);
     // `stripSchemaPatterns` returns a structural copy of a JsonSchemaType
     // with keywords removed, which is still a JsonSchemaType.
     const validate = this.inner.getValidator<T>(regexFree as JsonSchemaType);
-    if (stripped === 0) return validate;
-    const note = patternsNotEvaluatedNote(stripped);
+    if (stripped === 0 && skipped === 0) return validate;
+    const note = patternsNotEvaluatedNote(stripped, skipped);
     return (input: unknown) => {
       const result = validate(input);
       if (result.valid) {
