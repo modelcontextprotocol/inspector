@@ -102,15 +102,22 @@ async function waitForDaemon(
       const effectiveToken = opts?.rereadTokenDir
         ? (readDaemonTokenFile(opts.rereadTokenDir) ?? token)
         : token;
+      let pong: { version?: string } | undefined;
       try {
-        await callDaemon(
+        pong = await callDaemon<{ version?: string }>(
           "ping",
           {},
           { socketPath, timeoutMs: 2000, token: effectiveToken },
         );
-        return;
       } catch {
         // connected but not ready yet
+      }
+      if (pong !== undefined) {
+        // The daemon that answered may not be the one this caller spawned:
+        // a concurrent first invocation from another release can win the
+        // lock (see `rereadTokenDir`), so check it like a reused one (#2870).
+        assertDaemonVersion(pong.version, CLIENT_VERSION);
+        return;
       }
     }
     await new Promise((r) => setTimeout(r, READY_POLL_MS));

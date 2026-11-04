@@ -947,6 +947,37 @@ describe("daemon coverage", () => {
       },
     );
 
+    it("ensureDaemon refuses a daemon from another release that answers its readiness ping", async () => {
+      // The daemon that comes up need not be the one this caller spawned: a
+      // concurrent first invocation from another release can win the lock.
+      // This "daemon" binds the socket and reports another release.
+      const d = freshDir();
+      const sock = path.join(d, "mcpdod.sock");
+      const script = path.join(d, "other-release-daemon.mjs");
+      fs.writeFileSync(
+        script,
+        [
+          'import * as net from "node:net";',
+          "const server = net.createServer((socket) => {",
+          '  socket.on("error", () => {});',
+          '  socket.once("data", (buf) => {',
+          "    const req = JSON.parse(String(buf).trim());",
+          '    socket.write(JSON.stringify({ id: req.id, ok: true, result: { pong: true, pid: process.pid, stopping: false, version: "0.0.1" } }) + "\\n");',
+          "  });",
+          "});",
+          `server.listen(${JSON.stringify(sock)});`,
+          "setTimeout(() => process.exit(0), 3000);",
+          "",
+        ].join("\n"),
+      );
+      await expect(
+        ensureDaemon({ dir: d, daemonScript: script, readyTimeoutMs: 2500 }),
+      ).rejects.toMatchObject({
+        envelope: { code: "daemon_version_mismatch" },
+        message: expect.stringContaining("mcpdo 0.0.1"),
+      });
+    }, 15000);
+
     it("ensureDaemon reuses a running daemon of the same release", async () => {
       const d = freshDir();
       const sock = path.join(d, "mcpdod.sock");
