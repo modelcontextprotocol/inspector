@@ -56,6 +56,11 @@ export const ValidJson: Story = {
       { type: "success", message: "Package configuration is valid" },
       { type: "info", message: "1 package found" },
     ],
+    launchPreview: {
+      kind: "command",
+      value: "npx -y my-mcp-server",
+      envNames: [],
+    },
   },
 };
 
@@ -215,5 +220,10 @@ export const FullyConfigured: Story = {
         value: "true",
       },
     ],
+    launchPreview: {
+      kind: "command",
+      value: "npx -y @org/full-server",
+      envNames: ["TOKEN", "DEBUG"],
+    },
   },
 };

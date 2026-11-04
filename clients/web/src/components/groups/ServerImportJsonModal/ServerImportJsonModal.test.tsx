@@ -223,14 +223,11 @@ describe("ServerImportJsonModal", () => {
     expect(screen.getByRole("button", { name: "Add Server" })).toBeDisabled();
   });
 
-  // The window this exercises is the one between an edit and the debounce that
-  // re-disables the button, so the whole test runs on fake timers: the pending
-  // re-validation then cannot land unless this test advances it, and the window
-  // stops depending on how long the machine takes to get from the paste to the
-  // click. On real timers a loaded box could spend more than
-  // VALIDATE_DEBOUNCE_MS there, re-disable the button, and turn the click into a
-  // no-op that sets no submit error at all (#2250).
-  it("guards against a live edit made before the debounce re-validates", async () => {
+  // An edit disables Add until the debounce re-validates it, so a click inside
+  // that window cannot save content the preview never showed. Fake timers keep
+  // the window open for as long as the test needs it (#2250); the hook's own
+  // suite covers the submit-time refusal behind the disabled button.
+  it("disables Add for a live edit made before the debounce re-validates", async () => {
     vi.useFakeTimers();
     try {
       const onAddServer = vi.fn();
@@ -248,13 +245,13 @@ describe("ServerImportJsonModal", () => {
         await vi.advanceTimersByTimeAsync(VALIDATE_DEBOUNCE_MS);
       });
       expect(screen.getByRole("button", { name: "Add Server" })).toBeEnabled();
-      // Replace with invalid content and do *not* advance: the debounce stays
-      // pending, the button stays enabled, and clicking exercises the
-      // submit-time guard that re-parses the live text.
+      // Replace the content and do *not* advance: the debounce stays pending
+      // and Add is disabled until it lands.
       await pasteJson("{not json");
-      fireEvent.click(screen.getByRole("button", { name: "Add Server" }));
+      const add = screen.getByRole("button", { name: "Add Server" });
+      expect(add).toBeDisabled();
+      fireEvent.click(add);
       expect(onAddServer).not.toHaveBeenCalled();
-      expect(screen.getByText(/Fix the validation errors/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

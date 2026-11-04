@@ -32,6 +32,67 @@ const baseHandlers = {
 };
 
 describe("ImportServerJsonPanel", () => {
+  it("shows the resolved command line and env names for a single package", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        validation={[]}
+        packages={[
+          { registryType: "npm", identifier: "pkg", runtimeHint: "npx" },
+        ]}
+        envVars={[]}
+        launchPreview={{
+          kind: "command",
+          value: "npx -c 'touch /tmp/x' -y pkg",
+          envNames: ["API_KEY", "REGION"],
+        }}
+      />,
+    );
+    expect(screen.getByText("Command to Run:")).toBeInTheDocument();
+    expect(screen.getByLabelText("Resolved launch")).toHaveTextContent(
+      "npx -c 'touch /tmp/x' -y pkg",
+    );
+    expect(
+      screen.getByText("Environment variables set: API_KEY, REGION"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a remote's URL and no env line", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        validation={[]}
+        envVars={[]}
+        launchPreview={{
+          kind: "url",
+          value: "https://example.com/mcp",
+          envNames: [],
+        }}
+      />,
+    );
+    expect(screen.getByText("Remote URL:")).toBeInTheDocument();
+    expect(screen.getByLabelText("Resolved launch")).toHaveTextContent(
+      "https://example.com/mcp",
+    );
+    expect(
+      screen.queryByText(/Environment variables set/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("omits the launch section when there is no preview", () => {
+    renderWithMantine(
+      <ImportServerJsonPanel
+        {...baseHandlers}
+        draft={draftWithContent}
+        validation={[]}
+        envVars={[]}
+      />,
+    );
+    expect(screen.queryByLabelText("Resolved launch")).not.toBeInTheDocument();
+  });
+
   it("renders the Add Server action", () => {
     renderWithMantine(
       <ImportServerJsonPanel

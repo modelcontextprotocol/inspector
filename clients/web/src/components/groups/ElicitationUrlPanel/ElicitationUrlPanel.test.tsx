@@ -15,6 +15,28 @@ const baseProps = {
 };
 
 describe("ElicitationUrlPanel", () => {
+  it("disables Open in Browser and explains why when the URL is refused", () => {
+    renderWithMantine(
+      <ElicitationUrlPanel
+        {...baseProps}
+        url="javascript:alert(1)"
+        openRefusal="Refusing to open this URL."
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: "Open in Browser" }),
+    ).toBeDisabled();
+    expect(screen.getByText("URL refused")).toBeInTheDocument();
+    expect(screen.getByText("Refusing to open this URL.")).toBeInTheDocument();
+    // Copy stays available so the user can inspect the URL.
+    expect(screen.getByRole("button", { name: "Copy URL" })).toBeEnabled();
+  });
+
+  it("shows no refusal when the URL may be opened", () => {
+    renderWithMantine(<ElicitationUrlPanel {...baseProps} />);
+    expect(screen.queryByText("URL refused")).not.toBeInTheDocument();
+  });
+
   it("renders the message, url, and request id", () => {
     renderWithMantine(<ElicitationUrlPanel {...baseProps} />);
     expect(

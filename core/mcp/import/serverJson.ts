@@ -99,14 +99,33 @@ export function deriveServerId(fullName: string): string {
   return cleaned || "server";
 }
 
-/** Parse an `environmentVariables` array into our env-var descriptors. */
-function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] {
+/**
+ * A portable environment variable identifier. The registry schema types
+ * `name` as a bare string, so this is the POSIX shape rather than a schema
+ * rule. It matters because a declared name is not only an env key: for an OCI
+ * package it becomes the `-e NAME` argument to `docker run`, where a name such
+ * as `--privileged` would be read as a docker flag.
+ */
+const ENV_VAR_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Parse an `environmentVariables` array into our env-var descriptors, or null
+ * when any declared name is not a valid identifier. Null rejects the whole
+ * package rather than dropping the one variable: a dropped variable may be a
+ * required one, and launching without it would be a silently misconfigured
+ * server, so the package is made unrunnable the way a bad identifier is.
+ */
+function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] | null {
   const out: ServerJsonEnvVar[] = [];
   for (const entry of rawList) {
     const obj = asObject(entry);
     if (!obj) continue;
     const name = asString(obj.name);
-    if (!name) continue;
+    // Only an absent (or non-string) name is skipped. An explicit empty string
+    // is a declared variable with an invalid identifier, so it falls through
+    // to the check below and rejects the package like any other bad name.
+    if (name === undefined) continue;
+    if (!ENV_VAR_NAME.test(name)) return null;
     const required = Boolean(pick(obj, "isRequired", "is_required"));
     const isSecret = Boolean(pick(obj, "isSecret", "is_secret"));
     // The schema's `value` is a *fixed* value and `default` a suggestion; we
@@ -183,6 +202,19 @@ function runtimeForPackage(
   }
 }
 
+/**
+ * Whether a value would not survive as a single, non-option argv token: it
+ * starts with `-` (so the runtime would parse it as a flag) or contains
+ * whitespace (so a shell-pasted copy of the command would split it). A package
+ * `identifier` and `version` become the runtime's package reference
+ * (`npx -y <id>@<version>`, `docker run … <image>`), so either shape would let
+ * an imported document smuggle a runtime flag in through a field the import
+ * panel labels as a package name. No registry's naming rules admit either.
+ */
+function isUnsafePackageToken(value: string): boolean {
+  return value.startsWith("-") || /\s/.test(value);
+}
+
 /** Map a single `packages[]` entry to a launch option, or null if unsupported. */
 function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
   const registryType =
@@ -190,12 +222,21 @@ function parsePackage(raw: Record<string, unknown>): ServerJsonOption | null {
   const identifier = asString(raw.identifier) ?? "";
   if (!registryType || !identifier) return null;
   const version = asString(raw.version);
+  // Treated like an unsupported package: skipped, so a document whose only
+  // package is malformed this way fails with the "no runnable package" error.
+  if (
+    isUnsafePackageToken(identifier) ||
+    (version !== undefined && isUnsafePackageToken(version))
+  ) {
+    return null;
+  }
   const runtime = runtimeForPackage(registryType, identifier, version);
   if (!runtime) return null;
 
   const envVars = parseEnvVars(
     asArray(pick(raw, "environmentVariables", "environment_variables")),
   );
+  if (!envVars) return null;
   const runtimeArgs = resolveArguments(
     asArray(pick(raw, "runtimeArguments", "runtime_arguments")),
   );
