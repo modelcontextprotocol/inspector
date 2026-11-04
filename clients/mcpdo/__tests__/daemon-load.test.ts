@@ -229,8 +229,9 @@ describe("daemon rpc with --load", () => {
       null;
     loadMock.impl = async (client, args, options, run) => {
       expect(client).toBe(fake.client);
-      // The run's own signal is the ambient one, so in-flight calls abort too.
-      expect(fake.ambient()).toBe(run.signal);
+      // In-flight calls abort with the run, on a signal of their own (#2866).
+      expect(fake.ambient()).toBeInstanceOf(AbortSignal);
+      expect(fake.ambient()).not.toBe(run.signal);
       seen = { args, options };
       return SUMMARY;
     };
@@ -261,9 +262,14 @@ describe("daemon rpc with --load", () => {
     const started = runUntilAborted();
     const call = rpc({}, abort.signal);
     const runSignal = await started;
+    const requests = fake.ambient()!;
     expect(runSignal.aborted).toBe(false);
+    expect(requests.aborted).toBe(false);
     abort.abort();
     expect(runSignal.aborted).toBe(true);
+    // In-flight calls abort as before: a plain AbortError.
+    expect(requests.aborted).toBe(true);
+    expect((requests.reason as DOMException).name).toBe("AbortError");
     const response = await call;
     expect(response.ok && response.result).toMatchObject({
       kind: "load",
@@ -275,8 +281,10 @@ describe("daemon rpc with --load", () => {
     const started = runUntilAborted();
     const call = rpc({});
     const runSignal = await started;
+    const requests = fake.ambient()!;
     fake.emitStatus("connecting");
     expect(runSignal.aborted).toBe(false);
+    expect(requests.aborted).toBe(false);
     fake.emitStatus("disconnected");
     expect(runSignal.aborted).toBe(true);
     // Named, so the summary reports the drop rather than an interrupt.
@@ -284,6 +292,14 @@ describe("daemon rpc with --load", () => {
       reason: "connection_lost",
       detail: "the connection went disconnected",
     });
+    // In-flight calls get an Error, never the LoadStop object: the SDK
+    // stringifies the reason into its rejection, and a plain object read as
+    // "[object Object]" in the summary (#2866).
+    expect(requests.aborted).toBe(true);
+    expect(requests.reason).toBeInstanceOf(DOMException);
+    expect(String(requests.reason)).toBe(
+      "AbortError: load run stopped: the connection went disconnected",
+    );
     expect((await call).ok).toBe(true);
   });
 
@@ -338,8 +354,9 @@ describe("daemon rpc with --load", () => {
       loadMock.impl = async (_client, _args, options, run) => {
         expect(options).toEqual(MULTI);
         opened = await run.openConnection!();
-        // The caller hanging up aborts the extra's in-flight calls too.
-        expect(extra.ambient()).toBe(run.signal);
+        // The caller hanging up aborts the extra's in-flight calls too, on
+        // the same signal as the primary's.
+        expect(extra.ambient()).toBe(fake.ambient());
         return SUMMARY;
       };
       const response = await rpc({ load: MULTI });
@@ -364,14 +381,16 @@ describe("daemon rpc with --load", () => {
         type: "streamable-http",
         url: "http://localhost:1/mcp",
       });
-      let runSignal: AbortSignal | undefined;
+      let requestSignal: AbortSignal | undefined;
       loadMock.impl = async (_client, _args, _options, run) => {
-        runSignal = run.signal;
+        requestSignal = fake.ambient();
         await run.openConnection!();
         return SUMMARY;
       };
       expect((await rpc({ load: MULTI })).ok).toBe(true);
-      expect(open.mock.calls[0]![2]).toBe(runSignal);
+      // The requests' signal, which aborts with the run and never carries
+      // the LoadStop object into the SDK (#2866).
+      expect(open.mock.calls[0]![2]).toBe(requestSignal);
     });
 
     it("dials the server the primary was resolved on, even if the default moves while queued", async () => {
