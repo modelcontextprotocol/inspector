@@ -121,7 +121,10 @@ function parseEnvVars(rawList: unknown[]): ServerJsonEnvVar[] | null {
     const obj = asObject(entry);
     if (!obj) continue;
     const name = asString(obj.name);
-    if (!name) continue;
+    // Only an absent (or non-string) name is skipped. An explicit empty string
+    // is a declared variable with an invalid identifier, so it falls through
+    // to the check below and rejects the package like any other bad name.
+    if (name === undefined) continue;
     if (!ENV_VAR_NAME.test(name)) return null;
     const required = Boolean(pick(obj, "isRequired", "is_required"));
     const isSecret = Boolean(pick(obj, "isSecret", "is_secret"));

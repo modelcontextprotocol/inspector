@@ -251,7 +251,8 @@ describe("parseServerJson — packages", () => {
   });
 
   it("rejects an npm package declaring an invalid env var name", () => {
-    for (const name of ["1ABC", "A B", "A=B", "-x"]) {
+    // "" is an explicitly declared (empty) name, not an absent one.
+    for (const name of ["", "1ABC", "A B", "A=B", "-x"]) {
       expect(() =>
         parseServerJson(
           JSON.stringify({
@@ -267,6 +268,22 @@ describe("parseServerJson — packages", () => {
         ),
       ).toThrow(/No runnable package or remote/);
     }
+  });
+
+  it("still skips an env var entry with no (or a non-string) name", () => {
+    const parsed = parseServerJson(
+      JSON.stringify({
+        name: "com.example/env-nameless",
+        packages: [
+          {
+            registryType: "npm",
+            identifier: "pkg",
+            environmentVariables: [{ isRequired: true }, { name: 7 }],
+          },
+        ],
+      }),
+    );
+    expect(parsed.options[0].envVars).toEqual([]);
   });
 
   it("still forwards a valid env var name to docker as -e NAME", () => {
