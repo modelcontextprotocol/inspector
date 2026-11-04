@@ -1,6 +1,7 @@
 import Ajv from "ajv";
 import {
   patternsNotEvaluatedNote,
+  schemaNote,
   stripSchemaPatterns,
 } from "../stripSchemaPatterns";
 
@@ -189,16 +190,11 @@ describe("stripSchemaPatterns", () => {
       expect(validate({ next: 1 })).toBe(false);
     });
 
-    it("removes references that are remote, plain-name or $id-relative", () => {
+    it("removes references that are remote, plain-name or dynamic", () => {
       for (const original of [
         { properties: { a: { $ref: "other.json#/x" } } },
         { properties: { a: { $ref: "#anchor" } } },
         { properties: { a: { $ref: "#/%E0%A4%A" } } },
-        {
-          $id: "http://example.com/s.json",
-          properties: { a: { $ref: "#/definitions/s" } },
-          definitions: { s: { type: "string" } },
-        },
         { properties: { a: { $dynamicRef: "#meta" } } },
       ]) {
         const { schema, skipped } = stripSchemaPatterns(original);
@@ -353,16 +349,170 @@ describe("stripSchemaPatterns", () => {
     });
   });
 
+  describe("identifiers", () => {
+    it("does not validate a schema whose relocated $ids would collide", () => {
+      // Moving each `not` into root definitions would put two `leaf` ids
+      // with different constraints in one scope; Ajv would refuse that.
+      const result = stripSchemaPatterns({
+        properties: {
+          x: { $id: "a/", not: { $id: "leaf", type: "string", pattern: "^x" } },
+          y: { $id: "b/", not: { $id: "leaf", type: "number", pattern: "^y" } },
+        },
+      });
+      expect(result.validate).toBe(false);
+      expect(schemaNote(result)).toMatch(/was not validated/);
+      expect(JSON.stringify(result.schema)).not.toMatch(/"pattern":"/);
+    });
+
+    it("treats id, $anchor and $dynamicAnchor as identifiers too", () => {
+      for (const key of ["id", "$anchor", "$dynamicAnchor"]) {
+        expect(
+          stripSchemaPatterns({ properties: { a: { [key]: "x" } } }).validate,
+        ).toBe(false);
+      }
+      // A property NAMED id is not an identifier.
+      expect(
+        stripSchemaPatterns({ properties: { id: { type: "string" } } })
+          .validate,
+      ).toBe(true);
+    });
+  });
+
+  describe("a dropped $ref takes its whole node", () => {
+    it("does not activate siblings Ajv 6 ignored", () => {
+      const original = {
+        properties: { v: { $ref: "#/default", type: "number" } },
+        default: { type: "string" },
+      };
+      const { schema, skipped } = stripSchemaPatterns(original);
+      // The whole node goes, `type: "number"` included, so whatever Ajv 6
+      // made of the reference and its ignored siblings, nothing it accepted
+      // is rejected now.
+      expect((schema as { properties: { v: unknown } }).properties.v).toEqual(
+        {},
+      );
+      expect(skipped).toBe(1);
+      const after = compile(schema);
+      for (const v of ["s", 1, null]) {
+        expect(after({ v })).toBe(true);
+      }
+    });
+
+    it("keeps that node's subschemas resolvable", () => {
+      const original = {
+        properties: {
+          v: {
+            $ref: "#/default",
+            properties: { w: { type: "number", pattern: "^1" } },
+          },
+          u: { $ref: "#/properties/v/properties/w" },
+        },
+        default: {},
+      };
+      const { schema } = stripSchemaPatterns(original);
+      const validate = compile(schema);
+      expect(validate({ u: 2 })).toBe(true);
+      expect(validate({ u: "s" })).toBe(false);
+    });
+  });
+
+  it("never rejects a value the original accepts (corpus)", () => {
+    // Safe, linear patterns only, so the original can be evaluated too.
+    const corpus: [unknown, unknown[]][] = [
+      [{ type: "string", not: { pattern: "^x$" } }, ["abc", "x", 1]],
+      [
+        { type: "string", oneOf: [{ pattern: "^a" }, { minLength: 3 }] },
+        ["bcd", "a", "abc", "b"],
+      ],
+      [
+        {
+          type: "string",
+          maxLength: 4,
+          if: { pattern: "^a" },
+          then: { minLength: 3 },
+          else: { maxLength: 2 },
+        },
+        ["b", "abc", "ab", "bbbbb"],
+      ],
+      [
+        {
+          not: { $ref: "#/definitions/p" },
+          definitions: { p: { pattern: "^x$" } },
+        },
+        ["abc", "x"],
+      ],
+      [
+        {
+          type: "object",
+          properties: { id: { type: "number" } },
+          patternProperties: { "^x-": { type: "string" } },
+          additionalProperties: false,
+        },
+        [{ id: 1, "x-a": "ok" }, { id: 1, z: 1 }, { "x-a": 1 }],
+      ],
+      [
+        { type: "object", patternProperties: {}, additionalProperties: false },
+        [{}, { a: 1 }],
+      ],
+      [
+        {
+          type: "object",
+          properties: { data: { $ref: "#/patternProperties/^x-" } },
+          patternProperties: { "^x-": { type: "string", pattern: "^a" } },
+          additionalProperties: false,
+        },
+        [{ data: "a" }, { data: "b" }, { data: 1 }, { "x-q": "aa" }],
+      ],
+      [
+        {
+          type: "object",
+          properties: { data: { $ref: "#/default" } },
+          default: { type: "string", pattern: "^a" },
+        },
+        [{ data: "a" }, { data: 1 }],
+      ],
+      [
+        {
+          properties: { v: { $ref: "#/default", type: "number" } },
+          default: { type: "string" },
+        },
+        [{ v: "s" }, { v: 1 }],
+      ],
+      [
+        {
+          not: { type: "number", pattern: "^x$" },
+          properties: { a: { $ref: "#/not" } },
+        },
+        [{ a: 1 }, { a: "s" }, 1],
+      ],
+      [{ type: "array", contains: { pattern: "^a" } }, [["a"], ["b"], []]],
+      [
+        { allOf: [{ not: { type: "number" } }, { not: { pattern: "^x$" } }] },
+        ["abc", "x", 1],
+      ],
+    ];
+    for (const [original, values] of corpus) {
+      const before = compile(original);
+      const result = stripSchemaPatterns(original);
+      expect(result.validate).toBe(true);
+      const after = compile(result.schema);
+      const accepted = values.filter((value) => before(value));
+      expect(accepted.filter((value) => !after(value))).toEqual([]);
+    }
+  });
+
   it("leaves a schema without regexes equivalent and counts zero", () => {
     expect(stripSchemaPatterns({ type: "string" })).toEqual({
       schema: { type: "string" },
       stripped: 0,
       skipped: 0,
+      validate: true,
     });
     expect(stripSchemaPatterns(true)).toEqual({
       schema: true,
       stripped: 0,
       skipped: 0,
+      validate: true,
     });
   });
 

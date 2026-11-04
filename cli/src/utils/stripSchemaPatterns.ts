@@ -10,9 +10,16 @@
  * caller can say visibly what was not checked. The original schema object is
  * never mutated (the UI displays it).
  *
- * The rule the transform keeps is: **the result accepts at least everything
- * the original accepts** — it may be less strict, and says so, but it never
- * introduces a false failure. Three things follow from that rule.
+ * INVARIANT: the output schema accepts every value the input schema accepts
+ * — it may be less strict, and says so, but never stricter — or validation
+ * is skipped altogether (`validate: false`) and the note says so. Every rule
+ * below exists to keep that; when one cannot be kept simply, give up rather
+ * than add cleverness.
+ *
+ * 0. A schema that declares an identifier anywhere in a schema position
+ *    (`$id`, draft-04 `id`, `$anchor`, `$dynamicAnchor`, `$recursiveAnchor`)
+ *    is not validated at all. Identifiers change how references resolve, and
+ *    moving a subschema (rule 2) would move its identifier scope with it.
  *
  * 1. Only schema positions are rewritten. The walk follows the keywords that
  *    hold subschemas, so a property NAMED `pattern`, or a `pattern` key inside
@@ -23,10 +30,14 @@
  *    compiles whatever it finds there as a schema — so a reference to a place
  *    the walk did not visit would hand Ajv an unsanitized regex. A `$ref` is
  *    kept only when it is a local `#/...` pointer to a schema position the
- *    walk visited (and the document declares no `$id`, which would move the
- *    base a pointer resolves against); it is then rewritten to that
- *    position's place in the output. Anything else — and every `$dynamicRef`
- *    or `$recursiveRef` — is removed and counted as skipped.
+ *    walk visited; it is then rewritten to that position's place in the
+ *    output. Any other `$ref` takes its whole node with it: the node becomes
+ *    `{}`, siblings included, since Ajv 6 ignores a `$ref`'s siblings and
+ *    activating them could reject what the reference accepted (under Ajv 8
+ *    dropping them only loosens). Its subschemas are kept resolvable as in
+ *    rule 2. A `$dynamicRef` / `$recursiveRef` is removed on its own (Ajv 6
+ *    does not know it, so its siblings were already active). Each counts as
+ *    skipped.
  *
  * 3. Removing a constraint loosens the schema that holds it, and loosening is
  *    only safe in a positive position. Under `not`, inside a `oneOf` branch
@@ -92,7 +103,22 @@ export type StrippedSchema = {
    * sanitized subschema.
    */
   skipped: number;
+  /**
+   * `false` when the schema must not be validated at all (it declares an
+   * identifier); `schema` is then a regex-free copy for display or form
+   * rendering only, and must not be compiled.
+   */
+  validate: boolean;
 };
+
+/** Keywords that declare an identifier; any one means "do not validate". */
+const IDENTIFIER_KEYWORDS = [
+  "$id",
+  "id",
+  "$anchor",
+  "$dynamicAnchor",
+  "$recursiveAnchor",
+];
 
 type SchemaObject = Record<string, unknown>;
 /** Where a subschema sits in its parent: `[keyword]` or `[keyword, name]`. */
@@ -201,7 +227,7 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
   // Pass 1: number every schema position, and record what each depends on.
   const positions: Position[] = [];
   const rawRefs: [number, string][] = [];
-  let hasId = false;
+  let hasIdentifier = false;
 
   const analyze = (node: unknown, parent: number): number => {
     const id = positions.length;
@@ -214,7 +240,7 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
     };
     positions.push(position);
     if (!isObject(node)) return id; // `true` / `false` schemas, or junk
-    if ("$id" in node) hasId = true;
+    if (IDENTIFIER_KEYWORDS.some((key) => key in node)) hasIdentifier = true;
     if (typeof node.pattern === "string") position.direct = true;
     if (
       isObject(node.patternProperties) &&
@@ -255,7 +281,7 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
 
   const referrers = new Map<number, number[]>();
   for (const [id, ref] of rawRefs) {
-    const segments = hasId ? null : parseLocalRef(ref);
+    const segments = parseLocalRef(ref);
     const target = segments === null ? null : resolve(segments);
     positions[id]!.ref = target;
     if (target !== null) {
@@ -292,7 +318,7 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
   let skipped = 0;
   const outParent = new Int32Array(positions.length).fill(-2); // -2: unset
   const outRel = new Array<string[]>(positions.length);
-  const refSites: { node: SchemaObject; target: number | null }[] = [];
+  const refSites: { node: SchemaObject; target: number }[] = [];
   const holding: number[] = [];
   const root = isObject(schema) ? schema : undefined;
   const takenNames = new Set(
@@ -303,10 +329,16 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
   const emit = (id: number): unknown => {
     const { node, children } = positions[id]!;
     if (!isObject(node)) return node;
-    const copy: SchemaObject = { ...node };
     const childOf = (rel: Rel): number => children.get(relKey(rel))!;
     /** Move a subschema somewhere nothing applies it, keeping it resolvable. */
     const relocate = (rel: Rel) => holding.push(childOf(rel));
+    if (positions[id]!.ref === null) {
+      // A `$ref` that cannot be kept takes its whole node (see rule 2).
+      childRels(node).forEach(relocate);
+      skipped++;
+      return {};
+    }
+    const copy: SchemaObject = { ...node };
     const isTainted = (rel: Rel) => tainted[childOf(rel)] === 1;
 
     if (typeof copy.pattern === "string") {
@@ -373,8 +405,9 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
         skipped++;
       }
     }
-    if (typeof copy.$ref === "string") {
-      refSites.push({ node: copy, target: positions[id]!.ref ?? null });
+    const target = positions[id]!.ref;
+    if (typeof copy.$ref === "string" && typeof target === "number") {
+      refSites.push({ node: copy, target });
     }
 
     // Recurse into whatever subschemas are still applied here. Each array or
@@ -450,16 +483,20 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
   };
 
   for (const site of refSites) {
-    const pointer = site.target === null ? undefined : pointerOf(site.target);
-    if (pointer === undefined) {
-      delete site.node.$ref;
-      skipped++;
-    } else {
-      site.node.$ref = pointer;
-    }
+    // Every position is emitted (in place or held), so this always resolves.
+    site.node.$ref = pointerOf(site.target);
   }
 
-  return { schema: output, stripped, skipped };
+  return { schema: output, stripped, skipped, validate: !hasIdentifier };
+}
+
+/** The user-facing note for a result, or `undefined` if nothing was lost. */
+export function schemaNote(result: StrippedSchema): string | undefined {
+  if (!result.validate) {
+    return "this schema was not validated: it declares an $id or $anchor, which the Inspector does not resolve";
+  }
+  if (result.stripped === 0 && result.skipped === 0) return undefined;
+  return patternsNotEvaluatedNote(result.stripped, result.skipped);
 }
 
 /** The user-facing note for a schema that had checks removed. */

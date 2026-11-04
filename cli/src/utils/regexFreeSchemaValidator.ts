@@ -10,6 +10,9 @@
  * `^(a+)+$` and a near-match value would hang the CLI. Every other keyword is
  * still validated by the SDK's validator, unchanged.
  *
+ * A schema that declares an identifier is not validated at all (see
+ * stripSchemaPatterns); every result passes and the note says so.
+ *
  * Skipped regexes are not silent: a failing result's message ends with the
  * "not evaluated" note, and a passing one reports it through `onNote` (the
  * CLI writes it to stderr, keeping stdout's JSON clean).
@@ -20,10 +23,7 @@ import type {
   JsonSchemaValidator,
   jsonSchemaValidator,
 } from "@modelcontextprotocol/sdk/validation/types.js";
-import {
-  patternsNotEvaluatedNote,
-  stripSchemaPatterns,
-} from "./stripSchemaPatterns.js";
+import { schemaNote, stripSchemaPatterns } from "./stripSchemaPatterns.js";
 
 export class RegexFreeJsonSchemaValidator implements jsonSchemaValidator {
   private readonly inner: jsonSchemaValidator;
@@ -38,23 +38,30 @@ export class RegexFreeJsonSchemaValidator implements jsonSchemaValidator {
   }
 
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-    const {
-      schema: regexFree,
-      stripped,
-      skipped,
-    } = stripSchemaPatterns(schema);
+    const result = stripSchemaPatterns(schema);
+    const note = schemaNote(result);
+    if (!result.validate) {
+      // Not validated at all (the schema declares an identifier): every
+      // result passes, and the note says the schema was not checked.
+      return (input: unknown) => {
+        this.onNote(note!);
+        // Unchecked by design; `T` is what the caller asked the schema for.
+        return { valid: true, data: input as T, errorMessage: undefined };
+      };
+    }
     // `stripSchemaPatterns` returns a structural copy of a JsonSchemaType
     // with keywords removed, which is still a JsonSchemaType.
-    const validate = this.inner.getValidator<T>(regexFree as JsonSchemaType);
-    if (stripped === 0 && skipped === 0) return validate;
-    const note = patternsNotEvaluatedNote(stripped, skipped);
+    const validate = this.inner.getValidator<T>(
+      result.schema as JsonSchemaType,
+    );
+    if (note === undefined) return validate;
     return (input: unknown) => {
-      const result = validate(input);
-      if (result.valid) {
+      const checked = validate(input);
+      if (checked.valid) {
         this.onNote(note);
-        return result;
+        return checked;
       }
-      return { ...result, errorMessage: `${result.errorMessage} (${note})` };
+      return { ...checked, errorMessage: `${checked.errorMessage} (${note})` };
     };
   }
 }

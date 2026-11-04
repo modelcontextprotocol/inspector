@@ -18,10 +18,7 @@ import {
   ElicitationFormRequestData,
 } from "./ElicitationTab";
 import Ajv from "ajv";
-import {
-  patternsNotEvaluatedNote,
-  stripSchemaPatterns,
-} from "@/utils/stripSchemaPatterns";
+import { schemaNote, stripSchemaPatterns } from "@/utils/stripSchemaPatterns";
 
 export type ElicitationRequestProps = {
   request: PendingElicitationRequest;
@@ -45,19 +42,17 @@ const ElicitationRequest = ({
   // so no server pattern reaches a native input's constraint validation; the
   // original is kept only for display. Sanitized once per request, not on
   // every render.
-  const {
-    schema: regexFreeSchema,
-    stripped: strippedPatterns,
-    skipped: skippedChecks,
-  } = useMemo(
+  const sanitized = useMemo(
     () =>
       isUrlMode
-        ? { schema: undefined, stripped: 0, skipped: 0 }
+        ? undefined
         : stripSchemaPatterns(
             (requestData as ElicitationFormRequestData).requestedSchema,
           ),
     [isUrlMode, requestData],
   );
+  const regexFreeSchema = sanitized?.schema;
+  const sanitizedNote = sanitized && schemaNote(sanitized);
 
   useEffect(() => {
     if (isUrlMode) return;
@@ -234,14 +229,17 @@ const ElicitationRequest = ({
         return;
       }
 
-      const ajv = new Ajv();
-      const validate = ajv.compile(regexFreeSchema as object);
-      const isValid = validate(formData);
+      // A schema reported as not validated (see the note) is not compiled.
+      if (sanitized?.validate) {
+        const ajv = new Ajv();
+        const validate = ajv.compile(regexFreeSchema as object);
+        const isValid = validate(formData);
 
-      if (!isValid) {
-        const errorMessage = ajv.errorsText(validate.errors);
-        setValidationError(errorMessage);
-        return;
+        if (!isValid) {
+          const errorMessage = ajv.errorsText(validate.errors);
+          setValidationError(errorMessage);
+          return;
+        }
       }
 
       onResolve(request.id, {
@@ -300,9 +298,9 @@ const ElicitationRequest = ({
             }}
           />
 
-          {(strippedPatterns > 0 || skippedChecks > 0) && (
+          {sanitizedNote && (
             <div className="mt-2 text-xs text-muted-foreground">
-              ⚠ {patternsNotEvaluatedNote(strippedPatterns, skippedChecks)}
+              ⚠ {sanitizedNote}
             </div>
           )}
 

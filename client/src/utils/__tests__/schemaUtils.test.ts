@@ -588,6 +588,26 @@ describe("Output Schema Validation", () => {
         });
       });
 
+      test("a schema with identifiers is reported, not validated", () => {
+        cacheToolOutputSchemas([
+          {
+            name: "idTool",
+            inputSchema: { type: "object" },
+            outputSchema: {
+              type: "object",
+              properties: {
+                x: { $id: "a/", not: { $id: "leaf", pattern: "^x" } },
+                y: { $id: "b/", not: { $id: "leaf", type: "number" } },
+              },
+            },
+          },
+        ]);
+        expect(getToolOutputValidator("idTool")).toBeUndefined();
+        const result = validateToolOutput("idTool", { x: 1, y: "s" });
+        expect(result.isValid).toBe(true);
+        expect(result.note).toMatch(/was not validated/);
+      });
+
       test("leave the other constraints validating", () => {
         cacheToolOutputSchemas([redosTool]);
         const tooShort = validateToolOutput("redosTool", {

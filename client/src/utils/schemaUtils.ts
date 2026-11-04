@@ -3,10 +3,7 @@ import Ajv from "ajv";
 import type { ValidateFunction } from "ajv";
 import type { Tool, JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isJSONRPCRequest } from "@modelcontextprotocol/sdk/types.js";
-import {
-  patternsNotEvaluatedNote,
-  stripSchemaPatterns,
-} from "./stripSchemaPatterns";
+import { schemaNote, stripSchemaPatterns } from "./stripSchemaPatterns";
 
 const ajv = new Ajv();
 
@@ -29,15 +26,14 @@ export function cacheToolOutputSchemas(tools: Tool[]): void {
       try {
         // Compile a regex-free copy: the schema comes from the server, and
         // its patterns would run on the backtracking native RegExp engine.
-        const { schema, stripped, skipped } = stripSchemaPatterns(
-          tool.outputSchema,
-        );
-        const validator = ajv.compile(schema as object);
-        toolOutputValidators.set(tool.name, validator);
-        if (stripped > 0 || skipped > 0) {
-          toolOutputSchemaNotes.set(
+        const result = stripSchemaPatterns(tool.outputSchema);
+        const note = schemaNote(result);
+        if (note !== undefined) toolOutputSchemaNotes.set(tool.name, note);
+        // A schema that may not be validated gets no validator, only a note.
+        if (result.validate) {
+          toolOutputValidators.set(
             tool.name,
-            patternsNotEvaluatedNote(stripped, skipped),
+            ajv.compile(result.schema as object),
           );
         }
       } catch (error) {
@@ -75,12 +71,13 @@ export function validateToolOutput(
   structuredContent: unknown,
 ): { isValid: boolean; error?: string; note?: string } {
   const validator = getToolOutputValidator(toolName);
+  const toolNote = toolOutputSchemaNotes.get(toolName);
+  const note = toolNote === undefined ? {} : { note: toolNote };
   if (!validator) {
-    return { isValid: true }; // No validator means no schema to validate against
+    // No validator: no schema, or one that is reported as not validated.
+    return { isValid: true, ...note };
   }
 
-  const schemaNote = toolOutputSchemaNotes.get(toolName);
-  const note = schemaNote === undefined ? {} : { note: schemaNote };
   const isValid = validator(structuredContent);
   if (!isValid) {
     return {

@@ -4,10 +4,14 @@
  * CLI hands the `Client` — so each transform is shown to compile there and
  * never to reject a value the original schema accepts.
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AjvJsonSchemaValidator } from "@modelcontextprotocol/sdk/validation/ajv";
 import type { JsonSchemaType } from "@modelcontextprotocol/sdk/validation/types.js";
-import { stripSchemaPatterns } from "../src/utils/stripSchemaPatterns.js";
+import {
+  schemaNote,
+  stripSchemaPatterns,
+} from "../src/utils/stripSchemaPatterns.js";
+import { RegexFreeJsonSchemaValidator } from "../src/utils/regexFreeSchemaValidator.js";
 
 const REDOS = "^(a+)+$";
 const NEAR_MATCH = `${"a".repeat(10_000)}!`;
@@ -94,6 +98,102 @@ describe("stripSchemaPatterns (cli)", () => {
     expect(conditional.skipped).toBe(1);
     expect(conditional.valid("b")).toBe(true);
     expect(conditional.valid("bbbbb")).toBe(false);
+  });
+
+  it("does not validate a schema whose relocated $ids would collide", () => {
+    const schema = {
+      properties: {
+        x: { $id: "a/", not: { $id: "leaf", type: "string", pattern: "^x" } },
+        y: { $id: "b/", not: { $id: "leaf", type: "number", pattern: "^y" } },
+      },
+    };
+    const result = stripSchemaPatterns(schema);
+    expect(result.validate).toBe(false);
+    const onNote = vi.fn();
+    const validate = new RegexFreeJsonSchemaValidator(onNote).getValidator(
+      schema as JsonSchemaType,
+    );
+    expect(validate({ x: "x", y: 1 }).valid).toBe(true);
+    expect(onNote).toHaveBeenCalledWith(schemaNote(result));
+    expect(schemaNote(result)).toMatch(/was not validated/);
+  });
+
+  it("drops a removed $ref's siblings with it", () => {
+    const { schema, skipped, valid } = strip({
+      properties: { v: { $ref: "#/default", type: "number" } },
+      default: { type: "string" },
+    });
+    expect(skipped).toBe(1);
+    expect((schema as { properties: { v: unknown } }).properties.v).toEqual({});
+    expect(valid({ v: "s" })).toBe(true);
+    expect(valid({ v: 1 })).toBe(true);
+  });
+
+  it("never rejects a value the original accepts (corpus)", () => {
+    // Safe, linear patterns only, so the original can be evaluated too.
+    const corpus: [unknown, unknown[]][] = [
+      [{ type: "string", not: { pattern: "^x$" } }, ["abc", "x", 1]],
+      [
+        { type: "string", oneOf: [{ pattern: "^a" }, { minLength: 3 }] },
+        ["bcd", "a", "abc", "b"],
+      ],
+      [
+        {
+          type: "string",
+          maxLength: 4,
+          if: { pattern: "^a" },
+          then: { minLength: 3 },
+          else: { maxLength: 2 },
+        },
+        ["b", "abc", "ab", "bbbbb"],
+      ],
+      [
+        {
+          type: "object",
+          properties: { id: { type: "number" } },
+          patternProperties: { "^x-": { type: "string" } },
+          additionalProperties: false,
+        },
+        [{ id: 1, "x-a": "ok" }, { id: 1, z: 1 }, { "x-a": 1 }],
+      ],
+      [
+        {
+          type: "object",
+          properties: { data: { $ref: "#/patternProperties/^x-" } },
+          patternProperties: { "^x-": { type: "string", pattern: "^a" } },
+          additionalProperties: false,
+        },
+        [{ data: "a" }, { data: "b" }, { data: 1 }, { "x-q": "aa" }],
+      ],
+      [
+        {
+          properties: { v: { $ref: "#/default", type: "number" } },
+          default: { type: "string" },
+        },
+        [{ v: "s" }, { v: 1 }],
+      ],
+      [
+        { type: "array", contains: { pattern: "^a" }, maxContains: 1 },
+        [["a"], ["a", "a"], ["b"]],
+      ],
+      [
+        {
+          type: "object",
+          patternProperties: { "^a": {} },
+          unevaluatedProperties: false,
+        },
+        [{ a: 1 }, { b: 1 }],
+      ],
+    ];
+    for (const [original, values] of corpus) {
+      const before = new AjvJsonSchemaValidator().getValidator(
+        original as JsonSchemaType,
+      );
+      const { validate, valid } = strip(original);
+      expect(validate).toBe(true);
+      const accepted = values.filter((value) => before(value).valid);
+      expect(accepted.filter((value) => !valid(value))).toEqual([]);
+    }
   });
 
   it("grows linearly with schema size", () => {
