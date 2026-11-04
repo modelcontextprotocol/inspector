@@ -62,6 +62,14 @@ import {
   getLiveConnectionAuthInfo,
   ConnectionRegistry,
 } from "./connections.js";
+import { readInspectorVersionSafe } from "@inspector/core/node/version.js";
+
+/**
+ * This daemon's release, reported in every `ping` so a client from another
+ * release can refuse to talk to it (#2870): a daemon outlives an upgrade
+ * while it holds a connection, and its payloads are the old release's.
+ */
+const DAEMON_VERSION = readInspectorVersionSafe(import.meta.url);
 
 /**
  * What every `runMethod` call from the daemon contributes on mcpdo's behalf:
@@ -403,7 +411,12 @@ export class DaemonServer {
             // `stopping` lets ensureDaemon treat a shutting-down daemon as
             // "about to be gone" (wait for exit, respawn) instead of alive —
             // ping itself always succeeds so status checks never fail.
-            result: { pong: true, pid: process.pid, stopping: this.stopping },
+            result: {
+              pong: true,
+              pid: process.pid,
+              stopping: this.stopping,
+              version: DAEMON_VERSION,
+            },
           },
         };
       case "connect": {
