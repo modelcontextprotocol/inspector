@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +38,26 @@ const ElicitationRequest = ({
 
   const requestData = request.request;
   const isUrlMode = requestData.mode === "url";
+
+  // The requested schema comes from the server; its regex patterns are not
+  // evaluated (they would run on the backtracking native RegExp engine), and
+  // the form says so below. The form renderer gets the regex-free copy too,
+  // so no server pattern reaches a native input's constraint validation; the
+  // original is kept only for display. Sanitized once per request, not on
+  // every render.
+  const {
+    schema: regexFreeSchema,
+    stripped: strippedPatterns,
+    skipped: skippedChecks,
+  } = useMemo(
+    () =>
+      isUrlMode
+        ? { schema: undefined, stripped: 0, skipped: 0 }
+        : stripSchemaPatterns(
+            (requestData as ElicitationFormRequestData).requestedSchema,
+          ),
+    [isUrlMode, requestData],
+  );
 
   useEffect(() => {
     if (isUrlMode) return;
@@ -162,16 +182,6 @@ const ElicitationRequest = ({
 
   // After URL-mode early return, requestData is guaranteed to be form mode
   const formRequest = requestData as ElicitationFormRequestData;
-  // The requested schema comes from the server; its regex patterns are not
-  // evaluated (they would run on the backtracking native RegExp engine), and
-  // the form says so below. The form renderer gets the regex-free copy too,
-  // so no server pattern reaches a native input's constraint validation; the
-  // original is kept only for display.
-  const {
-    schema: regexFreeSchema,
-    stripped: strippedPatterns,
-    skipped: skippedChecks,
-  } = stripSchemaPatterns(formRequest.requestedSchema);
 
   const validateEmailFormat = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

@@ -95,4 +95,32 @@ describe("stripSchemaPatterns (cli)", () => {
     expect(conditional.valid("b")).toBe(true);
     expect(conditional.valid("bbbbb")).toBe(false);
   });
+
+  it("grows linearly with schema size", () => {
+    const wide = (n: number) => {
+      const properties: Record<string, unknown> = {};
+      for (let i = 0; i < n; i++) {
+        properties[`p${i}`] = { type: "string", pattern: "^x$" };
+        properties[`r${i}`] = { $ref: `#/properties/p${i}` };
+      }
+      return { type: "object", properties, not: { $ref: "#/properties/p0" } };
+    };
+    // Fastest of three runs, in ms; quadratic work grows 16x for 4x the
+    // input and linear 4x, and the generous bounds absorb timer noise.
+    const time = (schema: unknown) => {
+      let best = Infinity;
+      for (let run = 0; run < 3; run++) {
+        const start = performance.now();
+        stripSchemaPatterns(schema);
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
+    };
+    time(wide(1_000)); // warm up the JIT
+    const small = Math.max(time(wide(2_500)), 1);
+    const large = time(wide(10_000));
+    expect(large).toBeLessThan(1_000);
+    expect(large / small).toBeLessThan(10);
+    expect(stripSchemaPatterns(wide(10_000)).stripped).toBe(10_000);
+  });
 });

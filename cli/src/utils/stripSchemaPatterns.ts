@@ -95,7 +95,8 @@ export type StrippedSchema = {
 };
 
 type SchemaObject = Record<string, unknown>;
-type Path = string[];
+/** Where a subschema sits in its parent: `[keyword]` or `[keyword, name]`. */
+type Rel = [string] | [string, string];
 
 function isObject(value: unknown): value is SchemaObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -105,19 +106,21 @@ function isSchema(value: unknown): boolean {
   return isObject(value) || typeof value === "boolean";
 }
 
-const keyOf = (path: Path): string => JSON.stringify(path);
+/** A map key for a `Rel`. Keywords never contain NUL, so this is unique. */
+const relKey = (rel: Rel): string =>
+  rel.length === 1 ? rel[0] : `${rel[0]}\u0000${rel[1]}`;
 
-/** Every subschema of `node`, as [keyword, ...location] relative paths. */
-function childPaths(node: SchemaObject): Path[] {
-  const paths: Path[] = [];
+/** Every subschema of `node`, as relative locations. */
+function childRels(node: SchemaObject): Rel[] {
+  const rels: Rel[] = [];
   for (const key of SCHEMA_KEYWORDS) {
-    if (isSchema(node[key])) paths.push([key]);
+    if (isSchema(node[key])) rels.push([key]);
   }
   for (const key of SCHEMA_ARRAY_KEYWORDS) {
     const value = node[key];
     if (Array.isArray(value)) {
       value.forEach((sub, i) => {
-        if (isSchema(sub)) paths.push([key, String(i)]);
+        if (isSchema(sub)) rels.push([key, String(i)]);
       });
     }
   }
@@ -126,25 +129,24 @@ function childPaths(node: SchemaObject): Path[] {
     if (isObject(value)) {
       for (const [name, sub] of Object.entries(value)) {
         // `dependencies` may map to a string array (property dependency).
-        if (isSchema(sub)) paths.push([key, name]);
+        if (isSchema(sub)) rels.push([key, name]);
       }
     }
   }
   // `items` is either one subschema or (draft-07 tuple form) an array.
   if (Array.isArray(node.items)) {
     node.items.forEach((sub, i) => {
-      if (isSchema(sub)) paths.push(["items", String(i)]);
+      if (isSchema(sub)) rels.push(["items", String(i)]);
     });
   } else if (isSchema(node.items)) {
-    paths.push(["items"]);
+    rels.push(["items"]);
   }
-  return paths;
+  return rels;
 }
 
-function getAt(node: SchemaObject, rel: Path): unknown {
-  let value: unknown = node;
-  for (const part of rel) value = (value as Record<string, unknown>)[part];
-  return value;
+function getAt(node: SchemaObject, rel: Rel): unknown {
+  const value = node[rel[0]];
+  return rel.length === 1 ? value : (value as SchemaObject)[rel[1]];
 }
 
 /**
@@ -152,7 +154,7 @@ function getAt(node: SchemaObject, rel: Path): unknown {
  * then URI-decode and JSON-pointer-unescape each segment. `null` for any
  * reference that is not a local `#` / `#/...` pointer.
  */
-function parseLocalRef(ref: string): Path | null {
+function parseLocalRef(ref: string): string[] | null {
   if (ref === "#") return [];
   if (!ref.startsWith("#/")) return null;
   try {
@@ -167,110 +169,145 @@ function parseLocalRef(ref: string): Path | null {
   }
 }
 
-function formatRef(path: Path): string {
-  return (
-    "#" +
-    path
-      .map(
-        (part) =>
-          "/" +
-          encodeURIComponent(part.replace(/~/g, "~0").replace(/\//g, "~1")),
-      )
-      .join("")
-  );
-}
+const formatSegment = (part: string): string =>
+  "/" + encodeURIComponent(part.replace(/~/g, "~0").replace(/\//g, "~1"));
 
-type NodeInfo = {
+/** One schema position of the input. Positions are numbered; 0 is the root. */
+type Position = {
+  node: unknown;
+  /** The enclosing position, -1 for the root. */
+  parent: number;
+  /** Subschemas, by `relKey`. */
+  children: Map<string, number>;
   /** Lost something itself: a `pattern`, or non-empty `patternProperties`. */
   direct: boolean;
-  children: string[];
-  /** The `$ref`'s target position, `null` if it cannot be kept. */
-  ref?: string | null;
   /** Has a `$dynamicRef` / `$recursiveRef`, which is never kept. */
-  dynamic?: boolean;
+  dynamic: boolean;
+  /** The `$ref`'s target position, `null` if it cannot be kept. */
+  ref?: number | null;
 };
 
 /** References whose target depends on the dynamic scope; always removed. */
 const DYNAMIC_REF_KEYWORDS = ["$dynamicRef", "$recursiveRef"];
 
+/**
+ * Every pass below is linear in the size of the schema: each position is
+ * visited once, each container is copied once, taint spreads along reversed
+ * edges with a work list, and positions are numbers rather than paths (a path
+ * per position would cost O(depth) each). Only the pointers actually written
+ * into rewritten `$ref`s are built as strings, memoized per position.
+ */
 export function stripSchemaPatterns(schema: unknown): StrippedSchema {
-  // Pass 1: find every schema position, and what each one depends on.
-  const nodes = new Map<string, NodeInfo>();
-  const rawRefs = new Map<string, string>();
+  // Pass 1: number every schema position, and record what each depends on.
+  const positions: Position[] = [];
+  const rawRefs: [number, string][] = [];
   let hasId = false;
 
-  const analyze = (node: unknown, path: Path): void => {
-    const info: NodeInfo = { direct: false, children: [] };
-    nodes.set(keyOf(path), info);
-    if (!isObject(node)) return; // `true` / `false` schemas, or junk
+  const analyze = (node: unknown, parent: number): number => {
+    const id = positions.length;
+    const position: Position = {
+      node,
+      parent,
+      children: new Map(),
+      direct: false,
+      dynamic: false,
+    };
+    positions.push(position);
+    if (!isObject(node)) return id; // `true` / `false` schemas, or junk
     if ("$id" in node) hasId = true;
-    if (typeof node.pattern === "string") info.direct = true;
+    if (typeof node.pattern === "string") position.direct = true;
     if (
       isObject(node.patternProperties) &&
       Object.keys(node.patternProperties).length > 0
     ) {
-      info.direct = true;
+      position.direct = true;
     }
-    if (typeof node.$ref === "string") rawRefs.set(keyOf(path), node.$ref);
-    if (DYNAMIC_REF_KEYWORDS.some((key) => key in node)) info.dynamic = true;
-    for (const rel of childPaths(node)) {
-      const childPath = [...path, ...rel];
-      info.children.push(keyOf(childPath));
-      analyze(getAt(node, rel), childPath);
+    if (typeof node.$ref === "string") rawRefs.push([id, node.$ref]);
+    if (DYNAMIC_REF_KEYWORDS.some((key) => key in node)) {
+      position.dynamic = true;
     }
+    for (const rel of childRels(node)) {
+      position.children.set(relKey(rel), analyze(getAt(node, rel), id));
+    }
+    return id;
   };
-  analyze(schema, []);
+  analyze(schema, -1);
 
-  for (const [key, ref] of rawRefs) {
-    const target = hasId ? null : parseLocalRef(ref);
-    const targetKey = target === null ? null : keyOf(target);
-    nodes.get(key)!.ref =
-      targetKey !== null && nodes.has(targetKey) ? targetKey : null;
+  /** The position a pointer names, if it names one. */
+  const resolve = (segments: string[]): number | null => {
+    let current = 0;
+    for (let i = 0; i < segments.length;) {
+      const { children } = positions[current]!;
+      const single = children.get(segments[i]!);
+      if (single !== undefined) {
+        current = single;
+        i += 1;
+        continue;
+      }
+      if (i + 1 >= segments.length) return null;
+      const pair = children.get(`${segments[i]}\u0000${segments[i + 1]}`);
+      if (pair === undefined) return null;
+      current = pair;
+      i += 2;
+    }
+    return current;
+  };
+
+  const referrers = new Map<number, number[]>();
+  for (const [id, ref] of rawRefs) {
+    const segments = hasId ? null : parseLocalRef(ref);
+    const target = segments === null ? null : resolve(segments);
+    positions[id]!.ref = target;
+    if (target !== null) {
+      const list = referrers.get(target) ?? [];
+      list.push(id);
+      referrers.set(target, list);
+    }
   }
 
   // Pass 2: a position is tainted if it, a subschema, or a `$ref` target
-  // lost anything. Iterate to a fixed point so reference cycles settle.
-  const tainted = new Set<string>();
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const [key, info] of nodes) {
-      if (tainted.has(key)) continue;
-      if (
-        info.direct ||
-        info.ref === null ||
-        info.dynamic ||
-        info.children.some((child) => tainted.has(child)) ||
-        (info.ref !== undefined && tainted.has(info.ref))
-      ) {
-        tainted.add(key);
-        changed = true;
-      }
+  // lost anything. Spread from the seeds along reversed edges (to the parent
+  // and to every referrer); each position enters the work list at most once.
+  const tainted = new Uint8Array(positions.length);
+  const work: number[] = [];
+  const taint = (id: number) => {
+    if (id < 0 || tainted[id]) return;
+    tainted[id] = 1;
+    work.push(id);
+  };
+  positions.forEach((position, id) => {
+    if (position.direct || position.dynamic || position.ref === null) {
+      taint(id);
     }
+  });
+  while (work.length > 0) {
+    const id = work.pop()!;
+    taint(positions[id]!.parent);
+    for (const referrer of referrers.get(id) ?? []) taint(referrer);
   }
 
-  // Pass 3: emit the sanitized copy, recording where each input position
-  // landed so references can be rewritten to it.
+  // Pass 3: emit the sanitized copy, recording where each position landed
+  // (its output parent and location) so references can be rewritten to it.
   let stripped = 0;
   let skipped = 0;
-  const outputPath = new Map<string, Path>();
-  const refSites: { node: SchemaObject; target: string | null }[] = [];
-  const holding: { node: unknown; path: Path }[] = [];
+  const outParent = new Int32Array(positions.length).fill(-2); // -2: unset
+  const outRel = new Array<string[]>(positions.length);
+  const refSites: { node: SchemaObject; target: number | null }[] = [];
+  const holding: number[] = [];
   const root = isObject(schema) ? schema : undefined;
   const takenNames = new Set(
     isObject(root?.definitions) ? Object.keys(root.definitions) : [],
   );
   let nextName = 0;
 
-  /** Move a subschema somewhere nothing applies it, keeping it resolvable. */
-  const relocate = (node: unknown, path: Path): void => {
-    holding.push({ node, path });
-  };
-
-  const emit = (node: unknown, inPath: Path, outPath: Path): unknown => {
-    outputPath.set(keyOf(inPath), outPath);
+  const emit = (id: number): unknown => {
+    const { node, children } = positions[id]!;
     if (!isObject(node)) return node;
     const copy: SchemaObject = { ...node };
-    const isTainted = (rel: Path) => tainted.has(keyOf([...inPath, ...rel]));
+    const childOf = (rel: Rel): number => children.get(relKey(rel))!;
+    /** Move a subschema somewhere nothing applies it, keeping it resolvable. */
+    const relocate = (rel: Rel) => holding.push(childOf(rel));
+    const isTainted = (rel: Rel) => tainted[childOf(rel)] === 1;
 
     if (typeof copy.pattern === "string") {
       delete copy.pattern;
@@ -281,11 +318,9 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
       Object.keys(copy.patternProperties).length > 0
     ) {
       for (const name of Object.keys(copy.patternProperties)) {
-        relocate(copy.patternProperties[name], [
-          ...inPath,
-          "patternProperties",
-          name,
-        ]);
+        if (isSchema(copy.patternProperties[name])) {
+          relocate(["patternProperties", name]);
+        }
         stripped++;
       }
       delete copy.patternProperties;
@@ -293,10 +328,7 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
       // unknowable, so this constraint is skipped too.
       if ("additionalProperties" in copy) {
         if (isSchema(copy.additionalProperties)) {
-          relocate(copy.additionalProperties, [
-            ...inPath,
-            "additionalProperties",
-          ]);
+          relocate(["additionalProperties"]);
         }
         delete copy.additionalProperties;
         skipped++;
@@ -306,33 +338,29 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
     // Keywords where a looser subschema can produce a false failure.
     const dropIfTainted = (keyword: string, alsoDrop: string[] = []) => {
       if (!(keyword in copy)) return;
-      const rels = childPaths({ [keyword]: copy[keyword] });
+      const rels = childRels({ [keyword]: copy[keyword] });
       if (!rels.some(isTainted)) return;
-      for (const rel of rels) relocate(getAt(copy, rel), [...inPath, ...rel]);
+      rels.forEach(relocate);
       delete copy[keyword];
       for (const extra of alsoDrop) delete copy[extra];
       skipped++;
     };
     dropIfTainted("not");
     dropIfTainted("oneOf");
-    if ("if" in copy && isTainted(["if"])) {
+    if (isSchema(copy.if) && isTainted(["if"])) {
       for (const keyword of ["if", "then", "else"]) {
-        if (isSchema(copy[keyword])) {
-          relocate(copy[keyword], [...inPath, keyword]);
-        }
+        if (isSchema(copy[keyword])) relocate([keyword]);
         delete copy[keyword];
       }
       skipped++;
     }
     dropIfTainted("contains", ["minContains", "maxContains"]);
-    if (tainted.has(keyOf(inPath))) {
+    if (tainted[id]) {
       // What counts as "evaluated" depends on the sibling keywords, which
       // lost something, so these can no longer be judged.
       for (const keyword of ["unevaluatedProperties", "unevaluatedItems"]) {
         if (keyword in copy) {
-          if (isSchema(copy[keyword])) {
-            relocate(copy[keyword], [...inPath, keyword]);
-          }
+          if (isSchema(copy[keyword])) relocate([keyword]);
           delete copy[keyword];
           skipped++;
         }
@@ -346,38 +374,37 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
       }
     }
     if (typeof copy.$ref === "string") {
-      refSites.push({
-        node: copy,
-        target: nodes.get(keyOf(inPath))?.ref ?? null,
-      });
+      refSites.push({ node: copy, target: positions[id]!.ref ?? null });
     }
 
-    // Recurse into whatever subschemas are still applied here.
-    for (const rel of childPaths(copy)) {
-      const sub = emit(
-        getAt(copy, rel),
-        [...inPath, ...rel],
-        [...outPath, ...rel],
-      );
-      // `childPaths` yields [keyword] or [keyword, name].
-      const [keyword, name] = rel as [string, string | undefined];
-      if (name === undefined) {
-        copy[keyword] = sub;
-      } else {
-        const container = copy[keyword];
-        if (Array.isArray(container)) {
-          const items = [...container];
-          items[Number(name)] = sub;
-          copy[keyword] = items;
-        } else {
-          copy[keyword] = { ...(container as SchemaObject), [name]: sub };
-        }
+    // Recurse into whatever subschemas are still applied here. Each array or
+    // map is copied once, then filled in, so the original is never mutated.
+    const cloned = new Set<string>();
+    for (const rel of childRels(copy)) {
+      const child = childOf(rel);
+      outParent[child] = id;
+      outRel[child] = rel;
+      const sub = emit(child);
+      if (rel.length === 1) {
+        copy[rel[0]] = sub;
+        continue;
       }
+      const [keyword, name] = rel;
+      if (!cloned.has(keyword)) {
+        cloned.add(keyword);
+        const container = copy[keyword];
+        copy[keyword] = Array.isArray(container)
+          ? [...container]
+          : { ...(container as SchemaObject) };
+      }
+      (copy[keyword] as SchemaObject)[name] = sub;
     }
     return copy;
   };
 
-  const output = emit(schema, [], []);
+  outParent[0] = -1;
+  outRel[0] = [];
+  const output = emit(0);
 
   if (isObject(output) && holding.length > 0) {
     const definitions: SchemaObject = isObject(output.definitions)
@@ -385,25 +412,50 @@ export function stripSchemaPatterns(schema: unknown): StrippedSchema {
       : {};
     // A held subschema may itself hold more; iterating the array as it
     // grows picks those up.
-    for (const { node, path } of holding) {
+    for (const id of holding) {
       let name: string;
       do {
         name = `${HOLDING_PREFIX}${nextName++}`;
       } while (takenNames.has(name));
       takenNames.add(name);
-      definitions[name] = emit(node, path, ["definitions", name]);
+      outParent[id] = 0;
+      outRel[id] = ["definitions", name];
+      definitions[name] = emit(id);
     }
     output.definitions = definitions;
   }
 
+  // Build the pointer for each referenced position once, from its parent's.
+  const pointers = new Map<number, string>();
+  const pointerOf = (id: number): string | undefined => {
+    if (outParent[id] === -2) return undefined; // never emitted
+    if (id === 0) return "#";
+    const memo = pointers.get(id);
+    if (memo !== undefined) return memo;
+    // Walk up iteratively to the nearest memoized ancestor (no recursion, so
+    // a deep schema cannot overflow the stack here).
+    const chain: number[] = [];
+    let current = id;
+    while (current !== 0 && !pointers.has(current)) {
+      chain.push(current);
+      current = outParent[current]!;
+    }
+    let pointer = current === 0 ? "#" : pointers.get(current)!;
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const link = chain[i]!;
+      pointer += outRel[link]!.map(formatSegment).join("");
+      pointers.set(link, pointer);
+    }
+    return pointer;
+  };
+
   for (const site of refSites) {
-    const target =
-      site.target === null ? undefined : outputPath.get(site.target);
-    if (target === undefined) {
+    const pointer = site.target === null ? undefined : pointerOf(site.target);
+    if (pointer === undefined) {
       delete site.node.$ref;
       skipped++;
     } else {
-      site.node.$ref = formatRef(target);
+      site.node.$ref = pointer;
     }
   }
 

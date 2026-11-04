@@ -298,6 +298,61 @@ describe("stripSchemaPatterns", () => {
     });
   });
 
+  describe("cost", () => {
+    /** A wide schema: n properties, each with a pattern and a $ref. */
+    const wide = (n: number) => {
+      const properties: Record<string, unknown> = {};
+      for (let i = 0; i < n; i++) {
+        properties[`p${i}`] = { type: "string", pattern: "^x$" };
+        properties[`r${i}`] = { $ref: `#/properties/p${i}` };
+      }
+      return { type: "object", properties, not: { $ref: "#/properties/p0" } };
+    };
+    /** A deep schema: a chain n levels down, under a `not`. */
+    const deep = (n: number) => {
+      let node: Record<string, unknown> = { type: "string", pattern: "^x$" };
+      for (let i = 0; i < n; i++) node = { properties: { a: node } };
+      return { not: node };
+    };
+    /** Fastest of three runs, in ms (the minimum is least noisy). */
+    const time = (schema: unknown) => {
+      let best = Infinity;
+      for (let run = 0; run < 3; run++) {
+        const start = performance.now();
+        stripSchemaPatterns(schema);
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
+    };
+
+    it("sanitizes a 10,000-property schema correctly", () => {
+      const { schema, stripped, skipped } = stripSchemaPatterns(wide(10_000));
+      expect(stripped).toBe(10_000);
+      expect(skipped).toBe(1); // the `not`
+      const out = schema as { properties: Record<string, unknown> };
+      expect(out.properties.p9999).toEqual({ type: "string" });
+      expect(out.properties.r9999).toEqual({ $ref: "#/properties/p9999" });
+      const { stripped: deepStripped, skipped: deepSkipped } =
+        stripSchemaPatterns(deep(1_000));
+      expect(deepStripped).toBe(1);
+      expect(deepSkipped).toBe(1);
+    });
+
+    it("grows linearly with the schema's width and depth", () => {
+      // Quadratic work grows 16x for 4x the input; linear grows 4x. The
+      // generous bounds absorb timer noise and a loaded machine.
+      time(wide(1_000)); // warm up the JIT
+      const small = Math.max(time(wide(2_500)), 1);
+      const large = time(wide(10_000));
+      expect(large).toBeLessThan(1_000);
+      expect(large / small).toBeLessThan(10);
+      const shallow = Math.max(time(deep(250)), 1);
+      const deeper = time(deep(1_000));
+      expect(deeper).toBeLessThan(1_000);
+      expect(deeper / shallow).toBeLessThan(10);
+    });
+  });
+
   it("leaves a schema without regexes equivalent and counts zero", () => {
     expect(stripSchemaPatterns({ type: "string" })).toEqual({
       schema: { type: "string" },
