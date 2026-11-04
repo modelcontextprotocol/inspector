@@ -216,6 +216,28 @@ describe("wrapHtmlWithCsp", () => {
     );
   });
 
+  it("puts the meta before a doctype carrying a PUBLIC or SYSTEM identifier", () => {
+    // Only the simple form is kept ahead of the meta; where the policy lands
+    // once parsed is asserted by the HtmlDoctypeQuoted* stories.
+    for (const html of [
+      '<!DOCTYPE html SYSTEM "x>"><img src="https://example.com/pixel">',
+      '<!DOCTYPE html PUBLIC "a>" "b>"><img src="https://example.com/pixel">',
+      '<!DOCTYPE html SYSTEM "about:legacy-compat"><p>x</p>',
+    ]) {
+      expect(wrapHtmlWithCsp(html)).toBe(`${meta}${html}`);
+    }
+  });
+
+  it("keeps only HTML whitespace inside or before a kept doctype", () => {
+    expect(wrapHtmlWithCsp("<!DOCTYPE\thtml\n><p>x</p>")).toBe(
+      `<!DOCTYPE\thtml\n>${meta}<p>x</p>`,
+    );
+    // U+00A0 is not HTML whitespace: it is text, so it must not precede
+    // (asserted in a browser by the HtmlDoctypeAfterNbsp story).
+    const nbsp = "\u00A0<!DOCTYPE html><p>x</p>";
+    expect(wrapHtmlWithCsp(nbsp)).toBe(`${meta}${nbsp}`);
+  });
+
   it("is not fooled by a <head> inside a comment before the real head", () => {
     const html =
       "<!-- <head> --><html><head><title>t</title></head><body>x</body></html>";

@@ -259,21 +259,27 @@ export const PREVIEW_HTML_CSP =
 const CSP_META_TAG = `<meta http-equiv="Content-Security-Policy" content="${PREVIEW_HTML_CSP}">`;
 
 /**
- * A leading doctype, the one token allowed ahead of the CSP meta. It must stay
- * first: a doctype that follows any element is ignored by the HTML parser,
- * which would drop a full document into quirks mode. Only whitespace (and a
- * BOM) may precede it — anything cleverer, such as skipping leading comments,
- * would mean re-implementing the tokenizer's comment rules (`--!>`, `<!-->`),
- * and a disagreement there is exactly how markup could end up ahead of the
- * policy. A document that puts a comment before its doctype therefore renders
- * in quirks mode, which is harmless in a sandboxed preview.
+ * A leading simple doctype, the one token allowed ahead of the CSP meta. It
+ * must stay first: a doctype that follows any element is ignored by the HTML
+ * parser, which would drop a full document into quirks mode. Only the plain
+ * `<!DOCTYPE html>` form is matched, with nothing but HTML whitespace inside
+ * it and only HTML whitespace (and a BOM) before it. Anything cleverer — a
+ * PUBLIC or SYSTEM identifier, a leading comment — would mean re-implementing
+ * the tokenizer's rules for those (quoted identifiers, `--!>`, `<!-->`), and a
+ * disagreement there is exactly how the meta could be swallowed into a
+ * declaration or land behind markup. Leading text the parser does not treat as
+ * whitespace (U+00A0, say) opens the body, so a meta after the doctype would
+ * land there, unapplied. Any other document gets the meta at the very
+ * start, before every declaration, and renders in quirks mode, which is
+ * harmless in a sandboxed preview.
  */
-const LEADING_DOCTYPE = /^\uFEFF?\s*<!doctype[^>]*>/i;
+const LEADING_DOCTYPE =
+  /^\uFEFF?[\t\n\f\r ]*<!doctype[\t\n\f\r ]+html[\t\n\f\r ]*>/i;
 
 /**
  * Inject the preview CSP `<meta>` into an HTML document before it's served to a
  * sandboxed iframe. The meta is written as the document's first token (after a
- * leading doctype, if any), never located by searching the input for `<head>`:
+ * leading simple `<!DOCTYPE html>`, if any), never located by searching the input for `<head>`:
  * a search can be fooled by a `<head>` inside a comment, a `<script>`, or an
  * attribute value, landing the policy where the parser never applies it.
  *
