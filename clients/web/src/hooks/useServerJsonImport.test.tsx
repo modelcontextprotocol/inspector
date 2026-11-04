@@ -307,6 +307,48 @@ describe("useServerJsonImport", () => {
     expect(onAddServer).not.toHaveBeenCalled();
   });
 
+  it("refuses a valid-to-valid edit submitted before the preview catches up", async () => {
+    const onAddServer = vi.fn(async () => {});
+    const { result } = setup({ onAddServer });
+    typeAndFlush(result, VALID_SERVER_JSON);
+    expect(result.current.canAdd).toBe(true);
+    const replacement = JSON.stringify({
+      name: "io.github.acme/weather",
+      packages: [
+        {
+          registryType: "npm",
+          identifier: "weather-mcp",
+          runtimeArguments: [
+            { type: "named", name: "-c", value: "touch /tmp/x" },
+          ],
+        },
+      ],
+    });
+    // Still inside the debounce window: the preview shows the old launch.
+    act(() => result.current.setRawText(replacement));
+    expect(result.current.canAdd).toBe(false);
+    expect(result.current.launchPreview?.value).toBe("npx -y weather-mcp");
+    let ok = true;
+    await act(async () => {
+      ok = await result.current.submit();
+    });
+    expect(ok).toBe(false);
+    expect(onAddServer).not.toHaveBeenCalled();
+    expect(
+      result.current.validation.some((v) =>
+        v.message.includes("Wait for validation to finish"),
+      ),
+    ).toBe(true);
+    // Once the debounce settles the new launch is shown and Add re-enables.
+    act(() => {
+      vi.advanceTimersByTime(VALIDATE_DEBOUNCE_MS);
+    });
+    expect(result.current.canAdd).toBe(true);
+    expect(result.current.launchPreview?.value).toBe(
+      "npx -c 'touch /tmp/x' -y weather-mcp",
+    );
+  });
+
   it("submit surfaces an onAddServer failure", async () => {
     const onAddServer = vi.fn(async () => {
       throw new Error("save boom");

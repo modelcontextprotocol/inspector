@@ -186,9 +186,18 @@ export function useServerJsonImport({
   const selectedOption = selection?.selectedOption;
   const parsed = parseState.ok === true ? parseState.parsed : undefined;
 
-  // The Add button is enabled only when the (debounced) content validates.
+  // Whether the preview reflects the textarea. The preview (and the launch it
+  // shows) is built from the debounced text, so until the debounce settles an
+  // edit has not been shown to the user and must not be submittable.
+  const previewIsCurrent = draft.rawText === debouncedText;
+
+  // The Add button is enabled only when the (debounced) content validates and
+  // matches what is in the textarea.
   const canAdd =
-    selection !== undefined && selection.idIsValid && !selection.idIsDuplicate;
+    previewIsCurrent &&
+    selection !== undefined &&
+    selection.idIsValid &&
+    !selection.idIsDuplicate;
 
   const packages: PackageInfo[] | undefined = parsed?.options.map((o) => ({
     registryType: o.registryType,
@@ -286,9 +295,14 @@ export function useServerJsonImport({
 
   async function submit(): Promise<boolean> {
     setSubmitError(undefined);
-    // Parse the live text (not the debounced copy) so a click in the brief
-    // window after an edit (before the button re-disables) sees the latest
-    // content rather than importing stale input.
+    // Refuse while an edit is still inside the debounce window: the preview
+    // has not yet shown its launch, so saving it would persist a command the
+    // user never saw. Add is disabled then too; this covers a click that
+    // lands before the button re-renders.
+    if (!previewIsCurrent) {
+      setSubmitError("Wait for validation to finish before adding the server.");
+      return false;
+    }
     const live = parseDraft(draft.rawText);
     if (live.ok !== true) {
       setSubmitError("Fix the validation errors before adding the server.");
