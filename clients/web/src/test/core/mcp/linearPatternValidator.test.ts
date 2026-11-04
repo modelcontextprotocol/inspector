@@ -233,6 +233,23 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () 
     );
   });
 
+  it("charges each pattern's length, so many long but cheap patterns exhaust the budget", () => {
+    // Each is one character class — one AST node, one instruction — so only
+    // the length charge separates 200 of them from 200 one-character ones.
+    const long = Object.fromEntries(
+      Array.from({ length: 200 }, (_, i) => [
+        `p${i}`,
+        { type: "string", pattern: `[${i}${"a".repeat(8_000)}]` },
+      ]),
+    );
+    expect(200 * 8_000).toBeGreaterThan(SCHEMA_COMPILE_BUDGET.steps);
+    const result = check({ type: "object", properties: long }, {});
+    expect(result.valid).toBe(false);
+    expect(result.errorMessage).toContain(
+      "the schema's patterns exceed the compilation budget",
+    );
+  });
+
   it("gives each schema a budget of its own", () => {
     const provider = new LinearPatternJsonSchemaValidator();
     expect(SCHEMA_COMPILE_BUDGET.size).toBeGreaterThan(9_005);

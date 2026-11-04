@@ -7,12 +7,13 @@
  * whatever the pattern's shape (checked on the catastrophic shapes, with the
  * bound asserted rather than timed, so there is nothing to flake).
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   COMPILE_BUDGET_EXHAUSTED,
   compileLinearRegExp,
   isCompileBudgetExhausted,
   MAX_COMPILE_STEPS,
+  MAX_PATTERN_LENGTH,
   MAX_PROGRAM_SIZE,
   type LinearRegExp,
 } from "@inspector/core/json/linearRegExp";
@@ -212,12 +213,41 @@ describe("compileLinearRegExp — unsupported constructs", () => {
     // Once exhausted, even a trivial pattern is declined, at no cost.
     expect(compileLinearRegExp("a", true, budget).ok).toBe(false);
 
-    const steps = { steps: 3, size: MAX_PROGRAM_SIZE };
+    // Its length (4) is charged up front; the compile visits (5) then run out.
+    const steps = { steps: 6, size: MAX_PROGRAM_SIZE };
     expect(compileLinearRegExp("abcd", true, steps)).toEqual({
       ok: false,
       reason: COMPILE_BUDGET_EXHAUSTED,
     });
     expect(isCompileBudgetExhausted(steps)).toBe(true);
+  });
+
+  it("declines an over-length or over-budget pattern before the native constructor sees it", () => {
+    const native = vi.spyOn(globalThis, "RegExp");
+    try {
+      const long = "a".repeat(MAX_PATTERN_LENGTH + 1);
+      expect(compileLinearRegExp(long, true)).toEqual({
+        ok: false,
+        reason: `pattern longer than ${MAX_PATTERN_LENGTH} characters`,
+      });
+      // Its length is charged even when nothing else is: this one fits the
+      // per-pattern cap but not what remains of the budget.
+      const budget = { steps: MAX_PATTERN_LENGTH - 1, size: MAX_PROGRAM_SIZE };
+      const atCap = `[${"a".repeat(MAX_PATTERN_LENGTH - 2)}]`;
+      expect(compileLinearRegExp(atCap, true, budget)).toEqual({
+        ok: false,
+        reason: COMPILE_BUDGET_EXHAUSTED,
+      });
+      expect(native).not.toHaveBeenCalled();
+      // The spy does see a pattern that is compiled.
+      compileLinearRegExp("a", true);
+      expect(native).toHaveBeenCalled();
+    } finally {
+      native.mockRestore();
+    }
+    expect(
+      compiled(`[${"a".repeat(MAX_PATTERN_LENGTH - 2)}]`).search("a", NO_LIMIT),
+    ).toBe(true);
   });
 
   it("lets an invalid pattern throw, as the native engine would", () => {

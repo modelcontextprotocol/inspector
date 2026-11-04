@@ -107,6 +107,15 @@ export interface CompileBudget {
   size: number;
 }
 
+/**
+ * Longest pattern compiled at all; a longer one is declined before ANY work —
+ * including the native syntax check — is done on it. Real `pattern` values
+ * (formats, identifiers, enumerations of a few hundred alternatives) run to
+ * tens or hundreds of characters, so 8 KiB leaves wide headroom while capping
+ * what one pattern can cost the parser and the native constructor.
+ */
+export const MAX_PATTERN_LENGTH = 8192;
+
 /** The reason a compilation gives when its shared budget ran out. */
 export const COMPILE_BUDGET_EXHAUSTED =
   "the patterns together exceed the compilation budget";
@@ -116,7 +125,9 @@ export function isCompileBudgetExhausted(budget: CompileBudget): boolean {
   return budget.steps < 0 || budget.size < 0;
 }
 
-const QUANTIFIER_BRACES = /^\{(\d+)(?:(,)(\d*))?\}/;
+// Sticky, and matched at the parser's position via `lastIndex`, so reading a
+// quantifier never copies the rest of the pattern.
+const QUANTIFIER_BRACES = /\{(\d+)(?:(,)(\d*))?\}/y;
 const HEX4 = /^[0-9a-fA-F]{4}$/;
 const HEX2 = /^[0-9a-fA-F]{2}$/;
 
@@ -189,7 +200,8 @@ class Parser {
       return { min: 0, max: 1 };
     }
     if (c === "{") {
-      const m = QUANTIFIER_BRACES.exec(this.src.slice(this.pos));
+      QUANTIFIER_BRACES.lastIndex = this.pos;
+      const m = QUANTIFIER_BRACES.exec(this.src);
       // Outside unicode mode a `{` that is not a quantifier is a literal.
       if (!m) return undefined;
       this.pos += m[0].length;
@@ -226,7 +238,8 @@ class Parser {
       case "{":
         // Non-unicode only: a `{` that would read as a quantifier here is a
         // "nothing to repeat" error natively; any other `{` is a literal.
-        if (QUANTIFIER_BRACES.test(this.src.slice(this.pos))) {
+        QUANTIFIER_BRACES.lastIndex = this.pos;
+        if (QUANTIFIER_BRACES.test(this.src)) {
           /* v8 ignore next -- rejected by the native RegExp constructor first */
           throw new Unsupported("nothing to repeat");
         }
@@ -642,13 +655,29 @@ export type LinearRegExpCompilation =
  * A valid pattern that uses a construct an automaton cannot evaluate
  * (lookaround, backreferences, group modifiers) or that compiles past
  * {@link MAX_PROGRAM_SIZE} returns `{ ok: false, reason }`. So does one that
- * would overspend `budget`, when given, with {@link COMPILE_BUDGET_EXHAUSTED}.
+ * would overspend `budget`, when given, with {@link COMPILE_BUDGET_EXHAUSTED},
+ * and one longer than {@link MAX_PATTERN_LENGTH}. Both are declined before the
+ * native constructor sees the pattern. The pattern's length is charged to
+ * `budget` up front: parsing is linear in it and builds at most a constant
+ * number of AST nodes per character, so the charge covers the parse.
  */
 export function compileLinearRegExp(
   pattern: string,
   unicode: boolean,
   budget?: CompileBudget,
 ): LinearRegExpCompilation {
+  if (pattern.length > MAX_PATTERN_LENGTH) {
+    return {
+      ok: false,
+      reason: `pattern longer than ${MAX_PATTERN_LENGTH} characters`,
+    };
+  }
+  if (budget) {
+    budget.steps -= pattern.length;
+    if (isCompileBudgetExhausted(budget)) {
+      return { ok: false, reason: COMPILE_BUDGET_EXHAUSTED };
+    }
+  }
   new RegExp(pattern, unicode ? "u" : "");
   try {
     const ast = new Parser(pattern, unicode).parse();
