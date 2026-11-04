@@ -85,6 +85,14 @@ const MAX_GROUP_DEPTH = 64;
  */
 export const MAX_PROGRAM_SIZE = 10_000;
 
+/**
+ * Most AST node visits compilation may make. A counted repeat re-compiles its
+ * body once per copy, and a body can cost visits without emitting anything
+ * (`(?:(){0}x){9999}`), so {@link MAX_PROGRAM_SIZE} alone does not bound the
+ * work compilation does before the evaluation budget applies.
+ */
+export const MAX_COMPILE_STEPS = 10 * MAX_PROGRAM_SIZE;
+
 const QUANTIFIER_BRACES = /^\{(\d+)(?:(,)(\d*))?\}/;
 const HEX4 = /^[0-9a-fA-F]{4}$/;
 const HEX2 = /^[0-9a-fA-F]{2}$/;
@@ -352,6 +360,7 @@ class Compiler {
   readonly prog: Inst[] = [];
   private readonly matchers = new Map<string, CharMatcher>();
   private readonly unicode: boolean;
+  private steps = 0;
 
   constructor(unicode: boolean) {
     this.unicode = unicode;
@@ -381,6 +390,9 @@ class Compiler {
   }
 
   compile(node: Node): void {
+    if (++this.steps > MAX_COMPILE_STEPS) {
+      throw new Unsupported("pattern too complex");
+    }
     switch (node.kind) {
       case "char":
         this.emit({ op: "char", matcher: this.matcher(node.source) });
@@ -414,7 +426,13 @@ class Compiler {
   }
 
   private compileRepeat(body: Node, min: number, max: number): void {
-    for (let i = 0; i < min; i++) this.compile(body);
+    for (let i = 0; i < min; i++) {
+      const before = this.prog.length;
+      this.compile(body);
+      // A body that emits nothing matches only the empty string, so further
+      // copies add nothing either — stop rather than loop `min` times.
+      if (this.prog.length === before) return;
+    }
     if (max === Infinity) {
       const split = this.emit({ op: "split", a: 0, b: 0 });
       this.compile(body);

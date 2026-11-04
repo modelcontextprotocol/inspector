@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import {
   compileLinearRegExp,
+  MAX_COMPILE_STEPS,
   MAX_PROGRAM_SIZE,
   type LinearRegExp,
 } from "@inspector/core/json/linearRegExp";
@@ -146,6 +147,48 @@ describe("compileLinearRegExp — unsupported constructs", () => {
       "pattern too complex",
     );
     expect(unsupportedReason("(a{1,200}){1,200}")).toBe("pattern too complex");
+  });
+
+  it("compiles a huge counted repeat of an empty body without expanding it", () => {
+    // Without the empty-body cut-off each of these loops `min` times while
+    // emitting nothing, so the program-size cap never fires and compilation
+    // never returns; with it, each compiles to a program of the empty match.
+    for (const pattern of [
+      "(){1000000000000}",
+      "(?:){1000000000000}",
+      "(a{0}){1000000000000}",
+      "((){1000}){1000000000}",
+      "(){1000000000000,}",
+      "(a{0}){5,1000000000000}",
+      "^(a{0}){1000000000000}$",
+    ]) {
+      const regExp = compiled(pattern);
+      expect(regExp.size, pattern).toBeLessThanOrEqual(4);
+      expect(regExp.search("", NO_LIMIT), pattern).toBe(true);
+    }
+    expect(compiled("^(a{0}){1000000000000}$").search("a", NO_LIMIT)).toBe(
+      false,
+    );
+  });
+
+  it("declines a huge bounded repeat of an empty body at the program size limit", () => {
+    // Nothing emitted by a mandatory copy cuts these short, so the optional
+    // copies each emit a split and the program-size cap stops the expansion.
+    expect(unsupportedReason("(){0,1000000000000}")).toBe(
+      "pattern too complex",
+    );
+    expect(unsupportedReason("(a{0}){0,1000000000000}")).toBe(
+      "pattern too complex",
+    );
+  });
+
+  it("declines a repeat whose body costs compile work without emitting", () => {
+    // Each copy visits 21 nodes but emits one instruction, so the program
+    // stays under its cap while the work does not: the step cap stops it.
+    const body = `(?:${"(){0}".repeat(20)}x)`;
+    const copies = Math.ceil(MAX_COMPILE_STEPS / 21) + 1;
+    expect(copies).toBeLessThan(MAX_PROGRAM_SIZE);
+    expect(unsupportedReason(`${body}{${copies}}`)).toBe("pattern too complex");
   });
 
   it("lets an invalid pattern throw, as the native engine would", () => {
