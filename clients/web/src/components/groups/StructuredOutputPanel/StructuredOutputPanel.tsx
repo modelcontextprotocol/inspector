@@ -36,11 +36,11 @@ const HeaderRow = Group.withProps({
   wrap: "nowrap",
 });
 
-// h4 (size h5) for the same reason as the "Resource Links" heading: the panel's
-// "Results" title is h3, so a sub-box heading is h4 and the heading order never
+// h3 (size h5) for the same reason as the "Resource Links" heading: the panel's
+// "Results" title is h2, so a sub-box heading is h3 and the heading order never
 // skips a level (axe `heading-order`).
 const StructuredHeader = Title.withProps({
-  order: 4,
+  order: 3,
   size: "h5",
 });
 

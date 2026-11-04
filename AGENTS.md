@@ -88,7 +88,7 @@ silently. For the fuller map (what each `core/` area owns, what each
 v2 is **not** an npm workspace — each client under `clients/*` keeps its own
 `package.json` and `node_modules`. A single `npm install` at the **repo root**
 is still all you need: the root `postinstall` cascades into every client. Node
-`>=22.19.0`.
+`^22.23.4 || ^24.22.1 || >=26.12.1`.
 
 ```sh
 npm install                      # repo root

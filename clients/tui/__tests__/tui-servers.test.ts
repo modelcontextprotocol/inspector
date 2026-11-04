@@ -75,8 +75,8 @@ describe("loadTuiServers", () => {
 
   it("builds a single ad-hoc server from a positional target", async () => {
     const servers = await loadTuiServers({ target: ["my-server", "--flag"] });
-    expect(Object.keys(servers)).toEqual(["default"]);
-    expect(servers.default?.config).toMatchObject({
+    expect(Object.keys(servers)).toEqual(["my-server"]);
+    expect(servers["my-server"]?.config).toMatchObject({
       type: "stdio",
       command: "my-server",
       args: ["--flag"],

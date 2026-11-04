@@ -163,3 +163,17 @@ more).
 - Parked calls expire after 10 minutes; one parked call per connection. Pass
   `--elicit off` on `connect` to have well-behaved servers fall back to their
   own defaults instead of asking.
+
+## Load runs (`tools/call --load`)
+
+- The summary's `latencyMs` and `okThroughput` cover **successful** calls
+  only; failures are timed in `errorLatencyMs`, and `isError` results' text
+  is tallied in `toolErrorMessages` (thrown ones in `errorMessages`). Judge a
+  run on these, not on `throughput`, which counts failures too.
+- With `--load-rate`, compare `achievedRate` to `rate` and read
+  `droppedSlots`: slots nobody was free to take are dropped, so a server too
+  slow for the target can still report healthy latency. A shortfall under 90%
+  also prints a warning on stderr.
+- `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
+  `consecutive_errors` (the server stopped answering), `connection_lost`, or
+  `interrupted`. The counts cover only what completed.

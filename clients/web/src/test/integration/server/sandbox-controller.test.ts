@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createServer, type Server } from "node:http";
+import { createServer, request, type Server } from "node:http";
 import { EventEmitter } from "node:events";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -9,6 +9,7 @@ import {
   DEFAULT_SANDBOX_PORT,
   EMBEDDER_ORIGINS_PLACEHOLDER,
   embedderOriginsLiteral,
+  isSandboxPath,
   renderSandboxProxyHtml,
   resolveSandboxPort,
   sandboxFrameAncestors,
@@ -24,6 +25,44 @@ async function freePort(): Promise<number> {
   const port = typeof addr === "object" && addr !== null ? addr.port : 0;
   await new Promise<void>((resolve) => probe.close(() => resolve()));
   return port;
+}
+
+/**
+ * A request over a real socket with an explicit `Host` — `fetch` derives
+ * `Host` from the URL, so it cannot send a rebinding name.
+ */
+function rawRequest(
+  port: number,
+  options: { method?: string; path?: string; host?: string },
+): Promise<{
+  status: number;
+  body: string;
+  headers: Record<string, unknown>;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        host: "127.0.0.1",
+        port,
+        path: options.path ?? "/sandbox",
+        method: options.method ?? "GET",
+        headers: { host: options.host ?? `127.0.0.1:${port}` },
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf-8");
+        res.on("data", (chunk: string) => {
+          body += chunk;
+        });
+        res.on("end", () =>
+          resolve({ status: res.statusCode ?? 0, body, headers: res.headers }),
+        );
+        res.on("error", reject);
+      },
+    );
+    req.on("error", reject);
+    req.end();
+  });
 }
 
 const PROXY_PAGE = join(
@@ -76,6 +115,21 @@ describe("embedder allow-list injection (#1862)", () => {
     const page = readFileSync(PROXY_PAGE, "utf-8");
     expect(page.split(EMBEDDER_ORIGINS_PLACEHOLDER)).toHaveLength(2);
     expect(page).not.toContain("ALLOWED_REFERRER_PATTERN");
+  });
+});
+
+describe("isSandboxPath (#2827)", () => {
+  it.each([
+    ["/sandbox", true],
+    ["/sandbox/", true],
+    ["/sandbox?x=1", true],
+    ["/sandbox/?v=2&y", true],
+    ["/sandboxes", false],
+    ["/sandbox/x", false],
+    ["/", false],
+    [undefined, false],
+  ])("%s -> %s", (url, expected) => {
+    expect(isSandboxPath(url)).toBe(expected);
   });
 });
 
@@ -395,6 +449,89 @@ describe("createSandboxController", () => {
         method: "POST",
       });
       expect(res.status).toBe(404);
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("answers HEAD with GET's status and headers and no body (#2827)", async () => {
+    const controller = createSandboxController({ port: 0 });
+    try {
+      const { port } = await controller.start();
+      const get = await rawRequest(port, {});
+      const head = await rawRequest(port, { method: "HEAD" });
+      expect(head.status).toBe(200);
+      expect(head.body).toBe("");
+      expect(head.headers["content-type"]).toBe(get.headers["content-type"]);
+      expect(head.headers["content-length"]).toBe(
+        String(Buffer.byteLength(get.body)),
+      );
+      expect(head.headers["content-security-policy"]).toBe(
+        get.headers["content-security-policy"],
+      );
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("ignores a query string on /sandbox (#2827)", async () => {
+    const controller = createSandboxController({ port: 0 });
+    try {
+      const { port } = await controller.start();
+      const res = await fetch(`http://localhost:${port}/sandbox?x=1`);
+      expect(res.status).toBe(200);
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("refuses a Host outside the allow-list with 403 (#2827)", async () => {
+    const controller = createSandboxController({ port: 0 });
+    try {
+      const { port } = await controller.start();
+      const res = await rawRequest(port, { host: "rebind.evil.com" });
+      expect(res.status).toBe(403);
+      expect(res.body).toContain("MCP_INSPECTOR_ALLOWED_HOSTS");
+      expect(res.body).not.toContain("<html");
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("admits loopback names, origin hosts, extra hosts and the public URL's host", async () => {
+    const controller = createSandboxController({
+      port: 0,
+      allowedOrigins: ["https://inspector.example.com"],
+      allowedHosts: ["proxy.example.net"],
+      publicUrl: "https://sandbox.example.org/sandbox",
+    });
+    try {
+      const { port } = await controller.start();
+      for (const host of [
+        "localhost",
+        "127.0.0.1",
+        "inspector.example.com",
+        "proxy.example.net",
+        "sandbox.example.org",
+      ]) {
+        expect((await rawRequest(port, { host })).status).toBe(200);
+      }
+      expect((await rawRequest(port, { host: "other.example" })).status).toBe(
+        403,
+      );
+    } finally {
+      await controller.close();
+    }
+  });
+
+  it("admits no extra name for an unparsable public URL", async () => {
+    const controller = createSandboxController({
+      port: 0,
+      publicUrl: "not a url",
+    });
+    try {
+      const { port } = await controller.start();
+      expect((await rawRequest(port, { host: "not" })).status).toBe(403);
     } finally {
       await controller.close();
     }

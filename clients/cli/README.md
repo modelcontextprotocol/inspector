@@ -94,9 +94,9 @@ Connections to remote HTTP/SSE servers honor the conventional proxy environment 
 
 OAuth requests go through the destination guard rather than the plain proxied fetch: it reads the same variables, refuses link-local and cloud-metadata targets, and pins each direct connection to the addresses it checked ([#2749](https://github.com/modelcontextprotocol/inspector/issues/2749)). What it can and cannot promise behind a proxy is in [Outbound fetch destination guard](../web/README.md#outbound-fetch-destination-guard).
 
-Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (declared in the **root** manifest only; `^8.x` requires Node `>= 22.19.0`, the Inspector's supported floor). It is imported lazily on the first request and, for MCP traffic, only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. OAuth requests load it either way, for the destination guard.
+Proxy routing is powered by the [`undici`](https://www.npmjs.com/package/undici) package (declared in the **root** manifest only; `^8.x` requires Node `>= 22.19.0`, below the Inspector's supported floor of `^22.23.4 || ^24.22.1 || >=26.12.1`). It is imported lazily on the first request and, for MCP traffic, only when a proxy variable is set, so MCP connections without a proxy configured pay no cost. OAuth requests load it either way, for the destination guard.
 
-**Both halves of the pair come from userland undici — its `fetch` _and_ its `EnvHttpProxyAgent` ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).** The obvious-looking alternative is to hand the agent to Node's built-in `fetch` as a `dispatcher`, which is what v2.0.0–2.3.0 did. That couples two _different copies_ of undici at the dispatcher handler interface, and that interface is not stable across majors: Node 22 embeds undici 6, Node 24 embeds 7, Node 26 embeds 8. A userland undici 8 agent handed a built-in undici 7 handler is rejected outright — `fetch failed: invalid onRequestStart method` — and the request never leaves the process. Keeping both sides inside one copy is what makes proxying work unchanged from the Node 22.19 floor through Node 26. (Node's own `NODE_USE_ENV_PROXY` is not a substitute: it is unsupported at our 22.19 engine floor.)
+**Both halves of the pair come from userland undici — its `fetch` _and_ its `EnvHttpProxyAgent` ([#2067](https://github.com/modelcontextprotocol/inspector/issues/2067)).** The obvious-looking alternative is to hand the agent to Node's built-in `fetch` as a `dispatcher`, which is what v2.0.0–2.3.0 did. That couples two _different copies_ of undici at the dispatcher handler interface, and that interface is not stable across majors: Node 22 embeds undici 6, Node 24 embeds 7, Node 26 embeds 8. A userland undici 8 agent handed a built-in undici 7 handler is rejected outright — `fetch failed: invalid onRequestStart method` — and the request never leaves the process. Keeping both sides inside one copy is what makes proxying work unchanged on every line the floor admits, Node 22 through Node 26. (Node's own `NODE_USE_ENV_PROXY` is not a substitute: it exists at our floor, added in 22.21.0, but it is opt-in at process start and still experimental, so a user who only exports `HTTPS_PROXY` would not get it.)
 
 Because undici's `Response` is a different class from `globalThis.Response`, the proxied fetch re-wraps each response as a genuine global `Response`, streaming preserved. Without that, `res instanceof Response` is `false` for callers that test it — including the MCP SDK, whose OAuth error formatter would degrade every message to `Raw body: [object Response]`.
 
@@ -162,7 +162,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
-| `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency is above this many milliseconds, or when no call completed. Positive number. |
+| `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -331,8 +331,11 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   "errorRate": 0.0006,
   "elapsedMs": 30012.4,
   "throughput": 1373.12,
-  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p99": 61.3, "max": 30004.8 },
-  "errorMessages": [{ "message": "Request timed out", "count": 23 }]
+  "okThroughput": 1372.35,
+  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p99": 61.3, "max": 212.8 },
+  "errorLatencyMs": { "min": 30001.2, "mean": 30003.1, "p50": 30002.9, "p90": 30004.1, "p99": 30004.8, "max": 30004.8 },
+  "errorMessages": [{ "message": "Request timed out", "count": 23 }],
+  "toolErrorMessages": []
 }
 ```
 
@@ -342,12 +345,25 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   together over `requests`, rounded to four places.
 - **`errorMessages`** groups the thrown messages by frequency. The first ten
   distinct messages are kept; any further ones are counted under `(other)`.
+  **`toolErrorMessages`** does the same for the `isError` results, using the
+  first text block of each, trimmed and cut to 200 characters (`(no text
+  content)` when a result has none), so a run that is all `rate limited`
+  says so ([#2836](https://github.com/modelcontextprotocol/inspector/issues/2836)).
 - **Latency** is per call, client-side, in milliseconds, with nearest-rank
-  percentiles. It includes everything the Inspector does around the request,
-  which is negligible next to a network round trip but not next to a
+  percentiles. **`latencyMs` covers the successful (`ok`) calls only**, and
+  **`errorLatencyMs`** the failed ones (tool errors and thrown alike), so a
+  failure that comes back instantly never makes a struggling server look
+  faster; either is `null` when it has no calls. `throughput` counts every
+  completed call per second, **`okThroughput`** only the successful ones.
+  Latency includes everything the Inspector does around the request, which
+  is negligible next to a network round trip but not next to a
   sub-millisecond stdio echo.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
+  A run that reaches its `--load-duration` is measured to the end of that
+  window at least, so a `--load-rate 1` run over five seconds reports a
+  throughput of 1/s rather than the 1.25/s its last start would suggest
+  ([#2837](https://github.com/modelcontextprotocol/inspector/issues/2837)).
   With `--load-rate`, starts follow an even `1/rate` grid; a timer that wakes
   a little late keeps the grid, so the average rate holds. A slot missed
   entirely — every worker busy, or a stalled event loop — is dropped rather
@@ -355,7 +371,42 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   slot that falls past the window is never started. Node's timers resolve to
   about a millisecond, so a rate in the high hundreds per second or above is
   reached only approximately (1000/s measured ~700 against a local stdio
-  server); compare `requests` against what you asked for.
+  server).
+- **`plannedStarts`, `droppedSlots`, `achievedRate`** appear only with
+  `--load-rate` ([#2837](https://github.com/modelcontextprotocol/inspector/issues/2837)).
+  `plannedStarts` is what the `1/rate` grid called for over the window the run
+  was starting calls in (the whole `--load-duration` for a run that reached
+  it, or up to the last start of a run that `--load-requests` ended);
+  `droppedSlots` is how many of those were
+  never started because every worker was busy; `achievedRate` is the calls
+  started per second over that window. Dropping slots keeps a stall from
+  turning into a burst, but it also makes the run closed-loop: a server too
+  slow for the target rate reports healthy latency while most of the planned
+  load never ran. So when fewer than 90% of `plannedStarts` were started, a
+  warning naming the shortfall is printed on stderr after the summary
+  (dropped by `--quiet`). Raise `--load-concurrency` or lower the rate.
+- **The run stops early when the server is clearly gone**
+  ([#2835](https://github.com/modelcontextprotocol/inspector/issues/2835)).
+  A refused connection fails each call in microseconds, so a server that dies
+  mid-run would otherwise turn the rest of the window into thousands of
+  instant failures. Once 50 calls in a row have thrown — or calls have done
+  nothing but throw for a second, at least 5 of them — no further call
+  starts. Only thrown calls count; a tool error is the server answering, and
+  any other outcome resets the streak. The summary covers what completed and
+  carries **`stoppedEarly`**: `{ "reason": "consecutive_errors", "detail":
+  "…" }`, with a warning on stderr. The exit code is unchanged — `0` unless a
+  threshold is breached.
+- **Ctrl+C or SIGTERM ends the run, not the summary**
+  ([#2834](https://github.com/modelcontextprotocol/inspector/issues/2834)).
+  The first signal stops new calls from starting and lets the in-flight ones
+  finish; the summary of what completed is then printed with
+  `"stoppedEarly": { "reason": "interrupted", "detail": "received SIGINT" }`,
+  and the CLI exits `130` (`interrupted`) without checking any threshold. A
+  second Ctrl+C exits `130` immediately, for in-flight calls that will not
+  settle. A repeat of the same signal within half a second of the first is
+  taken as a re-raise rather than a second press — a dependency of the CLI
+  (`when-exit`) re-sends the signal to the process after its own cleanup — so
+  the press that exits at once is one made after that.
 - **`connections`** appears only with `--load-connections` above `1` (see
   below), so a default run's summary is unchanged.
 
@@ -411,7 +462,10 @@ the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
 is the result — unless a threshold below is set. `--load` is rejected with any other method and with `--app-info`,
 `--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
-rejected without `--load`.
+rejected without `--load`. Each of those refusals — and `--load-connections`
+above `--load-concurrency`, or above `1` over stdio — exits `1` with the
+envelope `code` `load_flag_conflict`, the code `mcpdo` uses for the same
+mistakes.
 
 ##### Thresholds for CI
 
@@ -434,8 +488,10 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   share of failed calls (`toolErrors` plus `errors`, over `requests`), not the
   four-place `errorRate`, so `--load-max-error-rate 0` fails even one failure
   that rounds away in the summary.
-- With `--load-max-p99`, a run in which no call completed has no p99 to
-  compare, and fails rather than passing a latency check it never measured.
+- `--load-max-p99` judges the **successful** calls (`latencyMs`), so a run
+  in which half the calls fail instantly cannot pass on the strength of its
+  failures. A run in which no call succeeded has no p99 to compare, and fails
+  rather than passing a latency check it never measured.
 - With no threshold set, nothing changes: a completed run exits `0`.
 
 #### Schema portability (`--strict`)
@@ -524,7 +580,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 1. Starts the callback listener on `--callback-url` (or `MCP_OAUTH_CALLBACK_URL`)
 2. Prints the authorization URL to stderr (OSC 8 hyperlink when stderr is a TTY) and **opens the default browser** when allowed. Default: open on a **stderr** TTY (so `2>&1 | tee` prints a plain URL into the log but does not auto-open); plain URL only when stderr is non-TTY. `MCP_AUTO_OPEN_ENABLED=false` never opens; `=true` forces open even on a non-TTY (same as the web launcher).
-3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC
+3. Waits for the browser redirect, exchanges the code, and retries connect or the failed RPC. Only a redirect echoing this flow's OAuth `state` is acted on — any other request to the listener, an `?error=` response included, gets a 400 and is ignored, so another local process or a web page cannot cancel the sign-in or choose the error it reports; the wait continues until the matching redirect or the 15-minute timeout
 
 Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
@@ -720,6 +776,7 @@ prose from stderr:
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
 | `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
+| `130` | A `--load` run was interrupted by Ctrl+C or SIGTERM (`interrupted`). The partial summary is printed on stdout first. See [Load testing a tool](#load-testing-a-tool---load). |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
 `ErrorEnvelope`:

@@ -21,6 +21,7 @@ import { HTTP_TOO_MANY_REQUESTS } from "../mcp/rateLimit.js";
  *  - 9: `--verify --require-digests` found a skill that advertised no digests
  *  - 10: a `--load` run breached a `--load-max-*` threshold
  *  - 11: the server rate limited the request (HTTP 429)
+ *  - 130: a `--load` run was interrupted by Ctrl+C / SIGTERM
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
  * is that these schemas ARE valid JSON Schema and are merely refused by some
@@ -92,6 +93,14 @@ export const EXIT_CODES = {
    * a script to scrape the prose message to tell throttling from a real error.
    */
   RATE_LIMITED: 11,
+  /**
+   * A `--load` run was interrupted by SIGINT or SIGTERM (#2834). The partial
+   * summary has already been printed, marked `stoppedEarly.reason:
+   * "interrupted"`; the envelope `code` is `interrupted`. 130 is the shell's
+   * own status for a process ended by SIGINT (128 + 2), so a script sees the
+   * same value whether or not the summary got out.
+   */
+  INTERRUPTED: 130,
 } as const;
 
 /** Machine-readable error envelope written as one JSON line on stderr. */

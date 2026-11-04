@@ -32,7 +32,7 @@ Use `--config` when pointing the Inspector at a config file belonging to somethi
 
 A missing **writable** catalog is created on first use, but **what gets written differs by client**:
 
-- **Web** seeds three sample servers (`DEFAULT_SEED_CONFIG` in `core/mcp/serverList.ts`) so a first launch has something to connect to immediately — two local stdio servers and one remote:
+- **Web** seeds three sample servers (`defaultSeedConfig` in `core/mcp/serverList.ts`) so a first launch has something to connect to immediately — two local stdio servers and one remote:
 
   ```json
   {
@@ -40,7 +40,7 @@ A missing **writable** catalog is created on first use, but **what gets written 
       "filesystem-server-default": {
         "type": "stdio",
         "command": "npx",
-        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "<os.tmpdir()>"]
       },
       "everything-server-default": {
         "type": "stdio",
@@ -54,6 +54,8 @@ A missing **writable** catalog is created on first use, but **what gets written 
     }
   }
   ```
+
+  The filesystem seed is scoped to the platform temp directory — Node's `os.tmpdir()`, so `/tmp` on Linux, the per-user `/var/folders/…` directory on macOS and `%TEMP%` on Windows — written into the file as a literal path.
 
   `example-server-default` is the feature-reference server the MCP org hosts, and it is the one seed that needs no local process. It is protected by OAuth, but its authorization server supports Dynamic Client Registration and sits in front of a *mock* upstream identity provider — so connecting takes no account, no API key and no client registration of your own: press **Connect**, approve the consent screen, and the flow completes. Everything it serves is synthetic reference data. It is a legacy-era server — it answers the plain `initialize` handshake and does not implement `server/discover` — so the seed carries no `protocolEra` and connects under the [`"legacy"` default](#inspector-specific-per-server-fields).
 

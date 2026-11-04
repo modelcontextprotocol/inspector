@@ -12,6 +12,10 @@ import { ClearButton } from "../../elements/ClearButton/ClearButton";
 import { useValueChange } from "../../../hooks/useValueChange";
 import type { Prompt } from "@modelcontextprotocol/client";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface PromptArgumentsFormProps {
   prompt: Prompt;
   argumentValues: Record<string, string>;
@@ -193,7 +197,7 @@ export function PromptArgumentsForm({
       {description && <DescriptionText>{description}</DescriptionText>}
       {promptArguments && promptArguments.length > 0 && (
         <>
-          <Title order={4}>Arguments</Title>
+          <PanelHeading>Arguments</PanelHeading>
           <Stack gap="sm">
             {promptArguments.map((arg) =>
               useAutocomplete ? (

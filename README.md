@@ -25,7 +25,7 @@ npx -p @modelcontextprotocol/inspector mcpdo --help   # mcpdo
 
 ## Quick start (development)
 
-Requires Node `>=22.19.0`.
+Requires Node `^22.23.4 || ^24.22.1 || >=26.12.1`: the patched release on each supported line.
 
 ```bash
 npm install          # at the repo root; postinstall cascades into every client

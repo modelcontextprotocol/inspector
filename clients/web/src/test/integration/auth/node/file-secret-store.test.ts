@@ -371,8 +371,8 @@ describe("FileSecretStore failure handling", () => {
   });
 
   it("refuses an authentic tag truncated to 4 bytes (#2485)", async () => {
-    // A genuine tag, cut short. Node 22 (the engines floor) authenticates a
-    // 4-byte GCM tag unless the length is pinned, which makes a forgery a
+    // A genuine tag, cut short. Node 22 and 24 (both within the engines floor)
+    // authenticate a 4-byte GCM tag unless the length is pinned, which makes a forgery a
     // ~2^-32 guess — so no read may return the secret, whatever the runtime.
     await writeEncryptedFixture();
     const parsed = JSON.parse(await fs.readFile(filePath(), "utf-8"));
@@ -398,9 +398,9 @@ describe("FileSecretStore failure handling", () => {
 
   it("pins the tag length at the cipher, not only in the envelope check (#2485)", async () => {
     // The test above cannot see this: `encryptedEnvelopeProblem` rejects a
-    // short tag before `createDecipheriv` runs, and current Node rejects one
-    // natively. So observe the options themselves — without them, Node 22
-    // authenticates a 4-byte tag should the envelope check ever regress.
+    // short tag before `createDecipheriv` runs, and Node 26 rejects one
+    // natively. So observe the options themselves — without them, Node 22 and
+    // 24 authenticate a 4-byte tag should the envelope check ever regress.
     const seen: { cipher: unknown[]; decipher: unknown[] } = {
       cipher: [],
       decipher: [],

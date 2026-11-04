@@ -519,6 +519,22 @@ describe("AppsScreen", () => {
     expect(screen.getByTestId("apps-messages")).toBeInTheDocument();
   });
 
+  it("keeps the messages heading an h2 while maximized, so no level is skipped (#2827)", async () => {
+    const user = userEvent.setup();
+    const { factory, bridges } = createEventBridgeFactory();
+    renderWithMantine(<ControlledAppsScreen bridgeFactory={factory} />);
+    await user.click(screen.getByText("Ops Dashboard"));
+    await waitFor(() =>
+      expect(bridges.at(-1)?.onmessage).toBeTypeOf("function"),
+    );
+    await requestDisplayMode(bridges, "fullscreen");
+    expect(screen.queryByText("MCP Apps (3)")).not.toBeInTheDocument();
+    await sendUiMessage(bridges, [{ type: "text", text: "hi" }]);
+    expect(
+      screen.getByRole("heading", { level: 2, name: /Messages from app/ }),
+    ).toBeInTheDocument();
+  });
+
   it("returns an empty ui/message result (no conversation content leak)", async () => {
     const user = userEvent.setup();
     const { factory, bridges } = createEventBridgeFactory();

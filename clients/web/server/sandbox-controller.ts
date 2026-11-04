@@ -12,6 +12,7 @@ import {
   isAllInterfacesHost,
 } from "../../../core/node/hostUrl.ts";
 import { DEFAULT_BIND_HOST } from "./resolve-bind-host.js";
+import { ALLOWED_HOSTS_ENV, createHostAllowList } from "./host-allow-list.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,35 @@ export interface SandboxControllerOptions {
    * so a failed bind still reports no sandbox rather than a dead URL.
    */
   publicUrl?: string;
+  /**
+   * Extra hostnames the listener accepts in `Host` — the main server's
+   * `MCP_INSPECTOR_ALLOWED_HOSTS` list. The sandbox applies the same `Host`
+   * allow-list as the main server (#2827): bind host, the hosts of
+   * `allowedOrigins`, these, plus the host of {@link publicUrl} (the name a
+   * reverse proxy forwards to this listener).
+   */
+  allowedHosts?: string[];
+}
+
+/**
+ * The request paths that serve the proxy page: `/sandbox` or `/sandbox/`,
+ * ignoring any query string (#2827). A cache-buster or tracking parameter on
+ * the URL names the same resource, so refusing it 404'd a valid request.
+ */
+export function isSandboxPath(url: string | undefined): boolean {
+  const path = (url ?? "").split("?", 1)[0];
+  return path === "/sandbox" || path === "/sandbox/";
+}
+
+/** The hostname of an advertised public URL, or none if it will not parse. */
+function publicUrlHosts(publicUrl: string | undefined): string[] {
+  if (!publicUrl) return [];
+  try {
+    return [new URL(publicUrl).hostname];
+  } catch {
+    // public-address.ts validated it already; an unparsable value admits nothing.
+    return [];
+  }
 }
 
 // Loopback fallback. NB: no `http://[::1]:*` — a **bracketed IPv6 literal is not
@@ -212,7 +242,22 @@ export function createSandboxController(
   // `localhost` — a name resolves to one address family and would reintroduce
   // the #1951 split (web on IPv4, sandbox on IPv6) for any future call site
   // that omits `host`. Both call sites pass `config.sandboxHost` today.
-  const { port, host = DEFAULT_BIND_HOST, allowedOrigins, publicUrl } = options;
+  const {
+    port,
+    host = DEFAULT_BIND_HOST,
+    allowedOrigins,
+    publicUrl,
+    allowedHosts,
+  } = options;
+  // The same DNS-rebinding defence the main server applies (see
+  // host-allow-list.ts). The proxy page carries no token, but it is the
+  // embedder of every MCP App the Inspector renders, so a page under a
+  // rebinding name has no business loading it either.
+  const isAllowedHost = createHostAllowList({
+    bindHost: host,
+    allowedOrigins: allowedOrigins ?? [],
+    extraHosts: [...(allowedHosts ?? []), ...publicUrlHosts(publicUrl)],
+  });
   let server: Server | null = null;
   let sandboxUrl: string | null = null;
   // Tracked separately from the URL: an advertised public URL carries the
@@ -265,21 +310,29 @@ export function createSandboxController(
         };
 
         server = createServer((req, res) => {
-          if (
-            req.method !== "GET" ||
-            (req.url !== "/sandbox" && req.url !== "/sandbox/")
-          ) {
+          if (!isAllowedHost(req.headers.host)) {
+            res.writeHead(403, { "Content-Type": "text/plain" });
+            res.end(
+              `Forbidden: Host "${req.headers.host ?? ""}" is not allowed. To serve the sandbox under this name, add it to ${ALLOWED_HOSTS_ENV} (or to ALLOWED_ORIGINS).`,
+            );
+            return;
+          }
+          // HEAD is answered like GET minus the body (RFC 9110 §9.3.2), so a
+          // probe (`curl -I`) sees the same status and headers a browser does.
+          const isHead = req.method === "HEAD";
+          if ((req.method !== "GET" && !isHead) || !isSandboxPath(req.url)) {
             res.writeHead(404, { "Content-Type": "text/plain" });
             res.end("Not Found");
             return;
           }
           res.writeHead(200, {
             "Content-Type": "text/html; charset=utf-8",
+            "Content-Length": Buffer.byteLength(sandboxHtml),
             "Cache-Control": "no-store, no-cache, must-revalidate",
             Pragma: "no-cache",
             "Content-Security-Policy": SANDBOX_PROXY_CSP,
           });
-          res.end(sandboxHtml);
+          res.end(isHead ? undefined : sandboxHtml);
         });
         // A taken port used to mean "no sandbox at all", which was tolerable
         // only because the default was dynamic and therefore never collided.

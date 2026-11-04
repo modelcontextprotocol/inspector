@@ -220,7 +220,9 @@ export function PromptsTab({
                     paddingY={0}
                     flexShrink={0}
                   >
-                    <Text>
+                    {/* One rendered line per row (#2826); the detail pane
+                        shows the full name. */}
+                    <Text wrap="truncate-end">
                       {isSelected ? "▶ " : "  "}
                       {prompt.name || `Prompt ${ordinal + 1}`}
                     </Text>

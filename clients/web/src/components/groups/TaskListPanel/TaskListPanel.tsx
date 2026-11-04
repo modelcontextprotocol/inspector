@@ -7,6 +7,14 @@ import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/Embedd
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
+// h3: a section under this screen's h2 panel heading (#2827), sized as the h5
+// it was so the look is unchanged.
+const SubHeading = Title.withProps({ order: 3, size: "h5" });
+
 export interface TaskListPanelProps {
   tasks: Task[];
   progressByTaskId?: Record<string, TaskProgress>;
@@ -116,7 +124,7 @@ export function TaskListPanel({
   return (
     <PanelContainer>
       <HeaderRow>
-        <Title order={4}>Tasks</Title>
+        <PanelHeading>Tasks</PanelHeading>
         {hasResults && (
           <ListToggle
             compact={compact}
@@ -132,7 +140,7 @@ export function TaskListPanel({
           <Stack gap="md">
             {activeTasks.length > 0 && (
               <>
-                <Title order={5}>{formatActiveTitle(activeTasks.length)}</Title>
+                <SubHeading>{formatActiveTitle(activeTasks.length)}</SubHeading>
                 {activeTasks.map((task) => (
                   <TaskCard
                     key={task.taskId}
@@ -149,9 +157,9 @@ export function TaskListPanel({
             {completedTasks.length > 0 && (
               <>
                 <Group justify="space-between">
-                  <Title order={5}>
+                  <SubHeading>
                     {formatCompletedTitle(completedTasks.length)}
-                  </Title>
+                  </SubHeading>
                   <ClearHistoryButton onClick={onClearCompleted}>
                     Clear
                   </ClearHistoryButton>

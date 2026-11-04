@@ -12,6 +12,10 @@ import { ListChangedIndicator } from "../../elements/ListChangedIndicator/ListCh
 import { AppListItem } from "../AppListItem/AppListItem";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 
+// h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
+// the look is unchanged; sections below it are h3 (axe `heading-order`).
+const PanelHeading = Title.withProps({ order: 2, size: "h4" });
+
 export interface AppControlsProps {
   tools: Tool[];
   selectedName?: string;
@@ -55,7 +59,7 @@ export function AppControls({
   return (
     <Stack gap="sm">
       <Group justify="space-between">
-        <Title order={4}>MCP Apps ({tools.length})</Title>
+        <PanelHeading>MCP Apps ({tools.length})</PanelHeading>
         <ListChangedIndicator visible={listChanged} onRefresh={onRefreshList} />
       </Group>
       <TextInput

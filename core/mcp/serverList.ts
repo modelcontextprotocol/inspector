@@ -1187,10 +1187,38 @@ export const EXAMPLE_SERVER_URL =
   "https://example-server.modelcontextprotocol.io/mcp";
 
 /**
+ * The catalog key every client gives an ad-hoc server — one launched from a
+ * command or `--server-url` rather than a catalog/config file (#2827): the URL
+ * host (with any port) for HTTP/SSE, or the command's basename for stdio,
+ * falling back to `"server"` so the key is never empty. Before this the web
+ * client used that rule and the CLI/TUI/mcpdo resolution named the same
+ * launch `default`, so one command showed two names depending on the surface.
+ * The derived name is the less surprising of the two: it says which server it
+ * is, where `default` says nothing.
+ */
+export function adHocServerName(config: MCPServerConfig): string {
+  if (config.type === "sse" || config.type === "streamable-http") {
+    try {
+      return new URL(config.url).host || "server";
+    } catch {
+      return "server";
+    }
+  }
+  return config.command?.split(/[\\/]/).pop() || "server";
+}
+
+/**
  * Default seeds written to `~/.mcp-inspector/mcp.json` on first launch when
  * the file is absent. Picked to cover the three shapes a developer reaches for
- * first: a real filesystem scoped to /tmp, the canonical "everything"
- * reference server, and a remote Streamable HTTP server behind OAuth.
+ * first: a real filesystem scoped to the platform temp directory, the
+ * canonical "everything" reference server, and a remote Streamable HTTP server
+ * behind OAuth.
+ *
+ * `tempDir` is the caller's `os.tmpdir()` (#2827). It is a parameter rather
+ * than an import because this module is browser-consumed (see the header), so
+ * it cannot reach `node:os` itself; the only caller that writes a seed is the
+ * Node backend, which has it to hand. A hard-coded `/tmp` named a directory
+ * that does not exist on Windows.
  *
  * The remote seed carries no `protocolEra`, so it connects under
  * `DEFAULT_PROTOCOL_ERA` (`"legacy"`) like every other entry that omits the
@@ -1199,21 +1227,23 @@ export const EXAMPLE_SERVER_URL =
  * (SEP-2663) era to negotiate, so `"auto"` would only cost a failed probe and
  * `"modern"` would fail the connection outright.
  */
-export const DEFAULT_SEED_CONFIG: MCPConfig = {
-  mcpServers: {
-    "filesystem-server-default": {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+export function defaultSeedConfig(tempDir: string): MCPConfig {
+  return {
+    mcpServers: {
+      "filesystem-server-default": {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", tempDir],
+      },
+      "everything-server-default": {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-everything"],
+      },
+      "example-server-default": {
+        type: "streamable-http",
+        url: EXAMPLE_SERVER_URL,
+      },
     },
-    "everything-server-default": {
-      type: "stdio",
-      command: "npx",
-      args: ["-y", "@modelcontextprotocol/server-everything"],
-    },
-    "example-server-default": {
-      type: "streamable-http",
-      url: EXAMPLE_SERVER_URL,
-    },
-  },
-};
+  };
+}

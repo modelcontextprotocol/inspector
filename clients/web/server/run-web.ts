@@ -20,6 +20,7 @@ import {
   parseProtocolEra,
   type ServerConfigOptions,
 } from "../../../core/mcp/node/config.ts";
+import { adHocServerName } from "../../../core/mcp/serverList.ts";
 import {
   buildWebServerConfig,
   type WebServerConfig,
@@ -40,22 +41,6 @@ function ensureStdioCwd(config: MCPServerConfig): MCPServerConfig {
     return { ...config, cwd: resolve(process.cwd()) };
   }
   return config;
-}
-
-/**
- * Derive a readable catalog id for an ad-hoc server seeded from CLI flags:
- * the URL host for HTTP/SSE, or the command basename for stdio. Falls back to
- * "server" so the id is always a non-empty `mcpServers` map key.
- */
-function deriveSeedServerId(config: MCPServerConfig): string {
-  if (config.type === "sse" || config.type === "streamable-http") {
-    try {
-      return new URL(config.url).host || "server";
-    } catch {
-      return "server";
-    }
-  }
-  return config.command?.split(/[\\/]/).pop() || "server";
 }
 
 export async function runWeb(argv: string[]): Promise<number> {
@@ -256,7 +241,7 @@ export async function runWeb(argv: string[]): Promise<number> {
       entry.protocolEra = opts.protocolEra;
     }
     initialServers = {
-      mcpServers: { [deriveSeedServerId(config)]: entry },
+      mcpServers: { [adHocServerName(config)]: entry },
     };
     writable = false;
   } else if (hasHeaders) {

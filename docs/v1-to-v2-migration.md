@@ -14,7 +14,7 @@ This guide is the map. It covers what breaks, what it becomes, and the handful o
 
 |                   | v1                                               | v2                                                              |
 | ----------------- | ------------------------------------------------ | --------------------------------------------------------------- |
-| Node              | `>=22.7.5`                                       | **`>=22.19.0`**                                                 |
+| Node              | `>=22.7.5`                                       | **`^22.23.4 \|\| ^24.22.1 \|\| >=26.12.1`**                     |
 | npm packages      | 4 (`inspector` + `-client` / `-server` / `-cli`) | **1** (`@modelcontextprotocol/inspector`)                       |
 | Processes / ports | web UI on `6274` **+ MCP proxy on `6277`**       | one web server on `6274` (plus a dynamic MCP Apps sandbox port) |
 | Modes             | web, `--cli`                                     | web, `--cli`, **`--tui`**                                       |
@@ -30,7 +30,7 @@ The three changes most likely to bite an existing setup:
 
 ## Requirements
 
-v2 requires **Node `>=22.19.0`** (v1 required `>=22.7.5`). The floor comes from `undici@^8`, used for HTTP proxy support. npm only _warns_ about an `engines` mismatch (`EBADENGINE`) unless you have `engine-strict=true` set, so an older Node won't stop you at install time — it fails later, obscurely. Check `node -v` first.
+v2 requires **Node `^22.23.4 || ^24.22.1 || >=26.12.1`** (v1 required `>=22.7.5`). Two things set it. The 22.x minimum first came from `undici@^8`, used for HTTP proxy support, which needs `>=22.19.0`; that was v2's floor through v2.13. Since v2.14 the floor is the patched release on each supported line from the [October 2026 Node.js security releases](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), which update the bundled CA certificates and fix several high-severity TLS and DNS CVEs. The Inspector ships no CA certificates of its own, so every HTTPS connection it makes, OAuth included, is only as safe as the Node it runs on. A per-line range rather than a plain `>=22.23.4` is what keeps an unpatched 24.x or 26.x from satisfying it. npm only _warns_ about an `engines` mismatch (`EBADENGINE`) unless you have `engine-strict=true` set, so an older Node won't stop you at install time — it fails later, obscurely. Check `node -v` first.
 
 ## What no longer ships
 

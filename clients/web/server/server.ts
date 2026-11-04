@@ -35,6 +35,15 @@ import type { WebServerHandle } from "./types.js";
 
 export type { WebServerHandle };
 
+/**
+ * Whether a request path belongs to the API namespace the SPA fallback must
+ * not answer: `/api` exactly, or anything under `/api/`. A bare
+ * `startsWith("/api")` also swallowed `/apixyz` (#2827).
+ */
+export function isApiPath(path: string): boolean {
+  return path === "/api" || path.startsWith("/api/");
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -50,6 +59,7 @@ export async function startHonoServer(
     host: config.sandboxHost,
     allowedOrigins: config.allowedOrigins,
     publicUrl: config.sandboxPublicUrl,
+    allowedHosts: config.allowedHosts,
   });
   await sandboxController.start();
   // The dedicated origin apps declaring `_meta.ui.domain` are served from
@@ -152,7 +162,9 @@ export async function startHonoServer(
   // index.html — not the raw file — so bookmarks and hand-typed reloads at
   // those paths get the token global too, matching the `/` route.
   app.get("*", async (c) => {
-    if (c.req.path.startsWith("/api")) {
+    // `/api` itself or anything under `/api/` — never a sibling such as
+    // `/apixyz`, which is an ordinary deep link and gets the SPA (#2827).
+    if (isApiPath(c.req.path)) {
       return c.notFound();
     }
     try {

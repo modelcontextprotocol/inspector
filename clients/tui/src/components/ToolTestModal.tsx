@@ -14,6 +14,7 @@ import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { inlineLocalRefs } from "@inspector/core/json/localRefs.js";
 import { redactErrorText, redactedJson } from "../utils/errorText.js";
 import type { ResultFileFormat } from "@inspector/core/mcp/resultFile.js";
+import { untitledForm } from "../utils/formHeader.js";
 import {
   defaultResultFileName,
   saveResultToFile,
@@ -384,7 +385,7 @@ export function ToolTestModal({
           {state === "form" && (
             <Box flexGrow={1} width="100%">
               <Form
-                form={formStructure}
+                form={untitledForm(formStructure)}
                 onSubmit={(value: object) =>
                   void handleFormSubmit(value as Record<string, JsonValue>)
                 }

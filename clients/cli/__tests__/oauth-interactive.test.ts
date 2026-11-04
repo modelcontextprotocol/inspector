@@ -39,7 +39,7 @@ const oauthTestStatePath = join(
 
 async function completeOAuthAuthorization(
   authorizationUrl: URL,
-): Promise<{ code: string; iss?: string }> {
+): Promise<{ code: string; iss?: string; state?: string }> {
   let response = await fetch(authorizationUrl.toString(), {
     redirect: "manual",
   });
@@ -73,14 +73,17 @@ async function completeOAuthAuthorization(
     throw new Error("Missing authorization code");
   }
   const iss = redirect.searchParams.get("iss") ?? undefined;
-  return iss ? { code, iss } : { code };
+  // The loopback listener only acts on a callback echoing the flow's state
+  // (#2847), exactly as a real browser redirect does.
+  const state = redirect.searchParams.get("state") ?? undefined;
+  return { code, ...(iss ? { iss } : {}), ...(state ? { state } : {}) };
 }
 
 function createAutoCompleteNavigation(
   redirectUrlProvider: MutableRedirectUrlProvider,
 ) {
   return new CallbackNavigation(async (url) => {
-    const { code, iss } = await completeOAuthAuthorization(url);
+    const { code, iss, state } = await completeOAuthAuthorization(url);
     const redirect = redirectUrlProvider.redirectUrl;
     if (!redirect) {
       throw new Error("redirectUrl not set");
@@ -88,6 +91,7 @@ function createAutoCompleteNavigation(
     const callback = new URL(redirect);
     callback.searchParams.set("code", code);
     if (iss) callback.searchParams.set("iss", iss);
+    if (state) callback.searchParams.set("state", state);
     await fetch(callback.href);
   });
 }

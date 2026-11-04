@@ -372,3 +372,135 @@ describe("ToolsTab list filter — duplicate names (#2430)", () => {
     expect(frame).toContain("second copy");
   });
 });
+
+describe("ToolsTab in a narrow terminal (#2826)", () => {
+  // The issue's own fixture: the stdio test server's eight tools, the last of
+  // which is selected at 60x18. A 42-column tab gives a 16-column list (12
+  // usable after border and padding) and a 26-column detail pane.
+  const names = [
+    "echo",
+    "get_annotated_message",
+    "get_sum",
+    "long_running_operation",
+    "print_env",
+    "send_notification",
+    "write_to_stderr",
+    "mcp_app_demo",
+  ];
+  const narrowTools = names.map((name) =>
+    makeTool({ name, description: `${name} desc` }),
+  );
+
+  it("renders each row on one line, truncated with an ellipsis", () => {
+    const { lastFrame } = render(
+      <ToolsTab
+        tools={narrowTools}
+        isConnected={false}
+        width={42}
+        height={30}
+        focusedPane="list"
+      />,
+    );
+    const frame = lastFrame() ?? "";
+    // Truncated, not wrapped: the tail never lands on a line of its own.
+    expect(frame).toContain("…");
+    expect(frame).not.toMatch(/^\s*sage\b/m);
+    expect(frame).not.toMatch(/│\s*sage\s/);
+    // Every tool still has a row, and the list holds one line per tool.
+    const rows = frame
+      .split("\n")
+      .filter((line) => /^\s*(▶ | {2})[a-z]/.test(line.split("│")[0] ?? ""));
+    expect(rows).toHaveLength(names.length);
+  });
+
+  it("keeps the selected row visible after moving to the last tool", async () => {
+    const { lastFrame, stdin } = render(
+      <ToolsTab
+        tools={narrowTools}
+        isConnected
+        width={42}
+        height={17}
+        focusedPane="list"
+      />,
+    );
+    for (let i = 0; i < names.length - 1; i++) {
+      stdin.write(DOWN);
+      await tick();
+    }
+    const frame = lastFrame() ?? "";
+    const listColumn = frame.split("\n").map((l) => l.split("│")[0] ?? "");
+    expect(listColumn.some((l) => l.includes("▶ mcp_app_d"))).toBe(true);
+    // The full name is in the detail pane even though the row truncates it.
+    expect(frame).toContain("mcp_app_demo");
+  });
+
+  it("keeps the selection in view when the terminal shrinks", async () => {
+    const props = {
+      tools: narrowTools,
+      isConnected: false,
+      width: 42,
+      focusedPane: "list" as const,
+    };
+    const { lastFrame, stdin, rerender } = render(
+      <ToolsTab {...props} height={30} />,
+    );
+    for (let i = 0; i < names.length - 1; i++) {
+      stdin.write(DOWN);
+      await tick();
+    }
+    rerender(<ToolsTab {...props} height={12} />);
+    await tick();
+    const listColumn = (lastFrame() ?? "")
+      .split("\n")
+      .map((l) => l.split("│")[0] ?? "");
+    expect(listColumn.some((l) => l.includes("▶ mcp_app_d"))).toBe(true);
+  });
+
+  it("drops the Enter-to-Test hint below the title rather than overlapping it", () => {
+    const { lastFrame } = render(
+      <ToolsTab
+        tools={[makeTool({ name: "mcp_app_demo" })]}
+        isConnected
+        width={42}
+        height={17}
+      />,
+    );
+    const lines = (lastFrame() ?? "").split("\n");
+    const titleLine = lines.findIndex((l) => l.includes("mcp_app_demo"));
+    const hintLine = lines.findIndex((l) => l.includes("[Enter to Test]"));
+    expect(titleLine).toBeGreaterThanOrEqual(0);
+    expect(hintLine).toBe(titleLine + 1);
+  });
+
+  it("keeps the hint beside the title when there is room", () => {
+    const { lastFrame } = render(
+      <ToolsTab
+        tools={[makeTool({ name: "echo" })]}
+        isConnected
+        width={120}
+        height={17}
+      />,
+    );
+    const lines = (lastFrame() ?? "").split("\n");
+    expect(
+      lines.some((l) => l.includes("echo") && l.includes("[Enter to Test]")),
+    ).toBe(true);
+  });
+
+  it("keeps a row's schema marker visible when its name is truncated", () => {
+    const flagged = makeTool({
+      name: "get_annotated_message",
+      outputSchema: { type: "object", properties: { data: true } },
+    } as Partial<Tool>);
+    const { lastFrame } = render(
+      <ToolsTab tools={[flagged]} isConnected={false} width={42} height={17} />,
+    );
+    const frame = lastFrame() ?? "";
+    const row =
+      frame
+        .split("\n")
+        .map((l) => l.split("│")[0] ?? "")
+        .find((l) => l.includes("▶ get_anno")) ?? "";
+    expect(row).toMatch(/… !\s*$/);
+  });
+});

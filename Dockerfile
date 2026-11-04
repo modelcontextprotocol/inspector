@@ -58,10 +58,12 @@ RUN mkdir -p /home/node/.mcp-inspector && chown -R node:node /home/node/.mcp-ins
 USER node
 WORKDIR /home/node
 
-# Report readiness by probing the served SPA (`/` needs no auth). The probe
-# connects to the address derived from the same `HOST` the server binds (a
-# wildcard maps to loopback), so overriding `HOST` to one interface keeps the
-# healthcheck valid (#2424) — see the script's header. Only `--web` has a
+# Report readiness by probing the unauthenticated `/healthz` route (#2438).
+# The probe connects to the address derived from the same `HOST` the server
+# binds (a wildcard maps to loopback), so overriding `HOST` to one interface
+# keeps the healthcheck valid (#2424), and uses https when both
+# `INSPECTOR_TLS_*` paths are set, without verifying the certificate (#2825)
+# — see the script's header. Only `--web` has a
 # server to probe, so the script reads the launch mode from PID 1's argv and
 # reports a `--cli`/`--tui` container healthy while it runs (#2415).
 COPY --from=builder /build/scripts/docker-healthcheck.mjs /usr/local/lib/mcp-inspector-healthcheck.mjs

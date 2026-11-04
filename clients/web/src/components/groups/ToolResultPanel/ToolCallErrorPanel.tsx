@@ -45,10 +45,10 @@ const HintText = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
-// h3 (not h4), size h4: request modals open over the Tools screen with an `h2`
-// `Modal.Title`, so an `h4` here would skip a level (axe `heading-order`);
-// `size="h4"` keeps the visual size.
-const PanelTitle = Title.withProps({ order: 3, size: "h4" });
+// h2, size h4: a panel heading under the page's visually hidden h1 (#2827),
+// which also keeps request modals' `h2` `Modal.Title` from being skipped to
+// (axe `heading-order`); `size="h4"` keeps the visual size.
+const PanelTitle = Title.withProps({ order: 2, size: "h4" });
 
 const ErrorAlert = Alert.withProps({ color: "red", variant: "light" });
 

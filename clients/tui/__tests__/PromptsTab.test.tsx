@@ -325,3 +325,22 @@ describe("PromptsTab list filter (#2430)", () => {
     expect(lastFrame()).toContain("Prompts (3)");
   });
 });
+
+describe("PromptsTab in a narrow terminal (#2826)", () => {
+  it("truncates a long row to one line and shows the full name in the pane", () => {
+    const { lastFrame } = render(
+      <PromptsTab
+        prompts={[makePrompt({ name: "a_very_long_prompt_name" })]}
+        inspectorClient={null}
+        width={42}
+        height={17}
+      />,
+    );
+    const lines = (lastFrame() ?? "").split("\n");
+    const listColumn = lines.map((l) => l.split("│")[0] ?? "");
+    expect(listColumn.some((l) => /▶ a_very_lo\S*…/.test(l))).toBe(true);
+    // The tail of the name never lands on a list line of its own.
+    expect(listColumn.some((l) => l.includes("name"))).toBe(false);
+    expect(lines.some((l) => l.includes("a_very_long_prompt_name"))).toBe(true);
+  });
+});

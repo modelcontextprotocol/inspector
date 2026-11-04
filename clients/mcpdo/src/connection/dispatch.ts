@@ -6,6 +6,8 @@ import type {
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import { checkLoadThresholds } from "@inspector/core/cli/handlers/load-thresholds.js";
+import { loadSummaryWarnings } from "@inspector/core/cli/handlers/load-test.js";
+import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
 import type { LoadFlags } from "./load-flags.js";
 import { writeConnectionOutput } from "./format-connection.js";
 import { styleFromOpts, type Style } from "@inspector/core/cli/style.js";
@@ -147,6 +149,11 @@ export async function dispatchConnectionRpc(
   // the one-shot CLI's order (#2745). The breach is a CliExitCodeError, so it
   // leaves as mcpdo's error envelope with the CLI's code and exit code.
   if (outcome.kind === "load") {
+    // On stderr, after the summary, as the one-shot CLI prints them: an early
+    // stop (#2835) and a missed `--load-rate` (#2837).
+    for (const warning of loadSummaryWarnings(outcome.summary)) {
+      await awaitableError(`${warning}\n`);
+    }
     checkLoadThresholds(outcome.summary, opts.load?.thresholds);
   }
 }
