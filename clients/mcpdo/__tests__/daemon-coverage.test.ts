@@ -15,6 +15,7 @@ import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-se
 import { DaemonServer } from "../src/daemon/server.js";
 import { callDaemon, daemonTokenDir } from "../src/daemon/client.js";
 import {
+  assertDaemonVersion,
   ensureDaemon,
   readLogTail,
   resolveDaemonScriptPath,
@@ -870,6 +871,107 @@ describe("daemon coverage", () => {
       oldDaemon.kill();
     }
   }, 15000);
+
+  describe("daemon from another release (#2870)", () => {
+    it("assertDaemonVersion accepts a match and refuses anything else", () => {
+      expect(() => assertDaemonVersion("2.14.0", "2.14.0")).not.toThrow();
+      // An install that cannot read its own version has nothing to compare.
+      expect(() => assertDaemonVersion("2.13.0", undefined)).not.toThrow();
+      expect(() => assertDaemonVersion("2.13.0", "2.14.0")).toThrow(
+        expect.objectContaining({
+          envelope: expect.objectContaining({
+            code: "daemon_version_mismatch",
+          }),
+          message:
+            "The running connection daemon is from mcpdo 2.13.0, but this is mcpdo 2.14.0. Run `mcpdo daemon stop` (its open connections will close), then re-run the command.",
+        }),
+      );
+      // A daemon that reports no version predates the check.
+      expect(() => assertDaemonVersion(undefined, "2.14.0")).toThrow(
+        "The running connection daemon is from an older mcpdo release, but this is mcpdo 2.14.0.",
+      );
+    });
+
+    it("the daemon reports its own release in ping", async () => {
+      const srv = new DaemonServer({ dir: freshDir(), idleMs: 0 });
+      const pong = await srv.handle({ id: "v1", op: "ping" });
+      const root = JSON.parse(
+        fs.readFileSync(
+          new URL("../../../package.json", import.meta.url),
+          "utf8",
+        ),
+      ) as { version: string };
+      expect(pong).toMatchObject({
+        ok: true,
+        result: { pong: true, version: root.version },
+      });
+    });
+
+    /** A socket that answers every ping with `result` and nothing else. */
+    async function fakeDaemon(sock: string, result: Record<string, unknown>) {
+      const server = net.createServer((socket) => {
+        socket.on("error", () => {});
+        socket.once("data", (buf) => {
+          const req = JSON.parse(String(buf).trim()) as { id: string };
+          socket.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
+        });
+      });
+      await new Promise<void>((r) => server.listen(sock, r));
+      return server;
+    }
+
+    it.each([
+      ["another release", { version: "0.0.1" }, "mcpdo 0.0.1"],
+      ["no version at all", {}, "an older mcpdo release"],
+    ])(
+      "ensureDaemon refuses a running daemon reporting %s",
+      async (_label, extra, named) => {
+        const d = freshDir();
+        const sock = path.join(d, "mcpdod.sock");
+        const old = await fakeDaemon(sock, {
+          pong: true,
+          pid: process.pid,
+          stopping: false,
+          ...extra,
+        });
+        try {
+          await expect(
+            ensureDaemon({ dir: d, token: "t" }),
+          ).rejects.toMatchObject({
+            envelope: { code: "daemon_version_mismatch" },
+            message: expect.stringContaining(named),
+          });
+        } finally {
+          old.close();
+        }
+      },
+    );
+
+    it("ensureDaemon reuses a running daemon of the same release", async () => {
+      const d = freshDir();
+      const sock = path.join(d, "mcpdod.sock");
+      const root = JSON.parse(
+        fs.readFileSync(
+          new URL("../../../package.json", import.meta.url),
+          "utf8",
+        ),
+      ) as { version: string };
+      const same = await fakeDaemon(sock, {
+        pong: true,
+        pid: process.pid,
+        stopping: false,
+        version: root.version,
+      });
+      try {
+        await expect(ensureDaemon({ dir: d, token: "t" })).resolves.toEqual({
+          socketPath: sock,
+          spawned: false,
+        });
+      } finally {
+        same.close();
+      }
+    });
+  });
 
   it("start-timeout error quotes the daemon's stderr log", async () => {
     const d = freshDir();

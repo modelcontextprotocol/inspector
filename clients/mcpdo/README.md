@@ -35,10 +35,16 @@ Rebuild after pulling source changes (`npm run build` in `clients/mcpdo`). You u
 `mcpdo` itself is a short-lived process re-executed on every invocation, so a
 plain rebuild is enough for its changes to take effect on the next command.
 The **connection daemon** (`build/mcpdod.js`) is different: `ensureDaemon` (see
-`src/daemon/ensure.ts`) reuses an already-running daemon without checking its
-code version, so a daemon started before your rebuild keeps running stale
-code indefinitely. It sets `process.title = "mcpdod"`, so a stray one is
-visible as `mcpdod` in `ps`/`pgrep` and killable with `pkill mcpdod`.
+`src/daemon/ensure.ts`) reuses an already-running daemon, and while it holds a
+connection it never idles out. It does compare **release** versions: a daemon
+from another release (or one too old to report a version) is refused with
+`daemon_version_mismatch` and an instruction to run `mcpdo daemon stop`, which
+is what keeps an upgrade from talking to the previous release's daemon
+([#2870](https://github.com/modelcontextprotocol/inspector/issues/2870)). A
+rebuild within one release keeps its version, though, so a daemon started
+before your rebuild keeps running stale code indefinitely. It sets
+`process.title = "mcpdod"`, so a stray one is visible as `mcpdod` in
+`ps`/`pgrep` and killable with `pkill mcpdod`.
 
 Use `npm run build:dev` instead of `npm run build` while iterating: it runs
 `mcpdo daemon stop` first (harmless/no-op if no daemon is running — it treats

@@ -12,6 +12,7 @@ import {
   getDaemonTokenFromEnv,
   readDaemonTokenFile,
 } from "./auth.js";
+import { readInspectorVersionSafe } from "@inspector/core/node/version.js";
 import { callDaemon } from "./client.js";
 import {
   DAEMON_DIR_ENV,
@@ -179,6 +180,38 @@ export async function waitForDaemonExit(
   }
 }
 
+/** This mcpdo's release, compared against the running daemon's (#2870). */
+const CLIENT_VERSION = readInspectorVersionSafe(import.meta.url);
+
+/**
+ * Refuse a running daemon from another release (#2870).
+ *
+ * A daemon idles out only once it holds no connection, so it survives an
+ * upgrade and keeps serving the old release's code; the new client then
+ * misreads its payloads somewhere downstream (2.13.0's `--load` summary
+ * crashed 2.14.0's formatter). A daemon that reports no version predates
+ * this check, so it is from an older release too. Restarting it here would
+ * close the user's open connections unasked, so the error says how instead —
+ * `daemon stop` and `daemon status` call the daemon directly, not through
+ * {@link ensureDaemon}, so they still work against it. Exported for tests.
+ */
+export function assertDaemonVersion(
+  daemonVersion: string | undefined,
+  clientVersion: string | undefined,
+): void {
+  // An install whose own version cannot be read has nothing to compare.
+  if (clientVersion === undefined || daemonVersion === clientVersion) return;
+  const running =
+    daemonVersion === undefined
+      ? "an older mcpdo release"
+      : `mcpdo ${daemonVersion}`;
+  throw new CliExitCodeError(
+    EXIT_CODES.UNREACHABLE,
+    `The running connection daemon is from ${running}, but this is mcpdo ${clientVersion}. Run \`mcpdo daemon stop\` (its open connections will close), then re-run the command.`,
+    { code: "daemon_version_mismatch" },
+  );
+}
+
 /**
  * Ensure a connection daemon is running for the current {@link getDaemonDir}.
  * Auto-spawns a detached Node process when the socket is not reachable.
@@ -216,8 +249,10 @@ export async function ensureDaemon(options?: {
       pong: boolean;
       pid?: number;
       stopping?: boolean;
+      version?: string;
     }>("ping", {}, { socketPath, timeoutMs: 2000, token });
     if (pong?.stopping !== true) {
+      assertDaemonVersion(pong?.version, CLIENT_VERSION);
       return { socketPath, spawned: false };
     }
     // The daemon answered but is shutting down; it would reject real work
