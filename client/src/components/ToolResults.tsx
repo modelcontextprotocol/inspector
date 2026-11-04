@@ -157,7 +157,10 @@ const ToolResults = ({
                       : "bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200"
                   }`}
                 >
-                  {validationResult.isValid ? (
+                  {"validated" in validationResult &&
+                  validationResult.validated === false ? (
+                    "Not validated against output schema"
+                  ) : validationResult.isValid ? (
                     "✓ Valid according to output schema"
                   ) : (
                     <>✗ Validation Error: {validationResult.error}</>

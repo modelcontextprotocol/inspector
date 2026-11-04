@@ -28,14 +28,17 @@ export function cacheToolOutputSchemas(tools: Tool[]): void {
         // its patterns would run on the backtracking native RegExp engine.
         const result = stripSchemaPatterns(tool.outputSchema);
         const note = schemaNote(result);
-        if (note !== undefined) toolOutputSchemaNotes.set(tool.name, note);
-        // A schema that may not be validated gets no validator, only a note.
+        // A schema that may not be validated gets no validator, only a note
+        // (and still counts as an output schema; see hasOutputSchema).
         if (result.validate) {
           toolOutputValidators.set(
             tool.name,
             ajv.compile(result.schema as object),
           );
         }
+        // Set after a successful compile, so a schema that fails to compile
+        // stays absent, as before.
+        if (note !== undefined) toolOutputSchemaNotes.set(tool.name, note);
       } catch (error) {
         console.warn(
           `Failed to compile output schema for tool ${tool.name}:`,
@@ -69,13 +72,15 @@ export function getToolOutputValidator(
 export function validateToolOutput(
   toolName: string,
   structuredContent: unknown,
-): { isValid: boolean; error?: string; note?: string } {
+): { isValid: boolean; error?: string; note?: string; validated?: false } {
   const validator = getToolOutputValidator(toolName);
   const toolNote = toolOutputSchemaNotes.get(toolName);
   const note = toolNote === undefined ? {} : { note: toolNote };
   if (!validator) {
     // No validator: no schema, or one that is reported as not validated.
-    return { isValid: true, ...note };
+    return toolNote === undefined
+      ? { isValid: true }
+      : { isValid: true, validated: false, note: toolNote };
   }
 
   const isValid = validator(structuredContent);
@@ -96,7 +101,10 @@ export function validateToolOutput(
  * @returns true if the tool has an output schema
  */
 export function hasOutputSchema(toolName: string): boolean {
-  return toolOutputValidators.has(toolName);
+  // A schema reported as not validated has a note but no validator.
+  return (
+    toolOutputValidators.has(toolName) || toolOutputSchemaNotes.has(toolName)
+  );
 }
 
 /**

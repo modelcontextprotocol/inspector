@@ -606,6 +606,8 @@ describe("Output Schema Validation", () => {
         const result = validateToolOutput("idTool", { x: 1, y: "s" });
         expect(result.isValid).toBe(true);
         expect(result.note).toMatch(/was not validated/);
+        expect(result.validated).toBe(false);
+        expect(hasOutputSchema("idTool")).toBe(true);
       });
 
       test("leave the other constraints validating", () => {
