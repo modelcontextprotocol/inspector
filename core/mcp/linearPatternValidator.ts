@@ -180,7 +180,7 @@ class LinearPattern implements RegExpLike {
 
 function createRegExpEngine(
   ledger: PatternLedger,
-  budget: () => CompileBudget | undefined,
+  budget: () => CompileBudget,
 ): RegExpEngine {
   const engine = (pattern: string, flags: string): RegExpLike =>
     new LinearPattern(
@@ -202,8 +202,13 @@ type AjvEngine = Ajv | Ajv2019 | Ajv2020;
 export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
   private readonly ledger = new PatternLedger();
   private readonly engines = new Map<Dialect, AjvEngine>();
-  /** The budget of the schema compilation in progress, if any. */
-  private compileBudget: CompileBudget | undefined;
+  /**
+   * The budget every pattern compilation is charged to. {@link tracked} swaps
+   * in a fresh one for each schema it compiles or looks up; outside it, the
+   * provider-lifetime one below applies, so no path into Ajv — however it
+   * reaches the regex hook — compiles a pattern without a budget.
+   */
+  private compileBudget: CompileBudget = { ...SCHEMA_COMPILE_BUDGET };
   /** Compiled schemas whose patterns overspent {@link SCHEMA_COMPILE_BUDGET}. */
   private readonly overBudget = new WeakSet<ValidateFunction>();
 
@@ -234,9 +239,13 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
     const engine = this.engineFor(declaredDialect(schema));
     const id: unknown = (schema as { $id?: unknown }).$id;
-    const validate: ValidateFunction =
-      (typeof id === "string" ? engine.getSchema(id) : undefined) ??
-      this.compile(engine, schema);
+    // `getSchema` can compile too: Ajv compiles a schema registered by `$id`
+    // — including a `$defs` entry of an earlier schema — on first lookup.
+    const validate: ValidateFunction = this.tracked(
+      () =>
+        (typeof id === "string" ? engine.getSchema(id) : undefined) ??
+        engine.compile(schema),
+    );
     const overBudget = this.overBudget.has(validate);
     return (input: unknown) => {
       this.ledger.reset();
@@ -268,16 +277,20 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
     };
   }
 
-  /** Compile `schema` with every pattern it compiles charged to one budget. */
-  private compile(engine: AjvEngine, schema: JsonSchemaType): ValidateFunction {
+  /**
+   * Run an Ajv entry point with every pattern it compiles charged to one fresh
+   * budget, and remember the function it returns if that budget ran out.
+   */
+  private tracked(run: () => ValidateFunction): ValidateFunction {
+    const outer = this.compileBudget;
     const budget = { ...SCHEMA_COMPILE_BUDGET };
     this.compileBudget = budget;
     try {
-      const validate = engine.compile(schema);
+      const validate = run();
       if (isCompileBudgetExhausted(budget)) this.overBudget.add(validate);
       return validate;
     } finally {
-      this.compileBudget = undefined;
+      this.compileBudget = outer;
     }
   }
 }

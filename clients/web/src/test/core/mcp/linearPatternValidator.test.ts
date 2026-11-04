@@ -218,6 +218,21 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () 
     );
   });
 
+  it("charges a schema compiled on lookup by a nested $id to the budget too", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    // Registering the outer schema registers its `$defs` entry by `$id`
+    // without compiling it; the later lookup is what compiles it.
+    const nested = { $id: "urn:inspector:test:nested", ...schema };
+    expect(
+      provider.getValidator({ type: "object", $defs: { nested } })({}).valid,
+    ).toBe(true);
+    const result = provider.getValidator(nested)({});
+    expect(result.valid).toBe(false);
+    expect(result.errorMessage).toBe(
+      "the schema's patterns exceed the compilation budget, so the value could not be verified against the schema",
+    );
+  });
+
   it("gives each schema a budget of its own", () => {
     const provider = new LinearPatternJsonSchemaValidator();
     expect(SCHEMA_COMPILE_BUDGET.size).toBeGreaterThan(9_005);
