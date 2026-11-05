@@ -67,12 +67,16 @@ import {
   requestHeadersOf,
   requestUrlOf,
 } from "../../auth/requestTimeout.js";
+import {
+  FetchTargetError,
+  findFetchTargetError,
+} from "../../auth/fetchRefusal.js";
 import { asUndiciInit, readProxyEnv, toGlobalResponse } from "./proxyFetch.js";
 
-/** Raised when a guarded fetch is asked to reach a destination it refuses. */
-export class FetchTargetError extends Error {
-  override name = "FetchTargetError";
-}
+// The error and its finder are browser-safe and live in `core/auth`, so the web
+// client can rebuild a refusal relayed by `/api/fetch` into the same class
+// (#2846). Re-exported here for the Node callers that import them from the guard.
+export { FetchTargetError, findFetchTargetError };
 
 /** Hops followed after the first request before giving up, as in v1. */
 export const MAX_FETCH_REDIRECTS = 5;
@@ -470,14 +474,28 @@ export async function guardedFetch(
     headers: init.headers,
   };
   for (let hop = 0; hop <= MAX_FETCH_REDIRECTS; hop++) {
-    await assertAllowedTarget(request.url, resolveHost, viaProxy, init.signal);
-    const res = await fetchFn(request.url.href, {
-      method: request.method,
-      headers: new Headers(request.headers),
-      body: request.body,
-      signal: init.signal,
-      redirect: "manual",
-    });
+    let res: Response;
+    try {
+      await assertAllowedTarget(
+        request.url,
+        resolveHost,
+        viaProxy,
+        init.signal,
+      );
+      res = await fetchFn(request.url.href, {
+        method: request.method,
+        headers: new Headers(request.headers),
+        body: request.body,
+        signal: init.signal,
+        redirect: "manual",
+      });
+    } catch (err) {
+      // Name the hop that was refused (#2846): after a redirect it is not the
+      // URL the caller asked for, and a report naming that one would point the
+      // user at the wrong server.
+      stampRefusedUrl(err, request.url);
+      throw err;
+    }
     const location = res.headers.get("location");
     if (!REDIRECT_STATUSES.has(res.status) || location === null) {
       return res;
@@ -485,28 +503,24 @@ export async function guardedFetch(
     // Nobody reads a redirect's body. Not awaited, for the reason the route
     // gives on its own stream cancel: `cancel()` may never settle.
     void res.body?.cancel().catch(() => {});
-    request = nextRedirectRequest(request, res.status, location);
+    try {
+      request = nextRedirectRequest(request, res.status, location);
+    } catch (err) {
+      // A refused redirect is refused at the URL that issued it.
+      stampRefusedUrl(err, request.url);
+      throw err;
+    }
   }
   throw new FetchTargetError(
     `Refusing to follow more than ${MAX_FETCH_REDIRECTS} redirects`,
+    request.url.href,
   );
 }
 
-/**
- * The {@link FetchTargetError} behind `err`, if any. undici reports a refused
- * connection as `TypeError("fetch failed")` with the lookup's error as its
- * `cause`, so the chain is walked rather than `err` alone tested.
- */
-export function findFetchTargetError(
-  err: unknown,
-): FetchTargetError | undefined {
-  let current = err;
-  // Bounded, in case a cause chain is ever cyclic.
-  for (let depth = 0; depth < 8 && current instanceof Error; depth++) {
-    if (current instanceof FetchTargetError) return current;
-    current = current.cause;
-  }
-  return undefined;
+/** Records `url` on the refusal behind `err`, unless one is recorded already. */
+function stampRefusedUrl(err: unknown, url: URL): void {
+  const refused = findFetchTargetError(err);
+  if (refused && refused.url === undefined) refused.url = url.href;
 }
 
 /**

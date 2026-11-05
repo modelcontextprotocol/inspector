@@ -105,6 +105,12 @@ import {
 } from "@inspector/core/auth/discovery.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
 import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
+import { withFetchRefusalReporting } from "@inspector/core/auth/fetchRefusal.js";
+import {
+  warnOnFetchRefusals,
+  writeFetchRefusalWarning,
+  type WarningSink,
+} from "@inspector/core/cli/fetchRefusalWarning.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
@@ -305,6 +311,11 @@ async function callMethod(
     serverConfig,
     inspectorClientOptions,
   );
+  // A destination-guard refusal OAuth discovery recovered from is otherwise
+  // invisible: the later failure names a different URL (#2846). The main
+  // client only — `--load-connections` clients share its config, and would
+  // print the same warning N more times.
+  warnOnFetchRefusals(inspectorClient);
 
   // Opens one extra `--load-connections` client (#2746), connected. Stored
   // auth only: the connection above already completed any login the run
@@ -533,6 +544,8 @@ function findStoredToken(
 export interface RefreshStoredAuthDeps {
   refresh?: typeof refreshAuthorization;
   discover?: typeof discoverAuthorizationServerMetadata;
+  /** Where a destination-guard refusal warning goes (#2846). stderr by default. */
+  warn?: WarningSink;
 }
 
 /**
@@ -570,8 +583,15 @@ export async function refreshStoredAuthToken(
   // against an authorization server that accepts the connection and never
   // answers. Innermost, so the compat wrapper's own probe requests inherit the
   // deadline too.
+  //
+  // #2846: refusals are reported innermost, before discovery's candidate walk
+  // can swallow one and fall back to the next URL.
   const storedAuthFetch = withRfc8414OidcCompat(
-    withOAuthRequestTimeout(createGuardedFetch()),
+    withOAuthRequestTimeout(
+      withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
+        writeFetchRefusalWarning(refusal, deps.warn),
+      ),
+    ),
   );
   const discover: typeof discoverAuthorizationServerMetadata =
     deps.discover ??

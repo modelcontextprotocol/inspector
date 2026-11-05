@@ -389,6 +389,88 @@ describe("guardedFetch hop loop", () => {
   });
 });
 
+// #2846: a refusal names the URL that was refused, so a report of one a
+// caller recovered from points at the right server.
+describe("guardedFetch refusal URL", () => {
+  async function refusalOf(promise: Promise<unknown>) {
+    const err = await promise.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    const refused = findFetchTargetError(err);
+    if (!refused) throw new Error("expected a FetchTargetError");
+    return refused;
+  }
+
+  it("names the redirect hop that was refused, not the starting URL", async () => {
+    const hopFetch = scripted(
+      redirect(302, "http://169.254.169.254/latest/meta-data/"),
+    );
+    const refused = await refusalOf(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    );
+    expect(refused.url).toBe("http://169.254.169.254/latest/meta-data/");
+  });
+
+  it("names the URL whose connection the lookup refused", async () => {
+    const hopFetch = vi.fn<HopFetch>().mockRejectedValue(
+      new TypeError("fetch failed", {
+        cause: new FetchTargetError("refused in lookup"),
+      }),
+    );
+    const refused = await refusalOf(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    );
+    expect(refused.url).toBe("http://as.example/x");
+  });
+
+  it("keeps a URL the refusal already carries", async () => {
+    const hopFetch = vi
+      .fn<HopFetch>()
+      .mockRejectedValue(new FetchTargetError("no", "http://already/"));
+    const refused = await refusalOf(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    );
+    expect(refused.url).toBe("http://already/");
+  });
+
+  it("leaves a failure that is not a refusal alone", async () => {
+    const failure = new TypeError("fetch failed");
+    const hopFetch = vi.fn<HopFetch>().mockRejectedValue(failure);
+    await expect(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    ).rejects.toBe(failure);
+  });
+
+  it("names the URL that issued a refused cross-origin redirect", async () => {
+    const hopFetch = scripted(redirect(307, "http://other.example/y"));
+    const refused = await refusalOf(
+      guardedFetch("http://as.example/x", init({ method: "POST", body: "a" }), {
+        hopFetch,
+      }),
+    );
+    expect(refused.message).toMatch(/cross-origin redirect/);
+    expect(refused.url).toBe("http://as.example/x");
+  });
+
+  it("passes a malformed redirect through unstamped", async () => {
+    const hopFetch = scripted(redirect(302, "http://[bad"));
+    await expect(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    ).rejects.toThrow(TypeError);
+  });
+
+  it("names the last hop when the redirect limit is hit", async () => {
+    const hopFetch = vi
+      .fn<HopFetch>()
+      .mockImplementation(async () => redirect(302, "/loop"));
+    const refused = await refusalOf(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    );
+    expect(refused.url).toBe("http://as.example/loop");
+  });
+});
+
 describe("guardedFetch behind a proxy (best-effort hostname check)", () => {
   const viaProxy = true;
 

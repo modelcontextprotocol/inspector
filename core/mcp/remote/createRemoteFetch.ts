@@ -26,6 +26,10 @@ import {
   isOAuthRequestTimeoutWire,
   OAuthRequestTimeoutError,
 } from "../../auth/requestTimeout.js";
+import {
+  FetchTargetError,
+  isFetchTargetRefusedWire,
+} from "../../auth/fetchRefusal.js";
 
 export interface RemoteFetchOptions {
   /** Base URL of the remote server (e.g. http://localhost:3000) */
@@ -200,6 +204,13 @@ export function createRemoteFetch(options: RemoteFetchOptions): typeof fetch {
       }
       if (isOAuthRequestTimeoutWire(parsed)) {
         throw new OAuthRequestTimeoutError(parsed.url, parsed.timeoutMs);
+      }
+      // A destination the backend's guard refused (#2846). Rebuilt as the
+      // typed error so `InspectorClient` can report it even when discovery
+      // swallows it and falls back to another candidate, and so the Network
+      // entry reads as the guard's own explanation.
+      if (isFetchTargetRefusedWire(parsed)) {
+        throw new FetchTargetError(parsed.error, parsed.url);
       }
       throw new Error(`Remote fetch failed (${res.status}): ${text}`);
     }

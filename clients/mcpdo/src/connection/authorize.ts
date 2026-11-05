@@ -26,6 +26,7 @@ import { readInspectorVersion } from "@inspector/core/node/version.js";
 import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { connectInspectorWithOAuth } from "@inspector/core/cli/cliOAuth.js";
+import { warnOnFetchRefusals } from "@inspector/core/cli/fetchRefusalWarning.js";
 import {
   CliExitCodeError,
   EXIT_CODES,
@@ -126,6 +127,10 @@ export async function authorizeInFrontend(
     }),
     ...clientAuthOptions,
   });
+  // A destination-guard refusal discovery recovered from would otherwise be
+  // invisible, the later failure naming a different URL (#2846). Here and not
+  // in the daemon, which has no terminal: this front-end is where OAuth runs.
+  warnOnFetchRefusals(client);
 
   try {
     await connectInspectorWithOAuth(

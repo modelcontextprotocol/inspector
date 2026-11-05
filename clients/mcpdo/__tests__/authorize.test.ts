@@ -21,8 +21,11 @@ vi.mock("@inspector/core/cli/cli-oauth-navigation.js", () => ({
 }));
 
 vi.mock("@inspector/core/mcp/index.js", () => ({
-  InspectorClient: class {
+  // An event target, as the real client is: the front-end subscribes to its
+  // `fetchRefused` event (#2846).
+  InspectorClient: class extends EventTarget {
     constructor(...args: unknown[]) {
+      super();
       clientCtorSpy(...args);
     }
     connect = vi.fn();
@@ -93,6 +96,35 @@ describe("authorizeInFrontend", () => {
       environment: { oauthFetch?: typeof fetch };
     };
     expect(options.environment.oauthFetch).toBe(guardedFetch);
+  });
+
+  it("warns on stderr about a destination-guard refusal during the flow (#2846)", async () => {
+    const write = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    connectSpy.mockImplementation(async (client: EventTarget) => {
+      client.dispatchEvent(
+        new CustomEvent("fetchRefused", {
+          detail: {
+            url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+            reason: "Refusing to fetch from a link-local or metadata address",
+          },
+        }),
+      );
+    });
+    try {
+      const { authorizeInFrontend } =
+        await import("../src/connection/authorize.js");
+      await authorizeInFrontend(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        undefined,
+      );
+      expect(write).toHaveBeenCalledWith(
+        "Warning: Refused to fetch http://169.254.169.254/.well-known/oauth-authorization-server: Refusing to fetch from a link-local or metadata address\n",
+      );
+    } finally {
+      write.mockRestore();
+    }
   });
 
   it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {

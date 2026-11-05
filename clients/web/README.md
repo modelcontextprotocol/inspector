@@ -484,8 +484,10 @@ OAuth discovery, protected-resource metadata, token, client registration and rev
 
 **What it covers.** OAuth traffic only — never the MCP endpoint you configured:
 
-- the browser's OAuth, through `POST /api/fetch` (a refusal is answered `403` with an `error` message);
+- the browser's OAuth, through `POST /api/fetch` (a refusal is answered `403` with an `error` message, `code: "fetch_target_refused"` and the refused `url`);
 - the CLI's, TUI's and mcpdo's OAuth, through `InspectorClientEnvironment.oauthFetch`, including the discovery the SDK runs from inside the transport on a `401` or a token refresh;
 - the web backend's own transport, which refreshes with the tokens the browser hands it.
+
+**Refusals are reported even when OAuth recovers from them** ([#2846](https://github.com/modelcontextprotocol/inspector/issues/2846)). Discovery treats a refused metadata URL as one more failed candidate and moves on, so a later failure can name a different URL entirely. Each refusal is recorded as `Refused to fetch <url>: <reason>` — naming the redirect hop that was refused, not just the URL first requested — and shown wherever the client shows OAuth: a `Warning:` line on stderr in the CLI and mcpdo, a **Refused requests** list in the TUI's Auth tab, and the request's own entry in the web client's Network tab. The logic is `core/auth/fetchRefusal.ts`; `InspectorClient` exposes the record as `getFetchRefusals()` and the `fetchRefused` event.
 
 **Behind `HTTPS_PROXY` / `HTTP_PROXY`** the guard routes through undici's `EnvHttpProxyAgent`, so a `NO_PROXY` host is still connected directly and pinned. A proxied host is resolved by the proxy, not by the Inspector, so the guard can only check its name against local DNS — refusing it if it resolves to a blocked address here, allowing it if it does not resolve here at all — and cannot pin the connection. Scheme, IP-literal and redirect checks still apply. For proxied traffic the proxy is the network boundary.

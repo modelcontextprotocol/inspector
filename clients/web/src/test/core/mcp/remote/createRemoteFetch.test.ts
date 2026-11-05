@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { createRemoteFetch } from "@inspector/core/mcp/remote/createRemoteFetch.js";
 import {
+  FETCH_TARGET_REFUSED_WIRE_CODE,
+  FetchTargetError,
+} from "@inspector/core/auth/fetchRefusal.js";
+import {
   OAUTH_TIMEOUT_WIRE_CODE,
   OAuthRequestTimeoutError,
   withOAuthRequestTimeout,
@@ -296,6 +300,28 @@ describe("createRemoteFetch", () => {
       const timeout = err as OAuthRequestTimeoutError;
       expect(timeout.url).toBe("https://as.example.com/x");
       expect(timeout.timeoutMs).toBe(30000);
+    });
+
+    // #2846: the guard's refusal comes back typed, naming the refused URL.
+    it("rebuilds a FetchTargetError from the route's refusal marker", async () => {
+      const remoteFetch = remoteReturning(
+        403,
+        JSON.stringify({
+          error:
+            "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+          code: FETCH_TARGET_REFUSED_WIRE_CODE,
+          url: "http://169.254.169.254/latest/",
+        }),
+      );
+
+      const err = await remoteFetch("https://as.example.com/x").catch(
+        (e: unknown) => e,
+      );
+
+      expect(err).toBeInstanceOf(FetchTargetError);
+      const refused = err as FetchTargetError;
+      expect(refused.message).toMatch(/^Refusing to fetch from a link-local/);
+      expect(refused.url).toBe("http://169.254.169.254/latest/");
     });
 
     it("leaves an ordinary error response as a plain Error", async () => {
