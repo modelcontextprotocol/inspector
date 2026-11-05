@@ -754,6 +754,11 @@ describe("AuthTab", () => {
     const b64url = (value: unknown) =>
       Buffer.from(JSON.stringify(value)).toString("base64url");
     const nowS = Math.floor(Date.now() / 1000);
+    // The component reads the real clock at render. Offsets sit mid-way
+    // through an hour bucket of a day-scale duration, so the rendered
+    // "2d 12h" holds for ~30 minutes of test delay rather than flipping
+    // at a minute boundary (Copilot, #2891).
+    const SPAN = 2 * 86_400 + 12 * 3600 + 30 * 60;
 
     it("decodes a JWT access token's claims", async () => {
       const token = `${b64url({ alg: "RS256" })}.${b64url({
@@ -761,8 +766,8 @@ describe("AuthTab", () => {
         aud: "https://mcp.example.com",
         sub: "user-42",
         scope: "tools:read tools:call",
-        iat: nowS - 600,
-        exp: nowS + 3600 + 30,
+        iat: nowS - SPAN,
+        exp: nowS + SPAN,
       })}.sig`;
       const { client } = makeClient({
         ...sampleOAuthState,
@@ -784,8 +789,8 @@ describe("AuthTab", () => {
       expect(frame).toContain("Audience: https://mcp.example.com");
       expect(frame).toContain("Subject: user-42");
       expect(frame).toContain("Scopes: tools:read, tools:call");
-      expect(frame).toContain("(10m ago)");
-      expect(frame).toContain("(in 1h)");
+      expect(frame).toContain("(2d 12h ago)");
+      expect(frame).toContain("(in 2d 12h)");
     });
 
     it("shows the token response's expires_in for an opaque token", async () => {

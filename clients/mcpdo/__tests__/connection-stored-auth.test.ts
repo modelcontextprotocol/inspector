@@ -334,6 +334,10 @@ describe("mcp auth/list and auth/clear", () => {
 describe("mcp auth/show", () => {
   let dir: string | undefined;
   const nowS = Math.floor(Date.now() / 1000);
+  // The command reads the real clock. A day-scale offset mid-way through an
+  // hour bucket keeps the rendered "2d 12h" stable for ~30 minutes of test
+  // delay instead of flipping at a minute boundary (Copilot, #2891).
+  const SPAN = 2 * 86_400 + 12 * 3600 + 30 * 60;
   const b64url = (value: unknown) =>
     Buffer.from(JSON.stringify(value)).toString("base64url");
   const JWT = `${b64url({ alg: "RS256" })}.${b64url({
@@ -342,7 +346,7 @@ describe("mcp auth/show", () => {
     sub: "user-7",
     scope: "tools:read",
     iat: nowS - 60,
-    exp: nowS + 7200 + 30,
+    exp: nowS + SPAN,
   })}.signature-not-shown`;
 
   afterEach(async () => {
@@ -405,7 +409,7 @@ describe("mcp auth/show", () => {
         subject: "user-7",
         scopes: ["tools:read"],
         issuedAt: nowS - 60,
-        expiresAt: nowS + 7230,
+        expiresAt: nowS + SPAN,
       },
     });
   });
@@ -417,7 +421,7 @@ describe("mcp auth/show", () => {
     expectCliSuccess(jwt);
     expect(jwt.stdout).toContain("JWT (signature not verified)");
     expect(jwt.stdout).toMatch(/Audience:\s+https:\/\/jwt\.example\/mcp/);
-    expect(jwt.stdout).toMatch(/Expires:\s+\S+ \(in 2h\)/);
+    expect(jwt.stdout).toMatch(/Expires:\s+\S+ \(in 2d 12h\)/);
     expect(jwt.stdout).toMatch(/Refresh:\s+stored/);
     expect(jwt.stdout).not.toContain("signature-not-shown");
 
