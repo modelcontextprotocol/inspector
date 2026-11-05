@@ -41,6 +41,7 @@ import {
 } from "../../../auth/fetchRefusal.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
+import { terminateSessionBestEffort } from "../../sessionTermination.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
@@ -740,9 +741,14 @@ export function createRemoteApp(
       session.rejectActiveRequestWaits(
         new Error("Session closed: no client attached"),
       );
-      session.transport.close().catch(() => {
-        // Best-effort: the session is already forgotten either way.
-      });
+      // End the upstream Streamable HTTP session first (#2924) — a closed tab
+      // must not leave it on the server either. Both steps are best-effort:
+      // the session is already forgotten here either way.
+      const transport = session.transport;
+      // void: a synchronous grace-timer callback, and neither step can reject.
+      void terminateSessionBestEffort(transport).then(() =>
+        transport.close().catch(() => {}),
+      );
     });
   };
   const { logger: fileLogger, allowedOrigins } = options;
@@ -1379,6 +1385,11 @@ export function createRemoteApp(
     if (session) {
       session.cancelDetachGrace();
       session.clearEventConsumer();
+      // The browser's disconnect ends the upstream session too (#2924): the
+      // backend holds the real Streamable HTTP transport, so this is where the
+      // session-terminating DELETE is sent, through that transport's own fetch
+      // and auth headers. Best-effort and bounded; a no-op for stdio and SSE.
+      await terminateSessionBestEffort(session.transport);
       await session.transport.close();
       sessions.delete(sessionId);
     }
