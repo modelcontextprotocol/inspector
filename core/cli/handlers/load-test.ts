@@ -519,6 +519,13 @@ class OutcomeStats {
   }
 }
 
+/** The {@link LoadStop} an abort reason names, or a plain interrupt. */
+function stopFromAbort(reason: unknown): LoadStop {
+  return isLoadStop(reason)
+    ? reason
+    : { reason: "interrupted", detail: "the run was interrupted" };
+}
+
 /** Narrow an abort reason to a {@link LoadStop} a caller passed to `abort()`. */
 function isLoadStop(value: unknown): value is LoadStop {
   if (typeof value !== "object" || value === null) return false;
@@ -698,12 +705,7 @@ async function runWindow(
     halt.abort();
   };
   const onAbort = (): void => {
-    const reason: unknown = signal?.reason;
-    stopRun(
-      isLoadStop(reason)
-        ? reason
-        : { reason: "interrupted", detail: "the run was interrupted" },
-    );
+    stopRun(stopFromAbort(signal?.reason));
   };
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
@@ -927,6 +929,7 @@ async function runStages(
       ...(scenario && { scenario }),
     };
     const offset = used;
+    const stageStart = clock.now();
     const summary = await runWindow(
       (worker, step, seq) => call(worker, step, seq + offset),
       stageOptions,
@@ -950,6 +953,18 @@ async function runStages(
         detail: `stage ${i + 1} (${stages.by} ${level}) breached a threshold: ${breaches.map((b) => b.message).join("; ")}`,
       };
       break;
+    }
+    // A window ends when its last start is due, and a rate-limited one can
+    // finish well before its deadline (its `elapsedMs` is padded to the
+    // window). Waiting out the rest keeps every stage at its real length, so
+    // the next one neither starts early nor bursts at the boundary.
+    if (i < stages.levels.length - 1) {
+      const remaining = stageStart + stages.stageMs - clock.now();
+      if (remaining > 0) await sleepUnlessAborted(clock, remaining, signal);
+      if (signal?.aborted) {
+        stoppedEarly = stopFromAbort(signal.reason);
+        break;
+      }
     }
   }
   const totals = sink.total.summarize(elapsedMs);

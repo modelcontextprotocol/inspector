@@ -85,7 +85,8 @@ export function loadStepByParser(value: string): LoadStepBy {
  * The levels of a ramp's stages: `count` levels spaced evenly from `from` to
  * `to`, both included (a single stage runs at `to`). Concurrency levels are
  * rounded to whole workers, at least one; a ramp too short to change level
- * between two stages repeats a level rather than skipping one.
+ * between two stages repeats a level rather than skipping one. Rate levels
+ * are kept exact.
  */
 export function rampLevels(
   ramp: LoadRamp,
@@ -97,9 +98,11 @@ export function rampLevels(
       ? ramp.to
       : ramp.from + ((ramp.to - ramp.from) * i) / (count - 1),
   );
+  // A rate is used as given: rounding it would turn a valid low rate
+  // (`0.0001:0.0004`) into a zero-rate stage.
   return by === "concurrency"
     ? levels.map((l) => Math.max(1, Math.round(l)))
-    : levels.map((l) => Math.round(l * 1000) / 1000);
+    : levels;
 }
 
 /**

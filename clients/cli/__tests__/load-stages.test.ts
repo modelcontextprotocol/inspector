@@ -19,6 +19,7 @@ import {
   resolveLoadOptions,
   runLoad,
   type LoadCallOutcome,
+  type LoadClock,
   type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import {
@@ -74,6 +75,10 @@ describe("rampLevels", () => {
     expect(rampLevels({ from: 1, to: 2, durationSec: 1 }, 3, "rate")).toEqual([
       1, 1.5, 2,
     ]);
+    // Rates are kept exact, so a valid low rate never becomes zero.
+    expect(
+      rampLevels({ from: 0.0001, to: 0.0004, durationSec: 30 }, 2, "rate"),
+    ).toEqual([0.0001, 0.0004]);
   });
 
   it("rounds concurrency to whole workers and runs one stage at to", () => {
@@ -267,6 +272,90 @@ describe("runLoad with stages", () => {
       ["rate", 50, 50, 50],
     ]);
     expect(summary.stages!.every((s) => s.concurrency === 2)).toBe(true);
+  });
+
+  it("starts each rate-limited stage at its real deadline, not early", async () => {
+    const clock = fakeClock();
+    const starts: number[] = [];
+    const summary = await runLoad(
+      async () => {
+        starts.push(clock.now());
+        await clock.sleep(10);
+        return "ok";
+      },
+      {
+        concurrency: 1,
+        stages: { by: "rate", levels: [1, 2], stageMs: 1000 },
+      },
+      clock,
+    );
+    // The fake clock starts at 1000: stage 1 at 1000, stage 2 at 2000.
+    expect(starts).toEqual([1000, 2000, 2500]);
+    expect(clock.now()).toBeGreaterThanOrEqual(2510);
+    expect(summary.stages!.map((s) => s.requests)).toEqual([1, 2]);
+  });
+
+  /**
+   * A clock whose short sleeps pass at once and whose long ones (the wait
+   * between stages) never end on their own, so an abort is the only way
+   * out of that wait.
+   */
+  function stallingClock(): LoadClock {
+    let t = 0;
+    return {
+      now: () => t,
+      sleep: (ms) =>
+        new Promise<void>((resolve) => {
+          if (ms > 1000) return;
+          t += ms;
+          setImmediate(resolve);
+        }),
+    };
+  }
+
+  it("stops in the wait between stages when the run aborts", async () => {
+    const controller = new AbortController();
+    const clock = stallingClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(1);
+        // Abort once the stage's only start is done, during the wait.
+        setImmediate(() =>
+          controller.abort({ reason: "connection_lost", detail: "gone" }),
+        );
+        return "ok";
+      },
+      {
+        concurrency: 1,
+        stages: { by: "rate", levels: [0.001, 1], stageMs: 1_000_000 },
+      },
+      clock,
+      controller.signal,
+    );
+    expect(summary.stages).toHaveLength(1);
+    expect(summary.stoppedEarly).toEqual({
+      reason: "connection_lost",
+      detail: "gone",
+    });
+  });
+
+  it("reports a plain abort in the wait as an interrupt", async () => {
+    const controller = new AbortController();
+    const clock = stallingClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(1);
+        setImmediate(() => controller.abort());
+        return "ok";
+      },
+      {
+        concurrency: 1,
+        stages: { by: "rate", levels: [0.001, 1], stageMs: 1_000_000 },
+      },
+      clock,
+      controller.signal,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("interrupted");
   });
 
   it("keeps a fixed rate on every concurrency stage", async () => {
