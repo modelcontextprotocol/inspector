@@ -206,26 +206,32 @@ export async function primeAndHoldSseStream(
     return true;
   };
   const released = new Promise<void>((resolve) => {
+    // Set below when there is an end signal to stop listening to.
+    let detachEnd = (): void => {};
     stream.onAbort(() => {
       if (!finish()) return;
+      // The session outlives this stream, so its end signal must not keep
+      // the finished stream's listener (and closures) alive across reattaches.
+      detachEnd();
       closeAbortedStream(stream);
       resolve();
     });
     if (!end) return;
+    const { signal, flush } = end;
     const onEnd = (): void => {
       if (!finish()) return;
       // An abort listener cannot await; `flush` is settled by the `catch`
       // and the close discards its own rejection (`closeAbortedStream`).
-      void end
-        .flush()
+      void flush()
         .catch(() => {})
         .then(() => {
           closeAbortedStream(stream);
           resolve();
         });
     };
-    if (end.signal.aborted) onEnd();
-    else end.signal.addEventListener("abort", onEnd, { once: true });
+    detachEnd = () => signal.removeEventListener("abort", onEnd);
+    if (signal.aborted) onEnd();
+    else signal.addEventListener("abort", onEnd, { once: true });
   });
 
   await stream.write(SSE_PRIMING_COMMENT);

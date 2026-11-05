@@ -233,6 +233,29 @@ describe("primeAndHoldSseStream (#1999)", () => {
     expect(flush).not.toHaveBeenCalled();
   });
 
+  it("stops listening to the end signal when the client aborts, across reattaches", async () => {
+    // One session signal outlives many streams (a tab reattaching); each
+    // finished stream must drop its listener rather than pile up on it.
+    const ender = new AbortController();
+    const add = vi.spyOn(ender.signal, "addEventListener");
+    const remove = vi.spyOn(ender.signal, "removeEventListener");
+    for (let i = 0; i < 3; i++) {
+      const s = controllableStream();
+      const held = primeAndHoldSseStream(s.stream, () => {}, {
+        signal: ender.signal,
+        flush: async () => {},
+      });
+      s.finishWrite();
+      s.abort();
+      await withinTick(held);
+    }
+    expect(add).toHaveBeenCalledTimes(3);
+    expect(remove).toHaveBeenCalledTimes(3);
+    expect(remove.mock.calls.map(([, l]) => l)).toEqual(
+      add.mock.calls.map(([, l]) => l),
+    );
+  });
+
   it("documents the Hono behavior it exists for: onAbort has no replay", async () => {
     // The premise of the whole fix. If Hono ever replays the abort to a
     // late subscriber, this fails and the ordering guard can be revisited.
