@@ -16,6 +16,9 @@ import {
  * imports no `node:` builtin and the web client can run it in the browser.
  * Both CLIs read the files themselves, before connecting; the web client takes
  * scenario JSON as text and calls {@link parseLoadScenario} directly.
+ *
+ * `readFileSync` only ever throws an `Error` (a `SystemError` for a missing
+ * or unreadable path), so its message is read directly.
  */
 
 /**
@@ -28,10 +31,7 @@ export function readLoadScenarioFile(path: string): LoadScenario {
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
-    throw loadScenarioError(
-      path,
-      `cannot be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
+    throw loadScenarioError(path, `cannot be read: ${(err as Error).message}`);
   }
   return parseLoadScenario(text, path);
 }
@@ -48,7 +48,7 @@ export function readLoadArgsFile(path: string): LoadArgsRow[] {
     text = readFileSync(path, "utf8");
   } catch (err) {
     throw loadArgsError(
-      `--load-args-file ${path}: cannot be read: ${err instanceof Error ? err.message : String(err)}`,
+      `--load-args-file ${path}: cannot be read: ${(err as Error).message}`,
     );
   }
   try {
