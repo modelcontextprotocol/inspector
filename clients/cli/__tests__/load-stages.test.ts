@@ -364,6 +364,26 @@ describe("runLoad with stages", () => {
     expect(summary.stages![0]!.stoppedEarly?.reason).toBe("interrupted");
   });
 
+  it("trips the circuit breaker on failures spanning stage boundaries", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(20);
+        throw new Error("refused");
+      },
+      {
+        concurrency: 1,
+        // 20 failures per stage, fewer than the breaker's 50, but every call
+        // throws, so the shared streak trips it partway through stage 3.
+        stages: { by: "concurrency", levels: [1, 1, 1, 1, 1], stageMs: 400 },
+      },
+      clock,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("consecutive_errors");
+    expect(summary.stages!.length).toBeLessThan(5);
+    expect(summary.errors).toBeLessThan(100);
+  });
+
   it("keeps a fixed rate on every concurrency stage", async () => {
     const summary = await runLoad(
       async () => "ok",

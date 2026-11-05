@@ -660,7 +660,19 @@ export type LoadCall = (
  * Accumulators a stepped run shares across its stages, so the totals cover
  * every call without re-reading each stage's latencies.
  */
-type LoadSink = { total: OutcomeStats; steps?: OutcomeStats[] };
+type LoadSink = {
+  total: OutcomeStats;
+  steps?: OutcomeStats[];
+  /**
+   * The circuit breaker's streak, shared so a run of failures spanning a
+   * stage boundary still trips it: short stages would otherwise each start
+   * a fresh streak and never reach the limit.
+   */
+  breaker: BreakerState;
+};
+
+/** The current streak of thrown calls, and when its first one completed. */
+type BreakerState = { streak: number; since: number };
 
 /** One window of load: the whole of an ordinary run, or one stage. */
 async function runWindow(
@@ -718,11 +730,10 @@ async function runWindow(
 
   // Circuit breaker state (#2835): the current streak of thrown calls, and
   // when the first of them completed.
-  let errorStreak = 0;
-  let streakSince = 0;
+  const breaker: BreakerState = sink?.breaker ?? { streak: 0, since: 0 };
   const noteThrown = (now: number): void => {
-    if (errorStreak++ === 0) streakSince = now;
-    const window = now - streakSince;
+    if (breaker.streak++ === 0) breaker.since = now;
+    const window = now - breaker.since;
     // Only while another call could still start: once the bounds have
     // ended starts, the failures are in-flight calls draining, and calling
     // that an early stop would misreport a run that ran to its bounds.
@@ -732,15 +743,15 @@ async function runWindow(
       nextStart < deadline;
     if (
       canStart &&
-      (errorStreak >= CIRCUIT_BREAKER_ERRORS ||
-        (errorStreak >= CIRCUIT_BREAKER_MIN_ERRORS &&
+      (breaker.streak >= CIRCUIT_BREAKER_ERRORS ||
+        (breaker.streak >= CIRCUIT_BREAKER_MIN_ERRORS &&
           window >= CIRCUIT_BREAKER_WINDOW_MS))
     ) {
       stopRun({
         reason: "consecutive_errors",
         // No server text here: it reaches stderr as a warning, and the
         // messages themselves are already tallied in `errorMessages`.
-        detail: `${errorStreak} calls in a row threw over ${round(window)}ms; the server looks unavailable`,
+        detail: `${breaker.streak} calls in a row threw over ${round(window)}ms; the server looks unavailable`,
       });
     }
   };
@@ -816,7 +827,7 @@ async function runWindow(
       try {
         const outcome = await call(index, step, seq);
         const latency = clock.now() - t0;
-        errorStreak = 0;
+        breaker.streak = 0;
         total.addResult(outcome, latency);
         stats?.addResult(outcome, latency);
         sink?.total.addResult(outcome, latency);
@@ -928,6 +939,7 @@ async function runStages(
   const { scenario } = options;
   const sink: LoadSink = {
     total: new OutcomeStats(),
+    breaker: { streak: 0, since: 0 },
     ...(scenario && { steps: scenario.steps.map(() => new OutcomeStats()) }),
   };
   const rows: LoadStageSummary[] = [];
