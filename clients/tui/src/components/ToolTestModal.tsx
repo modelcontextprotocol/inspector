@@ -31,6 +31,11 @@ interface ToolTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
@@ -56,6 +61,7 @@ export function ToolTestModal({
   width,
   height,
   onClose,
+  inputActive = true,
   onAuthRecoveryRequired,
 }: ToolTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
@@ -173,7 +179,7 @@ export function ToolTestModal({
     }
   };
   useInput((input: string, key: Key) => handleInputRef.current(input, key), {
-    isActive: true,
+    isActive: inputActive,
   });
 
   const openSavePrompt = () => {

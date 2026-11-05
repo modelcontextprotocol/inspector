@@ -55,6 +55,11 @@ interface RootsModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
 }
 
 export function RootsModal({
@@ -64,6 +69,7 @@ export function RootsModal({
   width,
   height,
   onClose,
+  inputActive = true,
 }: RootsModalProps) {
   const [mode, setMode] = useState<"list" | "add">("list");
   const [error, setError] = useState<string | null>(null);
@@ -108,38 +114,41 @@ export function RootsModal({
     void save([...roots, root]);
   };
 
-  useInput((input: string, key: Key) => {
-    if (key.escape) {
-      // Esc backs out of the form first, and closes the editor from the list.
-      if (mode === "add") {
-        setMode("list");
-      } else {
-        onClose();
+  useInput(
+    (input: string, key: Key) => {
+      if (key.escape) {
+        // Esc backs out of the form first, and closes the editor from the list.
+        if (mode === "add") {
+          setMode("list");
+        } else {
+          onClose();
+        }
+        return;
       }
-      return;
-    }
-    // The form owns every other key while it is open.
-    if (mode === "add" || saving) return;
+      // The form owns every other key while it is open.
+      if (mode === "add" || saving) return;
 
-    if (key.upArrow && selectedIndex > 0) {
-      setSelection(selectedIndex - 1);
-    } else if (key.downArrow && selectedIndex < roots.length - 1) {
-      setSelection(selectedIndex + 1);
-    } else if (input === "n" || input === "+") {
-      if (!connected) {
-        setError("Connect to the server to change its roots");
-        return;
+      if (key.upArrow && selectedIndex > 0) {
+        setSelection(selectedIndex - 1);
+      } else if (key.downArrow && selectedIndex < roots.length - 1) {
+        setSelection(selectedIndex + 1);
+      } else if (input === "n" || input === "+") {
+        if (!connected) {
+          setError("Connect to the server to change its roots");
+          return;
+        }
+        setError(null);
+        setMode("add");
+      } else if ((input === "x" || key.delete) && roots[selectedIndex]) {
+        if (!connected) {
+          setError("Connect to the server to change its roots");
+          return;
+        }
+        void save(roots.filter((_, i) => i !== selectedIndex));
       }
-      setError(null);
-      setMode("add");
-    } else if ((input === "x" || key.delete) && roots[selectedIndex]) {
-      if (!connected) {
-        setError("Connect to the server to change its roots");
-        return;
-      }
-      void save(roots.filter((_, i) => i !== selectedIndex));
-    }
-  });
+    },
+    { isActive: inputActive },
+  );
 
   return (
     <Box

@@ -38,6 +38,11 @@ interface ResourceTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
@@ -58,6 +63,7 @@ export function ResourceTestModal({
   width,
   height,
   onClose,
+  inputActive = true,
   onAuthRecoveryRequired,
 }: ResourceTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
@@ -134,7 +140,7 @@ export function ResourceTestModal({
         }
       }
     },
-    { isActive: true },
+    { isActive: inputActive },
   );
 
   const handleFormSubmit = async (values: Record<string, string>) => {

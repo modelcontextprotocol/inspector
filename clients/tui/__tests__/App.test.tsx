@@ -44,6 +44,8 @@ const h = vi.hoisted(() => {
     subscriptions: unknown[];
     roots: unknown[];
     tasksExtension: boolean;
+    pendingSamples: unknown[];
+    pendingElicitations: unknown[];
   }
   const ctrl: Ctrl = {
     status: "disconnected",
@@ -65,6 +67,8 @@ const h = vi.hoisted(() => {
     subscriptions: [],
     roots: [],
     tasksExtension: false,
+    pendingSamples: [],
+    pendingElicitations: [],
   };
   const refreshTasks = vi.fn(async () => []);
   const clearCompletedTasks = vi.fn();
@@ -146,6 +150,8 @@ const h = vi.hoisted(() => {
       defaultMetadata?: unknown;
       environment?: { fetch?: unknown; oauthFetch?: unknown };
       connectionTimeoutRemedy?: string;
+      sample?: unknown;
+      elicit?: unknown;
     };
   }> = [];
   // What the mocked `createProxyFetch` returns. `undefined` is the real
@@ -315,6 +321,10 @@ const h = vi.hoisted(() => {
     // Roots are read with a direct store snapshot; the fake client is not a
     // real TypedEventTarget, so the snapshot is driven from `ctrl.roots`.
     useStoreSnapshot: vi.fn(() => ctrl.roots),
+    usePendingClientRequests: vi.fn(() => ({
+      pendingSamples: ctrl.pendingSamples,
+      pendingElicitations: ctrl.pendingElicitations,
+    })),
   };
 });
 
@@ -378,6 +388,9 @@ vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
 }));
 vi.mock("@inspector/core/react/useStoreSnapshot.js", () => ({
   useStoreSnapshot: h.useStoreSnapshot,
+}));
+vi.mock("@inspector/core/react/usePendingClientRequests.js", () => ({
+  usePendingClientRequests: h.usePendingClientRequests,
 }));
 vi.mock("@inspector/core/auth/index.js", async (importOriginal) => {
   const actual =
@@ -773,6 +786,8 @@ beforeEach(() => {
     subscriptions: [],
     roots: [],
     tasksExtension: false,
+    pendingSamples: [],
+    pendingElicitations: [],
   });
   h.refreshTasks.mockClear();
   h.clearCompletedTasks.mockClear();
@@ -2536,5 +2551,91 @@ describe("App (tasks, subscriptions, roots — #2432)", () => {
     await press(r, [ESC, "e", "x"]);
     await waitUntil(() => client.setRoots.mock.calls.length > 1);
     expect(client.setRoots).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("App (pending sampling / elicitation requests, #2829)", () => {
+  it("advertises sampling and both elicitation modes", async () => {
+    const r = await mount(oneStdio());
+    await expectFrame(r, "MCP Servers");
+    const client = h.clientInstances.at(-1);
+    expect(client?.opts?.sample).toBe(true);
+    expect(client?.opts?.elicit).toEqual({ form: true, url: true });
+  });
+
+  it("answers a sampling request over the tool modal without closing it", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.tools = [sampleTool];
+    const r = await mount(oneStdio());
+    await press(r, ["t", TAB, ENTER]);
+    await expectFrame(r, "Test Tool: alpha");
+
+    const sample = {
+      id: "s1",
+      origin: "server-request",
+      request: {
+        params: {
+          maxTokens: 10,
+          messages: [{ role: "user", content: { type: "text", text: "Hi" } }],
+        },
+      },
+      respond: vi.fn(async () => {}),
+      reject: vi.fn(async () => {}),
+    };
+    h.ctrl.pendingSamples = [sample];
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await expectFrame(r, "Sampling request");
+
+    // Esc belongs to the request now: it opens the reject prompt rather than
+    // closing the tool modal underneath.
+    await press(r, [ESC]);
+    await expectFrame(r, "Reject this sampling request?");
+    await press(r, ["r"]);
+    expect(sample.reject).toHaveBeenCalledTimes(1);
+
+    h.ctrl.pendingSamples = [];
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await expectFrame(r, "Test Tool: alpha");
+    expect(r.lastFrame() ?? "").not.toContain("Sampling request");
+    await press(r, [ESC]);
+    expect(r.lastFrame() ?? "").not.toContain("Test Tool: alpha");
+  });
+
+  it("holds the global accelerators while a request is open", async () => {
+    h.ctrl.status = "connected";
+    h.ctrl.pendingElicitations = [
+      {
+        id: "e1",
+        origin: "server-request",
+        request: {
+          params: {
+            message: "Pick a name",
+            requestedSchema: {
+              type: "object",
+              properties: { name: { type: "string" } },
+            },
+          },
+        },
+        respond: vi.fn(async () => {}),
+        reject: vi.fn(),
+      },
+    ];
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Elicitation request");
+    await expectFrame(r, "Pick a name");
+    await press(r, ["?"]);
+    expect(r.lastFrame() ?? "").not.toContain("Keyboard shortcuts");
   });
 });

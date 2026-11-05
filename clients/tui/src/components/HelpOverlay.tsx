@@ -24,6 +24,11 @@ interface HelpOverlayProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
 }
 
 /** Gap between the keys column and the action column. */
@@ -34,26 +39,30 @@ export function HelpOverlay({
   width,
   height,
   onClose,
+  inputActive = true,
 }: HelpOverlayProps) {
   const scrollViewRef = useRef<ScrollViewRef>(null);
   const keysWidth = keyColumnWidth(sections) + COLUMN_GAP;
 
-  useInput((input: string, key: Key) => {
-    // The ref is set once the ScrollView mounts; `?.` short-circuits the
-    // whole call, arguments included, on the render before that.
-    const view = scrollViewRef.current;
-    if (key.escape || input === "?") {
-      onClose();
-    } else if (key.downArrow) {
-      view?.scrollBy(1);
-    } else if (key.upArrow) {
-      view?.scrollBy(-1);
-    } else if (key.pageDown) {
-      view?.scrollBy(view.getViewportHeight());
-    } else if (key.pageUp) {
-      view?.scrollBy(-view.getViewportHeight());
-    }
-  });
+  useInput(
+    (input: string, key: Key) => {
+      // The ref is set once the ScrollView mounts; `?.` short-circuits the
+      // whole call, arguments included, on the render before that.
+      const view = scrollViewRef.current;
+      if (key.escape || input === "?") {
+        onClose();
+      } else if (key.downArrow) {
+        view?.scrollBy(1);
+      } else if (key.upArrow) {
+        view?.scrollBy(-1);
+      } else if (key.pageDown) {
+        view?.scrollBy(view.getViewportHeight());
+      } else if (key.pageUp) {
+        view?.scrollBy(-view.getViewportHeight());
+      }
+    },
+    { isActive: inputActive },
+  );
 
   return (
     <Box
