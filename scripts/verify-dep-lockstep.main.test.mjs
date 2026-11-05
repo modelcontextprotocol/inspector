@@ -91,7 +91,14 @@ function makeFixture({
   // (always the resolved path) matches `process.argv[1]`, so launching it via
   // the unresolved path would load the module and silently do nothing —
   // exiting 0 with no output, which every assertion here would misread.
-  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "dep-lockstep-")));
+  // `.native`, because the JS `realpathSync` keeps Windows 8.3 short names
+  // (`C:\Users\RUNNER~1\…`, the CI runner's TEMP) while TypeScript realpaths
+  // `node_modules` files with the native call, which expands them. The two
+  // disagreed, so every installed file read as out-of-repo and the guard
+  // reported 0 install-crossing dependencies on Windows (#2748).
+  const dir = realpathSync.native(
+    mkdtempSync(path.join(tmpdir(), "dep-lockstep-")),
+  );
   const write = (rel, contents) => {
     mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
     writeFileSync(

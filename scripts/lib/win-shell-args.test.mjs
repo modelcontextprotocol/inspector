@@ -52,3 +52,10 @@ test("winShellArgs maps every element on win32", () => {
     ["pack", "--pack-destination", '"C:\\a b\\c"'],
   );
 });
+
+test("quotes an empty argument rather than dropping it (#2748)", () => {
+  // `node -e ""` through cmd.exe must still hand node an (empty) script.
+  assert.equal(quoteWinArg(""), '""');
+  assert.deepEqual(winShellArgs(["-e", ""], "win32"), ["-e", '""']);
+  assert.deepEqual(winShellArgs(["-e", ""], "linux"), ["-e", ""]);
+});

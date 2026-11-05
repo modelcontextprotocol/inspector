@@ -17,6 +17,7 @@
 import { spawnSync } from "node:child_process";
 import { REPO_SLUG, ghJson } from "./lib/gh.mjs";
 import { itemListComplete } from "./lib/board.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 const ISSUE_LIMIT = 2000;
 const V2_BOARD = 28;
@@ -197,6 +198,6 @@ export function main(_argv = process.argv.slice(2), spawn = spawnSync) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

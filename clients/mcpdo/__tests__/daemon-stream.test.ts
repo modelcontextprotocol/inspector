@@ -12,8 +12,10 @@ import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
-describe("streamDaemon + ipc-glue", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   let dir: string | undefined;
   let server: net.Server | undefined;
   const sockets = new Set<net.Socket>();

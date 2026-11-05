@@ -101,7 +101,12 @@ test("diff writes lost-ids.json beside the snapshot and prints the grouping", as
     ids: ["a"],
   });
   // Same protections as the snapshot: private ids, owner-only, exclusive.
-  assert.equal(statSync(lostPath).mode & 0o777, 0o600);
+  // POSIX mode bits only: Windows has no owner/group/other split, and
+  // `fs.stat` there reports 0o666 for any writable file whatever `mode` was
+  // passed (#2748). The rest of this test still runs on win32.
+  if (process.platform !== "win32") {
+    assert.equal(statSync(lostPath).mode & 0o777, 0o600);
+  }
   assert.deepEqual(lines, [
     "was Done: 1",
     `lost: 1 cards (all "Done") → ${lostPath}`,

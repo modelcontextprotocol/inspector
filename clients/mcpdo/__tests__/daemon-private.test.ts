@@ -28,6 +28,7 @@ import {
   createPrivateBinding,
   formatPrivateEnvExports,
 } from "../src/connection/private-env.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 describe("daemon IPC token", () => {
   it("compares tokens in constant time", () => {
@@ -76,7 +77,8 @@ describe("mcpdo private", () => {
     expectCliSuccess(result);
     expect(result.stdout).toMatch(
       new RegExp(
-        `export ${DAEMON_DIR_ENV}='[^']+/mcp-conn-[^/']+/[0-9a-f]{8}'`,
+        // `[\\/]`: the separator is a backslash on Windows (#2748).
+        `export ${DAEMON_DIR_ENV}='[^']+[\\\\/]mcp-conn-[^\\\\/']+[\\\\/][0-9a-f]{8}'`,
       ),
     );
     expect(result.stdout).toMatch(
@@ -108,7 +110,8 @@ describe("mcpdo private", () => {
   });
 });
 
-describe("private daemon end-to-end", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
 

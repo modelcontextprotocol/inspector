@@ -47,6 +47,12 @@ import {
 } from "@inspector/core/storage/store-io.js";
 import type { OAuthPersistSnapshot } from "@inspector/core/auth/oauth-persist.js";
 
+// These cases make a write fail by `chmod 0o555` on the directory. Windows
+// does not honor POSIX directory mode bits, so the write succeeds there and
+// the rollback under test never runs; they are skipped on win32 by name
+// (#2748). The POSIX runs keep them, and the coverage they carry.
+const unwritableDirUnsupported = process.platform === "win32";
+
 const SERVER = "https://api.example/mcp";
 const ISSUER = "https://as.example";
 const TOKENS = {
@@ -330,130 +336,139 @@ describe("writeOAuthSections secret split", () => {
     ).toBeNull();
   });
 
-  it("warns that the store may be inconsistent when the rollback itself fails", async () => {
-    // A failed compensation is not a failed save: the store already changed
-    // and could not be put back, so the save-path warning ("tokens kept in
-    // memory for this session") would be false. The message must say the
-    // store may disagree with the file and point at re-authorization.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const store = new InMemorySecretStore();
-    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
-    await flushStoreFileWrites(filePath);
+  it.skipIf(unwritableDirUnsupported)(
+    "warns that the store may be inconsistent when the rollback itself fails",
+    async () => {
+      // A failed compensation is not a failed save: the store already changed
+      // and could not be put back, so the save-path warning ("tokens kept in
+      // memory for this session") would be false. The message must say the
+      // store may disagree with the file and point at re-authorization.
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const store = new InMemorySecretStore();
+      await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+      await flushStoreFileWrites(filePath);
 
-    const updated = snapshotWith();
-    updated.servers[SERVER]!.tokens = { ...TOKENS, access_token: "at2" };
-    // The update's own writes ("at2", unchanged "cs") succeed; only the
-    // rollback's attempt to put the *prior* token value back fails.
-    const realSet = store.set.bind(store);
-    store.set = async (id, field, value) => {
-      if (value.includes(`"access_token":"${TOKENS.access_token}"`)) {
-        throw new Error("store refused the restore");
+      const updated = snapshotWith();
+      updated.servers[SERVER]!.tokens = { ...TOKENS, access_token: "at2" };
+      // The update's own writes ("at2", unchanged "cs") succeed; only the
+      // rollback's attempt to put the *prior* token value back fails.
+      const realSet = store.set.bind(store);
+      store.set = async (id, field, value) => {
+        if (value.includes(`"access_token":"${TOKENS.access_token}"`)) {
+          throw new Error("store refused the restore");
+        }
+        return realSet(id, field, value);
+      };
+
+      chmodSync(tempDir, 0o555);
+      try {
+        await expect(
+          writeOAuthSections(filePath, updated, undefined, store),
+        ).rejects.toThrow();
+      } finally {
+        chmodSync(tempDir, 0o755);
       }
-      return realSet(id, field, value);
-    };
 
-    chmodSync(tempDir, 0o555);
-    try {
-      await expect(
-        writeOAuthSections(filePath, updated, undefined, store),
-      ).rejects.toThrow();
-    } finally {
-      chmodSync(tempDir, 0o755);
-    }
-
-    expect(
-      warn.mock.calls.some(([msg]) =>
-        String(msg).includes(
-          "Could not restore secret-store entries after a failed OAuth state write",
+      expect(
+        warn.mock.calls.some(([msg]) =>
+          String(msg).includes(
+            "Could not restore secret-store entries after a failed OAuth state write",
+          ),
         ),
-      ),
-    ).toBe(true);
-    // The save-path wording must not appear: nothing here is "kept in
-    // memory" — the store diverged from the file and could not be put back.
-    expect(
-      warn.mock.calls.some(([msg]) =>
-        String(msg).includes("kept in memory for this session"),
-      ),
-    ).toBe(false);
-  });
-
-  it("restores an indexed entry's prior store secrets when the file write fails", async () => {
-    // An already-indexed entry is not rolled back by deletion — its old
-    // residue is still on disk, so the store must be restored to the *old*
-    // values or the next read joins the old residue (e.g. the previous
-    // client_id) with the new secrets. Force the second write to fail by
-    // making the directory read-only after the first commit.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    void warn; // silence the unlocked-write warning for the read-only dir
-    const store = new InMemorySecretStore();
-    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
-    await flushStoreFileWrites(filePath);
-
-    const updated = snapshotWith();
-    updated.servers[SERVER]!.tokens = {
-      ...TOKENS,
-      access_token: "at2",
-      refresh_token: "rt2",
-    };
-    updated.servers[SERVER]!.clientInformation = {
-      client_id: "cid2",
-      client_secret: "cs2",
-    };
-
-    chmodSync(tempDir, 0o555);
-    try {
-      await expect(
-        writeOAuthSections(filePath, updated, undefined, store),
-      ).rejects.toThrow();
-    } finally {
-      chmodSync(tempDir, 0o755);
-    }
-
-    // The store holds the *old* secrets again, matching the old residue
-    // still on disk — no cid/cs2 mismatch on the next joined read.
-    const id = idOf(SERVER);
-    expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
-      TOKENS,
-    );
-    expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
-    const joined = await readOAuthStore(filePath, store);
-    expect(joined?.servers[SERVER]).toEqual(snapshotWith().servers[SERVER]);
-  });
-
-  it("deduplicates sections: rollback restores the true prior value", async () => {
-    // A duplicated URL would make the second pass snapshot the value the
-    // first pass just wrote, and a rollback would then finish by
-    // "restoring" that intermediate value over the real prior one.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    void warn; // silence the unlocked-write warning for the read-only dir
-    const store = new InMemorySecretStore();
-    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
-    await flushStoreFileWrites(filePath);
-
-    const updated = snapshotWith();
-    updated.servers[SERVER]!.clientInformation = {
-      client_id: "cid",
-      client_secret: "cs2",
-    };
-
-    chmodSync(tempDir, 0o555);
-    try {
-      await expect(
-        writeOAuthSections(
-          filePath,
-          updated,
-          { servers: [SERVER, SERVER], idpSessions: [] },
-          store,
+      ).toBe(true);
+      // The save-path wording must not appear: nothing here is "kept in
+      // memory" — the store diverged from the file and could not be put back.
+      expect(
+        warn.mock.calls.some(([msg]) =>
+          String(msg).includes("kept in memory for this session"),
         ),
-      ).rejects.toThrow();
-    } finally {
-      chmodSync(tempDir, 0o755);
-    }
+      ).toBe(false);
+    },
+  );
 
-    expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
-      "cs",
-    );
-  });
+  it.skipIf(unwritableDirUnsupported)(
+    "restores an indexed entry's prior store secrets when the file write fails",
+    async () => {
+      // An already-indexed entry is not rolled back by deletion — its old
+      // residue is still on disk, so the store must be restored to the *old*
+      // values or the next read joins the old residue (e.g. the previous
+      // client_id) with the new secrets. Force the second write to fail by
+      // making the directory read-only after the first commit.
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      void warn; // silence the unlocked-write warning for the read-only dir
+      const store = new InMemorySecretStore();
+      await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+      await flushStoreFileWrites(filePath);
+
+      const updated = snapshotWith();
+      updated.servers[SERVER]!.tokens = {
+        ...TOKENS,
+        access_token: "at2",
+        refresh_token: "rt2",
+      };
+      updated.servers[SERVER]!.clientInformation = {
+        client_id: "cid2",
+        client_secret: "cs2",
+      };
+
+      chmodSync(tempDir, 0o555);
+      try {
+        await expect(
+          writeOAuthSections(filePath, updated, undefined, store),
+        ).rejects.toThrow();
+      } finally {
+        chmodSync(tempDir, 0o755);
+      }
+
+      // The store holds the *old* secrets again, matching the old residue
+      // still on disk — no cid/cs2 mismatch on the next joined read.
+      const id = idOf(SERVER);
+      expect(JSON.parse((await store.get(id, LEGACY_TOKENS_FIELD))!)).toEqual(
+        TOKENS,
+      );
+      expect(await store.get(id, LEGACY_CLIENT_SECRET_FIELD)).toBe("cs");
+      const joined = await readOAuthStore(filePath, store);
+      expect(joined?.servers[SERVER]).toEqual(snapshotWith().servers[SERVER]);
+    },
+  );
+
+  it.skipIf(unwritableDirUnsupported)(
+    "deduplicates sections: rollback restores the true prior value",
+    async () => {
+      // A duplicated URL would make the second pass snapshot the value the
+      // first pass just wrote, and a rollback would then finish by
+      // "restoring" that intermediate value over the real prior one.
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      void warn; // silence the unlocked-write warning for the read-only dir
+      const store = new InMemorySecretStore();
+      await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+      await flushStoreFileWrites(filePath);
+
+      const updated = snapshotWith();
+      updated.servers[SERVER]!.clientInformation = {
+        client_id: "cid",
+        client_secret: "cs2",
+      };
+
+      chmodSync(tempDir, 0o555);
+      try {
+        await expect(
+          writeOAuthSections(
+            filePath,
+            updated,
+            { servers: [SERVER, SERVER], idpSessions: [] },
+            store,
+          ),
+        ).rejects.toThrow();
+      } finally {
+        chmodSync(tempDir, 0o755);
+      }
+
+      expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
+        "cs",
+      );
+    },
+  );
 
   it("aborts the write when a store delete fails, keeping the old residue", async () => {
     const store = new InMemorySecretStore();
@@ -1097,29 +1112,32 @@ describe("removeOAuthStore", () => {
     expect(await store.get(idpIdOf(ISSUER), IDP_SESSION_FIELD)).not.toBeNull();
   });
 
-  it("restores purged secrets when the file delete fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    void warn; // silence the unlocked-write warning for the read-only dir
-    const store = new InMemorySecretStore();
-    await writeOAuthSections(filePath, snapshotWith(), undefined, store);
-    await flushStoreFileWrites(filePath);
+  it.skipIf(unwritableDirUnsupported)(
+    "restores purged secrets when the file delete fails",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      void warn; // silence the unlocked-write warning for the read-only dir
+      const store = new InMemorySecretStore();
+      await writeOAuthSections(filePath, snapshotWith(), undefined, store);
+      await flushStoreFileWrites(filePath);
 
-    chmodSync(tempDir, 0o555);
-    try {
-      await expect(removeOAuthStore(filePath, store)).rejects.toThrow();
-    } finally {
-      chmodSync(tempDir, 0o755);
-    }
+      chmodSync(tempDir, 0o555);
+      try {
+        await expect(removeOAuthStore(filePath, store)).rejects.toThrow();
+      } finally {
+        chmodSync(tempDir, 0o755);
+      }
 
-    // The file survives as the index and the store matches it again.
-    expect(existsSync(filePath)).toBe(true);
-    expect(
-      JSON.parse((await store.get(idOf(SERVER), LEGACY_TOKENS_FIELD))!),
-    ).toEqual(TOKENS);
-    expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
-      "cs",
-    );
-  });
+      // The file survives as the index and the store matches it again.
+      expect(existsSync(filePath)).toBe(true);
+      expect(
+        JSON.parse((await store.get(idOf(SERVER), LEGACY_TOKENS_FIELD))!),
+      ).toEqual(TOKENS);
+      expect(await store.get(idOf(SERVER), LEGACY_CLIENT_SECRET_FIELD)).toBe(
+        "cs",
+      );
+    },
+  );
 
   it("is a no-op purge for a missing file", async () => {
     await expect(

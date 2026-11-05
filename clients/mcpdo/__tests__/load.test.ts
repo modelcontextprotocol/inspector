@@ -25,6 +25,7 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import { PLAIN } from "@inspector/core/cli/style.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 /**
  * `mcpdo tools/call --load` (#2744): the flag rules, the summary rendering,
@@ -294,220 +295,56 @@ const DAEMON_COMMAND_MS = 20_000;
  */
 const DAEMON_TEST_MS = 3 * DAEMON_COMMAND_MS + 5_000;
 
-describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
-  let configPath: string | undefined;
-  let storageDir: string | undefined;
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)(
+  "mcpdo tools/call --load",
+  { timeout: DAEMON_TEST_MS },
+  () => {
+    let configPath: string | undefined;
+    let storageDir: string | undefined;
 
-  afterEach(async () => {
-    if (storageDir) {
-      const socketPath = path.join(storageDir, "mcpdod.sock");
-      if (fs.existsSync(socketPath)) {
-        try {
-          await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
-        } catch {
-          // already stopped
+    afterEach(async () => {
+      if (storageDir) {
+        const socketPath = path.join(storageDir, "mcpdod.sock");
+        if (fs.existsSync(socketPath)) {
+          try {
+            await callDaemon(
+              "daemon/stop",
+              {},
+              { socketPath, timeoutMs: 2000 },
+            );
+          } catch {
+            // already stopped
+          }
         }
+        fs.rmSync(storageDir, { recursive: true, force: true });
+        storageDir = undefined;
       }
-      fs.rmSync(storageDir, { recursive: true, force: true });
-      storageDir = undefined;
-    }
-    if (configPath) {
-      deleteConfigFile(configPath);
-      configPath = undefined;
-    }
-  });
-
-  function env(): Record<string, string> {
-    storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-load-e2e-"));
-    return {
-      MCP_STORAGE_DIR: storageDir,
-      MCP_INSPECTOR_DAEMON_DIR: storageDir,
-      MCP_ALLOW_DEFAULT_CONNECTION: "1",
-    };
-  }
-
-  it("loads a tool over a live connection and leaves it usable", async () => {
-    configPath = createSampleTestConfig();
-    const e = env();
-    expectCliSuccess(
-      await runMcp(["connect", "test-stdio", "--config", configPath], {
-        env: e,
-        timeout: DAEMON_COMMAND_MS,
-      }),
-    );
-
-    const loaded = await runMcp(
-      [
-        "tools/call",
-        "echo",
-        "message:=hi",
-        "--load",
-        "--load-requests",
-        "12",
-        "--load-concurrency",
-        "3",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: DAEMON_COMMAND_MS },
-    );
-    expectCliSuccess(loaded);
-    expect(JSON.parse(loaded.stdout)).toMatchObject({
-      tool: "echo",
-      concurrency: 3,
-      requestLimit: 12,
-      requests: 12,
-      ok: 12,
-      errors: 0,
-      errorRate: 0,
+      if (configPath) {
+        deleteConfigFile(configPath);
+        configPath = undefined;
+      }
     });
 
-    // The queue slot is released: an ordinary call runs afterwards.
-    expectCliSuccess(
-      await runMcp(
-        ["tools/call", "echo", "message:=after", "--format", "json"],
-        {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        },
-      ),
-    );
-  });
+    function env(): Record<string, string> {
+      storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-load-e2e-"));
+      return {
+        MCP_STORAGE_DIR: storageDir,
+        MCP_INSPECTOR_DAEMON_DIR: storageDir,
+        MCP_ALLOW_DEFAULT_CONNECTION: "1",
+      };
+    }
 
-  it("fails before loading when the tool does not exist", async () => {
-    configPath = createSampleTestConfig();
-    const e = env();
-    expectCliSuccess(
-      await runMcp(["connect", "test-stdio", "--config", configPath], {
-        env: e,
-        timeout: DAEMON_COMMAND_MS,
-      }),
-    );
-    const result = await runMcp(
-      ["tools/call", "no_such_tool", "--load", "--load-requests", "2"],
-      { env: e, timeout: DAEMON_COMMAND_MS },
-    );
-    expect(result.exitCode).toBe(5);
-    expect(result.stderr).toContain("Tool 'no_such_tool' not found on server.");
-  });
-
-  async function connectStdio(e: Record<string, string>): Promise<void> {
-    configPath = createSampleTestConfig();
-    expectCliSuccess(
-      await runMcp(["connect", "test-stdio", "--config", configPath], {
-        env: e,
-        timeout: DAEMON_COMMAND_MS,
-      }),
-    );
-  }
-
-  it("warns on stderr when a --load-rate run falls short (#2837)", async () => {
-    const e = env();
-    await connectStdio(e);
-    // No single worker starts 100k calls a second.
-    const result = await runMcp(
-      [
-        "tools/call",
-        "echo",
-        "message:=hi",
-        "--load",
-        "--load-rate",
-        "100000",
-        "--load-concurrency",
-        "1",
-        "--load-duration",
-        "0.3",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: DAEMON_COMMAND_MS },
-    );
-    expectCliSuccess(result);
-    const summary = JSON.parse(result.stdout);
-    expect(summary).toMatchObject({ rate: 100000, plannedStarts: 30000 });
-    expect(summary.droppedSlots).toBeGreaterThan(0);
-    expect(result.stderr).toContain("Warning: --load-rate 100000/s");
-  });
-
-  it("prints the summary, then fails a breached threshold with the CLI's code", async () => {
-    const e = env();
-    await connectStdio(e);
-    // A real call never completes in a microsecond, so this p99 always fails.
-    const breached = await runMcp(
-      [
-        "tools/call",
-        "echo",
-        "message:=hi",
-        "--load",
-        "--load-requests",
-        "4",
-        "--load-max-p99",
-        "0.001",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: DAEMON_COMMAND_MS },
-    );
-    expect(breached.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
-    expect(JSON.parse(breached.stdout)).toMatchObject({ requests: 4, ok: 4 });
-    expect(breached.stderr).toContain("load_p99_exceeded");
-
-    // A threshold the run meets leaves the exit code alone.
-    expectCliSuccess(
-      await runMcp(
-        [
-          "tools/call",
-          "echo",
-          "message:=hi",
-          "--load",
-          "--load-requests",
-          "4",
-          "--load-max-error-rate",
-          "0",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      ),
-    );
-  });
-
-  it("refuses more than one session over stdio", async () => {
-    const e = env();
-    await connectStdio(e);
-    const result = await runMcp(
-      [
-        "tools/call",
-        "echo",
-        "--load",
-        "--load-requests",
-        "2",
-        "--load-connections",
-        "2",
-      ],
-      { env: e, timeout: DAEMON_COMMAND_MS },
-    );
-    expect(result.exitCode).toBe(EXIT_CODES.USAGE);
-    expect(result.stderr).toContain(
-      "--load-connections above 1 requires an HTTP or SSE connection",
-    );
-  });
-
-  it("spreads a run over extra sessions that never become connections", async () => {
-    const server = createTestServerHttp({
-      serverInfo: createTestServerInfo("load-sessions", "1.0.0"),
-      tools: [createEchoTool()],
-    });
-    try {
-      await server.start();
-      configPath = createTestConfig({
-        mcpServers: { remote: { type: "streamable-http", url: server.url } },
-      });
+    it("loads a tool over a live connection and leaves it usable", async () => {
+      configPath = createSampleTestConfig();
       const e = env();
       expectCliSuccess(
-        await runMcp(["connect", "remote", "--config", configPath], {
+        await runMcp(["connect", "test-stdio", "--config", configPath], {
           env: e,
           timeout: DAEMON_COMMAND_MS,
         }),
       );
+
       const loaded = await runMcp(
         [
           "tools/call",
@@ -515,10 +352,8 @@ describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
           "message:=hi",
           "--load",
           "--load-requests",
-          "9",
+          "12",
           "--load-concurrency",
-          "3",
-          "--load-connections",
           "3",
           "--format",
           "json",
@@ -527,53 +362,230 @@ describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
       );
       expectCliSuccess(loaded);
       expect(JSON.parse(loaded.stdout)).toMatchObject({
-        requests: 9,
-        ok: 9,
+        tool: "echo",
+        concurrency: 3,
+        requestLimit: 12,
+        requests: 12,
+        ok: 12,
         errors: 0,
-        connections: { requested: 3, opened: 3, failed: 0 },
+        errorRate: 0,
       });
 
-      // The extras belonged to the run: only the connection itself is listed.
-      const listed = await runMcp(["connections/list", "--format", "json"], {
-        env: e,
-        timeout: DAEMON_COMMAND_MS,
-      });
-      expectCliSuccess(listed);
-      expect(
-        (
-          JSON.parse(listed.stdout) as { connections: { name: string }[] }
-        ).connections.map((c) => c.name),
-      ).toEqual(["remote"]);
-    } finally {
-      await server.stop();
+      // The queue slot is released: an ordinary call runs afterwards.
+      expectCliSuccess(
+        await runMcp(
+          ["tools/call", "echo", "message:=after", "--format", "json"],
+          {
+            env: e,
+            timeout: DAEMON_COMMAND_MS,
+          },
+        ),
+      );
+    });
+
+    it("fails before loading when the tool does not exist", async () => {
+      configPath = createSampleTestConfig();
+      const e = env();
+      expectCliSuccess(
+        await runMcp(["connect", "test-stdio", "--config", configPath], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        }),
+      );
+      const result = await runMcp(
+        ["tools/call", "no_such_tool", "--load", "--load-requests", "2"],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expect(result.exitCode).toBe(5);
+      expect(result.stderr).toContain(
+        "Tool 'no_such_tool' not found on server.",
+      );
+    });
+
+    async function connectStdio(e: Record<string, string>): Promise<void> {
+      configPath = createSampleTestConfig();
+      expectCliSuccess(
+        await runMcp(["connect", "test-stdio", "--config", configPath], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        }),
+      );
     }
-  });
 
-  it.each([
-    [
-      ["tools/call", "echo", "--load-requests", "2"],
-      "--load-requests requires --load.",
-    ],
-    [["tools/call", "--load"], "--load requires a tool name."],
-    [
-      ["tools/call", "echo", "--load", "--load-concurrency", "0"],
-      "--load-concurrency must be a positive integer.",
-    ],
-    [
-      ["tools/call", "echo", "--load-max-p99", "10"],
-      "--load-max-p99 requires --load.",
-    ],
-    [
-      ["tools/call", "echo", "--load", "--load-max-error-rate", "5"],
-      "--load-max-error-rate must be a number from 0 to 1.",
-    ],
-    [
-      ["tools/call", "echo", "--load", "--load-connections", "0"],
-      "--load-connections must be a positive integer.",
-    ],
-  ])("rejects %j before reaching a daemon", async (args, message) => {
-    const result = await runMcp(args, { env: env() });
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain(message);
-  });
-});
+    it("warns on stderr when a --load-rate run falls short (#2837)", async () => {
+      const e = env();
+      await connectStdio(e);
+      // No single worker starts 100k calls a second.
+      const result = await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "message:=hi",
+          "--load",
+          "--load-rate",
+          "100000",
+          "--load-concurrency",
+          "1",
+          "--load-duration",
+          "0.3",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expectCliSuccess(result);
+      const summary = JSON.parse(result.stdout);
+      expect(summary).toMatchObject({ rate: 100000, plannedStarts: 30000 });
+      expect(summary.droppedSlots).toBeGreaterThan(0);
+      expect(result.stderr).toContain("Warning: --load-rate 100000/s");
+    });
+
+    it("prints the summary, then fails a breached threshold with the CLI's code", async () => {
+      const e = env();
+      await connectStdio(e);
+      // A real call never completes in a microsecond, so this p99 always fails.
+      const breached = await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "message:=hi",
+          "--load",
+          "--load-requests",
+          "4",
+          "--load-max-p99",
+          "0.001",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expect(breached.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
+      expect(JSON.parse(breached.stdout)).toMatchObject({ requests: 4, ok: 4 });
+      expect(breached.stderr).toContain("load_p99_exceeded");
+
+      // A threshold the run meets leaves the exit code alone.
+      expectCliSuccess(
+        await runMcp(
+          [
+            "tools/call",
+            "echo",
+            "message:=hi",
+            "--load",
+            "--load-requests",
+            "4",
+            "--load-max-error-rate",
+            "0",
+          ],
+          { env: e, timeout: DAEMON_COMMAND_MS },
+        ),
+      );
+    });
+
+    it("refuses more than one session over stdio", async () => {
+      const e = env();
+      await connectStdio(e);
+      const result = await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "--load",
+          "--load-requests",
+          "2",
+          "--load-connections",
+          "2",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expect(result.exitCode).toBe(EXIT_CODES.USAGE);
+      expect(result.stderr).toContain(
+        "--load-connections above 1 requires an HTTP or SSE connection",
+      );
+    });
+
+    it("spreads a run over extra sessions that never become connections", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo("load-sessions", "1.0.0"),
+        tools: [createEchoTool()],
+      });
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: { remote: { type: "streamable-http", url: server.url } },
+        });
+        const e = env();
+        expectCliSuccess(
+          await runMcp(["connect", "remote", "--config", configPath], {
+            env: e,
+            timeout: DAEMON_COMMAND_MS,
+          }),
+        );
+        const loaded = await runMcp(
+          [
+            "tools/call",
+            "echo",
+            "message:=hi",
+            "--load",
+            "--load-requests",
+            "9",
+            "--load-concurrency",
+            "3",
+            "--load-connections",
+            "3",
+            "--format",
+            "json",
+          ],
+          { env: e, timeout: DAEMON_COMMAND_MS },
+        );
+        expectCliSuccess(loaded);
+        expect(JSON.parse(loaded.stdout)).toMatchObject({
+          requests: 9,
+          ok: 9,
+          errors: 0,
+          connections: { requested: 3, opened: 3, failed: 0 },
+        });
+
+        // The extras belonged to the run: only the connection itself is listed.
+        const listed = await runMcp(["connections/list", "--format", "json"], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        });
+        expectCliSuccess(listed);
+        expect(
+          (
+            JSON.parse(listed.stdout) as { connections: { name: string }[] }
+          ).connections.map((c) => c.name),
+        ).toEqual(["remote"]);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it.each([
+      [
+        ["tools/call", "echo", "--load-requests", "2"],
+        "--load-requests requires --load.",
+      ],
+      [["tools/call", "--load"], "--load requires a tool name."],
+      [
+        ["tools/call", "echo", "--load", "--load-concurrency", "0"],
+        "--load-concurrency must be a positive integer.",
+      ],
+      [
+        ["tools/call", "echo", "--load-max-p99", "10"],
+        "--load-max-p99 requires --load.",
+      ],
+      [
+        ["tools/call", "echo", "--load", "--load-max-error-rate", "5"],
+        "--load-max-error-rate must be a number from 0 to 1.",
+      ],
+      [
+        ["tools/call", "echo", "--load", "--load-connections", "0"],
+        "--load-connections must be a positive integer.",
+      ],
+    ])("rejects %j before reaching a daemon", async (args, message) => {
+      const result = await runMcp(args, { env: env() });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(message);
+    });
+  },
+);

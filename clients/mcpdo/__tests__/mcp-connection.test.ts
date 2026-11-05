@@ -11,8 +11,10 @@ import {
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { callDaemon } from "../src/daemon/client.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
-describe("mcp connection CLI", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("mcp connection CLI", () => {
   let configPath: string | undefined;
   let storageDir: string | undefined;
 

@@ -8,6 +8,7 @@ import type {
   ElicitationRequestFrame,
   ElicitationResponseFrame,
 } from "../src/daemon/protocol.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 /**
  * Covers `callDaemon`'s duplex elicitation handling (dual-era support, phase
@@ -15,7 +16,8 @@ import type {
  * response, answered via `onElicitation` (or auto-cancelled without one),
  * with the connect timeout cleared once the exchange starts.
  */
-describe("callDaemon elicitation duplex", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
   let dir: string | undefined;
   let server: net.Server | undefined;
   const sockets = new Set<net.Socket>();

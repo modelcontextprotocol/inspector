@@ -42,6 +42,10 @@ export function quoteWinArg(arg) {
         `expanded before quotes are processed): ${arg}`,
     );
   }
+  // An empty argument is still an argument: unquoted it is just nothing in the
+  // joined command line, so `cmd.exe` drops it and every later argument shifts
+  // left — `node -e ""` became a bare `node -e`, which exits 9 (#2748).
+  if (arg === "") return '""';
   if (!NEEDS_QUOTING.test(arg)) return arg;
   // A literal `"` inside a quoted string is doubled, per the CRT parser.
   return `"${arg.replace(/"/g, '""')}"`;

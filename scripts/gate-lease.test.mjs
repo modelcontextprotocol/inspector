@@ -352,26 +352,39 @@ test("a stale lock that cannot be removed is waited on, not bypassed", async () 
   assert.ok(existsSync(lockPathOf(dir)));
 });
 
-test("a command that cannot be spawned still releases the lease", async () => {
-  const dir = freshDir();
-  const { log } = collectLog();
-  await assert.rejects(
-    runUnderLease({
-      command: join(dir, "no-such-binary"),
-      args: [],
-      dir,
-      log,
-      stdio: "ignore",
-      pollMs: 25,
-    }),
-    { code: "ENOENT" },
-  );
-  assert.ok(
-    !existsSync(lockPathOf(dir)),
-    "the lease must not outlive the failed spawn",
-  );
-  assert.ok(!existsSync(leaseTarget(dir)));
-});
+// Skipped on win32: there the command runs through `cmd.exe` (`shell: true`,
+// the only way to start npm's `.cmd` shim — see `spawnSpec`), so a missing
+// binary is the SHELL's "not recognized" exit 1, never an `ENOENT` spawn
+// error. The lease-release path itself is still covered there by the
+// synchronous-failure case below (#2748).
+test(
+  "a command that cannot be spawned still releases the lease",
+  {
+    skip:
+      process.platform === "win32" &&
+      "cmd.exe reports a missing command as exit 1, not ENOENT",
+  },
+  async () => {
+    const dir = freshDir();
+    const { log } = collectLog();
+    await assert.rejects(
+      runUnderLease({
+        command: join(dir, "no-such-binary"),
+        args: [],
+        dir,
+        log,
+        stdio: "ignore",
+        pollMs: 25,
+      }),
+      { code: "ENOENT" },
+    );
+    assert.ok(
+      !existsSync(lockPathOf(dir)),
+      "the lease must not outlive the failed spawn",
+    );
+    assert.ok(!existsSync(leaseTarget(dir)));
+  },
+);
 
 test("a command that fails synchronously before it starts still releases the lease", async () => {
   const dir = freshDir();
@@ -379,6 +392,9 @@ test("a command that fails synchronously before it starts still releases the lea
   // `spawn` validates its arguments synchronously: a non-array `args` throws
   // before any child exists, the same class as `winShellArgs` refusing a `%`
   // on Windows. That throw must not strand the lock until stale takeover.
+  // Matched as a TypeError rather than by code: on POSIX `spawn` throws
+  // ERR_INVALID_ARG_TYPE, while on win32 `winShellArgs` reaches the string
+  // first and throws a plain TypeError (#2748) — either way, before a child.
   await assert.rejects(
     runUnderLease({
       command: process.execPath,
@@ -388,7 +404,7 @@ test("a command that fails synchronously before it starts still releases the lea
       stdio: "ignore",
       pollMs: 25,
     }),
-    { code: "ERR_INVALID_ARG_TYPE" },
+    TypeError,
   );
   assert.ok(!existsSync(lockPathOf(dir)));
   assert.ok(!existsSync(leaseTarget(dir)));
@@ -771,57 +787,71 @@ for (const [signal, code] of [
   ["SIGTERM", 143],
   ["SIGQUIT", 131],
 ]) {
-  test(`${signal} to the wrapper stops the whole tree, releases the lease and exits ${code}`, async () => {
-    const dir = freshDir();
-    const pidFile = join(dir, "grandchild.pid");
-    // The gate stand-in: starts a descendant of its own (as `npm run` does,
-    // four levels deep), records both pids, then idles forever unless
-    // signalled. The descendant is what proves the whole *tree* is stopped —
-    // a regression to `child.kill()` or a non-detached spawn would leave it
-    // running and fail below.
-    const idle =
-      `const d = require("child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });` +
-      `require("fs").writeFileSync(${JSON.stringify(pidFile)}, process.pid + " " + d.pid);` +
-      `setInterval(() => {}, 1000)`;
-    const wrapper = spawn(
-      process.execPath,
-      [SCRIPT, process.execPath, "-e", idle],
-      {
-        env: { ...process.env, [DIR_ENV]: dir },
-        stdio: ["ignore", "ignore", "pipe"],
-      },
-    );
-    let stderr = "";
-    wrapper.stderr.on("data", (chunk) => (stderr += chunk));
-    const exited = new Promise((resolve) =>
-      wrapper.once("exit", (code, signal) => resolve({ code, signal })),
-    );
+  // Skipped on win32 (#2748): the wrapper's tree-stop is POSIX process-group
+  // semantics (`spawnSpec` sets `detached` only off Windows, and `signalTree`
+  // signals `-pid`). Windows has neither process groups nor catchable
+  // SIGTERM/SIGQUIT — `wrapper.kill()` there terminates the wrapper outright,
+  // leaving its descendants holding the stderr pipe, which hung the whole
+  // `node --test` run until the CI job timed out.
+  test(
+    `${signal} to the wrapper stops the whole tree, releases the lease and exits ${code}`,
+    {
+      skip:
+        process.platform === "win32" &&
+        "POSIX process-group signals; Windows has none",
+    },
+    async () => {
+      const dir = freshDir();
+      const pidFile = join(dir, "grandchild.pid");
+      // The gate stand-in: starts a descendant of its own (as `npm run` does,
+      // four levels deep), records both pids, then idles forever unless
+      // signalled. The descendant is what proves the whole *tree* is stopped —
+      // a regression to `child.kill()` or a non-detached spawn would leave it
+      // running and fail below.
+      const idle =
+        `const d = require("child_process").spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });` +
+        `require("fs").writeFileSync(${JSON.stringify(pidFile)}, process.pid + " " + d.pid);` +
+        `setInterval(() => {}, 1000)`;
+      const wrapper = spawn(
+        process.execPath,
+        [SCRIPT, process.execPath, "-e", idle],
+        {
+          env: { ...process.env, [DIR_ENV]: dir },
+          stdio: ["ignore", "ignore", "pipe"],
+        },
+      );
+      let stderr = "";
+      wrapper.stderr.on("data", (chunk) => (stderr += chunk));
+      const exited = new Promise((resolve) =>
+        wrapper.once("exit", (code, signal) => resolve({ code, signal })),
+      );
 
-    let tree = [];
-    try {
-      await waitFor(() => existsSync(pidFile));
-      tree = readFileSync(pidFile, "utf8").split(" ").map(Number);
-      assert.equal(tree.length, 2);
-      for (const pid of tree) assert.ok(isAlive(pid), `pid ${pid} started`);
-      assert.ok(existsSync(lockPathOf(dir)), "the wrapper held the lease");
-    } finally {
-      // On every path — a failed setup assertion included — the wrapper is
-      // told to stop, so an idle grandchild can never outlive the suite.
-      wrapper.kill(signal);
-    }
-    const outcome = await exited;
-    assert.deepEqual(outcome, { code, signal: null }, stderr);
-    for (const pid of tree)
-      await waitFor(() => !isAlive(pid)).catch(() => {
-        process.kill(pid, "SIGKILL");
-        assert.fail(
-          `pid ${pid} outlived the wrapper — the tree was not stopped`,
-        );
-      });
-    assert.ok(
-      !existsSync(lockPathOf(dir)),
-      "the lease was released on the way out",
-    );
-    assert.match(stderr, new RegExp(`received ${signal}; stopping the gate`));
-  });
+      let tree = [];
+      try {
+        await waitFor(() => existsSync(pidFile));
+        tree = readFileSync(pidFile, "utf8").split(" ").map(Number);
+        assert.equal(tree.length, 2);
+        for (const pid of tree) assert.ok(isAlive(pid), `pid ${pid} started`);
+        assert.ok(existsSync(lockPathOf(dir)), "the wrapper held the lease");
+      } finally {
+        // On every path — a failed setup assertion included — the wrapper is
+        // told to stop, so an idle grandchild can never outlive the suite.
+        wrapper.kill(signal);
+      }
+      const outcome = await exited;
+      assert.deepEqual(outcome, { code, signal: null }, stderr);
+      for (const pid of tree)
+        await waitFor(() => !isAlive(pid)).catch(() => {
+          process.kill(pid, "SIGKILL");
+          assert.fail(
+            `pid ${pid} outlived the wrapper — the tree was not stopped`,
+          );
+        });
+      assert.ok(
+        !existsSync(lockPathOf(dir)),
+        "the lease was released on the way out",
+      );
+      assert.match(stderr, new RegExp(`received ${signal}; stopping the gate`));
+    },
+  );
 }

@@ -11,6 +11,7 @@ import {
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { callDaemon } from "../src/daemon/client.js";
 import type { ElicitationPendingInfo } from "../src/daemon/protocol.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 /**
  * End-to-end non-interactive elicitation: a real daemon, a real composable
@@ -19,7 +20,8 @@ import type { ElicitationPendingInfo } from "../src/daemon/protocol.js";
  * parked (`elicitationPending`), and `elicitation/respond` resuming the call
  * to its final result.
  */
-describe("mcp non-interactive elicitation (e2e)", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("mcp non-interactive elicitation (e2e)", () => {
   let storageDir: string | undefined;
   let configPath: string | undefined;
   const ttyDescriptors: Array<{
