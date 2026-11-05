@@ -245,6 +245,12 @@ describe("createWeightedPicker", () => {
     expect(picks.filter((p) => p === 0)).toHaveLength(70);
   });
 
+  it("keeps the mix at weights whose sum overflows", () => {
+    const pick = createWeightedPicker([1e308, 1e308]);
+    const picks = Array.from({ length: 10 }, pick);
+    expect(picks.filter((p) => p === 0)).toHaveLength(5);
+  });
+
   it("handles fractional weights and a single step", () => {
     const pick = createWeightedPicker([0.5, 1.5]);
     const picks = Array.from({ length: 8 }, pick);
