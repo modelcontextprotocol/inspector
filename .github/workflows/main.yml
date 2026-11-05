@@ -328,7 +328,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [build, coverage]
+    needs: [build, coverage, windows]
     # Carries over the old single `publish` job's budget: it was observed at
     # 2.3–2.8 min across the last three releases (2.4.0–2.6.0), of which
     # `pack:verify` is about half, and all of that work now lives here.
@@ -529,7 +529,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: release
-    needs: [build, coverage]
+    needs: [build, coverage, windows]
     # Observed 14.5–15.4 min across the last three releases (2.4.0–2.6.0);
     # the linux/arm64 half of the build runs under QEMU and is most of it.
     timeout-minutes: 35
