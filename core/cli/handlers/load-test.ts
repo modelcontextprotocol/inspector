@@ -663,6 +663,9 @@ export function sleepUnlessAborted(
   signal: AbortSignal | undefined,
 ): Promise<void> {
   if (!signal) return clock.sleep(ms);
+  // An abort listener only hears a future abort; one already done ends the
+  // sleep before it starts.
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const done = (): void => {
       signal.removeEventListener("abort", done);

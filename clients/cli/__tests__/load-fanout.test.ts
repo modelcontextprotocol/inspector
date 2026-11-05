@@ -444,9 +444,27 @@ describe("runFanout", () => {
         undefined,
         fakeClock(),
       ),
-    ).rejects.toThrow(
-      `--load-subscribe: no session could subscribe to ${URI} (subscribe refused).`,
-    );
+    ).rejects.toThrow("subscribe refused");
+  });
+
+  it("rethrows the caller's own subscribe failure whole, for auth recovery", async () => {
+    const unauthorized = Object.assign(new Error("Unauthorized (401)"), {
+      status: 401,
+    });
+    const primary = fakeSubscriber(0);
+    primary.subscribeToResource = async () => {
+      throw unauthorized;
+    };
+    await expect(
+      runFanout(
+        primary,
+        async () => fakeSubscriber(1, { failSubscribe: true }),
+        { ...FANOUT, subscribers: 2 },
+        OPTIONS,
+        undefined,
+        fakeClock(),
+      ),
+    ).rejects.toBe(unauthorized);
   });
 
   it("listens on, and leaves subscribed, a session that already was", async () => {
@@ -519,6 +537,9 @@ describe("runFanout", () => {
       stop.signal,
     );
     expect(summary.stoppedEarly?.reason).toBe("interrupted");
+    // Already aborted: no wait for the duration (the fake clock would have
+    // run it out).
+    expect(summary.elapsedMs).toBe(0);
   });
 
   it("reports an interrupt during the catch-up wait", async () => {

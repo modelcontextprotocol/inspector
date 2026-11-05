@@ -237,6 +237,9 @@ export async function runFanout<S extends LoadSubscriber>(
   // Receipts are only counted once a session is in `listening`; until then
   // a notification on it goes nowhere.
   const tally = new FanoutTally(triggers !== undefined);
+  // The caller's own connection's subscribe failure, kept whole: it is the
+  // one an auth recovery (a 401, a step-up) can act on.
+  let primaryFailure: { error: unknown } | undefined;
   const failure = (err: unknown): void =>
     errors.add(err instanceof Error ? err.message : String(err));
 
@@ -262,6 +265,7 @@ export async function runFanout<S extends LoadSubscriber>(
     } catch (err) {
       stop();
       failure(err);
+      if (subscriber === primary) primaryFailure = { error: err };
     }
   };
 
@@ -279,12 +283,10 @@ export async function runFanout<S extends LoadSubscriber>(
       }),
     );
     await Promise.all([primary, ...extras].map(subscribe));
-    if (listening.length === 0) {
-      const [first] = errors.entries();
-      throw new Error(
-        `--load-subscribe: no session could subscribe to ${uri}${first ? ` (${first.message})` : ""}.`,
-      );
-    }
+    // Nothing subscribed means the caller's own connection failed too:
+    // rethrown as it was, so the CLI's auth recovery and exit-code
+    // classifier still see a 401 for what it is.
+    if (listening.length === 0) throw primaryFailure!.error;
 
     // The run: the triggers, or a passive listen.
     let summary: LoadSummary;
