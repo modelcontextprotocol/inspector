@@ -26,6 +26,7 @@ import {
   summarizeLatency,
   type LoadLatency,
 } from "./load-latency.js";
+import type { LoadFanoutOptions, LoadFanoutSummary } from "./load-fanout.js";
 
 /**
  * `--load` (#2439): drive one tool with sustained, concurrent `tools/call`
@@ -104,6 +105,12 @@ export type LoadOptions = {
    * setup and teardown are under load too. Replaces `connections`.
    */
   churn?: { callsPerSession: number };
+  /**
+   * `--load-subscribe` (#2913): notification fan-out. Run by
+   * `runLoadOrFanout` in `load-fanout.ts`, which subscribes the sessions and
+   * hands the rest of these options to the engine as the triggers.
+   */
+  fanout?: LoadFanoutOptions;
 };
 
 /**
@@ -234,6 +241,8 @@ export type LoadSummary = {
   warmup?: LoadWarmupSummary;
   /** `--load-churn` only (#2912): the sessions the run opened and closed. */
   churn?: LoadChurnSummary;
+  /** `--load-subscribe` only (#2913): how the notifications fanned out. */
+  fanout?: LoadFanoutSummary;
 };
 
 /**
@@ -425,8 +434,15 @@ export function resolveLoadOptions(flags: {
   churn?: boolean;
   /** `--load-churn-calls` (#2912); needs `churn`. */
   churnCalls?: number;
+  /** `--load-subscribe` (#2913). */
+  subscribe?: string;
+  /** `--load-subscribers` (#2913); needs `subscribe`. */
+  subscribers?: number;
+  /** `--load-subscribe-wait` (#2913); needs `subscribe`. */
+  subscribeWaitSec?: number;
 }): LoadOptions {
   const { stages } = flags;
+  assertFanoutFlags(flags);
   if (flags.churnCalls !== undefined && flags.churn !== true) {
     throw new Error("--load-churn-calls requires --load-churn.");
   }
@@ -461,9 +477,11 @@ export function resolveLoadOptions(flags: {
         ? DEFAULT_LOAD_DURATION_MS
         : undefined;
   const steppedConcurrency = stages?.by === "concurrency";
+  // Fan-out triggers run one at a time (#2913), so that is its default.
   const concurrency = steppedConcurrency
     ? Math.max(...stages.levels)
-    : (flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY);
+    : (flags.concurrency ??
+      (flags.subscribe !== undefined ? 1 : DEFAULT_LOAD_CONCURRENCY));
   // Stepping concurrency, the smallest stage is the one with fewest workers.
   const fewestWorkers = steppedConcurrency
     ? Math.min(...stages.levels)
@@ -499,7 +517,65 @@ export function resolveLoadOptions(flags: {
         callsPerSession: flags.churnCalls ?? DEFAULT_LOAD_CHURN_CALLS,
       },
     }),
+    ...(flags.subscribe !== undefined && {
+      fanout: {
+        uri: flags.subscribe,
+        subscribers: flags.subscribers ?? 1,
+        settleMs:
+          (flags.subscribeWaitSec ?? DEFAULT_LOAD_SUBSCRIBE_WAIT_SEC) * 1000,
+      },
+    }),
   };
+}
+
+/** Default `--load-subscribe-wait` (#2913), in seconds. */
+export const DEFAULT_LOAD_SUBSCRIBE_WAIT_SEC = 2;
+
+/**
+ * The `--load-subscribe` refusals (#2913). Its sessions are subscribers, not
+ * workers, and each notification is matched to the trigger before it, so
+ * the modes that add sessions, interleave triggers or discard calls do not
+ * combine with it.
+ */
+function assertFanoutFlags(flags: {
+  openLoop?: boolean;
+  concurrency?: number;
+  connections?: number;
+  stages?: LoadStages;
+  warmupSec?: number;
+  churn?: boolean;
+  subscribe?: string;
+  subscribers?: number;
+  subscribeWaitSec?: number;
+}): void {
+  if (flags.subscribe === undefined) {
+    if (flags.subscribers !== undefined) {
+      throw new Error("--load-subscribers requires --load-subscribe.");
+    }
+    if (flags.subscribeWaitSec !== undefined) {
+      throw new Error("--load-subscribe-wait requires --load-subscribe.");
+    }
+    return;
+  }
+  const conflicts = [
+    ["--load-connections", flags.connections !== undefined],
+    ["--load-churn", flags.churn === true],
+    ["--load-steps or --load-ramp", flags.stages !== undefined],
+    ["--load-warmup", flags.warmupSec !== undefined],
+    // Open loop times a call from its scheduled start, which would put the
+    // wait for a worker into every notification's delivery latency.
+    ["--load-open-loop", flags.openLoop === true],
+  ] as const;
+  for (const [flag, given] of conflicts) {
+    if (given) {
+      throw new Error(`--load-subscribe cannot be combined with ${flag}.`);
+    }
+  }
+  if (flags.concurrency !== undefined && flags.concurrency > 1) {
+    throw new Error(
+      "--load-subscribe runs its triggers one at a time, so each notification is matched to the call that caused it; --load-concurrency must be 1.",
+    );
+  }
 }
 
 /** Distinct error messages kept; the rest fold into one `(other)` entry. */
@@ -557,7 +633,7 @@ export type LoadClock = {
   sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
 };
 
-const realClock: LoadClock = {
+export const realClock: LoadClock = {
   now: () => performance.now(),
   sleep: (ms, signal) =>
     new Promise((resolve) => {
@@ -581,12 +657,15 @@ const realClock: LoadClock = {
  * clock honors the signal itself, so a slow `--load-rate` slot never holds a
  * cancelled run open for a whole interval.
  */
-function sleepUnlessAborted(
+export function sleepUnlessAborted(
   clock: LoadClock,
   ms: number,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   if (!signal) return clock.sleep(ms);
+  // An abort listener only hears a future abort; one already done ends the
+  // sleep before it starts.
+  if (signal.aborted) return Promise.resolve();
   return new Promise((resolve) => {
     const done = (): void => {
       signal.removeEventListener("abort", done);
@@ -608,7 +687,7 @@ function round(n: number, places = 2): number {
  * that embeds a request id in each message would otherwise grow the map by
  * one key per call for the whole run.
  */
-class ErrorTally {
+export class ErrorTally {
   private readonly counts = new Map<string, number>();
   private other = 0;
 
@@ -714,7 +793,7 @@ function scenarioPicker(scenario: LoadScenario | undefined): () => number {
 }
 
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
-function stopFromAbort(reason: unknown): LoadStop {
+export function stopFromAbort(reason: unknown): LoadStop {
   return isLoadStop(reason)
     ? reason
     : { reason: "interrupted", detail: "the run was interrupted" };

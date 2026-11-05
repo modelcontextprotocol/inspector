@@ -6,6 +6,7 @@ import type {
   LoadStepSummary,
   LoadSummary,
 } from "./load-test.js";
+import type { LoadFanoutSummary } from "./load-fanout.js";
 
 /**
  * The human-readable `--load` summary, shared by both CLIs (#2838 item 7):
@@ -141,6 +142,9 @@ export function formatLoadSummaryHuman(
       lines.push(`    ${count}× ${message}`);
     }
   }
+  // `--load-subscribe` (#2913): how the notifications fanned out.
+  const f = summary.fanout;
+  if (f !== undefined) lines.push(...formatLoadFanout(f, style));
   // `--load-churn` (#2912): sessions opened and closed through the run.
   const churn = summary.churn;
   if (churn !== undefined) {
@@ -159,6 +163,27 @@ export function formatLoadSummaryHuman(
     }
   }
   return lines.join("\n");
+}
+
+/** The `Fan-out:` block of a `--load-subscribe` run (#2913). */
+function formatLoadFanout(f: LoadFanoutSummary, style: Style): string[] {
+  const failed = `${f.failed} failed`;
+  const subscribe =
+    f.subscribeMs === null
+      ? ""
+      : ` (subscribe p50 ${f.subscribeMs.p50} / max ${f.subscribeMs.max} ms)`;
+  const missed = `${f.missed} missed`;
+  const lines = [
+    `  Fan-out:    ${code(style, f.uri)}, ${f.mode}; ${f.subscribed} of ${f.requested} sessions subscribed, ${f.failed > 0 ? style.red(failed) : failed}${subscribe}`,
+    `  Delivered:  ${f.delivered} of ${f.updates * f.subscribed} notifications (${f.updates} updates × ${f.subscribed}), ${f.missed > 0 ? style.red(missed) : missed} across ${f.sessionsMissed} sessions, ${f.unexpected} unexpected`,
+  ];
+  if (f.deliveryMs !== null) {
+    lines.push(`  Delivery:   ${latencyLine(f.deliveryMs)}`);
+  }
+  for (const { message, count } of f.errorMessages) {
+    lines.push(`    ${count}× ${message}`);
+  }
+  return lines;
 }
 
 /** A latency distribution on one line, p95 and p99.9 included (#2838). */

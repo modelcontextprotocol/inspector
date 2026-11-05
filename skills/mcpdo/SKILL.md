@@ -201,6 +201,11 @@ more).
   or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
   of the statistics (reported under `warmup`). Progress lines on stderr appear
   only with `--format text`.
+- To measure notification fan-out, `--load-subscribe <uri>
+  --load-subscribers 50` subscribes 50 sessions; a tool name makes each
+  successful call a trigger (latency from its start), and no tool listens for
+  `--load-duration` to the server's own updates. Read `fanout.missed` and
+  `fanout.deliveryMs`.
 - To load session setup and teardown too (servers behind gateways see many
   short sessions), add `--load-churn` (HTTP/SSE only): each worker connects,
   makes `--load-churn-calls` calls (default `1`), disconnects, repeats.

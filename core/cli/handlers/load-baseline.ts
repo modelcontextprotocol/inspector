@@ -286,6 +286,20 @@ function shapeDifferences(run: LoadSummary, base: LoadSummary): string[] {
       run.connections?.requested ?? 1,
       base.connections?.requested ?? 1,
     ],
+    // `--load-subscribe` (#2913): what was subscribed to, by how many.
+    [
+      "fan-out",
+      run.fanout && {
+        uri: run.fanout.uri,
+        subscribers: run.fanout.requested,
+        mode: run.fanout.mode,
+      },
+      base.fanout && {
+        uri: base.fanout.uri,
+        subscribers: base.fanout.requested,
+        mode: base.fanout.mode,
+      },
+    ],
     // `--load-churn` (#2912): calls per session, or unset without churn.
     [
       "churn calls per session",

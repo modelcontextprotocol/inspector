@@ -1501,6 +1501,20 @@ function registerRpcCommands(program: CommandType): void {
             "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
           )
           .option(
+            "--load-subscribe <uri>",
+            "With --load: notification fan-out. Subscribe --load-subscribers sessions to this resource and report how notifications/resources/updated reaches them: per-notification delivery latency, misses per session, and subscribe cost. With a tool name (or --load-scenario) each successful call is a trigger and latency runs from its start; without one the run listens for --load-duration to the server's own updates. Triggers run one at a time.",
+          )
+          .option(
+            "--load-subscribers <n>",
+            "With --load-subscribe: sessions to subscribe, this connection included (positive integer; default 1; above 1 needs an HTTP or SSE connection, and opens the rest with stored credentials).",
+            positiveIntegerParser("--load-subscribers"),
+          )
+          .option(
+            "--load-subscribe-wait <sec>",
+            "With --load-subscribe: how long subscribers get to catch up after the run before a notification counts as missed (default 2).",
+            positiveNumberParser("--load-subscribe-wait"),
+          )
+          .option(
             "--load-churn",
             "With --load: session churn. Each worker opens a session to the connection's HTTP or SSE server with stored credentials, makes --load-churn-calls calls, closes it, and repeats; connect times and failures are reported apart from call latency. Not with --load-connections.",
           )
