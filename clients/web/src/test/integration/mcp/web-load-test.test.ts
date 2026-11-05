@@ -58,7 +58,7 @@ describe("web load test over a live connection", () => {
     const connected = await connect();
     const built = buildLoadTestRequest(
       { ...DEFAULT_LOAD_TEST_FORM, concurrency: 3, requests: 12 },
-      { name: "echo", args: { message: "load {{seq}}" } },
+      { name: "echo", args: { message: "load {{seq}}" }, argsReady: true },
     );
     if (!built.ok) throw new Error(built.error);
     const progress: LoadProgress[] = [];

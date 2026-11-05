@@ -224,7 +224,8 @@ export function ToolsScreen({
   // while the re-run sends another. Screen-local is enough: a remount after a
   // tab switch rebuilds the form from `formValues` anyway.
   const [rerunCount, setRerunCount] = useState(0);
-  const [loadTestOpen, setLoadTestOpen] = useState(false);
+  // Open, and whether the form's arguments were sendable when it opened.
+  const [loadTest, setLoadTest] = useState<{ argsReady: boolean } | null>(null);
 
   const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
@@ -356,7 +357,9 @@ export function ToolsScreen({
                     }
                     onCancel={() => onCancelCall?.()}
                     onLoadTest={
-                      onRunLoadTest ? () => setLoadTestOpen(true) : undefined
+                      onRunLoadTest
+                        ? (argsReady) => setLoadTest({ argsReady })
+                        : undefined
                     }
                   />
                 </ContentCard>
@@ -377,14 +380,18 @@ export function ToolsScreen({
       )}
       {onRunLoadTest && (
         <LoadTestModal
-          opened={loadTestOpen}
+          opened={loadTest !== null}
           tool={
             selectedTool
-              ? { name: selectedTool.name, args: formValues }
+              ? {
+                  name: selectedTool.name,
+                  args: formValues,
+                  argsReady: loadTest?.argsReady ?? false,
+                }
               : undefined
           }
           onRun={onRunLoadTest}
-          onClose={() => setLoadTestOpen(false)}
+          onClose={() => setLoadTest(null)}
         />
       )}
     </ScreenLayout>

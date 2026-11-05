@@ -246,9 +246,10 @@ describe("ToolDetailPanel", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
-  // #2911: the load-test entry point shows only when the host offers it, and
-  // is gated like Execute, since every load call sends the same arguments.
-  it("offers Load test only when given a handler, gated like Execute", async () => {
+  // #2911: the load-test entry point shows only when the host offers it. It
+  // stays enabled with unsendable arguments — a scenario run does not use
+  // them — and reports whether they are sendable instead.
+  it("offers Load test only when given a handler, reporting argument readiness", async () => {
     const user = userEvent.setup();
     const onLoadTest = vi.fn();
     const { rerender } = renderWithMantine(
@@ -263,7 +264,8 @@ describe("ToolDetailPanel", () => {
         onLoadTest={onLoadTest}
       />,
     );
-    expect(screen.getByRole("button", { name: "Load test" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(onLoadTest).toHaveBeenLastCalledWith(false);
     rerender(
       <ToolDetailPanel
         {...baseProps}
@@ -273,7 +275,17 @@ describe("ToolDetailPanel", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: "Load test" }));
-    expect(onLoadTest).toHaveBeenCalledTimes(1);
+    expect(onLoadTest).toHaveBeenLastCalledWith(true);
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{ message: "hi" }}
+        isExecuting
+        onLoadTest={onLoadTest}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Load test" })).toBeDisabled();
   });
 
   // #2171: the panel opts its form into tool-argument type enforcement, so a

@@ -15,7 +15,7 @@ import {
   type LoadTestFormValues,
 } from "./loadTest";
 
-const TOOL = { name: "echo", args: { message: "hi" } };
+const TOOL = { name: "echo", args: { message: "hi" }, argsReady: true };
 
 function form(patch: Partial<LoadTestFormValues> = {}): LoadTestFormValues {
   return { ...DEFAULT_LOAD_TEST_FORM, ...patch };
@@ -101,6 +101,40 @@ describe("buildLoadTestRequest", () => {
       ok: false,
       error: "Select a tool to load, or paste a scenario.",
     });
+  });
+
+  it("refuses a tool run whose form arguments are not sendable", () => {
+    expect(errorOf(form(), { ...TOOL, argsReady: false })).toMatch(
+      /required arguments/,
+    );
+    // A scenario run does not use them.
+    expect(
+      buildLoadTestRequest(
+        form({
+          target: "scenario",
+          scenarioText: '[{"method":"tools/call","tool":"echo"}]',
+        }),
+        { ...TOOL, argsReady: false },
+      ).ok,
+    ).toBe(true);
+  });
+
+  it("refuses a malformed placeholder in the tool arguments", () => {
+    expect(
+      errorOf(form(), { ...TOOL, args: { message: "{{rand:9-1}}" } }),
+    ).toMatch(/^Tool arguments\.message: \{\{rand:9-1\}\}/);
+  });
+
+  it("ignores a field the stages override", () => {
+    expect(
+      buildLoadTestRequest(
+        form({ steps: "1,2", stepBy: "rate", rate: 0 }),
+        TOOL,
+      ).ok,
+    ).toBe(true);
+    expect(
+      buildLoadTestRequest(form({ steps: "1,2", concurrency: 0 }), TOOL).ok,
+    ).toBe(true);
   });
 
   it("refuses non-positive and fractional values, naming the field", () => {

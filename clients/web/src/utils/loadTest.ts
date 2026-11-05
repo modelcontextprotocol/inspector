@@ -12,6 +12,7 @@
  * see are this module's own, worded for the form rather than for CLI flags.
  */
 import type { JsonValue } from "@inspector/core/mcp/index.js";
+import { checkLoadTemplate } from "@inspector/core/cli/handlers/load-template.js";
 import {
   validateLoadScenario,
   type LoadScenario,
@@ -84,6 +85,13 @@ export type LoadTestBuildResult =
 export interface LoadTestTool {
   name: string;
   args: Record<string, unknown>;
+  /**
+   * Whether the Tools form could send `args` as they stand: no required
+   * argument missing, no field holding text it cannot turn into a value. The
+   * panel opens either way, so a scenario run is never blocked by the form,
+   * and a tool run is refused while this is false.
+   */
+  argsReady: boolean;
 }
 
 /** Whether the form describes a stepped run (one stage per level). */
@@ -161,16 +169,30 @@ export function buildLoadTestRequest(
       values.target === "scenario"
         ? parseScenario(values.scenarioText)
         : undefined;
-    if (scenario === undefined && tool === undefined) {
-      throw new Error("Select a tool to load, or paste a scenario.");
+    if (scenario === undefined) {
+      if (tool === undefined) {
+        throw new Error("Select a tool to load, or paste a scenario.");
+      }
+      if (!tool.argsReady) {
+        throw new Error(
+          "Fill in the tool's required arguments, and fix any field the form cannot send, before a tool run.",
+        );
+      }
+      // The same placeholder check both CLIs make before a run: the engine's
+      // template compiler assumes it has passed (a reversed `{{rand:9-1}}`).
+      checkLoadTemplate(tool.args, "Tool arguments");
     }
-    const concurrency = optionalPositive(
-      values.concurrency,
-      "Concurrency",
-      true,
-    );
-    const rate = optionalPositive(values.rate, "Rate");
     const stepped = isSteppedLoad(values);
+    // Only the knobs the run uses are read: a value in a field the stages
+    // override (and the form hides or disables) must not block the run.
+    const concurrency =
+      stepped && values.stepBy === "concurrency"
+        ? undefined
+        : optionalPositive(values.concurrency, "Concurrency", true);
+    const rate =
+      stepped && values.stepBy === "rate"
+        ? undefined
+        : optionalPositive(values.rate, "Rate");
     let options: LoadOptions;
     if (stepped) {
       const stages = resolveLoadStages({

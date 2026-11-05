@@ -15,7 +15,7 @@ import type { LoadTestRequest } from "../../../utils/loadTest";
 import { LoadTestModal } from "./LoadTestModal";
 import { TOOL_SUMMARY } from "../LoadTestSummary/LoadTestSummary.fixtures";
 
-const TOOL = { name: "echo", args: { message: "hi" } };
+const TOOL = { name: "echo", args: { message: "hi" }, argsReady: true };
 
 /** A run the test settles by hand, recording what it was given. */
 function deferredRun() {

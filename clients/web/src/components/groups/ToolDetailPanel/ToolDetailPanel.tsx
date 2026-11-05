@@ -70,8 +70,11 @@ export interface ToolDetailPanelProps {
   /**
    * Open the load-test panel for this tool (#2911). The button shows only when
    * it is set, so a host with no load engine to offer never renders it.
+   * `argsReady` says whether the form could send its arguments as they stand
+   * (Execute's own check): the panel opens regardless, since a scenario run
+   * does not use them, and refuses a tool run while they are not.
    */
-  onLoadTest?: () => void;
+  onLoadTest?: (argsReady: boolean) => void;
 }
 
 // Outer column: title/annotations pin at top, the Execute footer pins at the
@@ -403,8 +406,10 @@ export function ToolDetailPanel({
         </Button>
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
         {onLoadTest && (
-          // The same gate as Execute: every load call sends these arguments.
-          <LoadTestButton onClick={onLoadTest} disabled={executeDisabled}>
+          <LoadTestButton
+            onClick={() => onLoadTest(!executeDisabled)}
+            disabled={isExecuting}
+          >
             Load test
           </LoadTestButton>
         )}

@@ -38,7 +38,7 @@ const meta: Meta<typeof LoadTestModal> = {
   component: LoadTestModal,
   args: {
     opened: true,
-    tool: { name: "echo", args: { message: "hello" } },
+    tool: { name: "echo", args: { message: "hello" }, argsReady: true },
     onRun: fn(finishedRun),
     onClose: fn(),
   },
