@@ -144,6 +144,9 @@ export function ResourceTestModal({
   );
 
   const handleFormSubmit = async (values: Record<string, string>) => {
+    // A pending sampling/elicitation request (#2829) is open above this
+    // modal: ink-form still sees its keys, so Enter must not submit here.
+    if (!inputActive) return;
     if (!inspectorClient || !template) return;
 
     // RFC 6570 keeps a required expression satisfied by any ONE of its names,

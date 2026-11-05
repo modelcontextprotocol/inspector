@@ -182,6 +182,22 @@ describe("elicitationContentFromForm", () => {
     });
   });
 
+  it("keeps an answer to a field named __proto__", () => {
+    const protoSchema = {
+      type: "object",
+      properties: JSON.parse('{"__proto__": {"type": "string"}}'),
+      required: ["__proto__"],
+    } as Schema;
+    const outcome = elicitationContentFromForm(
+      protoSchema,
+      JSON.parse('{"__proto__": "x"}'),
+    );
+    expect("result" in outcome).toBe(true);
+    const content = (outcome as { result: { content: object } }).result.content;
+    expect(Object.hasOwn(content, "__proto__")).toBe(true);
+    expect(JSON.stringify(content)).toBe('{"__proto__":"x"}');
+  });
+
   it("drops null values", () => {
     expect(
       elicitationContentFromForm(schema, { name: "A", note: null }),

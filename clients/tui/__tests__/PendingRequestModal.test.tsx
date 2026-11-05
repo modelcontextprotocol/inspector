@@ -180,6 +180,21 @@ describe("PendingRequestModal", () => {
       expect(other.respond).not.toHaveBeenCalled();
     });
 
+    it("does not submit on the Enter that backs out of the reject prompt", async () => {
+      const sample = entry("s1", samplingParams);
+      const { stdin } = mount({ samples: [sample] });
+      await tick();
+      stdin.write(ESC);
+      await tick();
+      stdin.write("\r");
+      await tick();
+      expect(sample.respond).not.toHaveBeenCalled();
+      expect(sample.reject).not.toHaveBeenCalled();
+      stdin.write("\r");
+      await tick();
+      expect(sample.respond).toHaveBeenCalledTimes(1);
+    });
+
     it("is shown ahead of a queued elicitation", async () => {
       const sample = entry("s1", samplingParams);
       const elicitation = entry("e1", formParams);
@@ -259,6 +274,40 @@ describe("PendingRequestModal", () => {
       stdin.write("c");
       await tick();
       expect(elicitation.respond).toHaveBeenCalledWith({ action: "cancel" });
+    });
+
+    it("does not accept on the Enter that backs out of the dismiss prompt", async () => {
+      const elicitation = entry("e1", formParams);
+      const { stdin } = mount({ elicitations: [elicitation] });
+      await tick();
+      stdin.write(ESC);
+      await tick();
+      setSubmitValue({ name: "Ada" });
+      stdin.write("\r");
+      await tick();
+      expect(elicitation.respond).not.toHaveBeenCalled();
+    });
+
+    it("lets a failed task cancel be retried", async () => {
+      const elicitation = entry("e1", formParams, {
+        origin: "task-input-required",
+        taskId: "task-9",
+      });
+      const cancelRequestorTask = vi
+        .fn<(taskId: string) => Promise<void>>()
+        .mockRejectedValueOnce(new Error("network down"))
+        .mockResolvedValueOnce(undefined);
+      // Only cancelRequestorTask is reached on this path.
+      const client = { cancelRequestorTask } as unknown as InspectorClient;
+      const { stdin } = mount({ elicitations: [elicitation], client });
+      await tick();
+      for (let i = 0; i < 2; i++) {
+        stdin.write(ESC);
+        await tick();
+        stdin.write("c");
+        await tick();
+      }
+      expect(cancelRequestorTask).toHaveBeenCalledTimes(2);
     });
 
     it("cancels the task behind a task-input-required request", async () => {

@@ -47,15 +47,58 @@ interface PendingRequestModalProps {
 }
 
 /**
- * A synchronous once-guard: two keys can land before React re-renders, and
- * core's `respond()` throws on a second settle.
+ * Run a settle action at most once at a time. The guard is a ref because two
+ * keys can land before React re-renders, and core's `respond()` throws on a
+ * second settle. A successful settle keeps it set (the entry leaves the queue
+ * and this component unmounts); a FAILED one releases it, because the request
+ * is then still pending — a task cancel that core could not deliver leaves it
+ * queued — and the user must be able to retry or answer instead. The failure
+ * is reported through `onError` (a key handler cannot await).
  */
-function useOnce(): (fn: () => void) => void {
-  const doneRef = useRef(false);
-  return (fn) => {
-    if (doneRef.current) return;
-    doneRef.current = true;
-    fn();
+function useSettle(
+  onError: (message: string) => void,
+): (action: () => Promise<void>) => void {
+  const busyRef = useRef(false);
+  return (action) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    action().catch((err: unknown) => {
+      busyRef.current = false;
+      onError(errorMessage(err));
+    });
+  };
+}
+
+/**
+ * The Esc dismiss prompt, plus the guard that keeps it from submitting.
+ *
+ * The form stays mounted under the prompt, and every `useInput` handler sees
+ * each key — so with Submit focused, the Enter that backs out of the prompt
+ * would also submit the form. `submitBlocked()` is true while the prompt is
+ * open and for the rest of the keypress that closed it (cleared on the next
+ * macrotask, after every handler for that key has run), whichever order Ink
+ * calls the handlers in.
+ */
+function useDismissPrompt() {
+  const [confirming, setConfirming] = useState(false);
+  const openRef = useRef(false);
+  const closingRef = useRef(false);
+  return {
+    confirming,
+    isOpen: () => openRef.current,
+    open: () => {
+      openRef.current = true;
+      setConfirming(true);
+    },
+    close: () => {
+      openRef.current = false;
+      closingRef.current = true;
+      setConfirming(false);
+      setTimeout(() => {
+        closingRef.current = false;
+      }, 0);
+    },
+    submitBlocked: () => openRef.current || closingRef.current,
   };
 }
 
@@ -163,23 +206,17 @@ function SamplingRequest({
   width: number;
   height: number;
 }) {
-  const once = useOnce();
-  const [confirming, setConfirming] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const settle = useSettle(setStatus);
+  const prompt = useDismissPrompt();
   const scrollViewRef = useRef<ScrollViewRef>(null);
 
-  const settle = (action: () => Promise<void>) =>
-    once(() => {
-      // A key handler cannot await; the catch surfaces a failed settle.
-      action().catch((err: unknown) => setStatus(errorMessage(err)));
-    });
-
   useInput((input: string, key: Key) => {
-    if (confirming) {
+    if (prompt.isOpen()) {
       // Any other key backs out — including Enter, which ink-form also takes
       // to start editing a field, so a later `r` typed there is text, not a
       // rejection.
-      setConfirming(false);
+      prompt.close();
       if (input === "r") {
         settle(() =>
           sample.reject(new Error("Sampling request rejected by user.")),
@@ -188,7 +225,7 @@ function SamplingRequest({
       return;
     }
     if (key.escape) {
-      setConfirming(true);
+      prompt.open();
     } else if (key.pageDown) {
       scrollViewRef.current?.scrollBy(1);
     } else if (key.pageUp) {
@@ -219,19 +256,20 @@ function SamplingRequest({
           ))}
         </ScrollView>
       </Box>
-      {confirming && (
+      {prompt.confirming && (
         <DismissPrompt choices="Reject this sampling request? r: reject   any other key: back" />
       )}
       <Box flexGrow={1} width="100%">
         <Form
           form={SAMPLING_RESPONSE_FORM}
-          onSubmit={(values: object) =>
+          onSubmit={(values: object) => {
+            if (prompt.submitBlocked()) return;
             settle(() =>
               sample.respond(
                 samplingResultFromForm(values as Record<string, unknown>),
               ),
-            )
-          }
+            );
+          }}
         />
       </Box>
     </ModalFrame>
@@ -275,25 +313,20 @@ function ElicitationFormRequest({
   width: number;
   height: number;
 }) {
-  const once = useOnce();
-  const [confirming, setConfirming] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const settleWith = useSettle(setStatus);
+  const prompt = useDismissPrompt();
   // Built once per request (the component is keyed by its id), so a
   // re-render never hands ink-form a fresh structure mid-edit.
   const [form] = useState(() => elicitationForm(params.requestedSchema));
 
   const settle = (result: ElicitResult) =>
-    once(() => {
-      // A key handler cannot await; the catch surfaces a failed settle.
-      settleElicitation(elicitation, result, inspectorClient).catch(
-        (err: unknown) => setStatus(errorMessage(err)),
-      );
-    });
+    settleWith(() => settleElicitation(elicitation, result, inspectorClient));
 
   useInput((input: string, key: Key) => {
-    if (confirming) {
+    if (prompt.isOpen()) {
       // Any other key backs out — see the sampling prompt above for why.
-      setConfirming(false);
+      prompt.close();
       if (input === "d") {
         settle({ action: "decline" });
       } else if (input === "c") {
@@ -301,10 +334,11 @@ function ElicitationFormRequest({
       }
       return;
     }
-    if (key.escape) setConfirming(true);
+    if (key.escape) prompt.open();
   });
 
   const handleSubmit = (values: Record<string, unknown>) => {
+    if (prompt.submitBlocked()) return;
     const outcome = elicitationContentFromForm(params.requestedSchema, values);
     if ("missing" in outcome) {
       setStatus(
@@ -328,7 +362,7 @@ function ElicitationFormRequest({
       <Box flexShrink={0} marginBottom={1}>
         <Text>{params.message}</Text>
       </Box>
-      {confirming && (
+      {prompt.confirming && (
         <DismissPrompt choices="Dismiss this request? d: decline   c: cancel   any other key: back" />
       )}
       <Box flexGrow={1} width="100%">
@@ -360,17 +394,12 @@ function ElicitationUrlRequest({
   width: number;
   height: number;
 }) {
-  const once = useOnce();
   const [status, setStatus] = useState<string | null>(null);
+  const settleWith = useSettle(setStatus);
   const refusal = elicitationUrlRefusal(url);
 
   const settle = (result: ElicitResult) =>
-    once(() => {
-      // A key handler cannot await; the catch surfaces a failed settle.
-      settleElicitation(elicitation, result, inspectorClient).catch(
-        (err: unknown) => setStatus(errorMessage(err)),
-      );
-    });
+    settleWith(() => settleElicitation(elicitation, result, inspectorClient));
 
   // No form here, so every key is ours and Esc can cancel directly.
   useInput((input: string, key: Key) => {

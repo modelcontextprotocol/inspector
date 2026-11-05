@@ -134,6 +134,9 @@ export function PromptTestModal({
   );
 
   const handleFormSubmit = async (values: Record<string, string>) => {
+    // A pending sampling/elicitation request (#2829) is open above this
+    // modal: ink-form still sees its keys, so Enter must not submit here.
+    if (!inputActive) return;
     if (!inspectorClient || !prompt) return;
 
     setState("loading");

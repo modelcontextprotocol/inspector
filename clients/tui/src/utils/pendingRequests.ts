@@ -233,18 +233,24 @@ export function elicitationContentFromForm(
   const decoded = decodeFormValues(normalized, rawValues);
   const missing = missingRequiredFields(normalized, decoded, rawValues);
   if (missing.length > 0) return { missing };
-  const content: NonNullable<ElicitResult["content"]> = {};
-  for (const [name, value] of Object.entries(decoded)) {
-    if (value === undefined || value === null) continue;
-    const property = normalized.properties[name] as
-      | { type?: unknown }
-      | undefined;
-    if (property?.type === "array" && typeof value === "string") {
-      content[name] = [value];
-    } else {
-      content[name] = value as string | number | boolean | string[];
-    }
-  }
+  // Built through `fromEntries` rather than by assignment: `__proto__` is a
+  // legal property name, and assigning it would invoke the legacy prototype
+  // setter — the answer would pass the required check and then vanish.
+  const content: NonNullable<ElicitResult["content"]> = Object.fromEntries(
+    Object.entries(decoded)
+      .filter(([, value]) => value !== undefined && value !== null)
+      .map(([name, value]) => {
+        const property = normalized.properties[name] as
+          | { type?: unknown }
+          | undefined;
+        return [
+          name,
+          property?.type === "array" && typeof value === "string"
+            ? [value]
+            : (value as string | number | boolean | string[]),
+        ];
+      }),
+  );
   return { result: { action: "accept", content } };
 }
 

@@ -265,6 +265,9 @@ export function ToolTestModal({
   };
 
   const handleFormSubmit = async (rawValues: Record<string, JsonValue>) => {
+    // A pending sampling/elicitation request (#2829) is open above this
+    // modal: ink-form still sees its keys, so Enter must not submit here.
+    if (!inputActive) return;
     if (!inspectorClient || !tool) return;
 
     // A root union renders every alternative as its own section, under prefixed
