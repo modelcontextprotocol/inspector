@@ -38,6 +38,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import type { ReplayParamsOverride } from "../../../lib/protocolReplay";
 import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
+import type { ToolRunHistory } from "../../../utils/toolRunHistory";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import type {
   AppRendererHandle,
@@ -225,6 +226,8 @@ export interface ToolsPanelProps {
   toolsUi: ToolsUiState;
   /** Panel-level "operation in flight" state. */
   toolCallState?: ToolCallState;
+  /** Every completed tool call this session, per tool name (#2830). */
+  toolRunHistory?: ToolRunHistory;
   /** Pagination controls for the Tools list (#1721). */
   toolsPagination: ListPaginationControlsProps;
   /**

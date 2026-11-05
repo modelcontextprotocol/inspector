@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, Flex, Stack, Text } from "@mantine/core";
 import type { MalformedListItem } from "@inspector/core/mcp";
 import type {
@@ -15,8 +16,15 @@ import {
 import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
 import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
+import { ToolRunHistoryPanel } from "../../groups/ToolRunHistoryPanel/ToolRunHistoryPanel";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
-import { findToolByRowKey } from "../../../utils/toolUtils";
+import { effectiveRunAsTask, findToolByRowKey } from "../../../utils/toolUtils";
+import {
+  EMPTY_TOOL_RUN_HISTORY,
+  runsForTool,
+  type ToolRun,
+  type ToolRunHistory,
+} from "../../../utils/toolRunHistory";
 
 export interface ToolCallState {
   status: "idle" | "pending" | "ok" | "error";
@@ -30,6 +38,10 @@ export interface ToolCallState {
    */
   errorCode?: number;
   progress?: ToolProgress;
+  /** How long the settled call took, milliseconds (#2830). */
+  durationMs?: number;
+  /** The arguments the settled call was sent with (#2830). */
+  args?: Record<string, unknown>;
 }
 
 // Selection, form values, and sidebar search — controlled by the parent (App)
@@ -65,6 +77,11 @@ export interface ToolsScreenProps {
    */
   malformedListItems?: MalformedListItem[];
   callState?: ToolCallState;
+  /**
+   * Every completed call this session, per tool name (#2830). The selected
+   * tool's runs are listed beside the form with Re-run and compare.
+   */
+  runHistory?: ToolRunHistory;
   ui: ToolsUiState;
   listChanged: boolean;
   /**
@@ -153,6 +170,15 @@ const DetailCard = Card.withProps({
   padding: "lg",
 });
 
+// The form card with the tool's run history under it (#2830). The two share
+// the pane's height; the form scrolls its own body and the history caps its
+// run list, so neither pushes the other out of view.
+const FormStack = Stack.withProps({
+  gap: "md",
+  flex: 1,
+  mih: 0,
+});
+
 const EmptyState = Text.withProps({
   c: "dimmed",
   ta: "center",
@@ -164,6 +190,7 @@ export function ToolsScreen({
   excludedTools,
   malformedListItems,
   callState,
+  runHistory = EMPTY_TOOL_RUN_HISTORY,
   ui,
   listChanged,
   serverSupportsTaskToolCalls,
@@ -179,6 +206,15 @@ export function ToolsScreen({
   const { selectedToolKey, formValues, search } = ui;
   const selectedTool = findToolByRowKey(tools, selectedToolKey);
   const isExecuting = callState?.status === "pending";
+  // Keyed by protocol name, which is what a call is sent with — so two list
+  // rows repeating a name (#2001) share one history.
+  const runs = runsForTool(runHistory, selectedTool?.name);
+  // Bumped by Re-run so the schema form remounts from the run's arguments.
+  // `formValues` alone cannot reset a field's local state — a chosen union
+  // branch, a half-typed draft — so without it the form could show one shape
+  // while the re-run sends another. Screen-local is enough: a remount after a
+  // tab switch rebuilds the form from `formValues` anyway.
+  const [rerunCount, setRerunCount] = useState(0);
 
   const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
@@ -196,6 +232,63 @@ export function ToolsScreen({
       );
     onUiChange({ ...ui, selectedToolKey: key, formValues: nextFormValues });
   };
+
+  // Only reachable from the history, which renders only for a selected tool.
+  const handleRerun = (tool: Tool, run: ToolRun) => {
+    // Load the run's arguments into the form as well as sending them, so the
+    // form beside the new result shows what was sent.
+    onUiChange({ ...ui, formValues: run.args });
+    setRerunCount((count) => count + 1);
+    // The same task routing Execute applies, not the raw toggle: the toggle is
+    // screen-wide, so it can be on while this tool forbids tasks.
+    onCallTool(
+      tool.name,
+      run.args,
+      effectiveRunAsTask(tool, serverSupportsTaskToolCalls, ui.runAsTask),
+    );
+  };
+
+  // The result (or a thrown rejection) of the latest call, in its own column.
+  // The form stays beside it rather than being replaced (#2830); the panel's X dismisses it
+  // (#1661). A call in flight sets a `pending` state with no `result`
+  // (App.tsx), so the form's progress + cancel show until the result lands.
+  const resultNode = callState?.result ? (
+    // Fill the pane's height only when the result renders a "Resource Links"
+    // box, so that box can expand into the available space and scroll within.
+    // Plain text/image/error results keep the content-sized card.
+    <ContentCard
+      flex={resultHasResourceLinks(callState.result) ? 1 : undefined}
+    >
+      <ToolResultPanel
+        result={callState.result}
+        durationMs={callState.durationMs}
+        args={callState.args}
+        onClear={() => onClearResult?.()}
+        onReadResource={onReadResource}
+      />
+    </ContentCard>
+  ) : callState?.status === "error" && callState.error ? (
+    // A thrown rejection (no result) — e.g. SDK v2's `-32602` unknown-tool
+    // reject, which no longer arrives as an `isError` CallToolResult (#1632).
+    <ContentCard>
+      <ToolCallErrorPanel
+        error={callState.error}
+        errorCode={callState.errorCode}
+        onClear={() => onClearResult?.()}
+      />
+    </ContentCard>
+  ) : null;
+
+  const historyNode =
+    selectedTool && runs.length > 0 ? (
+      <ContentCard>
+        <ToolRunHistoryPanel
+          runs={runs}
+          isExecuting={isExecuting}
+          onRerun={(run) => handleRerun(selectedTool, run)}
+        />
+      </ContentCard>
+    ) : null;
 
   return (
     // `data-*` readiness contract for the headless tab smoke (#2148); see
@@ -225,68 +318,43 @@ export function ToolsScreen({
         </SidebarCard>
       </Sidebar>
 
-      {callState?.result ? (
-        // Results replace the input form while present, and the panel's top-left
-        // X dismisses them back to the form (#1661) — the Prompts screen pattern.
-        // `formValues` live in the lifted UI state, so the form is restored
-        // intact for a re-run. A call in flight sets a `pending` state with no
-        // `result` (App.tsx), so the executing form (progress + cancel) shows
-        // until the result lands.
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          {/* Fill the pane's full height only when the result renders a
-              "Resource Links" box, so that box can expand into the available
-              space and scroll within. Plain text/image/error results keep the
-              content-sized card (matching the input-form state) instead of
-              reserving a tall empty card. */}
-          <ContentCard
-            flex={resultHasResourceLinks(callState.result) ? 1 : undefined}
-          >
-            <ToolResultPanel
-              result={callState.result}
-              onClear={() => onClearResult?.()}
-              onReadResource={onReadResource}
-            />
-          </ContentCard>
-        </ContentPane>
-      ) : callState?.status === "error" && callState.error ? (
-        // A thrown rejection (no result) — e.g. SDK v2's `-32602` unknown-tool
-        // reject, which no longer arrives as an `isError` CallToolResult. The X
-        // dismisses back to the form, like a result (#1632).
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
-            <ToolCallErrorPanel
-              error={callState.error}
-              errorCode={callState.errorCode}
-              onClear={() => onClearResult?.()}
-            />
-          </ContentCard>
-        </ContentPane>
-      ) : selectedTool ? (
-        <ContentPane mah={SCROLL_MAX_HEIGHT}>
-          <ContentCard>
-            <ToolDetailPanel
-              tool={selectedTool}
-              // The row key, not the name — a server may list the same tool
-              // name twice (#1957), and the panel is reused across selections.
-              resetKey={selectedToolKey}
-              formValues={formValues}
-              isExecuting={isExecuting}
-              progress={callState?.progress}
-              serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
-              runAsTask={ui.runAsTask}
-              onRunAsTaskChange={(value) =>
-                onUiChange({ ...ui, runAsTask: value })
-              }
-              onFormChange={(values) =>
-                onUiChange({ ...ui, formValues: values })
-              }
-              onExecute={(runAsTask) =>
-                onCallTool(selectedTool.name, formValues, runAsTask)
-              }
-              onCancel={() => onCancelCall?.()}
-            />
-          </ContentCard>
-        </ContentPane>
+      {selectedTool || resultNode ? (
+        <>
+          {selectedTool && (
+            <ContentPane mah={SCROLL_MAX_HEIGHT}>
+              <FormStack>
+                <ContentCard>
+                  <ToolDetailPanel
+                    tool={selectedTool}
+                    // The row key, not the name — a server may list the same
+                    // tool name twice (#1957), and the panel is reused across
+                    // selections — plus the re-run count (see above).
+                    resetKey={`${selectedToolKey}#${rerunCount}`}
+                    formValues={formValues}
+                    isExecuting={isExecuting}
+                    progress={callState?.progress}
+                    serverSupportsTaskToolCalls={serverSupportsTaskToolCalls}
+                    runAsTask={ui.runAsTask}
+                    onRunAsTaskChange={(value) =>
+                      onUiChange({ ...ui, runAsTask: value })
+                    }
+                    onFormChange={(values) =>
+                      onUiChange({ ...ui, formValues: values })
+                    }
+                    onExecute={(runAsTask) =>
+                      onCallTool(selectedTool.name, formValues, runAsTask)
+                    }
+                    onCancel={() => onCancelCall?.()}
+                  />
+                </ContentCard>
+                {historyNode}
+              </FormStack>
+            </ContentPane>
+          )}
+          {resultNode && (
+            <ContentPane mah={SCROLL_MAX_HEIGHT}>{resultNode}</ContentPane>
+          )}
+        </>
       ) : (
         // Empty placeholder fills the full screen height (like Prompts/Resources)
         // rather than shrinking to its text.

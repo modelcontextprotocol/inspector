@@ -18,7 +18,11 @@ import type {
   Tool,
   ToolAnnotations,
 } from "@modelcontextprotocol/client";
-import { resolveDisplayLabel } from "../../../utils/toolUtils";
+import {
+  effectiveRunAsTask,
+  getTaskSupport,
+  resolveDisplayLabel,
+} from "../../../utils/toolUtils";
 import {
   hasMissingRequiredFields,
   toFormSchema,
@@ -186,13 +190,6 @@ const HeaderParamArrow = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
-// A tool's per-tool task support, defaulting to "forbidden" (the SDK default
-// when `execution` is absent) so tools that say nothing can't be run as tasks.
-type TaskSupport = "forbidden" | "optional" | "required";
-function getTaskSupport(tool: Tool): TaskSupport {
-  return tool.execution?.taskSupport ?? "forbidden";
-}
-
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
@@ -264,9 +261,12 @@ export function ToolDetailPanel({
   // value must not route through callToolStream when the toggle is hidden. A
   // tool's taskSupport is only considered when the server advertises
   // `tasks.requests.tools.call`.
-  const effectiveRunAsTask =
-    showRunAsTask &&
-    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
+  // `effectiveRunAsTask` already returns false whenever the toggle is hidden.
+  const runsAsTask = effectiveRunAsTask(
+    tool,
+    serverSupportsTaskToolCalls,
+    runAsTask,
+  );
 
   // Two distinct reasons the arguments aren't sendable, and this panel used to
   // check neither — Execute was gated on `isExecuting` alone, so a required
@@ -373,7 +373,7 @@ export function ToolDetailPanel({
       {showRunAsTask && (
         <TaskToggleRow>
           <RunAsTaskSwitch
-            checked={effectiveRunAsTask}
+            checked={runsAsTask}
             disabled={isExecuting || taskSupport === "required"}
             onChange={(event) => onRunAsTaskChange(event.currentTarget.checked)}
           />
@@ -383,7 +383,7 @@ export function ToolDetailPanel({
       <FooterRow>
         <Button
           size="md"
-          onClick={() => onExecute(effectiveRunAsTask)}
+          onClick={() => onExecute(runsAsTask)}
           disabled={executeDisabled}
           loading={isExecuting}
         >
