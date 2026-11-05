@@ -128,6 +128,25 @@ describe("mcp.ts coverage", () => {
     );
     expectCliSuccess(prompt);
 
+    // #2859: prompt argument values reach the server verbatim — no JSON
+    // normalisation (`1.50` → `"1.5"`), and an empty value is legal.
+    const verbatim = await runMcp(
+      [
+        "prompts/get",
+        "args_prompt",
+        "--prompt-args",
+        "city=1.50",
+        "state=",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: 20000 },
+    );
+    expectCliSuccess(verbatim);
+    expect(verbatim.stdout).toContain(
+      "This is a prompt with arguments: city=1.50, state=",
+    );
+
     const completeBad = await runMcp(
       ["prompts/complete", "--complete-ref-type", "nope"],
       { env: e },

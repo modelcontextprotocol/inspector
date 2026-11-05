@@ -27,6 +27,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { parsePromptArgPair } from "@inspector/core/cli/utils/prompt-args.js";
 import {
   getSecretStorageInfo,
   warnAboutSecretStorage,
@@ -1506,14 +1507,14 @@ function registerRpcCommands(program: CommandType): void {
           .option("--prompt-name <name>", "Prompt name")
           .option(
             "--prompt-args <pairs...>",
-            "Prompt arguments",
-            parseKeyValue,
+            "Prompt arguments as key=value pairs (values are sent verbatim as strings)",
+            parsePromptArgPair,
             {},
           );
         cmd.action(async (promptPos: string | undefined, o) => {
           await runRpc(program, method, {
             promptName: (o.promptName as string | undefined) ?? promptPos,
-            promptArgs: (o.promptArgs ?? {}) as Record<string, JsonValue>,
+            promptArgs: (o.promptArgs ?? {}) as Record<string, string>,
             metadata: o.metadata,
           });
         });

@@ -455,6 +455,50 @@ describe("Tool Tests", () => {
       expect(json.messages[0].content.text).toContain("state=NY");
     });
 
+    it("sends prompt argument values verbatim, never JSON-normalised (#2859)", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        "--cli",
+        "--method",
+        "prompts/get",
+        "--prompt-name",
+        "args_prompt",
+        "--prompt-args",
+        "city=1.50",
+        "state=9007199254740993",
+      ]);
+
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json.messages[0].content.text).toBe(
+        "This is a prompt with arguments: city=1.50, state=9007199254740993",
+      );
+    });
+
+    it("accepts an empty prompt argument value (#2859)", async () => {
+      const { command, args } = getTestMcpServerCommand();
+      const result = await runCli([
+        command,
+        ...args,
+        "--cli",
+        "--method",
+        "prompts/get",
+        "--prompt-name",
+        "args_prompt",
+        "--prompt-args",
+        "city=",
+        "state=null",
+      ]);
+
+      expectCliSuccess(result);
+      const json = expectValidJson(result);
+      expect(json.messages[0].content.text).toBe(
+        "This is a prompt with arguments: city=, state=null",
+      );
+    });
+
     it("should handle prompt with simple arguments", async () => {
       // Note: simple_prompt doesn't accept arguments, but the CLI should still
       // accept the command and the server should ignore the arguments
