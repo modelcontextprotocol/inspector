@@ -602,7 +602,9 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name sear
   Processes start a few milliseconds apart, which shifts their grids by as
   much.
 - **`{{seq}}` and `{{worker}}` stay unique** across processes: worker
-  process `i` of `n` numbers its calls `i+1`, `i+1+n`, `i+1+2n`, and so on.
+  process `i` of `n` numbers its calls `i+1`, `i+1+n`, `i+1+2n`, and so on. A
+  sequential `--load-args-file` still cycles on each process's own count, so
+  every process runs every row.
 - **Progress lines** add up every worker's latest report. Their p50 and p99
   are the slowest worker's, since percentiles do not add. The final summary's
   latencies are exact.

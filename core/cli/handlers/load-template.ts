@@ -30,7 +30,15 @@ import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
  */
 
 /** What a placeholder can depend on, for one call. */
-export type LoadCallContext = { seq: number; worker: number };
+export type LoadCallContext = {
+  seq: number;
+  worker: number;
+  /**
+   * The position `--load-args-file` rows cycle on, when it is not `seq`: a
+   * `--load-workers` process's own call count (#2914). Not a placeholder.
+   */
+  row?: number;
+};
 
 /** Builds one call's value from its context. */
 export type LoadTemplate<T> = (ctx: LoadCallContext) => T;
@@ -262,7 +270,9 @@ export function loadArgsTemplate(
   const n = merged.length;
   return (ctx) => {
     const index =
-      argRows.order === "random" ? Math.floor(random() * n) : (ctx.seq - 1) % n;
+      argRows.order === "random"
+        ? Math.floor(random() * n)
+        : ((ctx.row ?? ctx.seq) - 1) % n;
     return merged[index]!(ctx);
   };
 }

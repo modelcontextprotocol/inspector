@@ -1148,6 +1148,9 @@ export function shardContext(
   return {
     seq: (seq - 1) * shard.count + shard.index + 1,
     worker: worker * shard.count + shard.index,
+    // `--load-args-file` rows cycle on the process's own count, so every
+    // process runs every row, not the one its interleaved `seq` lands on.
+    row: seq,
   };
 }
 
@@ -1652,7 +1655,10 @@ async function runWindow(
     ...(rate !== undefined &&
       rateFigures(rate, {
         started: callsStarted,
-        windowMs: Math.max(0, startWindowEnd() - gridStart),
+        windowMs: startWindowEnd() - start,
+        // A `--load-workers` process's grid starts late (#2914): its slots
+        // are counted from there, its rate over the run's whole window.
+        slotWindowMs: Math.max(0, startWindowEnd() - gridStart),
       })),
     // Spelled out rather than spread, to keep the summary's established key
     // order: `elapsedMs` sits between the counts and the throughputs.
@@ -1936,7 +1942,7 @@ function stepSummary(
  */
 function rateFigures(
   rate: number,
-  run: { started: number; windowMs: number },
+  run: { started: number; windowMs: number; slotWindowMs?: number },
 ): Pick<
   LoadSummary,
   "rate" | "plannedStarts" | "droppedSlots" | "achievedRate"
@@ -1944,7 +1950,9 @@ function rateFigures(
   const { started, windowMs } = run;
   // The slots at 0, 1/rate, … that fall inside the window. The epsilon keeps
   // floating-point noise (5000ms × 0.001/ms = 5.000000001) from adding one.
-  const slots = Math.ceil((windowMs * rate) / 1000 - 1e-9);
+  const slots = Math.ceil(
+    ((run.slotWindowMs ?? windowMs) * rate) / 1000 - 1e-9,
+  );
   // Not capped at `--load-requests`: a request-bound run that was saturated
   // throughout still missed slots while it was starting its calls, and a cap
   // would report none. The limit bounds what is started, not the grid.

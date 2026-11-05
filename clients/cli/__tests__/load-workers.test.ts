@@ -27,6 +27,7 @@ import {
   type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import { LatencyRecorder } from "@inspector/core/cli/handlers/load-latency.js";
+import { loadArgsTemplate } from "@inspector/core/cli/handlers/load-template.js";
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
 import {
   LOAD_WORKER_ENTRY_ENV,
@@ -255,6 +256,29 @@ describe("sharding", () => {
     expect(started).toBe(1);
   });
 
+  it("reports the merged rate over the run's window, not each grid's", async () => {
+    const options: LoadOptions = { concurrency: 4, durationMs: 1000, rate: 4 };
+    const results = [];
+    for (const i of [0, 1, 2, 3]) {
+      results.push(await workerResultOn(shardLoadOptions(options, i, 4)));
+    }
+    const merged = mergeLoadWorkerResults(results, options);
+    expect(merged.requests).toBe(4);
+    expect(merged.achievedRate).toBe(4);
+    expect(merged.droppedSlots).toBe(0);
+  });
+
+  it("cycles every argument row in every process", () => {
+    const rows = loadArgsTemplate(
+      {},
+      { rows: [{ v: "fast" }, { v: "slow" }], order: "sequential" },
+    );
+    const used = [1, 2].map(
+      (seq) => rows(shardContext(seq, 0, { index: 0, count: 2 })).v,
+    );
+    expect(used).toEqual(["fast", "slow"]);
+  });
+
   it("gives the processes together the mix one picker would", async () => {
     const scenario = {
       steps: [
@@ -330,6 +354,28 @@ async function workerResult(
     },
   );
   return { summary: { tool: "echo", ...summary }, raw: raw! };
+}
+
+/** {@link workerResult} on the fake clock, with instant calls. */
+async function workerResultOn(
+  options: LoadOptions,
+): Promise<{ summary: LoadSummary; raw: LoadRawStats }> {
+  let raw: LoadRawStats | undefined;
+  const summary = await runLoad(
+    async () => "ok",
+    options,
+    fakeClock(),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      raw: (r) => {
+        raw = r;
+      },
+    },
+  );
+  return { summary, raw: raw! };
 }
 
 describe("mergeLoadWorkerResults", () => {
