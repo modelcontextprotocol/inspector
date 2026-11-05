@@ -248,6 +248,59 @@ jobs:
         # declares — the gate otherwise passes on whatever subset it was handed.
         run: npm run coverage
 
+  # The Windows tier (#2748). Nothing else in CI runs on Windows, so the three
+  # `local:gate` stages a Windows maintainer was hitting red on an untouched
+  # checkout — `test:scripts`, `coverage:web` and `coverage:mcpdo` — had no
+  # runner that could see them, and a fix made on macOS had no way to be
+  # verified. This job runs exactly those three, so a Windows regression in any
+  # of them fails CI instead of surfacing at the next Windows contributor's
+  # gate. It is not a second copy of `build`/`coverage`: the smokes, Storybook
+  # and the other clients' suites stay POSIX-only here.
+  #
+  # Cases that are platform-bound (POSIX mode bits, unwritable paths,
+  # process-group signals, mcpdo's Unix-socket daemon) are skipped on win32 BY
+  # NAME at the test site, each with its reason; everything else runs.
+  #
+  # Ordinary job: no credentials, so actions stay on moving major tags (#2484).
+  windows:
+    runs-on: windows-latest
+    # PROVISIONAL — no observed runs yet when this landed. Re-size it from
+    # observed runs (roughly twice the slowest, rounded up to the next five
+    # minutes, per the rule at the top of `jobs:`) once there are some.
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # See CI_NPM_VERSION at the top of this file (#2715). `$env:` because
+        # the default shell on a Windows runner is PowerShell.
+        run: npm install -g --ignore-scripts "npm@$env:CI_NPM_VERSION"
+
+      - name: Install dependencies (root + all clients)
+        id: install
+        run: npm install
+
+      # Each stage runs whether or not the one before it passed, so one red
+      # stage still leaves the other two reporting a real verdict.
+      - name: Script tests (test:scripts)
+        run: npm run test:scripts
+
+      - name: Web unit + integration coverage (coverage:web)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run coverage:web
+
+      - name: mcpdo coverage (coverage:mcpdo)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run coverage:mcpdo
+
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a
   # published GitHub release. v2 is not an npm workspace, so there is no
   # `publish-all` / `--workspaces` (v1) — just one package.
