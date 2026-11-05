@@ -108,11 +108,18 @@ async function readUntil(
   return text;
 }
 
+/**
+ * The child's pid, read only once its whole line is in: the closing quote of
+ * the JSON-encoded stderr message anchors the match, so a pid split across
+ * two chunks is never read short.
+ */
+const PID_LINE = /pid=(\d+)"/;
+
 async function childPid(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): Promise<number> {
-  const text = await readUntil(reader, /pid=(\d+)/);
-  return Number(text.match(/pid=(\d+)/)![1]);
+  const text = await readUntil(reader, PID_LINE);
+  return Number(text.match(PID_LINE)![1]);
 }
 
 function isAlive(pid: number): boolean {
@@ -232,8 +239,15 @@ describe("DELETE /api/mcp/sessions/:sessionId (#2831)", () => {
 
     expect((await terminate(h, sessionId)).status).toBe(200);
 
-    const text = await readUntil(reader, /event: transport_error/);
-    expect(text).toContain(SESSION_TERMINATED_MESSAGE);
+    // Wait for the message itself, not the `event:` line, which can arrive
+    // in a chunk ahead of its `data:`.
+    const text = await readUntil(
+      reader,
+      new RegExp(
+        SESSION_TERMINATED_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+      ),
+    );
+    expect(text).toContain("event: transport_error");
     // …and the backend ends the stream rather than holding it open until the
     // browser aborts (the response must complete on its own).
     for (;;) {
