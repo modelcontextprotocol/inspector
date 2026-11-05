@@ -7,6 +7,7 @@ import {
   elicitationContentFromForm,
   elicitationForm,
   elicitationUrlRefusal,
+  messageBoxHeight,
   normalizeElicitationSchema,
   samplingResultFromForm,
   type ElicitFormParams,
@@ -220,5 +221,24 @@ describe("elicitationUrlRefusal", () => {
   it("refuses other schemes and unparseable URLs", () => {
     expect(elicitationUrlRefusal("file:///etc/passwd")).toMatch(/Refusing/);
     expect(elicitationUrlRefusal("not a url")).toMatch(/Refusing/);
+  });
+});
+
+describe("messageBoxHeight", () => {
+  it("fits a short message", () => {
+    expect(messageBoxHeight("Who are you?", 80, 40)).toBe(1);
+    expect(messageBoxHeight("a\n\nb", 80, 40)).toBe(3);
+  });
+
+  it("counts wrapped rows", () => {
+    expect(messageBoxHeight("x".repeat(25), 10, 40)).toBe(3);
+  });
+
+  it("caps a long message at a third of the terminal", () => {
+    expect(messageBoxHeight(Array(30).fill("line").join("\n"), 80, 24)).toBe(8);
+  });
+
+  it("never returns less than one row", () => {
+    expect(messageBoxHeight("", 0, 2)).toBe(1);
   });
 });

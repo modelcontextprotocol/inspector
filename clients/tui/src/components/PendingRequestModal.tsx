@@ -31,6 +31,7 @@ import {
   elicitationContentFromForm,
   elicitationForm,
   elicitationUrlRefusal,
+  messageBoxHeight,
   samplingResultFromForm,
   type ElicitFormParams,
 } from "../utils/pendingRequests.js";
@@ -316,6 +317,7 @@ function ElicitationFormRequest({
   const [status, setStatus] = useState<string | null>(null);
   const settleWith = useSettle(setStatus);
   const prompt = useDismissPrompt();
+  const messageRef = useRef<ScrollViewRef>(null);
   // Built once per request (the component is keyed by its id), so a
   // re-render never hands ink-form a fresh structure mid-edit.
   const [form] = useState(() => elicitationForm(params.requestedSchema));
@@ -334,7 +336,13 @@ function ElicitationFormRequest({
       }
       return;
     }
-    if (key.escape) prompt.open();
+    if (key.escape) {
+      prompt.open();
+    } else if (key.pageDown) {
+      messageRef.current?.scrollBy(1);
+    } else if (key.pageUp) {
+      messageRef.current?.scrollBy(-1);
+    }
   });
 
   const handleSubmit = (values: Record<string, unknown>) => {
@@ -352,15 +360,26 @@ function ElicitationFormRequest({
   return (
     <ModalFrame
       title="Elicitation request"
-      hint="(Enter on Submit to accept, ESC to decline or cancel)"
+      hint="(Enter on Submit to accept, ESC to decline or cancel, PgUp/PgDn to scroll)"
       queueLabel={queueLabel}
       note={originNote(elicitation.origin, elicitation.taskId)}
       status={status}
       width={width}
       height={height}
     >
-      <Box flexShrink={0} marginBottom={1}>
-        <Text>{params.message}</Text>
+      {/* Bounded so a long message can never push the form, its Submit
+          button or the dismiss prompt out of the modal; scrolled with
+          PgUp/PgDn. */}
+      <Box
+        height={messageBoxHeight(params.message, width - 6, height)}
+        flexShrink={0}
+        flexDirection="column"
+        overflow="hidden"
+        marginBottom={1}
+      >
+        <ScrollView ref={messageRef}>
+          <Text>{params.message}</Text>
+        </ScrollView>
       </Box>
       {prompt.confirming && (
         <DismissPrompt choices="Dismiss this request? d: decline   c: cancel   any other key: back" />

@@ -255,6 +255,30 @@ export function elicitationContentFromForm(
 }
 
 /**
+ * Rows to give an elicitation message above its form: its wrapped height, but
+ * never more than a third of the terminal, so a long message scrolls instead
+ * of pushing the response fields and Submit out of the modal. Always at least
+ * one row.
+ *
+ * @param columns - the text width available inside the modal
+ * @param terminalRows - the terminal's height
+ */
+export function messageBoxHeight(
+  message: string,
+  columns: number,
+  terminalRows: number,
+): number {
+  const perRow = Math.max(1, columns);
+  const wrapped = message
+    .split("\n")
+    .reduce(
+      (rows, line) => rows + Math.max(1, Math.ceil(line.length / perRow)),
+      0,
+    );
+  return Math.max(1, Math.min(wrapped, Math.floor(terminalRows / 3)));
+}
+
+/**
  * Why a server-supplied elicitation URL may not be opened, or `undefined` when
  * it may. Only http(s) is handed to the browser opener — the same allowlist the
  * web client applies, since a `file:` or `javascript:` URL here is
