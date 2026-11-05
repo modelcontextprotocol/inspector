@@ -10,6 +10,7 @@ import {
   redactBody,
   redactUrlQuery,
   redactUrlsInText,
+  mapUrlsInText,
   REDACTED_HEADER_VALUE,
   REDACTED_VALUE,
 } from "@inspector/core/mcp/fetchTracking.js";
@@ -449,6 +450,22 @@ describe("createFetchTracker", () => {
     expect(parsed.expires_in).toBe(3600);
     expect(bodies[0]!.body).not.toContain("live-access");
     expect(bodies[0]!.body).not.toContain("live-refresh");
+  });
+
+  it("redacts a recorded URL's sensitive value that is itself a URL (#2907)", async () => {
+    // The Network log redacts the request URL whole (redactUrlQuery), not
+    // through the free-text matcher, so a nested scheme never split it.
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(
+      vi.fn(async () => new Response("ok")) as typeof fetch,
+      { trackRequest: (entry) => tracked.push(entry) },
+    );
+    await fetcher(
+      "https://as.example/token?state=xyz&client_secret=https://secret.example/private",
+    );
+    expect(tracked[0]!.url).toBe(
+      `https://as.example/token?state=xyz&client_secret=${encodeURIComponent(REDACTED_VALUE)}`,
+    );
   });
 
   it("redacts sensitive query params in the recorded URL (success + error paths)", async () => {
@@ -905,6 +922,126 @@ describe("redactUrlsInText", () => {
         "https://one.example/cb?state=ok,https://two.example/cb?code=secret",
       ),
     ).toBe(`https://one.example/cb?state=ok,https://two.example/cb?code=${R}`);
+  });
+
+  it("redacts all of a sensitive value that is itself an http(s) URL (#2907)", () => {
+    expect(
+      redactUrlsInText(
+        "https://as.example/token?client_secret=https://secret.example/private",
+      ),
+    ).toBe(`https://as.example/token?client_secret=${R}`);
+    // Case-insensitive on both the key and the nested scheme, and the nested
+    // URL's own `&`-joined params are read as the outer URL's.
+    const out = redactUrlsInText(
+      "see https://as.example/t?Token=HTTPS://s.example/p?a=1&code=zzz&foo=bar.",
+    );
+    expect(out).toBe(`see https://as.example/t?Token=${R}&code=${R}&foo=bar.`);
+    expect(out).not.toContain("//s.example");
+  });
+
+  it("still splits a nested URL that does not open a sensitive value (#2907)", () => {
+    // After a comma inside a sensitive value: a separate URL, as before.
+    expect(
+      redactUrlsInText(
+        "https://one.example/cb?code=abc,https://two.example/cb?code=def",
+      ),
+    ).toBe(`https://one.example/cb?code=${R},https://two.example/cb?code=${R}`);
+    // Opening a NON-sensitive value: joining it would hide the nested `code`
+    // inside a value nobody masks, so it is matched on its own.
+    expect(
+      redactUrlsInText(
+        "https://as.example/a?redirect_uri=https://app.example/cb?code=xyz",
+      ),
+    ).toBe(
+      `https://as.example/a?redirect_uri=https://app.example/cb?code=${R}`,
+    );
+  });
+
+  it("joins only at a sensitive parameter the redactor masks (#2907)", () => {
+    // A key-like run inside another parameter's value, or in the fragment, is
+    // not a parameter: the nested URL stays separate and is redacted itself.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?note=?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example/t?note=?token=https://app.example/cb?code=${R}`);
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok#?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok#?token=https://app.example/cb?code=${R}`,
+    );
+    // A `&` in the path is not a parameter delimiter either.
+    expect(
+      redactUrlsInText(
+        "https://as.example/a&token=https://app.example/?code=S",
+      ),
+    ).toBe(`https://as.example/a&token=https://app.example/?code=${R}`);
+    // A second scheme still inside a joined sensitive value joins too, and a
+    // percent-encoded sensitive key is decoded as the redactor decodes it.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?%74oken=https://s.example/p?code=https://x.example/q",
+      ),
+    ).toBe(`https://as.example/t?token=${R}`);
+  });
+
+  it("keeps a literal `?` in a parameter name, so `&?token=` does not join (#2907)", () => {
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok&?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok&?token=https://app.example/cb?code=${R}`,
+    );
+  });
+
+  it("scans a long run of joins once, not once per join (#2907)", () => {
+    // Every match joins the one before it; re-reading the growing URL per
+    // join was quadratic on server-controlled text.
+    const run = "https://b.example/?token=".repeat(20_000);
+    const out = redactUrlsInText(`see https://a.example/?token=${run} end`);
+    expect(out).toBe(`see https://a.example/?token=${R} end`);
+  });
+
+  it("falls back to each match when the redactor cannot redact the join (#2907)", () => {
+    // A redactor that leaves the joined URL unchanged (oauthDebug's
+    // `redactUrl` on an unparseable URL) must not hide the nested URL.
+    const seen: string[] = [];
+    const out = mapUrlsInText(
+      "at https://a.example/?token=https://b.example/?code=x.",
+      (url) => {
+        seen.push(url);
+        return url.startsWith("https://b.") ? "<b>" : url;
+      },
+    );
+    expect(out).toBe("at https://a.example/?token=<b>.");
+    expect(seen).toEqual([
+      "https://a.example/?token=https://b.example/?code=x",
+      "https://a.example/?token=",
+      "https://b.example/?code=x",
+    ]);
+  });
+
+  it("joins a nested URL on the caller's own sensitive names (#2907)", () => {
+    const seen: string[] = [];
+    const text = "x https://a.example/?custom=https://b.example/p y";
+    const mark = (url: string) => {
+      seen.push(url);
+      return "<url>";
+    };
+    expect(mapUrlsInText(text, mark, new Set(["custom"]))).toBe("x <url> y");
+    expect(seen).toEqual(["https://a.example/?custom=https://b.example/p"]);
+    seen.length = 0;
+    // The default set does not name `custom`, so the two split.
+    expect(mapUrlsInText(text, mark)).toBe("x <url><url> y");
+    expect(seen).toEqual(["https://a.example/?custom=", "https://b.example/p"]);
+    seen.length = 0;
+    // An empty set joins nothing — not even after a bare `?=`.
+    expect(
+      mapUrlsInText("https://a.example/?=https://b.example/p", mark, new Set()),
+    ).toBe("<url><url>");
   });
 
   it("redacts through an apostrophe and keeps a closing quote", () => {

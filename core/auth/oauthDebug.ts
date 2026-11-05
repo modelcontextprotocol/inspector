@@ -180,11 +180,13 @@ export function redactUrl(url: string): string {
  * URL quoted in prose — an `error_description`, an error message — loses its
  * credentials too. A string that is itself a URL is one match. URLs are found
  * by the matcher the Network log's error redaction uses (`mapUrlsInText`):
- * case-insensitive scheme, an apostrophe kept inside a query value, and two
- * comma-joined URLs split apart.
+ * case-insensitive scheme, an apostrophe kept inside a query value, two
+ * comma-joined URLs split apart, and a URL that opens a sensitive value kept
+ * inside it — keyed on this file's {@link SENSITIVE_FIELDS}, so a key only the
+ * trace masks (`subject_token`, …) is joined too (#2907).
  */
 export function redactUrlsInText(text: string): string {
-  return mapUrlsInText(text, redactUrl);
+  return mapUrlsInText(text, redactUrl, SENSITIVE_FIELDS);
 }
 
 /** A form body rendered as `key=value` pairs, sensitive values redacted. */

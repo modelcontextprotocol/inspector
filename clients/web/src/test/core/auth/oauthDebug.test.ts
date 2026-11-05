@@ -304,6 +304,45 @@ describe("URLs embedded in prose", () => {
     expect(out.endsWith(`token=${encodeURIComponent(REDACTED)}.`)).toBe(true);
   });
 
+  it("redacts all of a sensitive value that is itself an http(s) URL (#2907)", () => {
+    const R = encodeURIComponent(REDACTED);
+    expect(
+      redactUrlsInText(
+        "https://as.example/token?client_secret=https://secret.example/private",
+      ),
+    ).toBe(`https://as.example/token?client_secret=${R}`);
+    // A key only the trace masks joins too: the matcher is keyed on this
+    // module's SENSITIVE_FIELDS, not the Network log's.
+    expect(
+      redactUrlsInText(
+        "at https://as.example/x?subject_token=https://s.example/private now",
+      ),
+    ).toBe(`at https://as.example/x?subject_token=${R} now`);
+    // The comma-joined control still splits.
+    expect(
+      redactUrlsInText(
+        "https://a.example/x?code=abc,https://b.example/y?state=ok",
+      ),
+    ).toBe(`https://a.example/x?code=${R},https://b.example/y?state=ok`);
+  });
+
+  it("still redacts a nested URL when the outer one is unparseable or `??`-keyed (#2907)", () => {
+    const R = encodeURIComponent(REDACTED);
+    // An invalid port makes `redactUrl` return the outer URL as is, so the
+    // nested URL is redacted on its own rather than hidden inside it.
+    expect(
+      redactUrlsInText(
+        "https://as.example:bad/t?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example:bad/t?token=https://app.example/cb?code=${R}`);
+    // `??token` is the key `?token`, which is not sensitive: no join.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t??token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example/t??token=https://app.example/cb?code=${R}`);
+  });
+
   it("matches sensitive field names case-insensitively", () => {
     expect(redactUrl("https://x.example/cb?Code=abc")).not.toContain("abc");
     expect(redactFormParams(new URLSearchParams({ Client_Secret: "s" }))).toBe(
@@ -322,6 +361,18 @@ describe("URLs embedded in prose", () => {
     });
     expect(summary).not.toContain("SECRET");
     expect(summary).toContain("invalid_client");
+  });
+
+  it("redacts all of a URL-valued secret in a traced failure message (#2907)", async () => {
+    const { lines } = await trace(
+      new Error(
+        "fetch failed for https://as.example/token?refresh_token=https://secret.example/private",
+      ),
+      "https://as.example/token",
+    );
+    expect(lines[1]).toBe(
+      `[oauth]   -> failed: fetch failed for https://as.example/token?refresh_token=${encodeURIComponent(REDACTED)}\n`,
+    );
   });
 
   it("redacts a URL quoted in a failure message, rethrowing the original error", async () => {

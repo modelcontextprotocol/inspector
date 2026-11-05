@@ -117,8 +117,89 @@ export function redactUrlQuery(url: string): string {
  * off as punctuation below, which still handles a `'…'`-quoted URL.
  * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
  * URL and must not slip past the redaction (Copilot).
+ *
+ * Stopping at a second scheme is undone in one case, by
+ * {@link opensSensitiveValue}: see {@link mapUrlsInText}.
  */
 const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
+
+/**
+ * Where a URL matched so far stands, for deciding whether the next match
+ * continues it (#2907). Advanced one match at a time by {@link advanceUrlScan},
+ * so a run of joined matches is scanned once in total rather than re-read per
+ * join — the text is server-controlled, and a re-read was quadratic (Copilot).
+ */
+interface UrlScan {
+  /** Before the query, in the query proper, or in the fragment. */
+  phase: "path" | "query" | "fragment";
+  /** The current query parameter's raw name, while its `=` is still to come. */
+  name: string;
+  /** Whether the current parameter's `=` has been seen. */
+  inValue: boolean;
+  /** Whether the current parameter's name is one the redactor masks. */
+  sensitive: boolean;
+  /** Whether the URL so far ends with that parameter's `=`. */
+  endsWithEquals: boolean;
+}
+
+function newUrlScan(): UrlScan {
+  return {
+    phase: "path",
+    name: "",
+    inValue: false,
+    sensitive: false,
+    endsWithEquals: false,
+  };
+}
+
+/**
+ * Advance `scan` over `piece`. Only the first `?` opens the query and only a
+ * `&` after it delimits a parameter, so a key-like run inside another value
+ * (`?note=?token=`), in the path (`/a&token=`) or in the fragment
+ * (`#?token=`) is never taken for a parameter (Copilot). A name is decoded
+ * once, at its `=`, exactly as the redactors' URLSearchParams decode it; the
+ * leading `&` keeps a literal `?` in it (`&?token=` is the key `?token`, not
+ * `token` — Copilot).
+ */
+function advanceUrlScan(
+  scan: UrlScan,
+  piece: string,
+  sensitiveNames: ReadonlySet<string>,
+): void {
+  for (const char of piece) {
+    if (scan.phase === "fragment") break;
+    if (char === "#") {
+      scan.phase = "fragment";
+    } else if (scan.phase === "path") {
+      if (char === "?") scan.phase = "query";
+    } else if (char === "&") {
+      scan.name = "";
+      scan.inValue = false;
+      scan.sensitive = false;
+    } else if (!scan.inValue) {
+      if (char === "=") {
+        scan.inValue = true;
+        scan.sensitive = [...new URLSearchParams(`&${scan.name}=`).keys()].some(
+          (key) => sensitiveNames.has(key.toLowerCase()),
+        );
+      } else {
+        scan.name += char;
+      }
+    }
+  }
+  scan.endsWithEquals =
+    scan.phase === "query" && scan.inValue && piece.endsWith("=");
+}
+
+/**
+ * Whether the next match, which follows with no gap, belongs to the URL
+ * {@link UrlScan} describes: true when that URL ends by opening the value of a
+ * parameter the redactor masks (`?client_secret=https://…`), so the scheme
+ * that follows is part of the secret rather than a new URL.
+ */
+function opensSensitiveValue(scan: UrlScan): boolean {
+  return scan.endsWithEquals && scan.sensitive;
+}
 
 /** Sentence punctuation (or a closing quote) a message may put right after a URL. */
 const TRAILING_PUNCTUATION = new Set([
@@ -168,15 +249,58 @@ export function redactUrlsInText(text: string): string {
  * trailing-punctuation handling {@link redactUrlsInText} uses. Exported so a
  * caller with its own per-URL redaction (`--oauth-debug`'s trace, #2844)
  * finds URLs exactly as this does rather than with a second, weaker pattern.
+ *
+ * A match the pattern cut short at a second scheme is rejoined with the next
+ * one when the cut opened a sensitive query value
+ * (`?client_secret=https://…`): that scheme belongs to the secret, and
+ * splitting there printed the secret's tail verbatim after its redacted head
+ * (#2907). `sensitiveNames` must therefore be the lowercase query-parameter
+ * names `redact` masks; it defaults to the set {@link redactUrlQuery} masks.
+ * Every other cut — a comma-joined URL, a nested URL opening a non-sensitive
+ * value — stays a separate URL, redacted on its own.
  */
 export function mapUrlsInText(
   text: string,
   redact: (url: string) => string,
+  sensitiveNames: ReadonlySet<string> = SENSITIVE_BODY_FIELDS,
 ): string {
-  return text.replace(EMBEDDED_URL_PATTERN, (match) => {
-    const end = trailingPunctuationStart(match);
-    return redact(match.slice(0, end)) + match.slice(end);
-  });
+  let out = "";
+  let copied = 0;
+  let pieces: string[] = [];
+  let scan = newUrlScan();
+  const flush = () => {
+    if (pieces.length === 0) return;
+    const joined = pieces.join("");
+    const end = trailingPunctuationStart(joined);
+    const redacted = redact(joined.slice(0, end));
+    // A join is only made at a value the redactor masks, so an unchanged
+    // result means it could not redact the joined URL at all (oauthDebug's
+    // `redactUrl` returns an unparseable one as is). Fall back to redacting
+    // each match on its own, as the matcher did before joins (Copilot).
+    out +=
+      pieces.length > 1 && redacted === joined.slice(0, end)
+        ? pieces.map((piece) => redactMatch(piece, redact)).join("")
+        : redacted + joined.slice(end);
+  };
+  for (const match of text.matchAll(EMBEDDED_URL_PATTERN)) {
+    if (match.index !== copied || !opensSensitiveValue(scan)) {
+      flush();
+      out += text.slice(copied, match.index);
+      pieces = [];
+      scan = newUrlScan();
+    }
+    pieces.push(match[0]);
+    advanceUrlScan(scan, match[0], sensitiveNames);
+    copied = match.index + match[0].length;
+  }
+  flush();
+  return out + text.slice(copied);
+}
+
+/** `redact` applied to one match, its trailing punctuation kept outside. */
+function redactMatch(match: string, redact: (url: string) => string): string {
+  const end = trailingPunctuationStart(match);
+  return redact(match.slice(0, end)) + match.slice(end);
 }
 
 /** Recursively redact sensitive keys in a parsed JSON value (in place). */

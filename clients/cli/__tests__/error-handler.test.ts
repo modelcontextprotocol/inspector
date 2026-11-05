@@ -527,6 +527,24 @@ describe("envelope URL redaction", () => {
     expect(envelope.message).not.toContain("tok456");
   });
 
+  it("redacts all of a sensitive value that is itself a URL (#2907)", () => {
+    const { envelope } = classifyError(
+      new Error(
+        "Request to https://as.example/token?client_secret=https://secret.example/private failed",
+      ),
+    );
+    expect(envelope.message).toBe(
+      "Request to https://as.example/token?client_secret=%5BREDACTED%5D failed",
+    );
+    // The comma-joined control still splits.
+    const joined = classifyError(
+      new Error("https://a.example/x?code=abc,https://b.example/y?code=def"),
+    ).envelope;
+    expect(joined.message).toBe(
+      "https://a.example/x?code=%5BREDACTED%5D,https://b.example/y?code=%5BREDACTED%5D",
+    );
+  });
+
   it("keeps a punctuation run inside the URL and splits only the trailing one", () => {
     // A long run that does not end the match was quadratic under the old
     // unanchored /[…]+$/ (#2540); the backward scan must still stop at `x`.
