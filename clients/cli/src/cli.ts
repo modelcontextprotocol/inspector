@@ -931,19 +931,20 @@ function isOptionToken(arg: string): boolean {
 }
 
 /**
- * A `NAME:` prefix followed by a slash or backslash: a URL (`http://…`) or a
- * Windows drive path (`C:\…`, `C:/…`). Neither is a `--header` value — a real
- * header puts a space or the value after its colon — so a token of this shape
- * is where a header list ends and the target begins.
+ * An HTTP(S) URL or a Windows drive path (`C:\…`, `C:/…`): the two target
+ * shapes that contain a colon. Neither is a `--header` value, so a token of
+ * this shape is where a header list ends and the target begins. Deliberately
+ * narrow — `X-Path:/mcp` is a valid header (`parseHeaderPair` takes the value
+ * straight after the colon) and must stay one.
  */
-const SCHEME_OR_DRIVE = /^[A-Za-z][A-Za-z0-9+.-]*:[\\/]/;
+const URL_OR_DRIVE = /^(?:https?:\/\/|[A-Za-z]:[\\/])/i;
 
 function isKeyValueToken(arg: string): boolean {
   return arg.includes("=");
 }
 
 function isHeaderToken(arg: string): boolean {
-  return arg.includes(":") && !SCHEME_OR_DRIVE.test(arg);
+  return arg.includes(":") && !URL_OR_DRIVE.test(arg);
 }
 
 /**
@@ -974,14 +975,27 @@ const VARIADIC_VALUE_SHAPES: ReadonlyMap<string, (arg: string) => boolean> =
  * reads as one complete value and never continues past; that is what stops the
  * swallowing. No invocation that parsed before changes meaning: a token
  * without the value's shape could only ever fail as a malformed value.
+ *
+ * `takesValue` holds every flag spelling whose option requires an argument.
+ * Commander gives such an option the next token unconditionally, so that token
+ * is copied through untouched: `--client-secret --header` passes the literal
+ * secret `--header`, never a variadic flag.
  */
-function boundVariadicOptions(args: readonly string[]): string[] {
+function boundVariadicOptions(
+  args: readonly string[],
+  takesValue: ReadonlySet<string>,
+): string[] {
   const out: string[] = [];
   let i = 0;
   while (i < args.length) {
     const arg = args[i]!;
     const isValue = VARIADIC_VALUE_SHAPES.get(arg);
     const first = args[i + 1];
+    if (!isValue && takesValue.has(arg) && first !== undefined) {
+      out.push(arg, first);
+      i += 2;
+      continue;
+    }
     if (!isValue || first === undefined) {
       out.push(arg);
       i += 1;
@@ -1071,7 +1085,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const preArgs: string[] = [
     rawArgs[0] ?? "node",
     rawArgs[1] ?? "inspector-cli",
-    ...boundVariadicOptions(optionArgs),
   ];
 
   program
@@ -1351,7 +1364,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .addOption(new Option("--cli").hideHelp());
 
   registerCompletionOption(program);
-  program.parse(preArgs);
+  // Bound the variadic options only now, once every option is registered:
+  // which flags take a required value is read off the program itself.
+  const takesValue = new Set(
+    program.options
+      .filter((option) => option.required)
+      .flatMap((option) => [option.long, option.short])
+      .filter((flag): flag is string => flag !== undefined),
+  );
+  program.parse([...preArgs, ...boundVariadicOptions(optionArgs, takesValue)]);
   // `--completion <shell>` (#2434): print the script and exit, no connect.
   if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
 

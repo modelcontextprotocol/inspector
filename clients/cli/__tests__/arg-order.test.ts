@@ -221,6 +221,48 @@ describe("variadic options ahead of the target (#2860)", () => {
     }
   });
 
+  it("keeps a header whose value starts with a slash", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo(),
+      tools: [createEchoTool()],
+    });
+    try {
+      await server.start();
+      const result = await runCli([
+        server.url,
+        "--method",
+        "tools/list",
+        "--transport",
+        "http",
+        "--header",
+        "X-One:1",
+        "X-Path:/mcp",
+      ]);
+      expectCliSuccess(result);
+      const requests = server.getRecordedRequests();
+      const last = requests[requests.length - 1];
+      expect(last?.headers?.["x-one"]).toBe("1");
+      expect(last?.headers?.["x-path"]).toBe("/mcp");
+    } finally {
+      await server.stop();
+    }
+  });
+
+  it("leaves a required option's value alone when it spells a variadic flag", async () => {
+    const result = await runCli([
+      ...target,
+      "--method",
+      "tools/call",
+      "--tool-name",
+      "--tool-arg",
+      "--format",
+      "json",
+    ]);
+    expectCliFailure(result);
+    expectOutputContains(result, "--tool-arg");
+    expect(result.output).not.toContain("--tool-arg=");
+  });
+
   it("still reports a malformed first value as the option's", async () => {
     const result = await runCli([
       "--method",
