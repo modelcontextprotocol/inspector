@@ -133,6 +133,91 @@ describe("resolveLoadFlags", () => {
       "--load requires a tool name.",
     );
   });
+
+  describe("--load-scenario (#2839)", () => {
+    let dir: string | undefined;
+    afterEach(() => {
+      if (dir) fs.rmSync(dir, { recursive: true, force: true });
+      dir = undefined;
+    });
+    function scenarioFile(content: string): string {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcpdo-scenario-"));
+      const file = path.join(dir, "scenario.json");
+      fs.writeFileSync(file, content);
+      return file;
+    }
+
+    it("reads the file in the front end and needs no tool name", () => {
+      const file = scenarioFile(
+        JSON.stringify([{ method: "resources/read", uri: "test://env" }]),
+      );
+      expect(
+        resolveLoadFlags({ load: true, loadScenario: file, loadRequests: 2 }),
+      ).toEqual({
+        options: {
+          concurrency: DEFAULT_LOAD_CONCURRENCY,
+          requests: 2,
+          scenario: {
+            steps: [
+              {
+                name: "resources/read test://env",
+                weight: 1,
+                method: "resources/read",
+                uri: "test://env",
+              },
+            ],
+          },
+        },
+      });
+    });
+
+    it.each([
+      [{ toolName: "echo" }, "a tool name"],
+      [{ toolArg: { message: "hi" } }, "tool arguments"],
+      [{ toolMetadata: { a: "b" } }, "--tool-metadata"],
+    ])("refuses %j alongside a scenario", (flags, what) => {
+      expect(() =>
+        resolveLoadFlags({ load: true, loadScenario: "s.json", ...flags }),
+      ).toThrow(
+        expect.objectContaining({
+          message: `--load-scenario cannot be combined with ${what}; each scenario step names its own tool and arguments.`,
+          envelope: expect.objectContaining({ code: "load_flag_conflict" }),
+        }),
+      );
+    });
+
+    it("accepts empty tool arguments and metadata", () => {
+      const file = scenarioFile(
+        JSON.stringify([{ method: "tools/call", tool: "echo" }]),
+      );
+      expect(
+        resolveLoadFlags({
+          load: true,
+          loadScenario: file,
+          toolArg: {},
+          toolMetadata: {},
+        })?.options.scenario?.steps,
+      ).toHaveLength(1);
+    });
+
+    it("reports a bad file as load_scenario_invalid", () => {
+      const file = scenarioFile("[]");
+      expect(() =>
+        resolveLoadFlags({ load: true, loadScenario: file }),
+      ).toThrow(
+        expect.objectContaining({
+          exitCode: EXIT_CODES.USAGE,
+          envelope: expect.objectContaining({ code: "load_scenario_invalid" }),
+        }),
+      );
+    });
+
+    it("requires --load", () => {
+      expect(() => resolveLoadFlags({ loadScenario: "s.json" })).toThrow(
+        "--load-scenario requires --load.",
+      );
+    });
+  });
 });
 
 describe("formatLoadSummaryHuman", () => {
@@ -249,6 +334,102 @@ describe("formatLoadSummaryHuman", () => {
     );
     expect(text).toContain("  Sessions:   1 of 2 opened, 1 failed");
     expect(text).not.toContain("connect p50");
+  });
+});
+
+describe("formatLoadSummaryHuman with a scenario (#2839)", () => {
+  it("names the scenario and renders each step under the totals", () => {
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        tool: undefined,
+        steps: [
+          {
+            name: "search",
+            method: "tools/call",
+            target: "search",
+            weight: 3,
+            requests: 20,
+            ok: 19,
+            toolErrors: 1,
+            errors: 0,
+            errorRate: 0.05,
+            throughput: 13.33,
+            okThroughput: 12.67,
+            latencyMs: { min: 1, mean: 2, p50: 2, p90: 3, p99: 4, max: 5 },
+            errorLatencyMs: null,
+            errorMessages: [],
+            toolErrorMessages: [{ message: "busy", count: 1 }],
+          },
+          {
+            name: "resources/read test://doc",
+            method: "resources/read",
+            target: "test://doc",
+            weight: 1,
+            requests: 10,
+            ok: 10,
+            toolErrors: 0,
+            errors: 0,
+            errorRate: 0,
+            throughput: 6.67,
+            okThroughput: 6.67,
+            latencyMs: null,
+            errorLatencyMs: null,
+            errorMessages: [],
+            toolErrorMessages: [],
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(text.split("\n")[0]).toBe(
+      "Load test scenario (2 steps) (concurrency 4, duration 1.5s, limit 40, rate 20/s)",
+    );
+    expect(text).toContain(
+      [
+        "  Steps:",
+        "    `search` (tools/call search, weight 3)",
+        "      20 requests (13.33/s): 19 ok, 1 tool errors, 0 errors (5.00%); p50 2 / p99 4 ms",
+        "      1× busy",
+        "    `resources/read test://doc` (resources/read test://doc, weight 1)",
+        "      10 requests (6.67/s): 10 ok, 0 tool errors, 0 errors (0.00%); no calls succeeded",
+      ].join("\n"),
+    );
+  });
+
+  it("says step for a one-step scenario", () => {
+    const text = formatLoadSummaryHuman(
+      { ...SUMMARY, tool: undefined, steps: [] },
+      PLAIN,
+    );
+    expect(text).toMatch(/^Load test scenario \(0 steps\)/);
+    const one = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        tool: undefined,
+        steps: [
+          {
+            name: "p",
+            method: "prompts/get",
+            target: "p",
+            weight: 1,
+            requests: 0,
+            ok: 0,
+            toolErrors: 0,
+            errors: 0,
+            errorRate: 0,
+            throughput: 0,
+            okThroughput: 0,
+            latencyMs: null,
+            errorLatencyMs: null,
+            errorMessages: [],
+            toolErrorMessages: [],
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(one).toMatch(/^Load test scenario \(1 step\)/);
   });
 });
 
@@ -400,6 +581,40 @@ describe.skipIf(unixDaemonOnly)(
       expect(result.stderr).toContain(
         "Tool 'no_such_tool' not found on server.",
       );
+    });
+
+    it("runs a --load-scenario mix over a live connection (#2839)", async () => {
+      const e = env();
+      await connectStdio(e);
+      const dir = fs.mkdtempSync(path.join(storageDir!, "scenario-"));
+      const file = path.join(dir, "scenario.json");
+      fs.writeFileSync(
+        file,
+        JSON.stringify([
+          { method: "tools/call", tool: "echo", args: { message: "hi" } },
+          { method: "resources/read", uri: "test://env" },
+        ]),
+      );
+      const result = await runMcp(
+        [
+          "tools/call",
+          "--load",
+          "--load-scenario",
+          file,
+          "--load-requests",
+          "6",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expectCliSuccess(result);
+      const summary = JSON.parse(result.stdout) as LoadSummary;
+      expect(summary).toMatchObject({ requests: 6, ok: 6 });
+      expect(summary.steps!.map((s) => [s.name, s.ok])).toEqual([
+        ["tools/call echo", 3],
+        ["resources/read test://env", 3],
+      ]);
     });
 
     async function connectStdio(e: Record<string, string>): Promise<void> {

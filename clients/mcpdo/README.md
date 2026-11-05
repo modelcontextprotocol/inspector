@@ -267,6 +267,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-requests <n>`    | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.         |
 | `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
 | `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
+| `--load-scenario <file>` | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it. |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
 
@@ -281,6 +282,13 @@ make the exit code carry the verdict, as in the one-shot CLI. They are judged
 by the `mcpdo` process after the summary has been printed, so a breached run
 still shows its numbers; the breach then follows as the usual error envelope,
 with the same `code` and exit code `10` the CLI uses.
+
+**Scenarios** (`--load-scenario`, [#2839](https://github.com/modelcontextprotocol/inspector/issues/2839))
+use the [one-shot CLI's file format](../cli/README.md#scenarios---load-scenario):
+`mcpdo tools/call --load --load-scenario scenario.json`. The file is read by the
+`mcpdo` process, so a relative path is relative to your working directory, not
+the daemon's; the parsed steps travel to the daemon with the run. The text
+summary lists each step under the totals.
 
 **Multiple sessions** (`--load-connections`, #2800) open the extra sessions
 inside the daemon, before the clock starts, from the connection's stored server

@@ -7,7 +7,10 @@ import { PLAIN, type Style } from "@inspector/core/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
-import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
+import type {
+  LoadStepSummary,
+  LoadSummary,
+} from "@inspector/core/cli/handlers/load-test.js";
 import {
   accessTokenDetailLines,
   type AccessTokenSummary,
@@ -1024,7 +1027,11 @@ export function formatLoadSummaryHuman(
   style: Style = PLAIN,
 ): string {
   const tool =
-    summary.tool !== undefined ? ` ${code(style, summary.tool)}` : "";
+    summary.tool !== undefined
+      ? ` ${code(style, summary.tool)}`
+      : summary.steps !== undefined
+        ? ` scenario (${summary.steps.length} ${summary.steps.length === 1 ? "step" : "steps"})`
+        : "";
   const bounds = [
     `concurrency ${summary.concurrency}`,
     ...(summary.durationMs !== undefined
@@ -1080,6 +1087,12 @@ export function formatLoadSummaryHuman(
       `  ${style.red("Stopped early")} (${summary.stoppedEarly.reason}): ${summary.stoppedEarly.detail}`,
     );
   }
+  // `--load-scenario` (#2839): each step's share, under the totals above.
+  if (summary.steps !== undefined) {
+    lines.push(`  ${style.bold("Steps:")}`);
+    for (const step of summary.steps)
+      lines.push(...formatLoadStep(step, style));
+  }
   // `--load-connections` above 1 (#2800). Connect failures are not call
   // errors, so they are listed under this line rather than "Top errors".
   const c = summary.connections;
@@ -1097,6 +1110,28 @@ export function formatLoadSummaryHuman(
     }
   }
   return lines.join("\n");
+}
+
+/** One scenario step's lines in {@link formatLoadSummaryHuman} (#2839). */
+function formatLoadStep(step: LoadStepSummary, style: Style): string[] {
+  const failed = step.toolErrors + step.errors;
+  const rate = `${(step.errorRate * 100).toFixed(2)}%`;
+  const l = step.latencyMs;
+  const latency =
+    l === null
+      ? style.dim("no calls succeeded")
+      : `p50 ${l.p50} / p99 ${l.p99} ms`;
+  const lines = [
+    `    ${code(style, step.name)} ${style.dim(`(${step.method} ${step.target}, weight ${step.weight})`)}`,
+    `      ${step.requests} requests (${step.throughput}/s): ${style.green(`${step.ok} ok`)}, ${step.toolErrors} tool errors, ${step.errors} errors (${failed > 0 ? style.red(rate) : rate}); ${latency}`,
+  ];
+  for (const { message, count } of [
+    ...step.errorMessages,
+    ...step.toolErrorMessages,
+  ]) {
+    lines.push(`      ${count}× ${message}`);
+  }
+  return lines;
 }
 
 /**

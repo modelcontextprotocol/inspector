@@ -177,6 +177,10 @@ more).
   `droppedSlots`: slots nobody was free to take are dropped, so a server too
   slow for the target can still report healthy latency. A shortfall under 90%
   also prints a warning on stderr.
+- `--load-scenario <file>` (no tool name) loads a weighted mix of
+  `tools/call` / `resources/read` / `prompts/get` steps; the top-level counts
+  are totals and `steps[]` breaks them down per step — find the slow or
+  failing step there.
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
   `consecutive_errors` (the server stopped answering), `connection_lost`, or
   `interrupted`. The counts cover only what completed.
