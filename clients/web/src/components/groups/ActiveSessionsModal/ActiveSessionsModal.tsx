@@ -70,7 +70,10 @@ const SessionIdText = Text.withProps({
   c: "dimmed",
   ff: "monospace",
 });
-const StatusBadges = Group.withProps({ gap: 4, wrap: "nowrap" });
+// The table otherwise squeezes this column until its badges truncate.
+const StatusCell = Table.Td.withProps({ miw: 110 });
+// Stacked rather than side by side: two badges in a row truncate in the column.
+const StatusBadges = Stack.withProps({ gap: 4, align: "flex-start" });
 const SmallBadge = Badge.withProps({ size: "sm", variant: "light" });
 
 const TerminateButton = Button.withProps({
@@ -162,12 +165,12 @@ export function ActiveSessionsModal({
                   <Table.Td>
                     <TransportBadge transport={session.transport} />
                   </Table.Td>
-                  <Table.Td>
+                  <StatusCell>
                     <SessionStatus
                       session={session}
                       current={session.sessionId === currentSessionId}
                     />
-                  </Table.Td>
+                  </StatusCell>
                   <Table.Td>{sessionAge(session.createdAt, now)}</Table.Td>
                   <Table.Td>
                     {session.consumerAttached
