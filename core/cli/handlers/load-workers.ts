@@ -304,6 +304,20 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * The merged run's calls started per second. Every worker's window ends at
+ * its first unused slot, and with the grids interleaved the run's first
+ * unused slot is the earliest of those — so the run's window is the
+ * shortest, and its rate is every start over it. Adding the workers' own
+ * rates would divide each by a different window.
+ */
+function mergedAchievedRate(results: { raw: LoadRawStats }[]): number {
+  const windows = results.flatMap((r) => (r.raw.rate ? [r.raw.rate] : []));
+  const windowMs = Math.min(...windows.map((w) => w.windowMs));
+  const started = sum(windows.map((w) => w.started));
+  return windowMs > 0 ? round2((started * 1000) / windowMs) : 0;
+}
+
 /** The stop to report for the merged run: an interrupt first, else the first. */
 function mergedStop(summaries: LoadSummary[]): LoadStop | undefined {
   const stops = summaries.flatMap((s) =>
@@ -355,7 +369,7 @@ export function mergeLoadWorkerResults(
       rate: options.rate,
       plannedStarts: sum(summaries.map((s) => s.plannedStarts ?? 0)),
       droppedSlots: sum(summaries.map((s) => s.droppedSlots ?? 0)),
-      achievedRate: round2(sum(summaries.map((s) => s.achievedRate ?? 0))),
+      achievedRate: mergedAchievedRate(results),
     }),
     requests: totals.requests,
     ok: totals.ok,

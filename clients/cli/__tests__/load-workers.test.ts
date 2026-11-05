@@ -268,6 +268,18 @@ describe("sharding", () => {
     expect(merged.droppedSlots).toBe(0);
   });
 
+  it("reports a request-capped run's rate over one window too", async () => {
+    // Each worker's own window ends at 1, 1.25, 1.5 and 1.75 s; the run's
+    // schedule (0, 0.25, 0.5, 0.75 s) ends at 1 s.
+    const options: LoadOptions = { concurrency: 4, requests: 4, rate: 4 };
+    const results = [];
+    for (const i of [0, 1, 2, 3]) {
+      results.push(await workerResultOn(shardLoadOptions(options, i, 4)));
+    }
+    const merged = mergeLoadWorkerResults(results, options);
+    expect(merged).toMatchObject({ requests: 4, achievedRate: 4 });
+  });
+
   it("cycles every argument row in every process", () => {
     const rows = loadArgsTemplate(
       {},

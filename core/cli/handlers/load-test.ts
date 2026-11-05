@@ -820,6 +820,12 @@ export type OutcomeSnapshot = {
 export type LoadRawStats = {
   total: OutcomeSnapshot;
   steps?: OutcomeSnapshot[];
+  /**
+   * With `--load-rate`: the calls started, and the window (ms from the
+   * window's start) they were started in — so a merge can compute the rate
+   * over one common window rather than add rates over different ones.
+   */
+  rate?: { started: number; windowMs: number };
 };
 
 /**
@@ -1643,6 +1649,9 @@ async function runWindow(
   };
   if (progress?.numbered) progress.numbered.slots = started;
   progress?.observe?.raw?.({
+    ...(rate !== undefined && {
+      rate: { started: callsStarted, windowMs: startWindowEnd() - start },
+    }),
     total: total.snapshot(),
     ...(stepRuns && { steps: stepRuns.map((r) => r.stats.snapshot()) }),
   });
