@@ -286,6 +286,12 @@ function shapeDifferences(run: LoadSummary, base: LoadSummary): string[] {
       run.connections?.requested ?? 1,
       base.connections?.requested ?? 1,
     ],
+    // `--load-churn` (#2912): calls per session, or unset without churn.
+    [
+      "churn calls per session",
+      run.churn?.callsPerSession,
+      base.churn?.callsPerSession,
+    ],
   ];
   return pairs
     .filter(([, a, b]) => JSON.stringify(a) !== JSON.stringify(b))

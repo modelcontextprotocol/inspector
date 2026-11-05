@@ -813,7 +813,9 @@ export class DaemonServer {
     );
     // Extra sessions this run opened (#2800). The engine disconnects each in
     // its own `finally`; this releases what the daemon set up around them.
-    const extras: { client: InspectorClient; release: () => void }[] = [];
+    // A `--load-churn` run (#2912) opens one per session, so each is let go
+    // as soon as the engine has closed it, not only when the run ends.
+    const extras = new Map<InspectorClient, () => void>();
     try {
       // Progress (#2838) goes back over the caller's socket as one-way
       // frames, ahead of the summary.
@@ -844,21 +846,22 @@ export class DaemonServer {
               autoCancelElicitationChannel,
               requestId,
             );
-            extras.push({
-              client: extra,
-              release: () => {
-                unwireExtra();
-                clearExtraSignal();
-                this.registry.releaseLoadClient(extra);
-              },
+            extras.set(extra, () => {
+              unwireExtra();
+              clearExtraSignal();
+              this.registry.releaseLoadClient(extra);
             });
             return extra;
+          },
+          onConnectionClosed: (closed) => {
+            extras.get(closed)?.();
+            extras.delete(closed);
           },
         }),
       });
       return { kind: "load", summary };
     } finally {
-      for (const extra of extras) extra.release();
+      for (const release of extras.values()) release();
       clearAmbientSignal();
       client.removeEventListener("statusChange", onStatus);
       signal?.removeEventListener("abort", onCallerGone);
@@ -867,7 +870,8 @@ export class DaemonServer {
   }
 
   /**
-   * The extra-session opener for a `--load-connections` run (#2800), bound
+   * The extra-session opener for a `--load-connections` run (#2800) or a
+   * `--load-churn` run (#2912), bound
    * to the connection's server config as resolved now, or `undefined` for a
    * single-session run. Checked before the run is queued: over stdio every
    * session would spawn its own server process, testing N isolated servers
@@ -878,7 +882,8 @@ export class DaemonServer {
     params: RpcParams,
     load: LoadOptions,
   ): LoadClientOpener | undefined {
-    if (load.connections === undefined || load.connections <= 1) {
+    const churn = load.churn !== undefined;
+    if (!churn && (load.connections === undefined || load.connections <= 1)) {
       return undefined;
     }
     const connection = this.registry.connectionFor(
@@ -888,7 +893,9 @@ export class DaemonServer {
     if (!isOAuthCapableServerConfig(connection.serverConfig)) {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
-        "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
+        churn
+          ? "--load-churn requires an HTTP or SSE connection; over stdio each session would spawn its own server process."
+          : "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
         { code: "load_flag_conflict" },
       );
     }

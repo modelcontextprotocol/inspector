@@ -38,6 +38,7 @@ type LoadImpl = (
     signal?: AbortSignal;
     openConnection?: () => Promise<InspectorClient>;
     progress?: LoadProgressHook;
+    onConnectionClosed?: (connection: InspectorClient) => void;
   },
 ) => Promise<LoadSummary>;
 
@@ -507,6 +508,46 @@ describe("daemon rpc with --load", () => {
         return SUMMARY;
       };
       expect((await rpc({ load: { ...MULTI, connections: 1 } })).ok).toBe(true);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("opens --load-churn sessions and releases each once the engine closes it (#2912)", async () => {
+      const { extra, open, release } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      const CHURN: LoadOptions = {
+        concurrency: 1,
+        requests: 2,
+        churn: { callsPerSession: 1 },
+      };
+      loadMock.impl = async (_client, _args, options, run) => {
+        expect(options).toEqual(CHURN);
+        const session = await run.openConnection!();
+        // Released as soon as it closes, not only when the run ends.
+        run.onConnectionClosed!(session);
+        expect(release).toHaveBeenCalledWith(extra.client);
+        expect(extra.ambient()).toBeUndefined();
+        // An unknown connection is ignored.
+        run.onConnectionClosed!(fake.client);
+        return SUMMARY;
+      };
+      expect((await rpc({ load: CHURN })).ok).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses --load-churn over stdio before the run starts", async () => {
+      const { open } = useConnection({ type: "stdio", command: "node" });
+      loadMock.impl = async () => SUMMARY;
+      const response = await rpc({
+        load: { concurrency: 1, requests: 1, churn: { callsPerSession: 1 } },
+      });
+      expect(response.ok).toBe(false);
+      expect(!response.ok && response.error.code).toBe("load_flag_conflict");
+      expect(!response.ok && response.error.message).toContain(
+        "--load-churn requires an HTTP or SSE connection",
+      );
       expect(open).not.toHaveBeenCalled();
     });
 

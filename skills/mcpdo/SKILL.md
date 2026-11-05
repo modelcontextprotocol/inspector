@@ -201,6 +201,10 @@ more).
   or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
   of the statistics (reported under `warmup`). Progress lines on stderr appear
   only with `--format text`.
+- To load session setup and teardown too (servers behind gateways see many
+  short sessions), add `--load-churn` (HTTP/SSE only): each worker connects,
+  makes `--load-churn-calls` calls (default `1`), disconnects, repeats.
+  Connect cost is in `churn.connectMs`, not in `latencyMs`.
 - `--load-rate` is closed-loop: busy workers drop slots, which hides
   queueing. Add `--load-open-loop` to keep every slot and time calls from
   their scheduled start (`openLoop: true` in the summary).

@@ -267,6 +267,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-requests <n>`    | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.         |
 | `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
 | `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
+| `--load-churn` / `--load-churn-calls <n>` | Session churn: each worker opens a session, makes `n` calls (default `1`), closes it and repeats; connect times and failures go to `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. As in the [one-shot CLI](../cli/README.md#session-churn---load-churn). |
 | `--load-scenario <file>` | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it. |
 | `--load-args-file <file>` | NDJSON argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Not with `--load-scenario`. |
 | `--load-args-random`     | With `--load-args-file`: pick each call's row at random. |
@@ -327,7 +328,8 @@ connection's own live client is always the first session. The extras belong to
 the run: they never appear in `connections/list`, they are closed when the run
 ends (or the daemon stops), and Ctrl-C cancels their in-flight calls too. Over
 stdio each session would spawn its own server process, so more than one is
-refused there.
+refused there. **Session churn** (`--load-churn`, #2912) opens its sessions the
+same way, one per worker at a time, and lets each go as soon as it is closed.
 
 How a run behaves on a shared daemon connection:
 
