@@ -167,6 +167,9 @@ function summaryProblem(value: unknown): string | undefined {
   ) {
     return "is not a --load summary (latencyMs is neither null nor a set of percentiles)";
   }
+  if (value.stoppedEarly !== undefined && !isRecord(value.stoppedEarly)) {
+    return "has a stoppedEarly field that is not an object";
+  }
   if (value.steps !== undefined) {
     if (!Array.isArray(value.steps))
       return "has a steps field that is not an array";
@@ -223,7 +226,7 @@ export function parseLoadBaseline(text: string, source: string): LoadBaseline {
   if (summary.stoppedEarly !== undefined) {
     throw invalid(
       source,
-      `the baseline run stopped early (${summary.stoppedEarly.reason}), so it is not a baseline`,
+      `the baseline run stopped early (${String(summary.stoppedEarly.reason)}), so it is not a baseline`,
     );
   }
   return { source, summary };
@@ -248,13 +251,21 @@ function shown(value: unknown): string {
   return value === undefined ? "unset" : JSON.stringify(value);
 }
 
-/** The scenario's steps, reduced to what makes two runs comparable. */
-function stepsShape(summary: LoadSummary): string | undefined {
-  return summary.steps === undefined
-    ? undefined
-    : summary.steps
-        .map((s) => `${s.name}:${s.method}:${s.target}:${s.weight}`)
-        .join(",");
+/**
+ * The scenario's steps, reduced to what makes two runs comparable. Kept
+ * structured, so no step name can collide with a delimiter.
+ */
+function stepsShape(
+  summary: LoadSummary,
+):
+  | { name: string; method: string; target: string; weight: number }[]
+  | undefined {
+  return summary.steps?.map(({ name, method, target, weight }) => ({
+    name,
+    method,
+    target,
+    weight,
+  }));
 }
 
 /**

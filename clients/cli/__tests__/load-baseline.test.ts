@@ -141,6 +141,10 @@ describe("parseLoadBaseline", () => {
       "latencyMs is neither null nor a set of percentiles",
     ],
     [
+      JSON.stringify({ ...summary(), stoppedEarly: null }),
+      "stoppedEarly field that is not an object",
+    ],
+    [
       JSON.stringify({ ...summary(), steps: {} }),
       "steps field that is not an array",
     ],
@@ -316,9 +320,21 @@ describe("compareLoadToBaseline", () => {
     expect(
       thrown(() => compareLoadToBaseline(run, base(baseline))).message,
     ).toContain(
-      'scenario steps is "a:tools/call:echo:1" here but "a:tools/call:echo:2"',
+      'scenario steps is [{"name":"a","method":"tools/call","target":"echo","weight":1}] here but [{"name":"a","method":"tools/call","target":"echo","weight":2}]',
     );
     expect(() => compareLoadToBaseline(run, base({ ...run }))).not.toThrow();
+    // A step name holding the old delimiters cannot pass for two steps.
+    const two = summary({
+      tool: undefined,
+      steps: [step, { ...step, name: "b", target: "add" }],
+    });
+    const one = summary({
+      tool: undefined,
+      steps: [{ ...step, name: "a:tools/call:echo:1,b", target: "add" }],
+    });
+    expect(
+      thrown(() => compareLoadToBaseline(two, base(one))).envelope?.code,
+    ).toBe(LOAD_BASELINE_MISMATCH);
   });
 
   describe("stepped runs", () => {
