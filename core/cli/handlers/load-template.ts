@@ -178,6 +178,7 @@ export function parseLoadArgsRows(text: string): LoadArgsRow[] {
     } catch (err) {
       throw new Error(
         `${where}: not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        { cause: err },
       );
     }
     if (

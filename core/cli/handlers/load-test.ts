@@ -1,5 +1,5 @@
 import type { Tool } from "@modelcontextprotocol/client";
-import type { InspectorClient, JsonValue } from "../../mcp/index.js";
+import type { InspectorClient } from "../../mcp/index.js";
 import type { RequestMetadata } from "../../mcp/types.js";
 import { ManagedToolsState } from "../../mcp/state/index.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
