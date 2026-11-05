@@ -1,6 +1,7 @@
 // Tests for dependency-refresh.mjs (#2229) — both the pure parsing/formatting
 // helpers and `main()`'s orchestration, the latter driven through the injected
-// spawn function so no `npm` or `gh` process is ever started.
+// spawn function so no `npm`, `gh` or `curl` process is ever started — the
+// Docker Hub digest lookup (#2885) included, so the suite needs no network.
 //
 // `main()` is covered rather than left to `workflow_dispatch` because a
 // production trigger is not a test (Copilot): the helper-only suite this
@@ -9,6 +10,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   buildClearedBody,
   buildIssueBody,
@@ -16,12 +18,20 @@ import {
   isActionStale,
   main,
   parseActionRefs,
+  parseDigestHeader,
+  parseDockerBaseImage,
   parseOutdated,
   parseVersionRef,
   staleActions,
+  DOCKERFILE,
+  INDEX_MEDIA_TYPES,
   INSTALLS,
   ISSUE_MARKER,
 } from "./dependency-refresh.mjs";
+
+/** The digest the real Dockerfile pins — what a "current" registry answers. */
+const PINNED = parseDockerBaseImage(readFileSync(DOCKERFILE, "utf8")).digest;
+const NEWER = `sha256:${"b".repeat(64)}`;
 
 /**
  * A fake `spawnSync` that answers by command shape and records every call.
@@ -34,6 +44,11 @@ import {
  * @param {string[]} [opts.releaseTags] tags every action's release list returns
  * @param {number} [opts.releasesStatus] exit status for every release lookup
  * @param {string} [opts.releasesStderr] stderr for a failing release lookup
+ * @param {string|null} [opts.registryDigest] digest the manifest HEAD reports
+ *   (defaults to the Dockerfile's own pin, i.e. current); `null` omits the header
+ * @param {number} [opts.tokenStatus] exit status of the Docker Hub token `curl`
+ * @param {string} [opts.tokenStdout] body of the Docker Hub token response
+ * @param {number} [opts.manifestStatus] exit status of the manifest HEAD `curl`
  */
 function fakeSpawn({
   outdated = {},
@@ -43,10 +58,39 @@ function fakeSpawn({
   releaseTags = [],
   releasesStatus,
   releasesStderr = "",
+  registryDigest = PINNED,
+  tokenStatus = 0,
+  tokenStdout = JSON.stringify({ token: "anon-token" }),
+  manifestStatus = 0,
 } = {}) {
   const calls = [];
   const fn = (cmd, args, opts) => {
-    calls.push({ cmd, args, cwd: opts?.cwd });
+    calls.push({ cmd, args, cwd: opts?.cwd, input: opts?.input });
+    if (cmd === "curl") {
+      const url = args[args.length - 1];
+      if (url.startsWith("https://auth.docker.io/token"))
+        return {
+          status: tokenStatus,
+          stdout: tokenStatus ? "" : tokenStdout,
+          stderr: tokenStatus ? "curl: (6) Could not resolve host" : "",
+        };
+      if (url.startsWith("https://registry-1.docker.io/v2/"))
+        return {
+          status: manifestStatus,
+          stdout: manifestStatus
+            ? ""
+            : [
+                "HTTP/1.1 200 OK",
+                "content-type: application/vnd.oci.image.index.v1+json",
+                ...(registryDigest
+                  ? [`Docker-Content-Digest: ${registryDigest}`]
+                  : []),
+                "",
+              ].join("\r\n"),
+          stderr: manifestStatus ? "curl: (22) 401 Unauthorized" : "",
+        };
+      throw new Error(`unexpected curl: ${url}`);
+    }
     if (cmd === "npm") {
       const payload = outdated[opts.cwd] ?? {};
       const found = Object.keys(payload).length > 0;
@@ -529,5 +573,135 @@ test("main asks for release lists, not the designated latest release", () => {
       call.args.includes("--paginate"),
       "release lookup must paginate, or the highest version can be missed",
     );
+  }
+});
+
+const DIGEST = `sha256:${"a".repeat(64)}`;
+
+test("parseDockerBaseImage reads the digest-pinned NODE_IMAGE arg", () => {
+  const dockerfile = [
+    "# syntax=docker/dockerfile:1",
+    `ARG NODE_IMAGE=node:22-slim@${DIGEST}`,
+    "FROM ${NODE_IMAGE} AS builder",
+  ].join("\n");
+  assert.deepEqual(parseDockerBaseImage(dockerfile), {
+    image: "node:22-slim",
+    repository: "library/node",
+    tag: "22-slim",
+    digest: DIGEST,
+  });
+});
+
+test("parseDockerBaseImage reads the repo's own Dockerfile", () => {
+  // Pins the real file's shape: an edit that drops or reshapes the pin fails
+  // here, not first in the monthly run.
+  const base = parseDockerBaseImage(readFileSync(DOCKERFILE, "utf8"));
+  assert.equal(base.repository, "library/node");
+  assert.match(base.digest, /^sha256:[0-9a-f]{64}$/);
+});
+
+test("parseDockerBaseImage fails loudly when the pin is missing or reshaped", () => {
+  // Each of these would otherwise drop the base image out of the sweep
+  // silently and read as "current" forever.
+  assert.throws(
+    () => parseDockerBaseImage("FROM node:22-slim\n"),
+    /no `ARG NODE_IMAGE=`/,
+  );
+  assert.throws(
+    () => parseDockerBaseImage("ARG NODE_IMAGE=node:22-slim\n"),
+    /not an official Docker Hub/,
+  );
+  assert.throws(
+    () => parseDockerBaseImage(`ARG NODE_IMAGE=ghcr.io/o/node:22@${DIGEST}\n`),
+    /not an official Docker Hub/,
+  );
+});
+
+test("parseDigestHeader is case-insensitive and takes the last response's digest", () => {
+  const other = `sha256:${"c".repeat(64)}`;
+  const dump = [
+    "HTTP/1.1 307 Temporary Redirect",
+    `docker-content-digest: ${other}`,
+    "",
+    "HTTP/1.1 200 OK",
+    `Docker-Content-Digest: ${DIGEST}`,
+    "",
+  ].join("\r\n");
+  assert.equal(parseDigestHeader(dump), DIGEST);
+  assert.equal(parseDigestHeader("HTTP/1.1 200 OK\r\n"), null);
+});
+
+test("buildIssueBody renders a Docker base image section with the bump line", () => {
+  const body = buildIssueBody([], [], {
+    image: "node:22-slim",
+    pinned: DIGEST,
+    current: NEWER,
+  });
+  assert.ok(body.startsWith(ISSUE_MARKER));
+  assert.ok(body.includes("### Docker base image"));
+  assert.ok(
+    body.includes(
+      `| \`node:22-slim\` | \`sha256:aaaaaaaaaaaa\` | \`sha256:bbbbbbbbbbbb\` |`,
+    ),
+  );
+  assert.ok(body.includes(`ARG NODE_IMAGE=node:22-slim@${NEWER}`));
+});
+
+test("buildClearedBody covers the base image too", () => {
+  assert.match(buildClearedBody("2026-11-05"), /base-image digest/);
+});
+
+test("main reports a stale base-image digest on its own", () => {
+  const spawn = fakeSpawn({ registryDigest: NEWER });
+  captureLog(() => main("o/r", spawn));
+  const create = ghCall(spawn, "create");
+  assert.ok(create, "a stale digest alone must file the tracking issue");
+  const body = create.args[create.args.indexOf("--body") + 1];
+  assert.ok(body.includes("### Docker base image"));
+  assert.ok(body.includes(`ARG NODE_IMAGE=node:22-slim@${NEWER}`));
+});
+
+test("main asks the registry for the multi-arch index, anonymously", () => {
+  const spawn = fakeSpawn();
+  const log = captureLog(() => main("o/r", spawn));
+  assert.ok(
+    log.some((l) => l.includes("no-op")),
+    "a current pin is not stale",
+  );
+
+  const curls = spawn.calls.filter((c) => c.cmd === "curl");
+  assert.equal(curls.length, 2);
+  const [token, head] = curls;
+  assert.match(
+    token.args.at(-1),
+    /^https:\/\/auth\.docker\.io\/token\?service=registry\.docker\.io&scope=repository:library\/node:pull$/,
+  );
+  assert.equal(
+    head.args.at(-1),
+    "https://registry-1.docker.io/v2/library/node/manifests/22-slim",
+  );
+  // A HEAD that accepts the index types; a single-platform answer would never
+  // match an index pin and would report stale every month.
+  assert.ok(head.args.includes("-fsSIL"));
+  assert.ok(head.args.includes(`Accept: ${INDEX_MEDIA_TYPES.join(", ")}`));
+  // The bearer token travels on stdin, never in argv.
+  assert.ok(!head.args.some((a) => a.includes("anon-token")));
+  assert.match(head.input, /Authorization: Bearer anon-token/);
+});
+
+test("main fails the sweep when the base-image lookup fails", () => {
+  // Each of these read as "no digest" would be indistinguishable from a
+  // current pin.
+  for (const [opts, pattern] of [
+    [{ tokenStatus: 6 }, /Docker Hub token request .* failed/],
+    [{ tokenStdout: "{}" }, /returned no token/],
+    [{ tokenStdout: "<html>" }, /returned no token/],
+    [{ manifestStatus: 22 }, /manifest lookup .* failed.*401/s],
+    [{ registryDigest: null }, /no Docker-Content-Digest header/],
+  ]) {
+    const spawn = fakeSpawn(opts);
+    assert.throws(() => captureLog(() => main("o/r", spawn)), pattern);
+    assert.equal(ghCall(spawn, "create"), undefined);
+    assert.equal(ghCall(spawn, "edit"), undefined);
   }
 });
