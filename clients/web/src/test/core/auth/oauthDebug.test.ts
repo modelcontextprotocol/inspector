@@ -295,6 +295,25 @@ describe("URLs embedded in prose", () => {
     expect(redactUrlsInText("no urls here")).toBe("no urls here");
   });
 
+  it("redacts an uppercase scheme, an apostrophe in a value, and comma-joined URLs", () => {
+    const out = redactUrlsInText(
+      "HTTPS://as.example/token?client_secret=SECRET1 and https://as.example/t?client_secret=prefix'SECRET2, https://a.example/x?code=SECRET3,https://b.example/y?token=SECRET4.",
+    );
+    expect(out).not.toMatch(/SECRET/);
+    // Sentence punctuation after a URL survives, outside the redacted value.
+    expect(out.endsWith(`token=${encodeURIComponent(REDACTED)}.`)).toBe(true);
+  });
+
+  it("matches sensitive field names case-insensitively", () => {
+    expect(redactUrl("https://x.example/cb?Code=abc")).not.toContain("abc");
+    expect(redactFormParams(new URLSearchParams({ Client_Secret: "s" }))).toBe(
+      `Client_Secret=${REDACTED}`,
+    );
+    expect(redactJson({ ACCESS_TOKEN: "a" })).toEqual({
+      ACCESS_TOKEN: REDACTED,
+    });
+  });
+
   it("redacts a URL quoted in an OAuth error_description", () => {
     const summary = describeResponseJson("token request", 401, {
       error: "invalid_client",

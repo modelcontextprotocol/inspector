@@ -160,9 +160,22 @@ function trailingPunctuationStart(match: string): number {
  * toast or screenshot verbatim.
  */
 export function redactUrlsInText(text: string): string {
+  return mapUrlsInText(text, redactUrlQuery);
+}
+
+/**
+ * Apply `redact` to every URL embedded in `text`, with the matching and
+ * trailing-punctuation handling {@link redactUrlsInText} uses. Exported so a
+ * caller with its own per-URL redaction (`--oauth-debug`'s trace, #2844)
+ * finds URLs exactly as this does rather than with a second, weaker pattern.
+ */
+export function mapUrlsInText(
+  text: string,
+  redact: (url: string) => string,
+): string {
   return text.replace(EMBEDDED_URL_PATTERN, (match) => {
     const end = trailingPunctuationStart(match);
-    return redactUrlQuery(match.slice(0, end)) + match.slice(end);
+    return redact(match.slice(0, end)) + match.slice(end);
   });
 }
 

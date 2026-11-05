@@ -29,6 +29,7 @@
  */
 
 import { requestHeadersOf, requestUrlOf } from "./requestTimeout.js";
+import { mapUrlsInText } from "../mcp/fetchTracking.js";
 
 /** Where trace lines go. Each call is one complete line, newline included. */
 export type OAuthDebugWrite = (line: string) => void;
@@ -166,7 +167,7 @@ export function redactUrl(url: string): string {
   }
   let changed = false;
   for (const key of [...parsed.searchParams.keys()]) {
-    if (SENSITIVE_FIELDS.has(key)) {
+    if (SENSITIVE_FIELDS.has(key.toLowerCase())) {
       parsed.searchParams.set(key, REDACTED);
       changed = true;
     }
@@ -174,23 +175,23 @@ export function redactUrl(url: string): string {
   return changed ? parsed.href : url;
 }
 
-/** An absolute http(s) URL inside free text, up to whitespace or a quote. */
-const EMBEDDED_URL = /\bhttps?:\/\/[^\s"'<>]+/g;
-
 /**
  * `text` with {@link redactUrl} applied to every http(s) URL inside it, so a
  * URL quoted in prose — an `error_description`, an error message — loses its
- * credentials too. A string that is itself a URL is one match.
+ * credentials too. A string that is itself a URL is one match. URLs are found
+ * by the matcher the Network log's error redaction uses (`mapUrlsInText`):
+ * case-insensitive scheme, an apostrophe kept inside a query value, and two
+ * comma-joined URLs split apart.
  */
 export function redactUrlsInText(text: string): string {
-  return text.replace(EMBEDDED_URL, (match) => redactUrl(match));
+  return mapUrlsInText(text, redactUrl);
 }
 
 /** A form body rendered as `key=value` pairs, sensitive values redacted. */
 export function redactFormParams(params: URLSearchParams): string {
   return [...params.entries()]
     .map(([key, value]) =>
-      SENSITIVE_FIELDS.has(key)
+      SENSITIVE_FIELDS.has(key.toLowerCase())
         ? `${key}=${REDACTED}`
         : `${key}=${redactUrlsInText(value)}`,
     )
@@ -206,7 +207,9 @@ export function redactJson(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value)) {
-    out[key] = SENSITIVE_FIELDS.has(key) ? REDACTED : redactJson(inner);
+    out[key] = SENSITIVE_FIELDS.has(key.toLowerCase())
+      ? REDACTED
+      : redactJson(inner);
   }
   return out;
 }
