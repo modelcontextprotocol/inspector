@@ -89,6 +89,23 @@ function bucketValue(bucket: number): number {
   return FLOOR_MS * LATENCY_BUCKET_GROWTH ** (bucket - 0.5);
 }
 
+/**
+ * A {@link LatencyRecorder}'s state, plain JSON, for `--load-workers`
+ * (#2914): each worker process sends its own, and merging them gives the
+ * same distribution one recorder fed every sample would have — exact while
+ * the samples are, and the same buckets once they are not.
+ */
+export type LatencySnapshot = {
+  count: number;
+  sum: number;
+  min: number;
+  max: number;
+  /** Exact samples, when the recorder still has them. */
+  samples?: number[];
+  /** Bucket index and count, once it has switched to its histogram. */
+  buckets?: [number, number][];
+};
+
 /** Records latencies in bounded memory; see the module comment. */
 export class LatencyRecorder {
   private count = 0;
@@ -126,6 +143,48 @@ export class LatencyRecorder {
   private bucket(ms: number): void {
     const b = bucketOf(ms);
     this.buckets.set(b, (this.buckets.get(b) ?? 0) + 1);
+  }
+
+  /** This recorder's state, for merging into another (#2914). */
+  snapshot(): LatencySnapshot {
+    return {
+      count: this.count,
+      sum: this.sum,
+      min: this.min,
+      max: this.max,
+      ...(this.samples !== undefined
+        ? { samples: [...this.samples] }
+        : { buckets: [...this.buckets] }),
+    };
+  }
+
+  /**
+   * Fold another recorder's {@link snapshot} in. Exact samples stay exact
+   * while both sides have them and the total fits; otherwise both sides go
+   * to buckets, which add exactly.
+   */
+  merge(other: LatencySnapshot): void {
+    if (other.count === 0) return;
+    this.count += other.count;
+    this.sum += other.sum;
+    if (other.min < this.min) this.min = other.min;
+    if (other.max > this.max) this.max = other.max;
+    if (this.samples !== undefined && other.samples !== undefined) {
+      this.samples.push(...other.samples);
+      if (this.samples.length <= this.exactLimit) return;
+    }
+    if (this.samples !== undefined) {
+      // Everything this side holds, which may now include `other`'s.
+      const held = this.samples;
+      this.samples = undefined;
+      for (const s of held) this.bucket(s);
+      if (other.samples !== undefined) return;
+    } else {
+      for (const s of other.samples ?? []) this.bucket(s);
+    }
+    for (const [b, n] of other.buckets ?? []) {
+      this.buckets.set(b, (this.buckets.get(b) ?? 0) + n);
+    }
   }
 
   /** The distribution, or `null` when nothing was recorded. */

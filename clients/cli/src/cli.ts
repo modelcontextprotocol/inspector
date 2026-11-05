@@ -81,6 +81,18 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
 import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
+import { preflightLoadTools } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  LOAD_WORKER_ENTRY_ENV,
+  forkLoadWorker,
+  processWorkerPort,
+  readLoadShard,
+  runAsLoadWorker,
+  runLoadWorkers,
+  shardLoadOptions,
+  workerArgv,
+  type LoadWorkerHandle,
+} from "@inspector/core/cli/handlers/load-workers.js";
 import {
   checkLoadRegression,
   compareLoadToBaseline,
@@ -209,7 +221,22 @@ async function callMethod(
   load?: LoadOptions,
   loadThresholds?: LoadThresholds,
   loadBaseline?: LoadBaselineGate,
+  /** The CLI's own arguments, for `--load-workers` to re-run (#2914). */
+  invocationArgs: string[] = [],
 ): Promise<void> {
+  // `--load-workers` (#2914) is HTTP/SSE only, like `--load-connections`:
+  // each worker process opens its own session, and over stdio that is its
+  // own server process.
+  if (
+    load?.workers !== undefined &&
+    !isOAuthCapableServerConfig(serverConfig)
+  ) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-workers above 1 requires an HTTP or SSE server; over stdio each worker process would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
   // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
   // spawns its own server process, so N of them test N isolated servers rather
   // than one server under N sessions. Checked before anything connects.
@@ -416,6 +443,27 @@ async function callMethod(
     // mix (#2839) — then a single summary, in place of the one result a
     // plain `tools/call` prints.
     if (load) {
+      // A `--load-workers` worker process (#2914): run its share, send the
+      // results to the parent, print nothing.
+      const shard = readLoadShard();
+      if (shard !== undefined) {
+        await runLoadShard(inspectorClient, args, load, shard);
+        return;
+      }
+      // A `--load-workers` parent (#2914) looks the tools up itself, under
+      // its auth recovery, before any worker starts: the workers are
+      // stored-auth-only, so a login that listing needs must happen here.
+      if (load.workers !== undefined) {
+        await withCliAuthRecoveryRetry(
+          inspectorClient,
+          serverConfig,
+          redirectUrlProvider,
+          callbackUrlConfig,
+          serverSettings,
+          () => preflightLoadTools(inspectorClient, args, load),
+          { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+        );
+      }
       // `--output` (#2838): every measured call as NDJSON. Opened here, after
       // the connect succeeded, and closed whatever the run's outcome.
       const samples =
@@ -424,28 +472,44 @@ async function callMethod(
       // so the partial summary below still gets out.
       let summary: LoadSummary;
       try {
+        const workers = load.workers;
         summary = await withLoadInterrupt(
           (signal) =>
-            withCliAuthRecoveryRetry(
-              inspectorClient,
-              serverConfig,
-              redirectUrlProvider,
-              callbackUrlConfig,
-              serverSettings,
-              () =>
-                runLoadOrFanout(inspectorClient, args, load, {
-                  openConnection: openLoadConnection,
-                  signal,
-                  ...(load.progressMs !== undefined && {
-                    progress: {
-                      everyMs: load.progressMs,
-                      emit: writeLoadProgress,
-                    },
-                  }),
-                  ...(samples && { onSample: samples.write }),
-                }),
-              { storedAuthOnly, autoOpenControl, quiet: args.quiet },
-            ),
+            workers !== undefined
+              ? runLoadWorkers(
+                  workers,
+                  forkSelfAsLoadWorker(invocationArgs, workers),
+                  load,
+                  {
+                    signal,
+                    ...(load.progressMs !== undefined && {
+                      progress: {
+                        everyMs: load.progressMs,
+                        emit: writeLoadProgress,
+                      },
+                    }),
+                  },
+                )
+              : withCliAuthRecoveryRetry(
+                  inspectorClient,
+                  serverConfig,
+                  redirectUrlProvider,
+                  callbackUrlConfig,
+                  serverSettings,
+                  () =>
+                    runLoadOrFanout(inspectorClient, args, load, {
+                      openConnection: openLoadConnection,
+                      signal,
+                      ...(load.progressMs !== undefined && {
+                        progress: {
+                          everyMs: load.progressMs,
+                          emit: writeLoadProgress,
+                        },
+                      }),
+                      ...(samples && { onSample: samples.write }),
+                    }),
+                  { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+                ),
           { quiet: args.quiet },
         );
       } catch (err) {
@@ -1423,6 +1487,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveNumberParser("--load-subscribe-wait"),
     )
     .option(
+      "--load-workers <n>",
+      "With --load: spread the run over this many generator processes, each with its share of --load-concurrency, --load-requests and --load-rate, and merge their results into one summary (positive integer; default 1). For when the generator, not the server, is the bottleneck. HTTP or SSE only; not with --load-steps, --load-ramp, --load-interval, --load-connections, --load-churn, --load-subscribe or --output.",
+      positiveIntegerParser("--load-workers"),
+    )
+    .option(
       "--load-concurrency <n>",
       "With --load: most calls in flight at once (positive integer; default 10).",
       positiveIntegerParser("--load-concurrency"),
@@ -1705,6 +1774,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadSubscribe?: string;
     loadSubscribers?: number;
     loadSubscribeWait?: number;
+    loadWorkers?: number;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
     loadMaxP50?: number;
@@ -1824,6 +1894,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-subscribe", options.loadSubscribe],
     ["--load-subscribers", options.loadSubscribers],
     ["--load-subscribe-wait", options.loadSubscribeWait],
+    ["--load-workers", options.loadWorkers],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
     ["--load-max-p50", options.loadMaxP50],
@@ -1855,6 +1926,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     if (options.outputFormat !== undefined) {
       throw loadFlagConflict(
         "--load cannot be combined with --output-format; --output with --load always writes NDJSON, one line per call.",
+      );
+    }
+    // Each worker process would write its own file (#2914).
+    if (
+      options.output !== undefined &&
+      options.loadWorkers !== undefined &&
+      options.loadWorkers > 1
+    ) {
+      throw loadFlagConflict(
+        "--load-workers cannot be combined with --output; each worker process would write its own samples.",
       );
     }
     // The scenario names each step's tool and arguments (#2839), so a flag
@@ -2266,6 +2347,7 @@ function resolveCliLoadOptions(
     loadSubscribe?: string;
     loadSubscribers?: number;
     loadSubscribeWait?: number;
+    loadWorkers?: number;
     quiet?: boolean;
   },
   thresholds: LoadThresholds | undefined,
@@ -2323,6 +2405,7 @@ function resolveCliLoadOptions(
       subscribe: options.loadSubscribe,
       subscribers: options.loadSubscribers,
       subscribeWaitSec: options.loadSubscribeWait,
+      workers: options.loadWorkers,
       // Progress is on by default and `--quiet` turns it off (#2838).
       ...(options.quiet !== true && {
         progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
@@ -2331,6 +2414,51 @@ function resolveCliLoadOptions(
   } catch (err) {
     throw loadFlagConflict((err as Error).message);
   }
+}
+
+/**
+ * The spawner for `--load-workers` (#2914): this same command, re-run as a
+ * child process without `--load-workers`. Normally that is this process's
+ * own entry and arguments — the CLI bin, or the launcher with its `--cli`
+ * — so a worker starts exactly as its parent did. `invocationArgs` (what
+ * `runCli` was handed) are used only with {@link LOAD_WORKER_ENTRY_ENV},
+ * which in-process tests set because their process's entry is the runner.
+ */
+function forkSelfAsLoadWorker(
+  invocationArgs: string[],
+  count: number,
+): (index: number) => LoadWorkerHandle {
+  const override = process.env[LOAD_WORKER_ENTRY_ENV];
+  const entry = override ?? process.argv[1]!;
+  const args = workerArgv(override ? invocationArgs : process.argv.slice(2));
+  return (index) => forkLoadWorker(entry, args, index, count);
+}
+
+/**
+ * A `--load-workers` worker process (#2914): its share of the run, stopped
+ * by its parent or by its own Ctrl+C, with its summary and raw stats sent
+ * to the parent instead of printed.
+ */
+async function runLoadShard(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  load: LoadOptions,
+  shard: { index: number; count: number },
+): Promise<void> {
+  const options = shardLoadOptions(load, shard.index, shard.count);
+  await withLoadInterrupt(
+    (interrupt) =>
+      runAsLoadWorker(processWorkerPort(), (worker) =>
+        runLoadOrFanout(inspectorClient, args, options, {
+          signal: AbortSignal.any([interrupt, worker.signal]),
+          ...(options.progressMs !== undefined && {
+            progress: { everyMs: options.progressMs, emit: worker.progress },
+          }),
+          observe: worker.observe,
+        }),
+      ),
+    { quiet: true },
+  );
 }
 
 /**
@@ -2435,12 +2563,15 @@ async function runParsedCli(argv?: string[]): Promise<void> {
       clientMetadataUrl,
     },
     callbackUrlConfig,
-    storedAuthOnly === true,
+    // A `--load-workers` worker (#2914) never starts a login: its parent
+    // connected first, and N workers must not open N browsers.
+    storedAuthOnly === true || readLoadShard() !== undefined,
     relogin === true,
     revoke !== false,
     oauthDebug === true,
     load,
     loadThresholds,
     loadBaseline,
+    (argv ?? process.argv).slice(2),
   );
 }

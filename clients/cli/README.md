@@ -159,6 +159,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
 | `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-churn`                | With `--load`: session churn. Each worker connects, makes `--load-churn-calls` calls, disconnects, and repeats; connect times and failures are reported in `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. See [Session churn](#session-churn---load-churn). |
+| `--load-workers <n>`          | With `--load`: spread the run over `n` generator processes, each with its share of `--load-concurrency`, `--load-requests` and `--load-rate`, and merge their results into one summary. HTTP/SSE only. See [Multi-process generation](#multi-process-generation---load-workers). |
 | `--load-subscribe <uri>`      | With `--load`: notification fan-out. Subscribe `--load-subscribers` sessions to this resource and report how `notifications/resources/updated` reaches them, in `fanout`. With `--tool-name` (or `--load-scenario`) each successful call is a trigger; without one the run listens for `--load-duration`. See [Notification fan-out](#notification-fan-out---load-subscribe). |
 | `--load-subscribers <n>`      | With `--load-subscribe`: sessions to subscribe, this connection included (default `1`; above `1` HTTP/SSE only). |
 | `--load-subscribe-wait <sec>` | With `--load-subscribe`: how long subscribers get to catch up after the run before a notification counts as missed (default `2`). |
@@ -561,6 +562,57 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name sear
   so slots lost to failed or late connects show as `droppedSlots`.
 - Warm-up sessions (`--load-warmup`) count in `churn`. A session still open
   when the run ends is closed then.
+
+##### Multi-process generation (`--load-workers`)
+
+One Node process has a ceiling: measured against a bare SDK client it trailed
+by ~18% at concurrency 10–50, so at high load the **generator** can become the
+bottleneck rather than the server. `--load-workers <n>`
+([#2914](https://github.com/modelcontextprotocol/inspector/issues/2914)) spreads
+one run over `n` processes:
+
+```bash
+# 400 in flight, 4000 calls/s, over 4 generator processes
+mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-concurrency 400 --load-rate 4000 \
+  --load-duration 60 --load-workers 4
+```
+
+- **One run, split.** The CLI connects once (so any login happens before a
+  worker starts), then re-runs its own command as `n` child processes. Each
+  takes its share of `--load-concurrency`, `--load-requests` and
+  `--load-rate`, split as evenly as integers allow, connects with **stored
+  credentials only**, and runs the engine. Everything else (duration, warm-up,
+  scenario, argument rows, open loop) applies to every worker as given.
+- **One summary, merged exactly.** Each worker sends back its counts, error
+  tallies and latency histograms, and the CLI merges them as if one recorder
+  had seen every call. `elapsedMs` is the slowest worker's; the
+  `--load-rate` figures add up. The summary gains `"workers": n`, and
+  thresholds and `--load-baseline` judge the merged result.
+- **One stop reaches every worker.** If one worker's circuit breaker trips, the
+  CLI stops the rest with the same `stoppedEarly` reason. Ctrl+C stops them
+  all and still prints the merged partial summary. If a worker fails outright,
+  the run exits with that worker's exit code (`load_worker_failed`) once the
+  rest have stopped.
+- **The rate and the mix hold across processes.** Each worker runs
+  `--load-rate / n` on a grid offset by its share of one interval, so the
+  processes interleave into the run's even spacing rather than all starting at
+  once. Each runs the whole `--load-scenario` cycle itself, starting a step
+  further in than the one before, so the mix holds whatever each step costs.
+  Processes start a few milliseconds apart, which shifts their grids by as
+  much.
+- **`{{seq}}` and `{{worker}}` stay unique** across processes: worker
+  process `i` of `n` numbers its calls `i+1`, `i+1+n`, `i+1+2n`, and so on. A
+  sequential `--load-args-file` still cycles on each process's own count, so
+  every process runs every row.
+- **Progress lines** add up every worker's latest report. Their p50 and p99
+  are the slowest worker's, since percentiles do not add. The final summary's
+  latencies are exact.
+- `n` may not exceed `--load-concurrency` or `--load-requests`, since every
+  worker needs a call in flight and one to make. HTTP and SSE only, because
+  each worker opens its own session. Not combined with `--load-steps` /
+  `--load-ramp`, `--load-interval`, `--load-connections`, `--load-churn`,
+  `--load-subscribe` or `--output`.
 
 ##### Notification fan-out (`--load-subscribe`)
 

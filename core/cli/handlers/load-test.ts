@@ -24,6 +24,7 @@ import { loadThresholdBreaches } from "./load-thresholds.js";
 import {
   LatencyRecorder,
   summarizeLatency,
+  type LatencySnapshot,
   type LoadLatency,
 } from "./load-latency.js";
 import type { LoadFanoutOptions, LoadFanoutSummary } from "./load-fanout.js";
@@ -111,6 +112,16 @@ export type LoadOptions = {
    * hands the rest of these options to the engine as the triggers.
    */
   fanout?: LoadFanoutOptions;
+  /**
+   * `--load-workers` (#2914): the processes to spread the run over. Read by
+   * the CLI, which forks them; the engine itself never sees more than one.
+   */
+  workers?: number;
+  /**
+   * Set in a worker process (#2914): its index among `count`, so the `seq`
+   * and `worker` its calls see stay unique across every process.
+   */
+  shard?: { index: number; count: number };
 };
 
 /**
@@ -243,6 +254,8 @@ export type LoadSummary = {
   churn?: LoadChurnSummary;
   /** `--load-subscribe` only (#2913): how the notifications fanned out. */
   fanout?: LoadFanoutSummary;
+  /** `--load-workers` only (#2914): the processes the run was spread over. */
+  workers?: number;
 };
 
 /**
@@ -440,9 +453,12 @@ export function resolveLoadOptions(flags: {
   subscribers?: number;
   /** `--load-subscribe-wait` (#2913); needs `subscribe`. */
   subscribeWaitSec?: number;
+  /** `--load-workers` (#2914). */
+  workers?: number;
 }): LoadOptions {
   const { stages } = flags;
   assertFanoutFlags(flags);
+  assertWorkerFlags(flags);
   if (flags.churnCalls !== undefined && flags.churn !== true) {
     throw new Error("--load-churn-calls requires --load-churn.");
   }
@@ -517,6 +533,8 @@ export function resolveLoadOptions(flags: {
         callsPerSession: flags.churnCalls ?? DEFAULT_LOAD_CHURN_CALLS,
       },
     }),
+    ...(flags.workers !== undefined &&
+      flags.workers > 1 && { workers: flags.workers }),
     ...(flags.subscribe !== undefined && {
       fanout: {
         uri: flags.subscribe,
@@ -526,6 +544,50 @@ export function resolveLoadOptions(flags: {
       },
     }),
   };
+}
+
+/**
+ * The `--load-workers` refusals (#2914). Each worker process runs its share
+ * of one plain window and sends back mergeable totals, so the modes whose
+ * results are per-stage, per-bucket or per-session — and would each need a
+ * merge of their own — are not combined with it. Every process needs at
+ * least one call in flight, and one to make.
+ */
+function assertWorkerFlags(flags: {
+  workers?: number;
+  concurrency?: number;
+  requests?: number;
+  connections?: number;
+  stages?: LoadStages;
+  intervalSec?: number;
+  churn?: boolean;
+  subscribe?: string;
+}): void {
+  const { workers } = flags;
+  if (workers === undefined || workers <= 1) return;
+  const conflicts = [
+    ["--load-steps or --load-ramp", flags.stages !== undefined],
+    ["--load-interval", flags.intervalSec !== undefined],
+    ["--load-connections", flags.connections !== undefined],
+    ["--load-churn", flags.churn === true],
+    ["--load-subscribe", flags.subscribe !== undefined],
+  ] as const;
+  for (const [flag, given] of conflicts) {
+    if (given) {
+      throw new Error(`--load-workers cannot be combined with ${flag}.`);
+    }
+  }
+  const concurrency = flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY;
+  if (concurrency < workers) {
+    throw new Error(
+      `--load-workers (${workers}) cannot exceed --load-concurrency (${concurrency}); every worker process needs at least one call in flight.`,
+    );
+  }
+  if (flags.requests !== undefined && flags.requests < workers) {
+    throw new Error(
+      `--load-workers (${workers}) cannot exceed --load-requests (${flags.requests}); every worker process needs at least one call to make.`,
+    );
+  }
 }
 
 /** Default `--load-subscribe-wait` (#2913), in seconds. */
@@ -706,6 +768,23 @@ export class ErrorTally {
     else this.other++;
   }
 
+  /** This tally's state, for merging into another (#2914). */
+  snapshot(): ErrorTallySnapshot {
+    return { counts: [...this.counts], other: this.other };
+  }
+
+  /** Fold another tally's {@link snapshot} in, under the same cap. */
+  merge(other: ErrorTallySnapshot): void {
+    for (const [message, count] of other.counts) {
+      const mine = this.counts.get(message);
+      if (mine !== undefined) this.counts.set(message, mine + count);
+      else if (this.counts.size < MAX_ERROR_KINDS) {
+        this.counts.set(message, count);
+      } else this.other += count;
+    }
+    this.other += other.other;
+  }
+
   entries(): { message: string; count: number }[] {
     const list = [...this.counts].map(([message, count]) => ({
       message,
@@ -717,11 +796,44 @@ export class ErrorTally {
   }
 }
 
+/** An {@link ErrorTally}'s state, plain JSON (#2914). */
+export type ErrorTallySnapshot = {
+  counts: [string, number][];
+  other: number;
+};
+
+/** An {@link OutcomeStats}'s state, plain JSON, for `--load-workers` (#2914). */
+export type OutcomeSnapshot = {
+  ok: number;
+  toolErrors: number;
+  errors: number;
+  okLatencies: LatencySnapshot;
+  errorLatencies: LatencySnapshot;
+  tally: ErrorTallySnapshot;
+  toolTally: ErrorTallySnapshot;
+};
+
+/**
+ * What a measured window recorded, mergeable across `--load-workers`
+ * processes (#2914): its totals and, with a scenario, each step's.
+ */
+export type LoadRawStats = {
+  total: OutcomeSnapshot;
+  steps?: OutcomeSnapshot[];
+  /**
+   * With `--load-rate`: the calls started, the window (ms from the
+   * window's start) they were started in, and when the last one started —
+   * so a merge can compute the rate over one common window rather than add
+   * rates over different ones.
+   */
+  rate?: { started: number; windowMs: number; lastStartMs: number };
+};
+
 /**
  * The outcome counts, latencies and message tallies of a set of calls. A run
  * keeps one for its totals and, with a scenario (#2839), one per step.
  */
-class OutcomeStats {
+export class OutcomeStats {
   ok = 0;
   toolErrors = 0;
   errors = 0;
@@ -771,6 +883,30 @@ class OutcomeStats {
     return this.ok + this.toolErrors + this.errors;
   }
 
+  /** This set's state, for merging into another (#2914). */
+  snapshot(): OutcomeSnapshot {
+    return {
+      ok: this.ok,
+      toolErrors: this.toolErrors,
+      errors: this.errors,
+      okLatencies: this.okLatencies.snapshot(),
+      errorLatencies: this.errorLatencies.snapshot(),
+      tally: this.tally.snapshot(),
+      toolTally: this.toolTally.snapshot(),
+    };
+  }
+
+  /** Fold another set's {@link snapshot} in. */
+  merge(other: OutcomeSnapshot): void {
+    this.ok += other.ok;
+    this.toolErrors += other.toolErrors;
+    this.errors += other.errors;
+    this.okLatencies.merge(other.okLatencies);
+    this.errorLatencies.merge(other.errorLatencies);
+    this.tally.merge(other.tally);
+    this.toolTally.merge(other.toolTally);
+  }
+
   summarize(elapsedMs: number): LoadOutcomeSummary {
     const completed = this.completed;
     return {
@@ -794,10 +930,19 @@ class OutcomeStats {
 }
 
 /** The step picker for a scenario, or step 0 forever without one. */
-function scenarioPicker(scenario: LoadScenario | undefined): () => number {
-  return scenario
-    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
-    : () => 0;
+function scenarioPicker(
+  scenario: LoadScenario | undefined,
+  shard?: { index: number; count: number },
+): () => number {
+  if (!scenario) return () => 0;
+  const pick = createWeightedPicker(scenario.steps.map((s) => s.weight));
+  if (shard === undefined) return pick;
+  // A `--load-workers` process (#2914) runs the whole weighted cycle itself,
+  // so its own mix holds whatever each step costs, but starts `index` picks
+  // into it: the processes' first calls then cover the steps together, as
+  // one picker's would, instead of every process opening on the heaviest.
+  for (let skip = shard.index; skip > 0; skip--) pick();
+  return pick;
 }
 
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
@@ -949,6 +1094,7 @@ export function runLoad(
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
   sessions?: LoadSessionHooks,
+  observe?: LoadRunObserver,
 ): Promise<LoadSummary> {
   if (options.stages) {
     return runStages(
@@ -972,6 +1118,7 @@ export function runLoad(
       progress,
       onSample,
       sessions,
+      observe,
     );
   }
   return runWindow(call, options, clock, signal, undefined, false, {
@@ -979,7 +1126,39 @@ export function runLoad(
     phase: "run",
     ...(onSample && { onSample }),
     ...(sessions && { sessions }),
+    ...(observe && { observe }),
   });
+}
+
+/**
+ * What a `--load-workers` worker process (#2914) watches a run for: the
+ * measured window's mergeable stats as it ends (`raw`), and the moment the
+ * run stops early (`stop`) — reported as it happens, before in-flight calls
+ * drain, so the parent can stop the other workers at once.
+ */
+export type LoadRunObserver = {
+  raw?: (raw: LoadRawStats) => void;
+  stop?: (stop: LoadStop) => void;
+};
+
+/**
+ * A call's `{{seq}}` and `{{worker}}` in worker process `index` of `count`
+ * (#2914): interleaved, so process 0 numbers 1, 1+count, … and process 1
+ * numbers 2, 2+count, …, and none repeats another's. Unchanged without one.
+ */
+export function shardContext(
+  seq: number,
+  worker: number,
+  shard: { index: number; count: number } | undefined,
+): LoadCallContext {
+  if (shard === undefined) return { seq, worker };
+  return {
+    seq: (seq - 1) * shard.count + shard.index + 1,
+    worker: worker * shard.count + shard.index,
+    // `--load-args-file` rows cycle on the process's own count, so every
+    // process runs every row, not the one its interleaved `seq` lands on.
+    row: seq,
+  };
 }
 
 /**
@@ -1007,6 +1186,8 @@ type WindowProgress = {
   seqOffset?: number;
   /** `--load-churn` session hooks (#2912). */
   sessions?: LoadSessionHooks;
+  /** `--load-workers` (#2914): see {@link LoadRunObserver}. */
+  observe?: LoadRunObserver;
   /**
    * Set to the slots this window numbered, once it ends. Not always its
    * `requests`: a `--load-churn` slot whose session failed to open (#2912)
@@ -1034,6 +1215,7 @@ async function runWithWarmup(
   progress: LoadProgressHook | undefined,
   onSample: LoadSampleSink | undefined,
   sessions: LoadSessionHooks | undefined,
+  observe: LoadRunObserver | undefined,
 ): Promise<LoadSummary> {
   const numbered = { slots: 0 };
   const warm = await runWindow(
@@ -1055,6 +1237,8 @@ async function runWithWarmup(
       phase: "warmup",
       numbered,
       ...(sessions && { sessions }),
+      // The stop only: a warm-up's stats are not the run's.
+      ...(observe?.stop && { observe: { stop: observe.stop } }),
     },
   );
   const warmup: LoadWarmupSummary = {
@@ -1088,6 +1272,7 @@ async function runWithWarmup(
       seqOffset: offset,
       ...(onSample && { onSample }),
       ...(sessions && { sessions }),
+      ...(observe && { observe }),
     },
   );
   return { ...summary, warmup };
@@ -1153,7 +1338,7 @@ async function runWindow(
     step,
     stats: new OutcomeStats(),
   }));
-  const pickStep = sink?.pickStep ?? scenarioPicker(scenario);
+  const pickStep = sink?.pickStep ?? scenarioPicker(scenario, options.shard);
   let started = 0;
   // Calls actually started, for the `--load-rate` figures. Equal to `started`
   // except under `--load-churn` (#2912), where a slot whose session failed to
@@ -1174,8 +1359,16 @@ async function runWindow(
         })
       : undefined;
   const interval = rate === undefined ? 0 : 1000 / rate;
+  // `--load-workers` (#2914): each process runs `rate / count` on a grid of
+  // its own, offset by its share of one interval of the whole run's grid, so
+  // the processes interleave into the run's even spacing instead of all
+  // starting a call at once.
+  const gridStart =
+    options.shard !== undefined
+      ? start + (options.shard.index * interval) / options.shard.count
+      : start;
   // Earliest time the next slot may start.
-  let nextStart = start;
+  let nextStart = gridStart;
   // When the latest call actually started. Open loop's `nextStart` is the
   // arrival schedule, which a saturated run lags far behind (#2838).
   let lastStartAt = start;
@@ -1196,6 +1389,7 @@ async function runWindow(
     stoppedEarly = stop;
     stoppedAt = clock.now();
     halt.abort();
+    progress?.observe?.stop?.(stop);
   };
   const onAbort = (): void => {
     stopRun(stopFromAbort(signal?.reason));
@@ -1443,8 +1637,8 @@ async function runWindow(
       const after = openLoop
         ? Math.max(
             nextStart,
-            start +
-              (Math.floor((lastStartAt - start) / interval) + 1) * interval,
+            gridStart +
+              (Math.floor((lastStartAt - gridStart) / interval) + 1) * interval,
           )
         : nextStart;
       windowEnd = Math.min(windowEnd, after);
@@ -1455,6 +1649,17 @@ async function runWindow(
     return Number.isFinite(windowEnd) ? windowEnd : end;
   };
   if (progress?.numbered) progress.numbered.slots = started;
+  progress?.observe?.raw?.({
+    ...(rate !== undefined && {
+      rate: {
+        started: callsStarted,
+        windowMs: startWindowEnd() - start,
+        lastStartMs: lastStartAt - start,
+      },
+    }),
+    total: total.snapshot(),
+    ...(stepRuns && { steps: stepRuns.map((r) => r.stats.snapshot()) }),
+  });
   const totals = total.summarize(elapsedMs);
   return {
     concurrency,
@@ -1465,6 +1670,9 @@ async function runWindow(
       rateFigures(rate, {
         started: callsStarted,
         windowMs: startWindowEnd() - start,
+        // A `--load-workers` process's grid starts late (#2914): its slots
+        // are counted from there, its rate over the run's whole window.
+        slotWindowMs: Math.max(0, startWindowEnd() - gridStart),
       })),
     // Spelled out rather than spread, to keep the summary's established key
     // order: `elapsedMs` sits between the counts and the throughputs.
@@ -1748,7 +1956,7 @@ function stepSummary(
  */
 function rateFigures(
   rate: number,
-  run: { started: number; windowMs: number },
+  run: { started: number; windowMs: number; slotWindowMs?: number },
 ): Pick<
   LoadSummary,
   "rate" | "plannedStarts" | "droppedSlots" | "achievedRate"
@@ -1756,7 +1964,9 @@ function rateFigures(
   const { started, windowMs } = run;
   // The slots at 0, 1/rate, … that fall inside the window. The epsilon keeps
   // floating-point noise (5000ms × 0.001/ms = 5.000000001) from adding one.
-  const slots = Math.ceil((windowMs * rate) / 1000 - 1e-9);
+  const slots = Math.ceil(
+    ((run.slotWindowMs ?? windowMs) * rate) / 1000 - 1e-9,
+  );
   // Not capped at `--load-requests`: a request-bound run that was saturated
   // throughout still missed slots while it was starting its calls, and a cap
   // would report none. The limit bounds what is started, not the grid.
@@ -1804,7 +2014,12 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
   onClosed?: (connection: C) => void,
+  observe?: LoadRunObserver,
 ): Promise<LoadSummary> {
+  // `--load-workers` (#2914): each process numbers its own calls and
+  // workers, so they are spread to stay unique across the processes.
+  const ctx = (seq: number, worker: number): LoadCallContext =>
+    shardContext(seq, worker, options.shard);
   if (options.churn) {
     if (!openConnection) {
       throw new Error("--load-churn needs a way to open connections.");
@@ -1824,12 +2039,14 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
     return runLoad(
-      (worker, step, seq) => callOn(primary, step, { seq, worker }),
+      (worker, step, seq) => callOn(primary, step, ctx(seq, worker)),
       options,
       clock,
       signal,
       progress,
       onSample,
+      undefined,
+      observe,
     );
   }
   if (!openConnection) {
@@ -1861,7 +2078,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
     const pool = [primary, ...extras];
     const summary = await runLoad(
       (worker, step, seq) =>
-        callOn(pool[worker % pool.length]!, step, { seq, worker }),
+        callOn(pool[worker % pool.length]!, step, ctx(seq, worker)),
       options,
       clock,
       signal,
@@ -2023,6 +2240,7 @@ export async function runToolLoad(
     extra.progress,
     extra.onSample,
     extra.onConnectionClosed,
+    extra.observe,
   );
   return { tool: tool!.name, ...summary };
 }
@@ -2044,6 +2262,8 @@ export type LoadRunExtras = {
    * one per session.
    */
   onConnectionClosed?: (connection: InspectorClient) => void;
+  /** `--load-workers` (#2914): see {@link LoadRunObserver}. */
+  observe?: LoadRunObserver;
 };
 
 /**
@@ -2134,7 +2354,30 @@ export async function runScenarioLoad(
     extra.progress,
     extra.onSample,
     extra.onConnectionClosed,
+    extra.observe,
   );
+}
+
+/**
+ * Look up every tool a run will call, and nothing else (#2914). A
+ * `--load-workers` parent runs it under its auth recovery before forking, so
+ * a server that needs a login (or a wider scope) to list its tools gets it
+ * from the one interactive process, and a missing tool fails once, with exit
+ * 5, rather than in every worker.
+ */
+export async function preflightLoadTools(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  options: LoadOptions,
+): Promise<void> {
+  const names = options.scenario
+    ? options.scenario.steps.flatMap((s) =>
+        s.method === "tools/call" ? [s.tool] : [],
+      )
+    : args.toolName !== undefined
+      ? [args.toolName]
+      : [];
+  if (names.length > 0) await findTools(inspectorClient, args, names);
 }
 
 /** `--metadata` under a step's own `meta`, or `undefined` when neither is set. */
