@@ -33,6 +33,10 @@ import {
 const NO_REFUSALS: FetchRefusal[] = [];
 const readFetchRefusals = (client: InspectorClient): FetchRefusal[] =>
   client.getFetchRefusals();
+import {
+  accessTokenDetailLines,
+  summarizeAccessToken,
+} from "@inspector/core/auth/accessTokenClaims.js";
 
 interface AuthTabProps {
   serverName: string | null;
@@ -321,6 +325,14 @@ export function AuthTab({
   }
 
   const scopes = oauthState ? formatScopes(oauthState) : undefined;
+  // Decoded (unverified) claims, or the token response's scope/expires_in for
+  // an opaque token (#2845). Relative times are as of this render.
+  const tokenDetails = oauthState?.tokens?.access_token
+    ? accessTokenDetailLines(
+        summarizeAccessToken(oauthState.tokens),
+        Date.now(),
+      )
+    : [];
 
   return (
     <Box width={width} height={height} flexDirection="column" paddingX={1}>
@@ -480,6 +492,18 @@ export function AuthTab({
                   </Text>
                 )}
               </Box>
+              {tokenDetails.length > 0 && (
+                <Box marginTop={1} flexDirection="column" gap={0}>
+                  <Text bold>Access Token Details</Text>
+                  {tokenDetails.map((line) => (
+                    <OAuthDetailRow
+                      key={line.label}
+                      label={line.label}
+                      value={line.value}
+                    />
+                  ))}
+                </Box>
+              )}
             </Box>
           ) : (
             oauthStatus !== "authenticating" && (

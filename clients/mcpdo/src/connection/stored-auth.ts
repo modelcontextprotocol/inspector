@@ -6,6 +6,10 @@ import {
 } from "@inspector/core/auth/node/storage-node.js";
 import { readOAuthStore } from "@inspector/core/auth/node/oauth-persist-file.js";
 import {
+  summarizeAccessToken,
+  type AccessTokenSummary,
+} from "@inspector/core/auth/accessTokenClaims.js";
+import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
@@ -113,6 +117,33 @@ export async function resolveStoredAuthKey(key: string): Promise<string> {
     `No stored auth entry for '${trimmed}'. Use auth/list to see keys.`,
     { code: "usage" },
   );
+}
+
+export type StoredAuthShow = {
+  url: string;
+  hasTokens: boolean;
+  hasRefreshToken: boolean;
+  /**
+   * Decoded (unverified) claims for a JWT access token, or the token
+   * response's scope / expires_in for an opaque one (#2845). Never the token
+   * itself — this output is meant to be pasted into an issue.
+   */
+  accessToken?: AccessTokenSummary;
+};
+
+/** Read one server's stored access token and summarise it for display. */
+export async function showStoredAuth(key: string): Promise<StoredAuthShow> {
+  const url = await resolveStoredAuthKey(key);
+  const tokens = await new NodeOAuthStorage().getTokens(url);
+  if (!tokens?.access_token) {
+    return { url, hasTokens: false, hasRefreshToken: false };
+  }
+  return {
+    url,
+    hasTokens: true,
+    hasRefreshToken: Boolean(tokens.refresh_token),
+    accessToken: summarizeAccessToken(tokens),
+  };
 }
 
 /** Clear one server's OAuth state from the shared store. */

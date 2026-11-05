@@ -69,7 +69,7 @@ Variables with no flag of their own — the secret store, `MCP_INSPECTOR_LOG_DIR
 1. Select an HTTP/SSE server and press **C** to connect.
 2. If authorization is required, the TUI starts OAuth automatically (browser opens for sign-in).
 3. After the callback completes, connect finishes without a second **C**.
-4. Use the **Auth** tab to inspect OAuth state (same fields as web Connection Info) or **Clear OAuth state** (disconnects when connected). Clearing also revokes the grant at the authorization server when it advertises an RFC 7009 `revocation_endpoint` — best-effort, with any failure reported in the status line and the local clear finishing regardless. Set `oauth.revokeOnClear: false` on the server entry to skip it ([#2144](https://github.com/modelcontextprotocol/inspector/issues/2144)).
+4. Use the **Auth** tab to inspect OAuth state (same fields as web Connection Info), including the access token's decoded claims — issuer, audience, subject, scopes, issued-at and expiry relative to now (unverified; for an opaque token, the `scope` / `expires_in` the token response carried) ([#2845](https://github.com/modelcontextprotocol/inspector/issues/2845)) — or **Clear OAuth state** (disconnects when connected). Clearing also revokes the grant at the authorization server when it advertises an RFC 7009 `revocation_endpoint` — best-effort, with any failure reported in the status line and the local clear finishing regardless. Set `oauth.revokeOnClear: false` on the server entry to skip it ([#2144](https://github.com/modelcontextprotocol/inspector/issues/2144)).
 
 See also [EMA / enterprise-managed auth](../../specification/v2_auth_ema.md) and [OAuth smoke testing](../../specification/v2_auth_smoke_testing.md) for staging servers and verification steps.
 

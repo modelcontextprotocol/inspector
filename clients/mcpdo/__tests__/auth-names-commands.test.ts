@@ -8,6 +8,7 @@ const callDaemon = vi.fn();
 const listServerEntries = vi.fn();
 const listStoredAuth = vi.fn();
 const clearStoredAuth = vi.fn();
+const showStoredAuth = vi.fn();
 
 // Stub only the three reaches of the auth commands; importOriginal keeps the
 // rest (including the real normalizeServerUrl / buildAuthNameIndex) intact, so
@@ -33,6 +34,7 @@ vi.mock("../src/connection/stored-auth.js", async (importOriginal) => ({
   >()),
   listStoredAuth: (...args: unknown[]) => listStoredAuth(...args),
   clearStoredAuth: (...args: unknown[]) => clearStoredAuth(...args),
+  showStoredAuth: (...args: unknown[]) => showStoredAuth(...args),
 }));
 
 const { runMcp } = await import("./helpers/mcp-runner.js");
@@ -58,6 +60,10 @@ beforeEach(() => {
     servers: [],
   });
   clearStoredAuth.mockImplementation((url: string) => Promise.resolve({ url }));
+  showStoredAuth.mockReset();
+  showStoredAuth.mockImplementation((url: string) =>
+    Promise.resolve({ url, hasTokens: false, hasRefreshToken: false }),
+  );
 });
 
 describe("auth/list friendly-name annotation", () => {
@@ -234,5 +240,36 @@ describe("auth/clear by friendly name", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("No server named 'nope'");
     expect(clearStoredAuth).not.toHaveBeenCalled();
+  });
+});
+
+// #2845 — auth/show resolves its key exactly as auth/clear does.
+describe("auth/show by friendly name", () => {
+  it("resolves a catalog name to its URL", async () => {
+    listServerEntries.mockResolvedValue([
+      { name: "hosted", type: "streamable-http", detail: URL_A },
+    ]);
+    const result = await runMcp(["auth/show", "hosted", "--format", "json"]);
+    expect(showStoredAuth).toHaveBeenCalledWith(URL_A);
+    expect(JSON.parse(result.stdout.trim())).toEqual({
+      url: URL_A,
+      hasTokens: false,
+      hasRefreshToken: false,
+      shownByName: "hosted",
+    });
+
+    const human = await runMcp(["auth/show", "hosted"]);
+    expect(human.stdout).toContain("(hosted)");
+    expect(human.stdout).toContain("No stored access token.");
+  });
+
+  it("says 'show' in the stdio-name error", async () => {
+    listServerEntries.mockResolvedValue([
+      { name: "local", type: "stdio", detail: "node server.js" },
+    ]);
+    const result = await runMcp(["auth/show", "local"]);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("no stored OAuth entry to show");
+    expect(showStoredAuth).not.toHaveBeenCalled();
   });
 });

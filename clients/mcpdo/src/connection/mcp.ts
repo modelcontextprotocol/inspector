@@ -107,6 +107,7 @@ import {
   clearStoredAuthForRelogin,
   listStoredAuth,
   normalizeServerUrl,
+  showStoredAuth,
 } from "./stored-auth.js";
 import {
   type AuthNameIndex,
@@ -795,6 +796,62 @@ async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
   return buildAuthNameIndex(entries, connections);
 }
 
+/**
+ * Resolve an `auth/clear` / `auth/show` key argument to a store key.
+ *
+ * A URL argument — or any string that is already an exact key in the store
+ * (e.g. an `ema-idp:<issuer>` EMA login key, which auth/list shows verbatim) —
+ * keeps the direct store-key path. Only a bare friendly name falls through to
+ * catalog + live-connection resolution, and only then is `byName` set.
+ */
+async function resolveAuthKeyArgument(
+  trimmed: string,
+  opts: GlobalOpts,
+  action: "clear" | "show",
+): Promise<{ key: string; byName?: string }> {
+  const storedKeys = (await listStoredAuth()).servers.map((s) => s.url);
+  if (storedKeys.includes(trimmed)) return { key: trimmed };
+  if (/^https?:\/\//i.test(trimmed)) {
+    // auth/list renders an EMA IdP login by its bare issuer URL (prefix
+    // hidden), so accept that issuer here and map it back to the prefixed
+    // store key — preferring a real server entry on the off chance both
+    // exist. Otherwise fall through to the store's own URL handling.
+    const idpKey = idpOAuthStorageKey(trimmed);
+    const key =
+      storedKeys.includes(idpKey) &&
+      !storedKeys.includes(normalizeServerUrl(trimmed))
+        ? idpKey
+        : trimmed;
+    return { key };
+  }
+  const index = await collectAuthNameIndex(opts);
+  const resolution = resolveFriendlyName(trimmed, index);
+  switch (resolution.kind) {
+    case "no-url":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `'${trimmed}' is a stdio server — it has no stored OAuth entry to ${action}.`,
+        { code: "usage" },
+      );
+    case "ambiguous":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `'${trimmed}' maps to multiple server URLs (${resolution.urls.join(
+          ", ",
+        )}). Pass the explicit URL from auth/list.`,
+        { code: "usage" },
+      );
+    case "unknown":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `No server named '${trimmed}'. Use auth/list or servers/list to see names, or pass a URL.`,
+        { code: "usage" },
+      );
+    case "url":
+      return { key: resolution.url, byName: trimmed };
+  }
+}
+
 function registerAuthCommands(program: CommandType): void {
   // Internal detached sign-in helper for the non-TTY connect path (see
   // auth-helper.ts). Hidden: params arrive as JSON on stdin, never argv.
@@ -907,70 +964,43 @@ function registerAuthCommands(program: CommandType): void {
         });
         return;
       }
-      const trimmed = key!.trim();
-      // A URL argument — or any string that is already an exact key in the
-      // store (e.g. an `ema-idp:<issuer>` EMA login key, which auth/list shows
-      // verbatim) — keeps the direct store-key path. Only a bare friendly name
-      // falls through to catalog + live-connection resolution.
-      const storedKeys = (await listStoredAuth()).servers.map((s) => s.url);
-      if (storedKeys.includes(trimmed)) {
-        const result = await clearStoredAuth(trimmed);
-        await writeConnectionOutput(outOpts(opts), {
-          kind: "auth/clear",
-          result: { url: result.url },
-        });
-        return;
+      const target = await resolveAuthKeyArgument(key!.trim(), opts, "clear");
+      const result = await clearStoredAuth(target.key);
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/clear",
+        result: {
+          url: result.url,
+          ...(target.byName !== undefined && { clearedByName: target.byName }),
+        },
+      });
+    });
+
+  program
+    .command("auth/show")
+    .description(
+      "Show the stored access token's decoded claims (issuer, audience, scopes, expiry) for one server — never the token itself",
+    )
+    .argument("<key>", "Server URL or catalog/connection name from auth/list")
+    .action(async (key: string) => {
+      const opts = program.opts<GlobalOpts>();
+      const trimmed = key.trim();
+      if (!trimmed) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "auth/show requires a server URL key (from auth/list)",
+          { code: "usage" },
+        );
       }
-      if (/^https?:\/\//i.test(trimmed)) {
-        // auth/list renders an EMA IdP login by its bare issuer URL (prefix
-        // hidden), so accept that issuer here and map it back to the prefixed
-        // store key — preferring a real server entry on the off chance both
-        // exist. Otherwise fall through to clearStoredAuth's own URL handling.
-        const idpKey = idpOAuthStorageKey(trimmed);
-        const target =
-          storedKeys.includes(idpKey) &&
-          !storedKeys.includes(normalizeServerUrl(trimmed))
-            ? idpKey
-            : trimmed;
-        const result = await clearStoredAuth(target);
-        await writeConnectionOutput(outOpts(opts), {
-          kind: "auth/clear",
-          result: { url: result.url },
-        });
-        return;
-      }
-      const index = await collectAuthNameIndex(opts);
-      const resolution = resolveFriendlyName(trimmed, index);
-      switch (resolution.kind) {
-        case "no-url":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `'${trimmed}' is a stdio server — it has no stored OAuth entry to clear.`,
-            { code: "usage" },
-          );
-        case "ambiguous":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `'${trimmed}' maps to multiple server URLs (${resolution.urls.join(
-              ", ",
-            )}). Pass the explicit URL from auth/list.`,
-            { code: "usage" },
-          );
-        case "unknown":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `No server named '${trimmed}'. Use auth/list or servers/list to see names, or pass a URL.`,
-            { code: "usage" },
-          );
-        case "url": {
-          const result = await clearStoredAuth(resolution.url);
-          await writeConnectionOutput(outOpts(opts), {
-            kind: "auth/clear",
-            result: { url: result.url, clearedByName: trimmed },
-          });
-          return;
-        }
-      }
+      const target = await resolveAuthKeyArgument(trimmed, opts, "show");
+      const result = await showStoredAuth(target.key);
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/show",
+        result: {
+          ...result,
+          ...(target.byName !== undefined && { shownByName: target.byName }),
+        },
+        nowMs: Date.now(),
+      });
     });
 
   program

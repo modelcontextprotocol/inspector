@@ -749,6 +749,75 @@ describe("AuthTab", () => {
     expect(stdout.frames.some((f) => f.includes("\u001b]52;"))).toBe(false);
   });
 
+  // #2845 — the token's claims are what explain most OAuth failures.
+  describe("access token details", () => {
+    const b64url = (value: unknown) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const nowS = Math.floor(Date.now() / 1000);
+    // The component reads the real clock at render. Offsets sit mid-way
+    // through an hour bucket of a day-scale duration, so the rendered
+    // "2d 12h" holds for ~30 minutes of test delay rather than flipping
+    // at a minute boundary (Copilot, #2891).
+    const SPAN = 2 * 86_400 + 12 * 3600 + 30 * 60;
+
+    it("decodes a JWT access token's claims", async () => {
+      const token = `${b64url({ alg: "RS256" })}.${b64url({
+        iss: "https://as.example.com",
+        aud: "https://mcp.example.com",
+        sub: "user-42",
+        scope: "tools:read tools:call",
+        iat: nowS - SPAN,
+        exp: nowS + SPAN,
+      })}.sig`;
+      const { client } = makeClient({
+        ...sampleOAuthState,
+        tokens: { access_token: token, token_type: "Bearer" },
+      });
+      const { lastFrame } = render(
+        <AuthTab
+          {...baseProps}
+          height={60}
+          inspectorClient={client}
+          oauthStatus="idle"
+          oauthMessage={null}
+        />,
+      );
+      await tick();
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("JWT (signature not verified)");
+      expect(frame).toContain("Issuer: https://as.example.com");
+      expect(frame).toContain("Audience: https://mcp.example.com");
+      expect(frame).toContain("Subject: user-42");
+      expect(frame).toContain("Scopes: tools:read, tools:call");
+      expect(frame).toContain("(2d 12h ago)");
+      expect(frame).toContain("(in 2d 12h)");
+    });
+
+    it("shows the token response's expires_in for an opaque token", async () => {
+      const { client } = makeClient({
+        ...sampleOAuthState,
+        tokens: {
+          access_token: "opaque-token-value",
+          token_type: "Bearer",
+          expires_in: 900,
+        },
+      });
+      const { lastFrame } = render(
+        <AuthTab
+          {...baseProps}
+          height={60}
+          inspectorClient={client}
+          oauthStatus="idle"
+          oauthMessage={null}
+        />,
+      );
+      await tick();
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("Opaque (not a JWT)");
+      expect(frame).toContain("15m from issuance");
+    });
+  });
+
   describe("server switch (#2421)", () => {
     const withToken = (token: string): OAuthConnectionState => ({
       ...sampleOAuthState,

@@ -97,7 +97,10 @@ more).
   stdio server) or to more than one URL is rejected with guidance. EMA IdP
   login records lead with their bare issuer URL and carry a trailing
   `enterprise IdP login` marker, and clear by that bare issuer URL
-  (`mcpdo auth/clear https://idp.example.com`). Run `connect` as its **own
+  (`mcpdo auth/clear https://idp.example.com`). To diagnose a 401/403 —
+  wrong audience, missing scope, expired token — run `mcpdo auth/show <url or
+  name>`: it prints the stored access token's decoded claims (unverified) and
+  expiry relative to now, never the token itself. Run `connect` as its **own
   command** — never chained with `&&`, `;`, or a follow-on
   `tools/list`/`connections/show`. A connect that needs sign-in exits 0 while
   the connection is still unusable, so a chained command runs against a

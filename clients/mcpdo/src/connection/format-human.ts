@@ -8,6 +8,10 @@ import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
 import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  accessTokenDetailLines,
+  type AccessTokenSummary,
+} from "@inspector/core/auth/accessTokenClaims.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -519,6 +523,41 @@ export function formatAuthListHuman(
   }
   if (servers.length === 0) lines.push(style.dim("(none)"));
   return lines.join("\n");
+}
+
+/**
+ * Format auth/show (#2845): the stored access token's decoded claims, never the
+ * token itself. Wording is shared with the TUI Auth tab via
+ * `accessTokenDetailLines`.
+ */
+export function formatAuthShowHuman(
+  result: {
+    url: string;
+    hasTokens: boolean;
+    hasRefreshToken: boolean;
+    accessToken?: AccessTokenSummary;
+    shownByName?: string;
+  },
+  nowMs: number,
+  style: Style = PLAIN,
+): string {
+  const title = `${heading(style, "Stored auth")} ${code(style, result.url)}${
+    result.shownByName ? style.dim(` (${result.shownByName})`) : ""
+  }`;
+  if (!result.hasTokens || !result.accessToken) {
+    return [title, style.dim("No stored access token.")].join("\n");
+  }
+  const rows = accessTokenDetailLines(result.accessToken, nowMs);
+  const width = Math.max(...rows.map((r) => r.label.length));
+  return [
+    title,
+    ...rows.map(
+      (r) => `  ${style.dim(`${r.label}:`.padEnd(width + 1))} ${r.value}`,
+    ),
+    `  ${style.dim("Refresh:".padEnd(width + 1))} ${
+      result.hasRefreshToken ? "stored" : "none"
+    }`,
+  ].join("\n");
 }
 
 /** Format auth/ema-status. */
