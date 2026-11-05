@@ -137,8 +137,14 @@ function embeddedUrlPattern(sensitiveNames: ReadonlySet<string>): RegExp {
   const names = [...sensitiveNames]
     .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
+  // The join is an alternative that CONSUMES `[?&]<name>=https://` rather than
+  // a lookbehind, so the pattern needs no lookbehind support from the engine
+  // (Copilot). It is listed first so it wins at a `?`/`&` the other
+  // alternative would otherwise take one character at a time. With no names
+  // there is nothing to join, and an empty `(?:)` would join after any `?=`.
+  const join = names ? `[?&](?:${names})=https?:\\/\\/|` : "";
   const pattern = new RegExp(
-    `\\bhttps?:\\/\\/(?:(?!https?:\\/\\/)[^\\s"<>]|(?<=[?&](?:${names})=)https?:\\/\\/)+`,
+    `\\bhttps?:\\/\\/(?:${join}(?!https?:\\/\\/)[^\\s"<>])+`,
     "gi",
   );
   EMBEDDED_URL_PATTERNS.set(sensitiveNames, pattern);

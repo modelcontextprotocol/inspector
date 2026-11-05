@@ -970,6 +970,11 @@ describe("redactUrlsInText", () => {
     // The default set does not name `custom`, so the two split.
     expect(mapUrlsInText(text, mark)).toBe("x <url><url> y");
     expect(seen).toEqual(["https://a.example/?custom=", "https://b.example/p"]);
+    seen.length = 0;
+    // An empty set joins nothing — not even after a bare `?=`.
+    expect(
+      mapUrlsInText("https://a.example/?=https://b.example/p", mark, new Set()),
+    ).toBe("<url><url>");
   });
 
   it("redacts through an apostrophe and keeps a closing quote", () => {
