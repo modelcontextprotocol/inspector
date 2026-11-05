@@ -81,8 +81,12 @@ export class LatencyRecorder {
   /** Bucket index to count, once the recorder has switched. */
   private readonly buckets = new Map<number, number>();
 
+  private readonly exactLimit: number;
+
   /** `exactLimit` is injectable so tests reach the histogram cheaply. */
-  constructor(private readonly exactLimit = EXACT_LATENCY_SAMPLES) {}
+  constructor(exactLimit = EXACT_LATENCY_SAMPLES) {
+    this.exactLimit = exactLimit;
+  }
 
   add(ms: number): void {
     this.count++;
