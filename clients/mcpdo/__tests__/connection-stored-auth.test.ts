@@ -10,6 +10,7 @@ import {
   clearStoredAuthForRelogin,
   listStoredAuth,
   resolveStoredAuthKey,
+  showStoredAuth,
 } from "../src/connection/stored-auth.js";
 import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
 import { defaultSecretStore } from "@inspector/core/auth/node/secret-store-selection.js";
@@ -83,6 +84,7 @@ const FIXTURE_URLS = [
   "https://empty.example/mcp",
   "https://issuer-empty.example/mcp",
   "https://multi.example/mcp",
+  "https://jwt.example/mcp",
 ];
 
 /**
@@ -325,5 +327,140 @@ describe("mcp auth/list and auth/clear", () => {
     });
     expectCliSuccess(human);
     expect(human.stdout).toMatch(/Stored auth/);
+  });
+});
+
+// #2845 — the stored access token's claims, never the token itself.
+describe("mcp auth/show", () => {
+  let dir: string | undefined;
+  const nowS = Math.floor(Date.now() / 1000);
+  const b64url = (value: unknown) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  const JWT = `${b64url({ alg: "RS256" })}.${b64url({
+    iss: "https://as.example/",
+    aud: "https://jwt.example/mcp",
+    sub: "user-7",
+    scope: "tools:read",
+    iat: nowS - 60,
+    exp: nowS + 7200 + 30,
+  })}.signature-not-shown`;
+
+  afterEach(async () => {
+    resetNodeOAuthStorageCache();
+    await purgeFixtureSecrets();
+    if (dir) {
+      fs.rmSync(dir, { recursive: true, force: true });
+      dir = undefined;
+    }
+  });
+
+  function fixture(): string {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-auth-show-"));
+    const file = path.join(dir, "oauth.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        servers: {
+          "https://jwt.example/mcp": {
+            tokens: {
+              access_token: JWT,
+              token_type: "Bearer",
+              refresh_token: "r",
+            },
+          },
+          "https://other.example/mcp": {
+            tokens: {
+              access_token: "opaque",
+              token_type: "Bearer",
+              scope: "a b",
+              expires_in: 3600,
+            },
+          },
+          "https://empty.example/mcp": { codeVerifier: "cv" },
+        },
+        idpSessions: {},
+      }),
+      "utf8",
+    );
+    resetNodeOAuthStorageCache();
+    return file;
+  }
+
+  it("summarises a JWT access token as JSON without the token", async () => {
+    const file = fixture();
+    const result = await runMcp(
+      ["auth/show", "https://jwt.example/mcp", "--format", "json"],
+      { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file } },
+    );
+    expectCliSuccess(result);
+    expect(result.stdout).not.toContain(JWT);
+    expect(JSON.parse(result.stdout)).toEqual({
+      url: "https://jwt.example/mcp",
+      hasTokens: true,
+      hasRefreshToken: true,
+      accessToken: {
+        format: "jwt",
+        issuer: "https://as.example/",
+        audience: ["https://jwt.example/mcp"],
+        subject: "user-7",
+        scopes: ["tools:read"],
+        issuedAt: nowS - 60,
+        expiresAt: nowS + 7230,
+      },
+    });
+  });
+
+  it("renders claims, an opaque token and a token-less entry as text", async () => {
+    const file = fixture();
+    const env = { env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file } };
+    const jwt = await runMcp(["auth/show", "https://jwt.example/mcp"], env);
+    expectCliSuccess(jwt);
+    expect(jwt.stdout).toContain("JWT (signature not verified)");
+    expect(jwt.stdout).toMatch(/Audience:\s+https:\/\/jwt\.example\/mcp/);
+    expect(jwt.stdout).toMatch(/Expires:\s+\S+ \(in 2h\)/);
+    expect(jwt.stdout).toMatch(/Refresh:\s+stored/);
+    expect(jwt.stdout).not.toContain("signature-not-shown");
+
+    const opaque = await runMcp(
+      ["auth/show", "https://other.example/mcp"],
+      env,
+    );
+    expectCliSuccess(opaque);
+    expect(opaque.stdout).toContain("Opaque (not a JWT)");
+    expect(opaque.stdout).toMatch(/Scopes:\s+a, b/);
+    expect(opaque.stdout).toContain("1h from issuance");
+    expect(opaque.stdout).toMatch(/Refresh:\s+none/);
+
+    const empty = await runMcp(["auth/show", "https://empty.example/mcp"], env);
+    expectCliSuccess(empty);
+    expect(empty.stdout).toContain("No stored access token.");
+  });
+
+  it("rejects a blank key", async () => {
+    const file = fixture();
+    const result = await runMcp(["auth/show", "  "], {
+      env: { MCP_INSPECTOR_OAUTH_STATE_PATH: file },
+    });
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/auth\/show requires/);
+  });
+
+  it("showStoredAuth reports an entry with no tokens", async () => {
+    const file = fixture();
+    const prev = process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+    process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = file;
+    try {
+      resetNodeOAuthStorageCache();
+      await expect(
+        showStoredAuth("https://empty.example/mcp"),
+      ).resolves.toEqual({
+        url: "https://empty.example/mcp",
+        hasTokens: false,
+        hasRefreshToken: false,
+      });
+    } finally {
+      if (prev === undefined) delete process.env.MCP_INSPECTOR_OAUTH_STATE_PATH;
+      else process.env.MCP_INSPECTOR_OAUTH_STATE_PATH = prev;
+    }
   });
 });
