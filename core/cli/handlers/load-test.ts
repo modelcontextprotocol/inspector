@@ -1079,7 +1079,8 @@ export async function runScenarioLoad(
         case "resources/read": {
           const uri = loadTemplateOrConstant(step.uri);
           return async (client, ctx) => {
-            await client.readResource(uri(ctx), metadata);
+            // `"{{seq}}"` alone expands to a number; a URI is a string.
+            await client.readResource(String(uri(ctx)), metadata);
             return "ok";
           };
         }

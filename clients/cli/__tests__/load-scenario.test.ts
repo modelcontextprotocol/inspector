@@ -371,6 +371,25 @@ describe("runScenarioLoad", () => {
     expect(summary.steps!.map((s) => s.ok)).toEqual([1, 1]);
     expect(summary).not.toHaveProperty("tool");
   });
+
+  it("sends a URI that is one numeric placeholder as a string (#2840)", async () => {
+    const uris: unknown[] = [];
+    const client = {
+      readResource: async (uri: unknown) => {
+        uris.push(uri);
+        return {};
+      },
+    };
+    await runScenarioLoad(
+      // Same justification as `fakeClient` above: only `readResource` is
+      // reached, and InspectorClient's private members rule out a plain object.
+      client as unknown as InspectorClient,
+      {},
+      { concurrency: 1, requests: 2 },
+      validateLoadScenario([{ method: "resources/read", uri: "{{seq}}" }]),
+    );
+    expect(uris).toEqual(["1", "2"]);
+  });
 });
 
 describe("--load-scenario (CLI)", () => {

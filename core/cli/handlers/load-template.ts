@@ -134,11 +134,10 @@ function compileValue(
       ([k, v]) => [k, v, compileValue(v, random)] as const,
     );
     if (entries.every(([, , t]) => t === undefined)) return undefined;
-    return (ctx) => {
-      const out: Record<string, StrictJsonValue> = {};
-      for (const [k, v, t] of entries) out[k] = t ? t(ctx) : v;
-      return out;
-    };
+    // `Object.fromEntries` defines own properties, so an own `__proto__` key
+    // is copied as data rather than invoking the prototype setter.
+    return (ctx) =>
+      Object.fromEntries(entries.map(([k, v, t]) => [k, t ? t(ctx) : v]));
   }
   return undefined;
 }

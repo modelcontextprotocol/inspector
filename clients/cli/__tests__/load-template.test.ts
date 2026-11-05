@@ -84,6 +84,15 @@ describe("compileLoadTemplate", () => {
     expect(out.shared).toBe(shared);
   });
 
+  it("copies an own __proto__ key as data", () => {
+    const value = JSON.parse('{"__proto__":{"tenant":"a"},"id":"{{seq}}"}');
+    const out = compileLoadTemplate(value)!(ctx);
+    expect(JSON.parse(JSON.stringify(out))).toEqual(
+      JSON.parse('{"__proto__":{"tenant":"a"},"id":7}'),
+    );
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+  });
+
   it("loadTemplateOrConstant returns the value itself when constant", () => {
     const value = { a: 1 };
     expect(loadTemplateOrConstant(value)(ctx)).toBe(value);

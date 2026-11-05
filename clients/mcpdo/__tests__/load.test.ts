@@ -281,6 +281,42 @@ describe("resolveLoadFlags with varying arguments (#2840)", () => {
     ).toThrow("--load-args-file cannot be combined with --load-scenario");
   });
 
+  it.each([
+    ["--load-args-file", "load_args_invalid"],
+    ["--load-scenario", "load_scenario_invalid"],
+  ])("refuses a %s too large for one daemon request", (flag, code) => {
+    const big = "x".repeat(2000);
+    const content =
+      flag === "--load-args-file"
+        ? Array.from({ length: 600 }, () => JSON.stringify({ q: big })).join(
+            "\n",
+          )
+        : JSON.stringify(
+            Array.from({ length: 600 }, () => ({
+              method: "tools/call",
+              tool: "echo",
+              args: { q: big },
+            })),
+          );
+    const file = argsFile(content);
+    expect(() =>
+      resolveLoadFlags(
+        flag === "--load-args-file"
+          ? { load: true, toolName: "echo", loadArgsFile: file }
+          : { load: true, loadScenario: file },
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        message: expect.stringMatching(
+          new RegExp(
+            `^${flag} is too large for mcpdo: .* over the \\d+-byte limit`,
+          ),
+        ),
+        envelope: expect.objectContaining({ code }),
+      }),
+    );
+  });
+
   it("reports a bad args file as load_args_invalid", () => {
     const file = argsFile("[1]");
     expect(() =>
