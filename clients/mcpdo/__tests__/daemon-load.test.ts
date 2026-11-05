@@ -41,7 +41,7 @@ const loadMock = vi.hoisted(() => {
   const state: { impl: LoadImpl } = {
     // A test that forgets to set `impl` fails here, by name.
     impl: async () => {
-      throw new Error("runToolLoad mock not configured");
+      throw new Error("runLoadTest mock not configured");
     },
   };
   return state;
@@ -52,7 +52,7 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@inspector/core/cli/handlers/load-test.js")
     >()),
-    runToolLoad: (...args: Parameters<typeof loadMock.impl>) =>
+    runLoadTest: (...args: Parameters<typeof loadMock.impl>) =>
       loadMock.impl(...args),
   }),
 );
@@ -159,7 +159,7 @@ function fakeClient(status: ConnectionStatus = "connected") {
     // private members no test double can supply, so no single cast relates
     // the two. The double is sufficient because the load path calls only the
     // methods `FakeLoadClient` implements (checked above) plus the event
-    // target it inherits; `runToolLoad`, which needs the rest, is mocked.
+    // target it inherits; `runLoadTest`, which needs the rest, is mocked.
     client: fake as unknown as InspectorClient,
     ambient: () => fake.ambient,
     emitStatus: (detail: ConnectionStatus) =>
