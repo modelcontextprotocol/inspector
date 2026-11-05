@@ -141,6 +141,14 @@ describe("parseLoadBaseline", () => {
       "latencyMs is neither null nor a set of percentiles",
     ],
     [
+      JSON.stringify({ ...summary(), steps: {} }),
+      "steps field that is not an array",
+    ],
+    [
+      JSON.stringify({ ...summary(), steps: [null] }),
+      "scenario step without a name, method, target and weight",
+    ],
+    [
       JSON.stringify({ ...summary(), stages: {} }),
       "stages field that is not an array",
     ],
@@ -356,6 +364,14 @@ describe("compareLoadToBaseline", () => {
       );
     });
 
+    it("refuses a different per-stage rate", () => {
+      const run = stepped([stage(1, 10, { rate: 10 })]);
+      const baseline = stepped([stage(1, 10, { rate: 100 })]);
+      expect(
+        thrown(() => compareLoadToBaseline(run, base(baseline))).message,
+      ).toContain("stage 1 rate is 10 here but 100 in the baseline");
+    });
+
     it("refuses a different stage count, unless this run stopped early", () => {
       const baseline = stepped([stage(1, 10), stage(2, 20)]);
       const short = stepped([stage(1, 10)]);
@@ -425,6 +441,16 @@ describe("checkLoadRegression", () => {
     expect(err.message).toBe(
       "Load regression against --load-baseline prev.json: p50 10ms -> 12ms (+20% worse); over --load-max-regression 10%.",
     );
+  });
+
+  it("passes a change exactly at the budget despite floating-point roundoff", () => {
+    // (1.1 - 1) / 1 * 100 is 10.000000000000009 in floating point.
+    const cmp = compareLoadToBaseline(
+      summary({ latencyMs: latency(1.1, 40) }),
+      base(summary({ latencyMs: latency(1, 40) })),
+    );
+    expect(() => checkLoadRegression(cmp, 10)).not.toThrow();
+    expect(() => checkLoadRegression(cmp, 9.99)).toThrow("p50 1ms -> 1.1ms");
   });
 
   it("judges a budget of 0 on the exact error rate", () => {

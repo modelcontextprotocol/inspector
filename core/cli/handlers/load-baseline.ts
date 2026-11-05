@@ -167,6 +167,21 @@ function summaryProblem(value: unknown): string | undefined {
   ) {
     return "is not a --load summary (latencyMs is neither null nor a set of percentiles)";
   }
+  if (value.steps !== undefined) {
+    if (!Array.isArray(value.steps))
+      return "has a steps field that is not an array";
+    for (const step of value.steps as unknown[]) {
+      if (
+        !isRecord(step) ||
+        typeof step.name !== "string" ||
+        typeof step.method !== "string" ||
+        typeof step.target !== "string" ||
+        typeof step.weight !== "number"
+      ) {
+        return "has a scenario step without a name, method, target and weight";
+      }
+    }
+  }
   if (value.stages !== undefined) {
     if (!Array.isArray(value.stages))
       return "has a stages field that is not an array";
@@ -293,6 +308,13 @@ function mismatches(run: LoadSummary, base: LoadSummary): string[] {
     ) {
       found.push(
         `stage ${r.stage} is ${r.stepBy} ${r.level} for ${shown(r.durationMs)}ms here but ${b.stepBy} ${b.level} for ${shown(b.durationMs)}ms in the baseline`,
+      );
+    }
+    // A stepped run carries `--load-rate` per stage only, so a concurrency
+    // staircase at 10/s and one at 100/s differ nowhere else.
+    if (r.rate !== b.rate) {
+      found.push(
+        `stage ${r.stage} rate is ${shown(r.rate)} here but ${shown(b.rate)} in the baseline`,
       );
     }
   }
@@ -468,6 +490,13 @@ export function formatLoadBaselineComparison(
 }
 
 /**
+ * Floating-point slack on the budget: 1 ms -> 1.1 ms computes as
+ * 10.000000000000009%, which must not fail a 10% budget. Far below any
+ * regression a summary's rounded figures can express.
+ */
+const BUDGET_EPSILON = 1e-9;
+
+/**
  * Fail the run (exit 10, `load_regression`) when any figure is worse than
  * the baseline by more than `maxRegressionPct` — percent for latency and
  * throughput, percentage points for the error rate. Every regressed figure
@@ -481,7 +510,7 @@ export function checkLoadRegression(
   if (maxRegressionPct === undefined) return;
   for (const row of comparison.rows) {
     const regressed = row.figures.filter(
-      (f) => f.change !== null && f.change > maxRegressionPct,
+      (f) => f.change !== null && f.change > maxRegressionPct + BUDGET_EPSILON,
     );
     if (regressed.length === 0) continue;
     throw new CliExitCodeError(
