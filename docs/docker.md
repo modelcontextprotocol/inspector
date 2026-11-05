@@ -1,7 +1,16 @@
 # Running the Inspector in Docker
 
 
-A container image is published to GHCR (`ghcr.io/modelcontextprotocol/inspector`, `linux/amd64` + `linux/arm64`) by the release workflow. The [`Dockerfile`](../Dockerfile) is a two-stage build: the first stage installs and `npm pack`s the publishable tarball; the second stage `npm install -g`s that tarball, so the image ships the exact same artifact as npm, with a clean `mcp-inspector` bin.
+A container image is published to GHCR (`ghcr.io/modelcontextprotocol/inspector`, `linux/amd64` + `linux/arm64`) by the release workflow. The [`Dockerfile`](../Dockerfile) is a two-stage build: the first stage `npm ci`s from the committed lockfiles and `npm pack`s the publishable tarball, then installs that tarball's production dependencies from the same root `package-lock.json`; the second stage copies the result in. So the image ships the exact same package as npm, on the dependency tree CI tested, with a clean `mcp-inspector` bin.
+
+**What the image is hardened against ([#2833](https://github.com/modelcontextprotocol/inspector/issues/2833)):**
+
+- **A reproducible base.** Both stages build on `node:22-slim` pinned by its multi-arch digest (the `NODE_IMAGE` build arg), so rebuilding a release gets the same Node and the same Debian packages. Bumping it is a deliberate edit to that one line; `docker buildx imagetools inspect node:22-slim` prints the new digest. Override it for a one-off build with `--build-arg NODE_IMAGE=…`.
+- **No dependency install scripts.** The production install in the build stage runs with `--ignore-scripts`, and the runtime stage runs no `npm` at all — which also keeps npm's download cache (about 200 MB) out of the image.
+- **An init as PID 1.** The entrypoint is [`tini`](https://github.com/krallin/tini), which reaps the orphaned grandchildren that `npx`-launched stdio servers leave behind and forwards signals to the Inspector, so `docker stop` shuts it down cleanly. `docker run --init` is therefore unnecessary (it still works — Docker's init then sits in front of tini).
+- **Read-only application files.** The installed package is owned by `root`; the container runs as the non-root `node` user, which can write only its home directory.
+
+If you override the entrypoint (`--entrypoint`), you replace tini too; add `--init` to keep an init in front of whatever you run.
 
 ```bash
 # run the web UI (reads the auth token from the container logs)
