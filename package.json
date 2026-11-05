@@ -169,5 +169,8 @@
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.65.0",
     "vitest": "4.1.12"
+  },
+  "overrides": {
+    "minimatch": "^11.0.4"
   }
 }
