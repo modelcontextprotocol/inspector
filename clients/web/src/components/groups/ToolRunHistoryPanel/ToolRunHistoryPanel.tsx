@@ -21,6 +21,7 @@ import {
   toolRunEnvelope,
 } from "../../../utils/toolRunHistory";
 import { canonicalJson } from "../../../utils/lineDiff";
+import { useValueChange } from "../../../hooks/useValueChange";
 import { ToolRunDiff } from "./ToolRunDiff";
 
 export interface ToolRunHistoryPanelProps {
@@ -236,6 +237,12 @@ export function ToolRunHistoryPanel({
   const compared = runs.filter((run) => selectedIds.includes(run.id));
   // `runs` is newest first, so the later run of the pair is the first match.
   const [after, before] = compared;
+  const comparable = !!(before && after);
+  // Pruning a compared run closes the comparison for good, rather than leaving
+  // it armed to reopen when a replacement is ticked.
+  useValueChange(comparable, (next) => {
+    if (!next) setCompareOpen(false);
+  });
 
   return (
     <PanelStack>
@@ -249,7 +256,7 @@ export function ToolRunHistoryPanel({
           </HintText>
         </HeaderStack>
         <CompareButton
-          disabled={!(before && after)}
+          disabled={!comparable}
           onClick={() => setCompareOpen(true)}
         >
           Compare
@@ -264,7 +271,14 @@ export function ToolRunHistoryPanel({
               compared={selectedIds.includes(run.id)}
               isExecuting={isExecuting}
               onToggleCompare={() =>
-                setSelectedIds((prev) => toggleCompare(prev, run.id))
+                // Drop pruned ids first, so a run no longer listed can't hold
+                // one of the two comparison slots.
+                setSelectedIds((prev) =>
+                  toggleCompare(
+                    prev.filter((id) => runs.some((r) => r.id === id)),
+                    run.id,
+                  ),
+                )
               }
               onRerun={() => onRerun(run)}
             />
@@ -273,7 +287,7 @@ export function ToolRunHistoryPanel({
       </RunListScroll>
       {/* Closes on its own if a ticked run is pruned while it is open. */}
       <CompareModal
-        opened={compareOpen && !!before && !!after}
+        opened={compareOpen && comparable}
         onClose={() => setCompareOpen(false)}
       >
         {before && after && <ToolRunDiff before={before} after={after} />}

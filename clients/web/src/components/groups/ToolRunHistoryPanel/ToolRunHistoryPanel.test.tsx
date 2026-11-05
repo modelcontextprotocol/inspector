@@ -117,5 +117,11 @@ describe("ToolRunHistoryPanel", () => {
       expect(screen.queryByTestId("tool-run-diff")).toBeNull(),
     );
     expect(screen.getByRole("button", { name: "Compare" })).toBeDisabled();
+
+    // Ticking a replacement does not reopen the comparison by itself, and the
+    // pruned run no longer holds a slot: #3 and #2 are both kept.
+    await user.click(screen.getByRole("checkbox", { name: "Compare Run #2" }));
+    expect(screen.getByText("Run #2 and Run #3 selected")).toBeInTheDocument();
+    expect(screen.queryByTestId("tool-run-diff")).toBeNull();
   });
 });
