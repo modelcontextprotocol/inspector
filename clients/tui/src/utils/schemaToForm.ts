@@ -8,7 +8,10 @@ import {
   isStringEnum,
   normalizeNullableUnion,
 } from "@inspector/core/json/nullableUnion.js";
-import { resolveRootUnion } from "@inspector/core/json/rootUnion.js";
+import {
+  resolveRootUnion,
+  sameJsonValue,
+} from "@inspector/core/json/rootUnion.js";
 import {
   MULTISELECT_FIELD_TYPE,
   type FormFieldMultiSelect,
@@ -75,10 +78,14 @@ function choiceOptions(
   }));
 }
 
-/** The option ids of the enum members a default lists; unknown ones dropped. */
+/**
+ * The option ids of the enum members a default lists; unknown ones dropped.
+ * Matched by JSON value, so an object member equals the parsed default that
+ * spells it.
+ */
 function choiceIds(members: unknown[], chosen: unknown[]): string[] {
   return chosen
-    .map((value) => members.findIndex((member) => Object.is(member, value)))
+    .map((value) => members.findIndex((member) => sameJsonValue(member, value)))
     .filter((index) => index >= 0)
     .map(String);
 }
@@ -463,6 +470,9 @@ function restoreChoices<T>(
     .filter(
       ([name, property]) =>
         isChoiceArray(property) &&
+        // A `const` is rendered as its own one-option select and has already
+        // been restored by `applyConstants`; it holds no option ids.
+        property.const === undefined &&
         Object.hasOwn(values, name) &&
         Array.isArray(values[name]),
     );

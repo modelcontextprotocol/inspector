@@ -1059,6 +1059,23 @@ describe("multi-select decoding (#2904)", () => {
     ).toEqual({ counts: [1, 3, "9", "x"], tags: ["b"], note: "hi" });
   });
 
+  it("matches an object default by value and leaves a const array alone (#2904 review)", () => {
+    const schema = JSON.parse(`{
+      "properties": {
+        "objs": { "type": "array", "items": { "enum": [{ "id": 1 }, { "id": 2 }] },
+                  "default": [{ "id": 2 }] },
+        "pinned": { "type": "array", "items": { "enum": ["1", "2"] }, "const": ["1"] }
+      },
+      "required": ["pinned"]
+    }`);
+    const [objs] = schemaToForm(schema, "objs").sections[0]!.fields;
+    expect(objs).toMatchObject({ initialValue: ["1"] });
+    expect(decodeFormValues(schema, { objs: ["1"], pinned: "1" })).toEqual({
+      objs: [{ id: 2 }],
+      pinned: ["1"],
+    });
+  });
+
   it("keeps null and look-alike members distinct (#2904 review)", () => {
     const tricky = {
       properties: {
