@@ -7,7 +7,6 @@ import {
   Collapse,
   Divider,
   Group,
-  ScrollArea,
   Stack,
   Table,
   Text,
@@ -29,6 +28,7 @@ import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 import { useValueChange } from "../../../hooks/useValueChange";
 import { useOpenedOnce } from "../../../hooks/useOpenedOnce";
+import { useKeepRowMounted } from "../../../hooks/useKeepRowMounted";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
@@ -82,12 +82,16 @@ const UrlText = Text.withProps({
   truncate: "end",
 });
 
-// Compact-header URL: never wraps, so a long URL scrolls horizontally inside its
-// ScrollArea instead of wrapping to many lines.
+// Compact-header URL: never wraps, so a long URL scrolls horizontally in place
+// instead of wrapping to many lines. It has no focusable child, so the scroller
+// itself is focusable to keep it keyboard-scrollable (WCAG SC 2.1.1).
 const UrlScroll = Text.withProps({
   size: "sm",
   fw: 500,
-  variant: "nowrap",
+  variant: "hscroll",
+  flex: 1,
+  miw: 0,
+  tabIndex: 0,
 });
 
 // The wide header's right-hand cluster.
@@ -269,16 +273,6 @@ const CompactUrlRow = Group.withProps({
   gap: "xs",
   wrap: "nowrap",
   justify: "space-between",
-});
-
-const UrlScrollArea = ScrollArea.withProps({
-  scrollbarSize: 6,
-  flex: 1,
-  miw: 0,
-  // The URL scrolls horizontally but has no focusable child, so make the
-  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
-  // via the `type="scroll"` theme default.
-  viewportProps: { tabIndex: 0 },
 });
 
 // Wide-header left cluster: timestamp + badges + URL, shrinking to truncate.
@@ -533,6 +527,9 @@ export function NetworkEntry({
   // The body (headers tables, body previews) mounts on first expand, not with
   // the row — see `useOpenedOnce` (#2928).
   const bodyMounted = useOpenedOnce(isExpanded);
+  // In a lazy list a row unmounts when scrolled away and remounts from its
+  // props (#2932); an expansion the props cannot restore keeps it mounted.
+  useKeepRowMounted(isExpanded !== isListExpanded);
 
   // "Reveal in Network" one-shot, part 2: scroll the entry into view, then
   // clear the signal. The scroll runs in a rAF so it lands after
@@ -608,9 +605,7 @@ export function NetworkEntry({
             </CompactHeaderLine>
             <CompactUrlRow>
               <CopyButton value={entry.url} />
-              <UrlScrollArea>
-                <UrlScroll>{entry.url}</UrlScroll>
-              </UrlScrollArea>
+              <UrlScroll>{entry.url}</UrlScroll>
               {expandToggle}
             </CompactUrlRow>
           </Stack>

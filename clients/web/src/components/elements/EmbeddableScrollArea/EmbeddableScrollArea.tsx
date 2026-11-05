@@ -1,5 +1,9 @@
-import type { ReactNode, Ref } from "react";
+import type { ReactNode, RefObject } from "react";
 import { ScrollArea, Stack } from "@mantine/core";
+import {
+  LazyMountContext,
+  useLazyMountRegistry,
+} from "../../../hooks/useLazyMountRegistry";
 
 // Full-size, the monitor stream panels bound their scroll to the viewport
 // minus the header and the panel's own chrome.
@@ -15,7 +19,11 @@ export interface EmbeddableScrollAreaProps {
    * and the final rows never clip.
    */
   embedded: boolean;
-  viewportRef: Ref<HTMLDivElement>;
+  /**
+   * The scroll viewport. Also the root a `LazyRow` inside this region is
+   * observed against, so it must be an object ref rather than a callback.
+   */
+  viewportRef: RefObject<HTMLDivElement | null>;
   children: ReactNode;
   /**
    * Constrain the scrolled content to the viewport width instead of letting it
@@ -55,7 +63,8 @@ const EmbeddedColumn = Stack.withProps({ flex: 1, mih: 0, gap: 0 });
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
  * render both full-size (their own tab) and embedded (the monitoring sidebar).
- * Centralizes the one layout difference between those two hosts.
+ * Centralizes the one layout difference between those two hosts, and is the
+ * lazy-mount root for any `LazyRow` among its children (#2932).
  */
 export function EmbeddableScrollArea({
   embedded,
@@ -63,13 +72,19 @@ export function EmbeddableScrollArea({
   children,
   constrainContentWidth = false,
 }: EmbeddableScrollAreaProps) {
+  const lazyMount = useLazyMountRegistry(viewportRef);
   const styles =
     embedded || constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
+  const content = (
+    <LazyMountContext.Provider value={lazyMount}>
+      {children}
+    </LazyMountContext.Provider>
+  );
   if (embedded) {
     return (
       <EmbeddedColumn>
         <StreamScrollArea viewportRef={viewportRef} mah="100%" styles={styles}>
-          {children}
+          {content}
         </StreamScrollArea>
       </EmbeddedColumn>
     );
@@ -80,7 +95,7 @@ export function EmbeddableScrollArea({
       mah={FULLSIZE_MAH}
       styles={styles}
     >
-      {children}
+      {content}
     </StreamScrollArea>
   );
 }

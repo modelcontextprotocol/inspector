@@ -4,13 +4,17 @@ import type {
   FetchRequestCategory,
   FetchRequestEntry,
 } from "@inspector/core/mcp/types.js";
-import { NetworkEntry } from "../NetworkEntry/NetworkEntry";
+import {
+  NetworkEntry,
+  type NetworkEntryProps,
+} from "../NetworkEntry/NetworkEntry";
 import { ListToggle } from "../../elements/ListToggle/ListToggle";
 import {
   SortToggle,
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
+import { LazyRow } from "../../elements/LazyRow/LazyRow";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
 import { useLatestCallback } from "../../../hooks/useLatestCallback";
 
@@ -18,8 +22,22 @@ import { useLatestCallback } from "../../../hooks/useLatestCallback";
  * Memoized so a new request re-renders only its own row, not every row the
  * list already shows (#2928). The log replaces an entry when it changes, so
  * entry identity is a sound comparison.
+ *
+ * The row mounts only near the viewport (#2932); a reveal target mounts at
+ * once so it can be scrolled to. The `LazyRow` is inside the memo, not around
+ * it: its `children` are a new element on every render, so outside it would
+ * re-render every row's stand-in each time a request lands.
  */
-const NetworkEntryRow = memo(NetworkEntry);
+const NetworkEntryRow = memo(function NetworkEntryRow({
+  estimatedHeight,
+  ...entryProps
+}: NetworkEntryProps & { estimatedHeight: number }) {
+  return (
+    <LazyRow estimatedHeight={estimatedHeight} forceMount={entryProps.revealed}>
+      <NetworkEntry {...entryProps} />
+    </LazyRow>
+  );
+});
 
 // h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
 // the look is unchanged; sections below it are h3 (axe `heading-order`).
@@ -71,6 +89,15 @@ const HeaderRow = Group.withProps({
 
 function formatTitle(count: number): string {
   return `Requests (${count})`;
+}
+
+// Stand-in height (px) for a row that has never rendered (#2932). The compact
+// sidebar row is measured (123px); the others are approximate. Close is
+// enough: a row that has rendered holds its own measured height, and the
+// estimate only keeps the scrollbar from jumping before that.
+function estimateRowHeight(embedded: boolean, compact: boolean): number {
+  if (!compact) return 360;
+  return embedded ? 123 : 64;
 }
 
 function headersToString(headers: Record<string, string> | undefined): string {
@@ -143,6 +170,7 @@ export function NetworkStreamPanel({
     return sorted;
   }, [entries, filterText, visibleCategories, sortDirection, embedded]);
 
+  const rowHeight = estimateRowHeight(embedded, compact);
   const hasEntries = entries.length > 0;
   const hasResults = filteredEntries.length > 0;
 
@@ -182,6 +210,7 @@ export function NetworkStreamPanel({
             {filteredEntries.map((entry) => (
               <NetworkEntryRow
                 key={entry.id}
+                estimatedHeight={rowHeight}
                 entry={entry}
                 isListExpanded={!compact}
                 embedded={embedded}
