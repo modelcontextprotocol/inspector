@@ -13,10 +13,13 @@ import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import type {
+  LoadProgress,
+  LoadProgressHook,
   LoadOptions,
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
-import type { RpcParams } from "../src/daemon/protocol.js";
+import type { LoadProgressFrame, RpcParams } from "../src/daemon/protocol.js";
+import type { ElicitationChannel } from "../src/daemon/ipc-glue.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 
 /**
@@ -34,6 +37,7 @@ type LoadImpl = (
   run: {
     signal?: AbortSignal;
     openConnection?: () => Promise<InspectorClient>;
+    progress?: LoadProgressHook;
   },
 ) => Promise<LoadSummary>;
 
@@ -201,7 +205,11 @@ describe("daemon rpc with --load", () => {
     vi.restoreAllMocks();
   });
 
-  function rpc(params: Partial<RpcParams>, signal?: AbortSignal) {
+  function rpc(
+    params: Partial<RpcParams>,
+    signal?: AbortSignal,
+    channel?: ElicitationChannel,
+  ) {
     return server.handle(
       {
         id: "r1",
@@ -214,10 +222,58 @@ describe("daemon rpc with --load", () => {
           ...params,
         },
       },
-      undefined,
+      channel,
       signal,
     );
   }
+
+  describe("progress frames (#2838)", () => {
+    const PROGRESS: LoadProgress = {
+      phase: "run",
+      elapsedMs: 5000,
+      requests: 10,
+      ok: 10,
+      failed: 0,
+      throughput: 2,
+      latencyMs: { p50: 1, p99: 2 },
+    };
+    const channel = (notify?: (frame: LoadProgressFrame) => void) => ({
+      request: () => Promise.reject(new Error("not used")),
+      ...(notify && { notify }),
+    });
+
+    it("relays each report to the caller as a load-progress frame", async () => {
+      const frames: LoadProgressFrame[] = [];
+      loadMock.impl = async (_c, _a, _o, run) => {
+        expect(run.progress?.everyMs).toBe(250);
+        run.progress!.emit(PROGRESS);
+        return SUMMARY;
+      };
+      await rpc(
+        { load: { ...LOAD, progressMs: 250 } },
+        undefined,
+        channel((f) => frames.push(f)),
+      );
+      expect(frames).toEqual([
+        { id: "r1", kind: "load-progress", progress: PROGRESS },
+      ]);
+    });
+
+    it("asks for no progress without progressMs or a channel to send it on", async () => {
+      const hooks: unknown[] = [];
+      loadMock.impl = async (_c, _a, _o, run) => {
+        hooks.push(run.progress);
+        return SUMMARY;
+      };
+      await rpc(
+        {},
+        undefined,
+        channel(() => {}),
+      );
+      await rpc({ load: { ...LOAD, progressMs: 250 } }, undefined, channel());
+      expect(hooks).toEqual([undefined, undefined]);
+    });
+  });
 
   /** Start a run that settles only when its signal aborts. */
   function runUntilAborted(): Promise<AbortSignal> {

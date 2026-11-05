@@ -169,6 +169,9 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-step-by <what>`       | With `--load-steps` / `--load-ramp`: what a level sets, `concurrency` (default) or `rate`. |
 | `--load-step-duration <sec>`  | With `--load-steps` / `--load-ramp`: each stage's length (default `10`). |
 | `--load-stop-on-breach`       | With `--load-steps` / `--load-ramp` and a `--load-max-*` threshold: stop after the first stage that breaches it. |
+| `--load-interval <sec>`       | With `--load`: also report the run as a time series of buckets this long, in `intervals`. See [Watching a run](#watching-a-run---load-progress---load-interval---load-warmup). |
+| `--load-warmup <sec>`         | With `--load`: run this long first, at the same concurrency and rate, and leave those calls out of every statistic. Not with `--load-steps` / `--load-ramp`. |
+| `--load-progress <sec>`       | With `--load`: how often to print a progress line on stderr (default `5`). `--quiet` turns progress off. |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--load-max-p50 <ms>`, `--load-max-p95 <ms>` | With `--load`: the same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
@@ -498,6 +501,39 @@ contention that only appear across sessions:
 
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
+
+##### Watching a run (`--load-progress`, `--load-interval`, `--load-warmup`)
+
+A long run used to be silent until its summary, and one aggregate p99 hides a
+GC pause or a slow leak in the middle of it
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)).
+
+- **Progress.** Every `--load-progress` seconds (default `5`) a line goes to
+  stderr: the totals so far, plus the completion rate and the p50 / p99 of the
+  successful calls over the last interval —
+  `[load 12.0s] 1234 calls (1230 ok, 4 failed), 102.3/s, p50 12.1 / p99 40.2 ms`.
+  It is prefixed `warm-up` during a warm-up and `stage N` in a stepped run.
+  `--quiet` turns it off. It never reaches stdout, so it does not disturb the
+  summary.
+- **Time series.** `--load-interval <sec>` adds an **`intervals`** array: the
+  run's calls bucketed by completion time, one entry per interval from the
+  start, with empty intervals included so the series has no gaps. Each entry
+  has `startMs` and `endMs` (from the start of the run), then the same
+  `requests`, `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
+  `okThroughput`, `latencyMs`, `errorLatencyMs` and message tallies as the
+  totals. A call finishing exactly on a boundary counts in the interval it
+  finished. The last interval can be shorter, and its rates use its own
+  length. A stepped run carries `intervals` per stage.
+- **Warm-up.** `--load-warmup <sec>` runs that long first, at the run's own
+  concurrency and rate and over the same connections, and leaves those calls
+  out of every figure. The measured window starts when the warm-up ends, so
+  `--load-duration` and `--load-requests` bound the measured part only.
+  **`warmup`** reports what the warm-up ran (`durationMs`, `requests`, `ok`,
+  `failed`). If the warm-up stops early (the server is down, or Ctrl+C), the run
+  ends there. `warmup.stoppedEarly` and the summary's own `stoppedEarly` then
+  say why, and nothing is measured. `{{seq}}` keeps counting from the warm-up
+  into the run. A warm-up is refused with `--load-steps` / `--load-ramp`, since
+  the first stage already plays that part.
 
 ##### Varying the arguments (`--load-args-file`, placeholders)
 

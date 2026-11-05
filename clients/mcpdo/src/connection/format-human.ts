@@ -8,6 +8,7 @@ import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
 import type {
+  LoadIntervalSummary,
   LoadLatency,
   LoadStageSummary,
   LoadStepSummary,
@@ -1087,12 +1088,32 @@ export function formatLoadSummaryHuman(
       `  ${style.red("Stopped early")} (${summary.stoppedEarly.reason}): ${summary.stoppedEarly.detail}`,
     );
   }
+  // `--load-warmup` (#2838): what ran before the measured window.
+  const w = summary.warmup;
+  if (w !== undefined) {
+    const stopped =
+      w.stoppedEarly !== undefined
+        ? ` ${style.red(`(stopped: ${w.stoppedEarly.reason})`)}`
+        : "";
+    lines.push(
+      `  Warm-up:    ${w.durationMs / 1000}s, ${w.requests} calls excluded (${w.ok} ok, ${w.failed} failed)${stopped}`,
+    );
+  }
+  // `--load-interval` (#2838): the time series, one line per bucket.
+  if (summary.intervals !== undefined) {
+    lines.push(`  ${style.bold("Intervals:")}`);
+    for (const row of summary.intervals) lines.push(formatLoadInterval(row));
+  }
   // `--load-steps` / `--load-ramp` (#2841): one row per stage, so the knee
   // reads straight down the column.
   if (summary.stages !== undefined) {
     lines.push(`  ${style.bold("Stages:")}`);
     for (const stage of summary.stages) {
       lines.push(formatLoadStage(stage, style));
+      // `--load-interval` puts a stepped run's buckets on each stage (#2838).
+      for (const row of stage.intervals ?? []) {
+        lines.push(`  ${formatLoadInterval(row)}`);
+      }
     }
   }
   // `--load-scenario` (#2839): each step's share, under the totals above.
@@ -1123,6 +1144,15 @@ export function formatLoadSummaryHuman(
 /** A latency distribution on one line, p95 and p99.9 included (#2838). */
 function latencyLine(l: LoadLatency): string {
   return `min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p95 ${l.p95} / p99 ${l.p99} / p99.9 ${l.p999} / max ${l.max} ms`;
+}
+
+/** One `--load-interval` bucket's line (#2838). */
+function formatLoadInterval(row: LoadIntervalSummary): string {
+  const failed = row.toolErrors + row.errors;
+  const l = row.latencyMs;
+  const latency =
+    l === null ? "no successes" : `p50 ${l.p50} / p99 ${l.p99} ms`;
+  return `    ${row.startMs / 1000}–${row.endMs / 1000}s: ${row.requests} calls (${row.throughput}/s), ${failed} failed; ${latency}`;
 }
 
 /** One stage's line in {@link formatLoadSummaryHuman} (#2841). */

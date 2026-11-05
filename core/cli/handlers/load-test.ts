@@ -74,6 +74,23 @@ export type LoadOptions = {
    * highest concurrency level (or the worker pool, when stepping the rate).
    */
   stages?: LoadStages;
+  /**
+   * `--load-interval` (#2838): also report the run as a time series of
+   * buckets this long, by completion time, in `intervals`.
+   */
+  intervalMs?: number;
+  /**
+   * `--load-warmup` (#2838): run this long first, at the same concurrency
+   * and rate, and leave those calls out of every statistic.
+   */
+  warmupMs?: number;
+  /**
+   * `--load-progress` (#2838): how often the front end wants a progress
+   * report. The engine does not read it — a caller turns it into the
+   * {@link LoadProgressHook} it passes — but it rides here so mcpdo's daemon,
+   * which runs the engine, learns it with the rest of the run.
+   */
+  progressMs?: number;
 };
 
 /**
@@ -184,6 +201,59 @@ export type LoadSummary = {
    * figures appear per stage only.
    */
   stages?: LoadStageSummary[];
+  /**
+   * `--load-interval` only (#2838): the run's calls bucketed by completion
+   * time, one entry per interval from the start, empty intervals included.
+   * A stepped run carries these per stage.
+   */
+  intervals?: LoadIntervalSummary[];
+  /**
+   * `--load-warmup` only (#2838): what the warm-up ran. None of it is in
+   * any other figure. With `stoppedEarly`, the run ended during warm-up and
+   * nothing was measured.
+   */
+  warmup?: LoadWarmupSummary;
+};
+
+/** One bucket of a `--load-interval` time series (#2838). */
+export type LoadIntervalSummary = {
+  /** Bucket start and end, in ms from the start of the run. */
+  startMs: number;
+  endMs: number;
+} & LoadOutcomeSummary;
+
+/** The warm-up of a `--load-warmup` run (#2838). */
+export type LoadWarmupSummary = {
+  durationMs: number;
+  requests: number;
+  ok: number;
+  failed: number;
+  stoppedEarly?: LoadStop;
+};
+
+/**
+ * One progress report (#2838): the totals so far, and the throughput and
+ * successful-call latency over the last report interval.
+ */
+export type LoadProgress = {
+  phase: "warmup" | "run";
+  /** With stages: the 1-based stage running. */
+  stage?: number;
+  /** Since the phase (or stage) started. */
+  elapsedMs: number;
+  requests: number;
+  ok: number;
+  failed: number;
+  /** Completions per second over the last interval. */
+  throughput: number;
+  /** p50 / p99 of the last interval's successful calls; `null` if none. */
+  latencyMs: { p50: number; p99: number } | null;
+};
+
+/** Where and how often a run reports progress. */
+export type LoadProgressHook = {
+  everyMs: number;
+  emit: (progress: LoadProgress) => void;
 };
 
 /** One stage of a stepped run (#2841): its position, its level, its run. */
@@ -276,8 +346,21 @@ export function resolveLoadOptions(flags: {
   argRows?: LoadArgRows;
   /** From `resolveLoadStages`, which has already refused the conflicts. */
   stages?: LoadStages;
+  /** `--load-interval` (#2838). */
+  intervalSec?: number;
+  /** `--load-warmup` (#2838). */
+  warmupSec?: number;
+  /** `--load-progress` (#2838); absent means no progress reports. */
+  progressSec?: number;
 }): LoadOptions {
   const { stages } = flags;
+  // A warm-up before a staircase would run at which stage's level? The
+  // stages are the ramp-up already, so the two are not combined.
+  if (flags.warmupSec !== undefined && stages !== undefined) {
+    throw new Error(
+      "--load-warmup cannot be combined with --load-steps or --load-ramp; the first stage is the warm-up.",
+    );
+  }
   const durationMs =
     flags.durationSec !== undefined
       ? flags.durationSec * 1000
@@ -308,6 +391,15 @@ export function resolveLoadOptions(flags: {
     ...(flags.scenario !== undefined && { scenario: flags.scenario }),
     ...(flags.argRows !== undefined && { argRows: flags.argRows }),
     ...(stages !== undefined && { stages }),
+    ...(flags.intervalSec !== undefined && {
+      intervalMs: flags.intervalSec * 1000,
+    }),
+    ...(flags.warmupSec !== undefined && {
+      warmupMs: flags.warmupSec * 1000,
+    }),
+    ...(flags.progressSec !== undefined && {
+      progressMs: flags.progressSec * 1000,
+    }),
   };
 }
 
@@ -448,8 +540,17 @@ class OutcomeStats {
   toolErrors = 0;
   errors = 0;
   // Bounded memory however long the run (#2838): see `LatencyRecorder`.
-  private readonly okLatencies = new LatencyRecorder();
-  private readonly errorLatencies = new LatencyRecorder();
+  private readonly okLatencies: LatencyRecorder;
+  private readonly errorLatencies: LatencyRecorder;
+
+  /**
+   * `exactLimit` is lowered for the many small `--load-interval` buckets
+   * and progress ticks, which go to their histogram sooner.
+   */
+  constructor(exactLimit?: number) {
+    this.okLatencies = new LatencyRecorder(exactLimit);
+    this.errorLatencies = new LatencyRecorder(exactLimit);
+  }
   private readonly tally = new ErrorTally();
   private readonly toolTally = new ErrorTally();
 
@@ -472,6 +573,12 @@ class OutcomeStats {
     this.errors++;
     this.errorLatencies.add(latency);
     this.tally.add(message);
+  }
+
+  /** Successful-call p50 and p99, or `null` with none (progress lines). */
+  okPercentiles(): { p50: number; p99: number } | null {
+    const l = this.okLatencies.summarize();
+    return l === null ? null : { p50: l.p50, p99: l.p99 };
   }
 
   get completed(): number {
@@ -577,6 +684,28 @@ export function loadSummaryWarnings(summary: LoadSummary): string[] {
   return warnings;
 }
 
+/** Default `--load-progress` interval (#2838). */
+export const DEFAULT_LOAD_PROGRESS_SEC = 5;
+
+/**
+ * One stderr progress line (#2838), the same in both CLIs:
+ * `[load 12.0s] 1234 calls (1230 ok, 4 failed), 102.3/s, p50 12.1 / p99 40.2 ms`,
+ * prefixed `warm-up` or `stage N` when that applies.
+ */
+export function formatLoadProgress(p: LoadProgress): string {
+  const where =
+    p.phase === "warmup"
+      ? "warm-up "
+      : p.stage !== undefined
+        ? `stage ${p.stage} `
+        : "";
+  const latency =
+    p.latencyMs === null
+      ? "no successes"
+      : `p50 ${p.latencyMs.p50} / p99 ${p.latencyMs.p99} ms`;
+  return `[load ${where}${(p.elapsedMs / 1000).toFixed(1)}s] ${p.requests} calls (${p.ok} ok, ${p.failed} failed), ${p.throughput}/s, ${latency}`;
+}
+
 /**
  * The stderr warning for a `--load-rate` run that started well short of its
  * target (#2837), or `undefined` when it held the rate (or had none).
@@ -631,10 +760,95 @@ export function runLoad(
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
+  progress?: LoadProgressHook,
 ): Promise<LoadSummary> {
-  return options.stages
-    ? runStages(call, options, options.stages, clock, signal)
-    : runWindow(call, options, clock, signal);
+  if (options.stages) {
+    return runStages(call, options, options.stages, clock, signal, progress);
+  }
+  if (options.warmupMs !== undefined) {
+    return runWithWarmup(
+      call,
+      options,
+      options.warmupMs,
+      clock,
+      signal,
+      progress,
+    );
+  }
+  return runWindow(call, options, clock, signal, undefined, false, {
+    hook: progress,
+    phase: "run",
+  });
+}
+
+/** Progress reporting for one window: where to send it, and its label. */
+type WindowProgress = {
+  hook: LoadProgressHook | undefined;
+  phase: LoadProgress["phase"];
+  stage?: number;
+};
+
+/**
+ * `--load-warmup` (#2838): a window of `warmupMs` at the run's own
+ * concurrency and rate, whose calls are discarded, then the measured run.
+ * The warm-up holds to its deadline so the measured window starts on time,
+ * and `seq` keeps counting across the two. A warm-up that stops early — the
+ * server is down, or the run was interrupted — ends the run there: the
+ * measured window is started with that stop already in place, so it runs
+ * nothing and reports the same reason.
+ */
+async function runWithWarmup(
+  call: LoadCall,
+  options: LoadOptions,
+  warmupMs: number,
+  clock: LoadClock,
+  signal: AbortSignal | undefined,
+  progress: LoadProgressHook | undefined,
+): Promise<LoadSummary> {
+  const warm = await runWindow(
+    call,
+    // No time series either: the warm-up's buckets would be built only to be
+    // thrown away, at a cost that grows with the warm-up's length.
+    {
+      ...options,
+      durationMs: warmupMs,
+      requests: undefined,
+      intervalMs: undefined,
+    },
+    clock,
+    signal,
+    undefined,
+    true,
+    { hook: progress, phase: "warmup" },
+  );
+  const warmup: LoadWarmupSummary = {
+    // What actually ran: shorter when it stopped early, longer when calls
+    // drained past its deadline.
+    durationMs: warm.elapsedMs,
+    requests: warm.requests,
+    ok: warm.ok,
+    failed: warm.toolErrors + warm.errors,
+    ...(warm.stoppedEarly !== undefined && {
+      stoppedEarly: warm.stoppedEarly,
+    }),
+  };
+  let measuredSignal = signal;
+  if (warm.stoppedEarly !== undefined) {
+    const stopped = new AbortController();
+    stopped.abort(warm.stoppedEarly);
+    measuredSignal = stopped.signal;
+  }
+  const offset = warm.requests;
+  const summary = await runWindow(
+    (worker, step, seq) => call(worker, step, seq + offset),
+    options,
+    clock,
+    measuredSignal,
+    undefined,
+    false,
+    { hook: progress, phase: "run" },
+  );
+  return { ...summary, warmup };
 }
 
 /** One load call: the worker making it, its scenario step, its `seq`. */
@@ -681,8 +895,10 @@ async function runWindow(
    * early; an abort during the wait is recorded here like any other.
    */
   holdToDeadline = false,
+  progress?: WindowProgress,
 ): Promise<LoadSummary> {
-  const { concurrency, durationMs, requests, rate, scenario } = options;
+  const { concurrency, durationMs, requests, rate, scenario, intervalMs } =
+    options;
   const total = new OutcomeStats();
   const stepRuns = scenario?.steps.map((step) => ({
     step,
@@ -693,6 +909,17 @@ async function runWindow(
 
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
+  const series =
+    intervalMs !== undefined
+      ? new IntervalSeries(start, intervalMs)
+      : undefined;
+  const ticker =
+    progress?.hook !== undefined
+      ? new ProgressTicker(progress.hook, clock, start, total, {
+          phase: progress.phase,
+          ...(progress.stage !== undefined && { stage: progress.stage }),
+        })
+      : undefined;
   const interval = rate === undefined ? 0 : 1000 / rate;
   // Earliest time the next slot may start.
   let nextStart = start;
@@ -823,9 +1050,12 @@ async function runWindow(
       const t0 = clock.now();
       try {
         const outcome = await call(index, step, seq);
-        const latency = clock.now() - t0;
+        const done = clock.now();
+        const latency = done - t0;
         breaker.streak = 0;
         total.addResult(outcome, latency);
+        series?.at(done).addResult(outcome, latency);
+        ticker?.recent.addResult(outcome, latency);
         stats?.addResult(outcome, latency);
         sink?.total.addResult(outcome, latency);
         sink?.steps?.[step]?.addResult(outcome, latency);
@@ -833,6 +1063,8 @@ async function runWindow(
         const now = clock.now();
         const message = err instanceof Error ? err.message : String(err);
         total.addThrown(message, now - t0);
+        series?.at(now).addThrown(message, now - t0);
+        ticker?.recent.addThrown(message, now - t0);
         stats?.addThrown(message, now - t0);
         sink?.total.addThrown(message, now - t0);
         sink?.steps?.[step]?.addThrown(message, now - t0);
@@ -841,6 +1073,7 @@ async function runWindow(
     }
   };
 
+  const ticking = ticker?.run();
   try {
     await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
     // A rate-limited window ends when its last start is due, which can be
@@ -854,6 +1087,8 @@ async function runWindow(
     }
   } finally {
     signal?.removeEventListener("abort", onAbort);
+    ticker?.stop();
+    await ticking;
   }
 
   const end = clock.now();
@@ -911,7 +1146,134 @@ async function runWindow(
         stepSummary(step, stats.summarize(elapsedMs)),
       ),
     }),
+    ...(series && { intervals: series.summarize(elapsedMs) }),
   };
+}
+
+/** Exact samples per bucket before a bucket switches to its histogram. */
+const BUCKET_EXACT_SAMPLES = 200;
+
+/**
+ * The `--load-interval` time series of one window (#2838): calls bucketed by
+ * when they completed, each bucket its own small {@link OutcomeStats}.
+ */
+class IntervalSeries {
+  private readonly buckets: OutcomeStats[] = [];
+
+  constructor(start: number, intervalMs: number) {
+    this.start = start;
+    this.intervalMs = intervalMs;
+  }
+
+  private readonly start: number;
+  private readonly intervalMs: number;
+
+  /**
+   * The bucket a call completing at `now` belongs to. Buckets are half-open,
+   * `(start, end]`, so a call finishing exactly on a boundary counts in the
+   * interval it finished, not in a zero-length one after it.
+   */
+  at(now: number): OutcomeStats {
+    const index = Math.max(
+      0,
+      Math.ceil((now - this.start) / this.intervalMs) - 1,
+    );
+    while (this.buckets.length <= index) {
+      this.buckets.push(new OutcomeStats(BUCKET_EXACT_SAMPLES));
+    }
+    return this.buckets[index]!;
+  }
+
+  /**
+   * One entry per interval up to `elapsedMs`, empty ones included, so the
+   * series has no gaps. The last may be shorter, and its rates use its own
+   * length.
+   */
+  summarize(elapsedMs: number): LoadIntervalSummary[] {
+    const count = Math.max(
+      this.buckets.length,
+      Math.ceil(elapsedMs / this.intervalMs),
+    );
+    return Array.from({ length: count }, (_, i) => {
+      const startMs = i * this.intervalMs;
+      // Unrounded for the rates: a call at 1000.001 ms in a 1000 ms series
+      // opens a bucket that rounding would shrink to nothing, zeroing its
+      // throughput. Only the reported offsets are rounded.
+      const endMs = Math.max(
+        startMs,
+        Math.min(startMs + this.intervalMs, elapsedMs),
+      );
+      const bucket = this.buckets[i] ?? new OutcomeStats(0);
+      return {
+        startMs: round(startMs),
+        endMs: round(endMs),
+        ...bucket.summarize(endMs - startMs),
+      };
+    });
+  }
+}
+
+/**
+ * Progress reports for one window (#2838): every `everyMs`, the totals so
+ * far plus the throughput and latency of the calls since the last report.
+ */
+class ProgressTicker {
+  /** The calls completed since the last report. */
+  recent = new OutcomeStats(BUCKET_EXACT_SAMPLES);
+  private readonly done = new AbortController();
+  private last: number;
+
+  constructor(
+    hook: LoadProgressHook,
+    clock: LoadClock,
+    start: number,
+    total: OutcomeStats,
+    label: Pick<LoadProgress, "phase" | "stage">,
+  ) {
+    this.hook = hook;
+    this.clock = clock;
+    this.start = start;
+    this.total = total;
+    this.label = label;
+    this.last = start;
+  }
+
+  private readonly hook: LoadProgressHook;
+  private readonly clock: LoadClock;
+  private readonly start: number;
+  private readonly total: OutcomeStats;
+  private readonly label: Pick<LoadProgress, "phase" | "stage">;
+
+  /** Report until {@link stop}; never rejects. */
+  async run(): Promise<void> {
+    for (;;) {
+      await sleepUnlessAborted(this.clock, this.hook.everyMs, this.done.signal);
+      if (this.done.signal.aborted) return;
+      this.report();
+    }
+  }
+
+  stop(): void {
+    this.done.abort();
+  }
+
+  private report(): void {
+    const now = this.clock.now();
+    const span = now - this.last;
+    const recent = this.recent;
+    this.recent = new OutcomeStats(BUCKET_EXACT_SAMPLES);
+    this.last = now;
+    const { ok, toolErrors, errors, completed } = this.total;
+    this.hook.emit({
+      ...this.label,
+      elapsedMs: round(now - this.start),
+      requests: completed,
+      ok,
+      failed: toolErrors + errors,
+      throughput: span > 0 ? round((recent.completed * 1000) / span) : 0,
+      latencyMs: recent.okPercentiles(),
+    });
+  }
 }
 
 /**
@@ -932,6 +1294,7 @@ async function runStages(
   stages: LoadStages,
   clock: LoadClock,
   signal: AbortSignal | undefined,
+  progress: LoadProgressHook | undefined,
 ): Promise<LoadSummary> {
   const { scenario } = options;
   const sink: LoadSink = {
@@ -952,6 +1315,9 @@ async function runStages(
         ? { rate: level }
         : options.rate !== undefined && { rate: options.rate }),
       ...(scenario && { scenario }),
+      ...(options.intervalMs !== undefined && {
+        intervalMs: options.intervalMs,
+      }),
     };
     const offset = used;
     const summary = await runWindow(
@@ -963,6 +1329,7 @@ async function runStages(
       // Every stage but the last holds to its deadline, so the next one
       // neither starts early nor bursts at the boundary.
       i < stages.levels.length - 1,
+      { hook: progress, phase: "run", stage: i + 1 },
     );
     used += summary.requests;
     elapsedMs += summary.elapsedMs;
@@ -1081,6 +1448,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
+  progress?: LoadProgressHook,
 ): Promise<LoadSummary> {
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
@@ -1089,6 +1457,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       options,
       clock,
       signal,
+      progress,
     );
   }
   if (!openConnection) {
@@ -1124,6 +1493,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       options,
       clock,
       signal,
+      progress,
     );
     return {
       ...summary,
@@ -1178,6 +1548,7 @@ export async function runToolLoad(
     options,
     extra.clock,
     extra.signal,
+    extra.progress,
   );
   return { tool: tool!.name, ...summary };
 }
@@ -1188,6 +1559,8 @@ export type LoadRunExtras = {
   clock?: LoadClock;
   /** Ends the run early; see {@link runLoad}. */
   signal?: AbortSignal;
+  /** Periodic progress reports (#2838); see {@link LoadProgressHook}. */
+  progress?: LoadProgressHook;
 };
 
 /**
@@ -1275,6 +1648,7 @@ export async function runScenarioLoad(
     { ...options, scenario },
     extra.clock,
     extra.signal,
+    extra.progress,
   );
 }
 

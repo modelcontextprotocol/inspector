@@ -193,6 +193,10 @@ more).
 - Latency has `p50`/`p90`/`p95`/`p99`/`p999`. Gate a run with
   `--load-max-p50`/`-p95`/`-p99`, `--load-max-error-rate` or
   `--load-min-throughput` (ok calls/s); a breach exits `10` after the summary.
+- `--load-interval <sec>` adds an `intervals[]` time series (spot a GC pause
+  or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
+  of the statistics (reported under `warmup`). Progress lines on stderr appear
+  only with `--format text`.
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
   `consecutive_errors` (the server stopped answering), `connection_lost`,
   `threshold_breached` (a stepped run's `--load-stop-on-breach`), or

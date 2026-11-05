@@ -1477,6 +1477,21 @@ function registerRpcCommands(program: CommandType): void {
             positiveNumberParser("--load-step-duration"),
           )
           .option(
+            "--load-interval <sec>",
+            "With --load: also report the run as a time series of buckets this many seconds long (completions, errors, latency per bucket) in an intervals array.",
+            positiveNumberParser("--load-interval"),
+          )
+          .option(
+            "--load-warmup <sec>",
+            "With --load: run this many seconds first at the same concurrency and rate, and leave those calls out of every statistic.",
+            positiveNumberParser("--load-warmup"),
+          )
+          .option(
+            "--load-progress <sec>",
+            "With --load: print a progress line on stderr this often (default 5). Shown with --format text only; --format json prints none.",
+            positiveNumberParser("--load-progress"),
+          )
+          .option(
             "--load-stop-on-breach",
             "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
           )

@@ -70,6 +70,7 @@ describe("resolveLoadFlags", () => {
   it("applies the engine's defaults, with no thresholds", () => {
     expect(resolveLoadFlags({ load: true, toolName: "echo" })).toEqual({
       options: {
+        progressMs: 5000,
         concurrency: DEFAULT_LOAD_CONCURRENCY,
         durationMs: DEFAULT_LOAD_DURATION_MS,
       },
@@ -91,6 +92,7 @@ describe("resolveLoadFlags", () => {
       }),
     ).toEqual({
       options: {
+        progressMs: 5000,
         concurrency: 3,
         connections: 2,
         durationMs: 2000,
@@ -164,6 +166,7 @@ describe("resolveLoadFlags", () => {
         resolveLoadFlags({ load: true, loadScenario: file, loadRequests: 2 }),
       ).toEqual({
         options: {
+          progressMs: 5000,
           concurrency: DEFAULT_LOAD_CONCURRENCY,
           requests: 2,
           scenario: {
@@ -371,6 +374,54 @@ describe("resolveLoadFlags with the #2838 gates", () => {
   });
 });
 
+describe("resolveLoadFlags with #2838 items 1–3", () => {
+  it("passes the interval, warm-up and progress through", () => {
+    expect(
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadInterval: 1,
+        loadWarmup: 2,
+        loadProgress: 3,
+      })?.options,
+    ).toMatchObject({ intervalMs: 1000, warmupMs: 2000, progressMs: 3000 });
+  });
+
+  it("refuses a warm-up with stages as a usage error", () => {
+    expect(() =>
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadSteps: [1],
+        loadWarmup: 1,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        envelope: expect.objectContaining({ code: "load_flag_conflict" }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ loadInterval: 1 }, "--load-interval requires --load."],
+    [{ loadWarmup: 1 }, "--load-warmup requires --load."],
+    [{ loadProgress: 1 }, "--load-progress requires --load."],
+  ])("requires --load for %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
+describe("tools/call --help (#2838)", () => {
+  it("describes --load-progress without a --quiet mcpdo does not have", async () => {
+    const result = await runMcp(["tools/call", "--help"]);
+    const help = result.stdout.replace(/\s+/g, " ");
+    expect(help).toContain("Shown with --format text only");
+    expect(help).not.toContain("--quiet");
+  });
+});
+
 describe("resolveLoadFlags with stages (#2841)", () => {
   it("plans the stages and carries the thresholds for a stop on breach", () => {
     expect(
@@ -384,6 +435,7 @@ describe("resolveLoadFlags with stages (#2841)", () => {
       }),
     ).toEqual({
       options: {
+        progressMs: 5000,
         concurrency: 4,
         stages: {
           by: "concurrency",
@@ -427,6 +479,92 @@ describe("resolveLoadFlags with stages (#2841)", () => {
   ])("requires --load for %j", (flags, message) => {
     expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
       message,
+    );
+  });
+});
+
+describe("formatLoadSummaryHuman with a warm-up and intervals (#2838)", () => {
+  it("renders the warm-up and one line per interval", () => {
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        warmup: { durationMs: 2000, requests: 40, ok: 39, failed: 1 },
+        intervals: [
+          {
+            ...SUMMARY,
+            startMs: 0,
+            endMs: 1000,
+            requests: 20,
+            throughput: 20,
+          },
+          {
+            ...SUMMARY,
+            startMs: 1000,
+            endMs: 1500,
+            requests: 0,
+            toolErrors: 0,
+            errors: 0,
+            throughput: 0,
+            latencyMs: null,
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      [
+        "  Warm-up:    2s, 40 calls excluded (39 ok, 1 failed)",
+        "  Intervals:",
+        "    0–1s: 20 calls (20/s), 3 failed; p50 2 / p99 5 ms",
+        "    1–1.5s: 0 calls (0/s), 0 failed; no successes",
+      ].join("\n"),
+    );
+  });
+
+  it("renders a stepped run's intervals under each stage", () => {
+    const row = {
+      ...SUMMARY,
+      startMs: 0,
+      endMs: 1000,
+      requests: 5,
+      throughput: 5,
+    };
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        stages: [
+          {
+            ...SUMMARY,
+            stage: 1,
+            stepBy: "concurrency",
+            level: 10,
+            intervals: [row],
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      "    1. concurrency 10: 30 requests (18/s ok), 10.00% errors; p50 2 / p99 5 ms\n      0–1s: 5 calls (5/s), 3 failed; p50 2 / p99 5 ms",
+    );
+  });
+
+  it("marks a warm-up that stopped the run", () => {
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        warmup: {
+          durationMs: 1000,
+          requests: 5,
+          ok: 0,
+          failed: 5,
+          stoppedEarly: { reason: "consecutive_errors", detail: "x" },
+        },
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      "  Warm-up:    1s, 5 calls excluded (0 ok, 5 failed) (stopped: consecutive_errors)",
     );
   });
 });
@@ -944,6 +1082,50 @@ describe.skipIf(unixDaemonOnly)(
         [2, 2],
       ]);
       expect(summary.requests).toBeGreaterThan(0);
+    });
+
+    it("shows progress on stderr in text mode only (#2838)", async () => {
+      const e = env();
+      await connectStdio(e);
+      const args = [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-duration",
+        "0.4",
+        "--load-progress",
+        "0.1",
+        "--load-interval",
+        "0.2",
+      ];
+      const text = await runMcp(args, { env: e, timeout: DAEMON_COMMAND_MS });
+      expectCliSuccess(text);
+      expect(text.stderr).toMatch(/\[load \d+\.\ds\] \d+ calls/);
+      const json = await runMcp([...args, "--format", "json"], {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      });
+      expectCliSuccess(json);
+      expect(json.stderr).not.toContain("[load");
+      const summary = JSON.parse(json.stdout) as LoadSummary;
+      expect(summary.intervals!.length).toBeGreaterThanOrEqual(2);
+      // A backed-up stderr drops the advisory lines rather than queue them.
+      Object.defineProperty(process.stderr, "writableNeedDrain", {
+        configurable: true,
+        get: () => true,
+      });
+      try {
+        const drained = await runMcp(args, {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        });
+        expectCliSuccess(drained);
+        expect(drained.stderr).not.toContain("[load");
+      } finally {
+        delete (process.stderr as { writableNeedDrain?: boolean })
+          .writableNeedDrain;
+      }
     });
 
     async function connectStdio(e: Record<string, string>): Promise<void> {
