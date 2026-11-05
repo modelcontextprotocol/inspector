@@ -14,6 +14,7 @@ import type { ExcludedTool } from "../mcp/types.js";
 import type { MalformedListItem } from "../mcp/listSalvage.js";
 import type { ConnectionDiagnostics } from "../mcp/connectionDiagnostics.js";
 import { useStoreSnapshot } from "./useStoreSnapshot.js";
+import type { NotifyScheduler } from "./notifyScheduler.js";
 
 // Module-scope frozen object so the `?? EMPTY_CLIENT_CAPABILITIES`
 // fallback below doesn't return a fresh literal on every render —
@@ -135,9 +136,16 @@ export interface UseInspectorClientResult {
  * If a future use case requires autonomous updates when the renderer attaches,
  * add an `appRendererClientChange` event to `InspectorClientEventMap` and
  * subscribe here.
+ *
+ * `diagnosticsSchedule` (optional, module-scope) coalesces
+ * `connectionDiagnosticsChange`, the one event here that fires per request and
+ * per response rather than per session — two synchronous renders of the
+ * caller per call otherwise (#2928). See `notifyScheduler.ts`. The rest stay
+ * immediate: they change a handful of times a session and callers act on them.
  */
 export function useInspectorClient(
   inspectorClient: InspectorClientProtocol | null,
+  diagnosticsSchedule?: NotifyScheduler,
 ): UseInspectorClientResult {
   const status = useStoreSnapshot(
     inspectorClient,
@@ -198,6 +206,7 @@ export function useInspectorClient(
     "connectionDiagnosticsChange",
     readConnectionDiagnostics,
     NO_CONNECTION_DIAGNOSTICS,
+    diagnosticsSchedule,
   );
 
   // `lastError` is the one value here that is NOT a snapshot of something the

@@ -25,6 +25,7 @@ import { ReplayButton } from "../../elements/ReplayButton/ReplayButton";
 import { EditReplayButton } from "../../elements/EditReplayButton/EditReplayButton";
 import { EditReplayModal } from "../EditReplayModal/EditReplayModal";
 import { useValueChange } from "../../../hooks/useValueChange";
+import { useOpenedOnce } from "../../../hooks/useOpenedOnce";
 import {
   classifyProtocolSpecError,
   type McpSpecError,
@@ -433,6 +434,11 @@ export function ProtocolEntry({
   // override is discarded whenever the parent changes `isListExpanded`.
   // Mirrors NetworkEntry; do not change without aligning both.
   useValueChange(isListExpanded, setIsExpanded);
+  // The body (two Ace editors) mounts on first expand, not with the row (#2928).
+  const bodyMounted = useOpenedOnce(isExpanded);
+  // Likewise the edit-and-replay modal: a closed Mantine `Modal` still costs a
+  // full subtree per row, and almost no row is ever replayed (#2928).
+  const editorMounted = useOpenedOnce(isEditingReplay);
 
   const directionBadge = entry.origin && (
     <MessageDirectionBadge
@@ -565,7 +571,7 @@ export function ProtocolEntry({
           </>
         )}
 
-        {canReplay && (
+        {canReplay && editorMounted && (
           <EditReplayModal
             opened={isEditingReplay}
             method={method}
@@ -582,58 +588,60 @@ export function ProtocolEntry({
         )}
 
         <Collapse in={isExpanded}>
-          <Stack gap="sm">
-            <Divider />
-            {entry.clientError &&
-              (isSendFailure(entry) ? (
-                <SendFailedAlert>
-                  <Text size="xs">{entry.clientError}</Text>
-                </SendFailedAlert>
-              ) : (
-                <ClientErrorAlert>
-                  <Text size="xs">{entry.clientError}</Text>
-                </ClientErrorAlert>
-              ))}
-            {specError && (
-              <McpSpecErrorAlert
-                error={specError}
-                // Only header/HTTP-status errors gain from the raw HTTP entry;
-                // a protocol-only error (e.g. -32021) shows no link.
-                onReveal={
-                  specError.httpRelevant ? onRevealInNetwork : undefined
-                }
-              />
-            )}
-            {requestParams && (
-              <Stack gap="xs">
-                <Text size="sm">Parameters:</Text>
-                <ContentViewer
-                  block={{
-                    type: "text",
-                    text: serializeMessage(requestParams),
-                  }}
-                  copyable
-                  // Named, because an expanded entry holds two of these and a
-                  // list holds many pairs — unnamed they all announce the same
-                  // thing, leaving only the visible headings to tell them apart.
-                  jsonLabel={`${method} request parameters JSON`}
+          {bodyMounted && (
+            <Stack gap="sm">
+              <Divider />
+              {entry.clientError &&
+                (isSendFailure(entry) ? (
+                  <SendFailedAlert>
+                    <Text size="xs">{entry.clientError}</Text>
+                  </SendFailedAlert>
+                ) : (
+                  <ClientErrorAlert>
+                    <Text size="xs">{entry.clientError}</Text>
+                  </ClientErrorAlert>
+                ))}
+              {specError && (
+                <McpSpecErrorAlert
+                  error={specError}
+                  // Only header/HTTP-status errors gain from the raw HTTP entry;
+                  // a protocol-only error (e.g. -32021) shows no link.
+                  onReveal={
+                    specError.httpRelevant ? onRevealInNetwork : undefined
+                  }
                 />
-              </Stack>
-            )}
-            {entry.response && (
-              <Stack gap="xs">
-                <Text size="sm">Response:</Text>
-                <ContentViewer
-                  block={{
-                    type: "text",
-                    text: serializeMessage(entry.response),
-                  }}
-                  copyable
-                  jsonLabel={`${method} response JSON`}
-                />
-              </Stack>
-            )}
-          </Stack>
+              )}
+              {requestParams && (
+                <Stack gap="xs">
+                  <Text size="sm">Parameters:</Text>
+                  <ContentViewer
+                    block={{
+                      type: "text",
+                      text: serializeMessage(requestParams),
+                    }}
+                    copyable
+                    // Named, because an expanded entry holds two of these and a
+                    // list holds many pairs — unnamed they all announce the same
+                    // thing, leaving only the visible headings to tell them apart.
+                    jsonLabel={`${method} request parameters JSON`}
+                  />
+                </Stack>
+              )}
+              {entry.response && (
+                <Stack gap="xs">
+                  <Text size="sm">Response:</Text>
+                  <ContentViewer
+                    block={{
+                      type: "text",
+                      text: serializeMessage(entry.response),
+                    }}
+                    copyable
+                    jsonLabel={`${method} response JSON`}
+                  />
+                </Stack>
+              )}
+            </Stack>
+          )}
         </Collapse>
       </Stack>
     </EntryContainer>

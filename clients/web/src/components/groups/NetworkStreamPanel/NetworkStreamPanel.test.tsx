@@ -1,7 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
-import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import {
+  renderWithMantine,
+  screen,
+  waitFor,
+} from "../../../test/renderWithMantine";
 import { NetworkStreamPanel } from "./NetworkStreamPanel";
 
 const entry: FetchRequestEntry = {
@@ -211,5 +215,25 @@ describe("NetworkStreamPanel", () => {
     );
     await user.click(await screen.findByText("Oldest First"));
     expect(onSortChange).toHaveBeenCalledWith("oldest-first");
+  });
+
+  // The rows are memoized and reach the parent's callback through a stable
+  // stand-in (#2928); the reveal must still report back to the latest one.
+  it("reports a completed reveal to the latest onRevealComplete", async () => {
+    const first = vi.fn();
+    const latest = vi.fn();
+    const { rerender } = renderWithMantine(
+      <NetworkStreamPanel {...baseProps} onRevealComplete={first} />,
+    );
+    rerender(
+      <NetworkStreamPanel
+        {...baseProps}
+        revealId="n-1"
+        onRevealComplete={latest}
+      />,
+    );
+
+    await waitFor(() => expect(latest).toHaveBeenCalledTimes(1));
+    expect(first).not.toHaveBeenCalled();
   });
 });

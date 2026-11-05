@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import type { Tool } from "@modelcontextprotocol/client";
 import {
   Button,
@@ -28,6 +28,7 @@ import {
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { extractMethod, groupProtocolEntries } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
+import { useLatestCallback } from "../../../hooks/useLatestCallback";
 
 // h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
 // the look is unchanged; sections below it are h3 (axe `heading-order`).
@@ -224,6 +225,57 @@ function CollapsibleSection({
   );
 }
 
+interface ProtocolEntryRowProps {
+  entry: MessageEntry;
+  isPinned: boolean;
+  isListExpanded: boolean;
+  embedded: boolean;
+  /** Whether this entry has a correlated Network entry to reveal. */
+  revealable: boolean;
+  correlatedHttpStatus?: number;
+  tools?: Tool[];
+  /** Stable (see `useLatestCallback`), keyed by entry id. */
+  onReplay: (id: string, overrideParams?: ReplayParamsOverride) => void;
+  onTogglePin: (id: string) => void;
+  onRevealInNetwork: (id: string) => void;
+}
+
+/**
+ * One Protocol row, memoized (#2928). Without it every message re-rendered
+ * every row the list already showed, so the cost of a message grew with the
+ * length of the log. Every prop is a primitive, a stable callback, or a value
+ * whose identity changes only when its content does — the log replaces an
+ * entry rather than mutating it — so an unchanged row is skipped outright.
+ */
+const ProtocolEntryRow = memo(function ProtocolEntryRow({
+  entry,
+  isPinned,
+  isListExpanded,
+  embedded,
+  revealable,
+  correlatedHttpStatus,
+  tools,
+  onReplay,
+  onTogglePin,
+  onRevealInNetwork,
+}: ProtocolEntryRowProps) {
+  return (
+    <ProtocolEntry
+      entry={entry}
+      isPinned={isPinned}
+      isListExpanded={isListExpanded}
+      embedded={embedded}
+      onReplay={(overrideParams) => onReplay(entry.id, overrideParams)}
+      onTogglePin={() => onTogglePin(entry.id)}
+      onRevealInNetwork={
+        revealable ? () => onRevealInNetwork(entry.id) : undefined
+      }
+      correlatedHttpStatus={correlatedHttpStatus}
+      tools={tools}
+    />
+  );
+});
+
 function matchesFilters(
   entry: MessageEntry,
   searchText: string,
@@ -274,6 +326,13 @@ export function ProtocolListPanel({
   correlatedStatusById,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
+  // Stable stand-ins for the parent's handlers, which are new functions on
+  // every render — passed raw they would defeat the row memo (#2928).
+  const replayEntry = useLatestCallback(onReplay);
+  const togglePinEntry = useLatestCallback(onTogglePin);
+  const revealEntry = useLatestCallback((id: string) => {
+    onRevealInNetwork?.(id);
+  });
   // Per-section expand/collapse, like the LogControls level toggles. Both start
   // open; collapsing hides that section's entries without affecting the other.
   const [pinnedOpen, setPinnedOpen] = useState(true);
@@ -338,21 +397,18 @@ export function ProtocolListPanel({
           tools={tools}
         />
       ) : (
-        <ProtocolEntry
+        <ProtocolEntryRow
           key={row.entry.id}
           entry={row.entry}
           isPinned={sectionPinned}
           isListExpanded={!compact}
           embedded={embedded}
-          onReplay={(overrideParams) => onReplay(row.entry.id, overrideParams)}
-          onTogglePin={() => onTogglePin(row.entry.id)}
-          onRevealInNetwork={
-            onRevealInNetwork && revealableIds?.has(row.entry.id)
-              ? () => onRevealInNetwork(row.entry.id)
-              : undefined
-          }
+          revealable={!!onRevealInNetwork && !!revealableIds?.has(row.entry.id)}
           correlatedHttpStatus={correlatedStatusById?.get(row.entry.id)}
           tools={tools}
+          onReplay={replayEntry}
+          onTogglePin={togglePinEntry}
+          onRevealInNetwork={revealEntry}
         />
       ),
     );

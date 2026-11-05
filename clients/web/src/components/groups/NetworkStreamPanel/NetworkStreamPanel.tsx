@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type {
   FetchRequestCategory,
@@ -12,6 +12,14 @@ import {
 } from "../../elements/SortToggle/SortToggle";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
+import { useLatestCallback } from "../../../hooks/useLatestCallback";
+
+/**
+ * Memoized so a new request re-renders only its own row, not every row the
+ * list already shows (#2928). The log replaces an entry when it changes, so
+ * entry identity is a sound comparison.
+ */
+const NetworkEntryRow = memo(NetworkEntry);
 
 // h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
 // the look is unchanged; sections below it are h3 (axe `heading-order`).
@@ -119,6 +127,11 @@ export function NetworkStreamPanel({
   onRevealComplete,
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
+  // The parent's callback is a new function each render; a stable stand-in
+  // keeps it from defeating the row memo (#2928).
+  const revealComplete = useLatestCallback(() => {
+    onRevealComplete?.();
+  });
   const filteredEntries = useMemo(() => {
     // Embedded column filters by text only (its category toggles live in the
     // full-size sidebar). See LogStreamPanel (#1616). `.filter()` returns a
@@ -167,13 +180,13 @@ export function NetworkStreamPanel({
         >
           <Stack gap="md">
             {filteredEntries.map((entry) => (
-              <NetworkEntry
+              <NetworkEntryRow
                 key={entry.id}
                 entry={entry}
                 isListExpanded={!compact}
                 embedded={embedded}
                 revealed={entry.id === revealId}
-                onRevealComplete={onRevealComplete}
+                onRevealComplete={revealComplete}
               />
             ))}
           </Stack>
