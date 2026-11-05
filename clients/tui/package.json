@@ -39,7 +39,7 @@
   "overrides": {
     "ink-select-input": "^6.2.0",
     "esbuild": "^0.28.2",
-    "rolldown": "1.2.13"
+    "rolldown": "1.2.16"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

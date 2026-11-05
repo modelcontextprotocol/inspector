@@ -38,6 +38,6 @@
   },
   "overrides": {
     "@types/node": "^24.12.4",
-    "rolldown": "1.2.13"
+    "rolldown": "1.2.16"
   }
 }
