@@ -30,6 +30,7 @@ import {
   withCliAuthRecoveryRetry,
 } from "@inspector/core/cli/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import { createCliOAuthFetch } from "@inspector/core/cli/oauth-debug.js";
 import { makeFakeServerSettings } from "./helpers/oauth-test-fakes.js";
 
 const oauthTestStatePath = join(
@@ -177,6 +178,78 @@ describe("CLI interactive OAuth (integration)", () => {
       const tools = await client.listTools();
       expect(tools.tools.length).toBeGreaterThan(0);
       await client.disconnect();
+    },
+    OAUTH_ROUND_TRIP_MS,
+  );
+
+  it(
+    "--oauth-debug traces each OAuth step with credentials redacted (#2844)",
+    async () => {
+      const serverConfig = {
+        ...getDefaultServerConfig(),
+        serverType: "streamable-http" as const,
+        ...createOAuthTestServerConfig({
+          requireAuth: true,
+          supportDCR: true,
+        }),
+      };
+
+      mcpServer = new TestServerHttp(serverConfig);
+      const port = await mcpServer.start();
+      const serverUrl = `http://localhost:${port}`;
+      await waitForOAuthWellKnown(serverUrl);
+
+      const lines: string[] = [];
+      const storage = new NodeOAuthStorage(oauthTestStatePath);
+      const redirectUrlProvider = new MutableRedirectUrlProvider();
+      redirectUrlProvider.redirectUrl = presetRedirectUrl;
+      const client = new InspectorClient(
+        {
+          type: "streamable-http",
+          url: `${serverUrl}/mcp`,
+        } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            // Exactly what `--oauth-debug` installs in the CLI and mcpdo.
+            oauthFetch: createCliOAuthFetch(true, (line) => lines.push(line)),
+            oauth: {
+              storage,
+              navigation: createAutoCompleteNavigation(redirectUrlProvider),
+              redirectUrlProvider,
+            },
+          },
+          directAuthRecovery: true,
+          oauth: {},
+        },
+      );
+
+      await connectInspectorWithOAuth(
+        client,
+        { type: "streamable-http", url: `${serverUrl}/mcp` },
+        redirectUrlProvider,
+        callbackUrlConfig,
+        undefined,
+        { isTTY: true },
+      );
+      const tokens = await storage.getTokens(`${serverUrl}/mcp`);
+      await client.disconnect();
+
+      const trace = lines.join("");
+      expect(trace).toMatch(
+        /\[oauth\] protected-resource metadata: GET .*\/\.well-known\/oauth-protected-resource/,
+      );
+      expect(trace).toMatch(
+        /\[oauth\] authorization-server metadata: GET .*\/\.well-known\//,
+      );
+      expect(trace).toMatch(/\[oauth\] client registration: POST /);
+      expect(trace).toMatch(
+        /\[oauth\] token request: POST .*grant_type=authorization_code code=\[redacted\]/,
+      );
+      expect(trace).toMatch(/"access_token":"\[redacted\]"/);
+      // The real credentials this flow obtained never reach the trace.
+      expect(tokens?.access_token).toBeTruthy();
+      expect(trace).not.toContain(tokens!.access_token);
     },
     OAUTH_ROUND_TRIP_MS,
   );

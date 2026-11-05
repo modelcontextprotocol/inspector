@@ -11,11 +11,15 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
-  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
+import {
+  createCliOAuthFetch,
+  oauthDebugNavigationHook,
+} from "@inspector/core/cli/oauth-debug.js";
 import {
   eraToVersionNegotiation,
   type InspectorClientEnvironment,
@@ -44,12 +48,16 @@ import { mcpdoEmaGuidance } from "./ema.js";
  * flow's interactive window arms it: the default prints the relay-worded
  * prompt line; the detached auth helper injects a navigation that reports
  * the raw URL over its stdout pipe instead (see auth-helper.ts).
+ *
+ * `oauthDebug` (`connect --oauth-debug`, #2844) traces every OAuth request
+ * this flow makes, and the authorize URL, to stderr.
  */
 export async function authorizeInFrontend(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
   options?: {
     storedAuthOnly?: boolean;
+    oauthDebug?: boolean;
     makeNavigation?: (
       autoOpenControl: CliOAuthAutoOpenControl,
     ) => CallbackNavigation;
@@ -69,7 +77,7 @@ export async function authorizeInFrontend(
     fetch: createProxyFetch(),
     // OAuth on the destination-guarded base (#2749), which refuses link-local
     // and cloud-metadata targets; proxy-aware itself.
-    oauthFetch: createGuardedFetch(),
+    oauthFetch: createCliOAuthFetch(options?.oauthDebug === true),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(
@@ -94,6 +102,9 @@ export async function authorizeInFrontend(
       : createCliOAuthNavigation({
           autoOpenControl,
           disableAutoOpen: options?.storedAuthOnly,
+          onAuthorizationUrl: oauthDebugNavigationHook(
+            options?.oauthDebug === true,
+          ),
           promptMessage: (hrefDisplay, tty) =>
             tty
               ? `Please navigate to: ${hrefDisplay}`
@@ -121,6 +132,12 @@ export async function authorizeInFrontend(
     progress: false,
     sample: false,
     elicit: false,
+    // The configured roots, as the daemon's client advertises them
+    // (`daemon/connections.ts`). `connect --oauth-debug` runs this client
+    // ahead of the daemon's even for a server that needs no OAuth, so a
+    // server that asks for roots at `initialize` must see the same
+    // capability here (#2844).
+    roots: cleanRoots(serverSettings?.roots ?? []),
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),

@@ -166,6 +166,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
+| `--oauth-debug`               | Print each OAuth step to stderr as it runs: the protected-resource and authorization-server metadata URLs and statuses, the client registration request and response, the authorization URL, and the token request and response. Tokens, codes, PKCE verifiers and client secrets are redacted. See [Tracing OAuth](#tracing-oauth---oauth-debug). |
 | `--completion <shell>`        | Print a `bash`, `zsh` or `fish` completion script and exit (no server connection). See [Shell completion](#shell-completion). |
 
 #### Revoking on `--relogin`
@@ -183,6 +184,30 @@ Turn it off per run with `--no-revoke`, or per server with `oauth.revokeOnClear:
 ```bash
 mcp-inspector --cli --server-url https://example.com/mcp --relogin --method tools/list
 mcp-inspector --cli --server-url https://example.com/mcp --relogin --no-revoke --method tools/list
+```
+
+#### Tracing OAuth (`--oauth-debug`)
+
+When a login fails, the final error rarely says which step went wrong. `--oauth-debug` ([#2844](https://github.com/modelcontextprotocol/inspector/issues/2844)) prints every OAuth request the run makes to stderr, one `[oauth]` line for the request and one for the response, so the step that broke is the last one in the trace. It is the terminal counterpart of the web client's OAuth view, and it shows what was actually sent and received:
+
+```text
+[oauth] protected-resource metadata: GET https://example.com/.well-known/oauth-protected-resource/mcp
+[oauth]   -> 200 OK {"resource":"https://example.com/mcp","authorization_servers":["https://auth.example.com"]}
+[oauth] authorization-server metadata: GET https://auth.example.com/.well-known/oauth-authorization-server
+[oauth]   -> 200 OK {"issuer":"https://auth.example.com","authorization_endpoint":"…","token_endpoint":"…","registration_endpoint":"…"}
+[oauth] client registration: POST https://auth.example.com/register {"redirect_uris":["http://127.0.0.1:6276/oauth/callback"],…}
+[oauth]   -> 201 Created {"client_id":"abc123","client_secret":"[redacted]",…}
+[oauth] authorization: open https://auth.example.com/authorize?response_type=code&client_id=abc123&…
+[oauth] token request: POST https://auth.example.com/token grant_type=authorization_code code=[redacted] code_verifier=[redacted] …
+[oauth]   -> 200 OK {"access_token":"[redacted]","token_type":"Bearer","expires_in":3600,"scope":"mcp","refresh_token":"[redacted]"}
+```
+
+- **What is redacted.** Every value under a credential-bearing field name — `access_token`, `refresh_token`, `id_token`, `code`, `code_verifier`, `client_secret`, `registration_access_token`, the assertion and token-exchange fields, and `token` — in query strings, form bodies and JSON alike. An `Authorization` header shows only its scheme. Everything else prints, since client ids, redirect URIs, scopes, endpoints and `error_description` are what the trace is for. Metadata documents are cut down to the fields that decide where the flow goes next.
+- **What is covered.** The discovery, registration, code exchange and refresh the connect runs, including any refresh `--use-stored-auth` makes. A failed request prints `-> failed: <reason>` — a destination the OAuth fetch guard refuses shows up there. A run whose stored token is still valid makes no OAuth requests and prints nothing; add `--relogin` to trace a fresh login.
+- **Where it goes.** Stderr only, so `--format json` keeps stdout clean. It is printed under `--quiet` too, since you asked for it.
+
+```bash
+mcp-inspector --cli --server-url https://example.com/mcp --relogin --oauth-debug --method tools/list
 ```
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers, sensitive `settings.metadata` keys whose whole value is replaced whether or not it is structured, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
@@ -230,6 +255,7 @@ What it suppresses:
 | The result payload / NDJSON on stdout                                          | Kept            |
 | The error envelope on a non-zero exit                                          | Kept            |
 | The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |
+| The `--oauth-debug` trace                                                      | Kept — you asked for it |
 | The OAuth authorization URL, the step-up `[y/N]` prompt, "open it by hand"     | Kept — interactive login cannot finish without them |
 
 So a quiet run that needs an interactive login still shows what it must; for a run

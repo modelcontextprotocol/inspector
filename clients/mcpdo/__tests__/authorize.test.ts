@@ -7,7 +7,7 @@ const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 const navigationSpy = vi.fn();
 const clientCtorSpy = vi.fn();
 const createProxyFetchSpy = vi.fn<() => typeof fetch | undefined>();
-const createGuardedFetchSpy = vi.fn<() => typeof fetch>();
+const createCliOAuthFetchSpy = vi.fn<(oauthDebug: boolean) => typeof fetch>();
 
 vi.mock("@inspector/core/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
@@ -39,7 +39,16 @@ vi.mock("@inspector/core/mcp/node/index.js", async (importOriginal) => {
   return {
     ...actual,
     createProxyFetch: () => createProxyFetchSpy(),
-    createGuardedFetch: () => createGuardedFetchSpy(),
+  };
+});
+
+vi.mock("@inspector/core/cli/oauth-debug.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/cli/oauth-debug.js")>();
+  return {
+    ...actual,
+    createCliOAuthFetch: (oauthDebug: boolean) =>
+      createCliOAuthFetchSpy(oauthDebug),
   };
 });
 
@@ -60,7 +69,7 @@ describe("authorizeInFrontend", () => {
     navigationSpy.mockClear();
     clientCtorSpy.mockClear();
     createProxyFetchSpy.mockReset();
-    createGuardedFetchSpy.mockReset();
+    createCliOAuthFetchSpy.mockReset();
   });
 
   it("installs the proxy-aware fetch on the client environment (#2642)", async () => {
@@ -85,7 +94,7 @@ describe("authorizeInFrontend", () => {
   it("installs the guarded fetch as the OAuth base (#2749)", async () => {
     connectSpy.mockResolvedValue(undefined);
     const guardedFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
-    createGuardedFetchSpy.mockReturnValue(guardedFetch);
+    createCliOAuthFetchSpy.mockReturnValue(guardedFetch);
     const { authorizeInFrontend } =
       await import("../src/connection/authorize.js");
     await authorizeInFrontend(
@@ -96,6 +105,28 @@ describe("authorizeInFrontend", () => {
       environment: { oauthFetch?: typeof fetch };
     };
     expect(options.environment.oauthFetch).toBe(guardedFetch);
+    // Untraced unless asked for.
+    expect(createCliOAuthFetchSpy).toHaveBeenCalledWith(false);
+    const navOptions = navigationSpy.mock.calls[0]?.[0] as {
+      onAuthorizationUrl?: unknown;
+    };
+    expect(navOptions.onAuthorizationUrl).toBeUndefined();
+  });
+
+  it("traces the OAuth fetch and the authorize URL under oauthDebug (#2844)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+      { oauthDebug: true },
+    );
+    expect(createCliOAuthFetchSpy).toHaveBeenCalledWith(true);
+    const navOptions = navigationSpy.mock.calls[0]?.[0] as {
+      onAuthorizationUrl?: unknown;
+    };
+    expect(navOptions.onAuthorizationUrl).toBeTypeOf("function");
   });
 
   it("warns on stderr about a destination-guard refusal during the flow (#2846)", async () => {
@@ -125,6 +156,25 @@ describe("authorizeInFrontend", () => {
     } finally {
       write.mockRestore();
     }
+  });
+
+  it("advertises the configured roots, as the daemon's client does (#2844)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      { roots: [{ uri: "file:///work", name: "work" }] } as never,
+    );
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const withRoots = clientCtorSpy.mock.calls[0]?.[1] as { roots?: unknown };
+    const without = clientCtorSpy.mock.calls[1]?.[1] as { roots?: unknown };
+    expect(withRoots.roots).toEqual([{ uri: "file:///work", name: "work" }]);
+    // Passed even when empty: that is what negotiates the capability.
+    expect(without.roots).toEqual([]);
   });
 
   it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {

@@ -59,6 +59,13 @@ export type CliOAuthNavigationOptions = {
    * a human) rather than to a human reading the terminal directly.
    */
   promptMessage?: (hrefDisplay: string, tty: boolean) => string;
+  /**
+   * Observe the authorize URL the armed flow is about to print, before the
+   * prompt line goes out — `--oauth-debug`'s authorization step (#2844).
+   * Never called for a disarmed or disabled navigation, whose URL nobody can
+   * complete.
+   */
+  onAuthorizationUrl?: (url: URL) => void;
 };
 
 /**
@@ -102,6 +109,7 @@ export function createCliOAuthNavigation(
   return new CallbackNavigation(async (url) => {
     const armed = options.autoOpenControl?.armed === true;
     if (options.disableAutoOpen || !armed) return;
+    options.onAuthorizationUrl?.(url);
 
     const href = url.href;
     // stderr-only — do not widen to stdin; see file-level note above.
