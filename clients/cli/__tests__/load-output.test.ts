@@ -8,7 +8,11 @@ import {
   expectCliSuccess,
   expectValidJson,
 } from "./helpers/assertions.js";
-import { getTestMcpServerCommand } from "@modelcontextprotocol/inspector-test-server";
+import {
+  createTestServerHttp,
+  createTestServerInfo,
+  getTestMcpServerCommand,
+} from "@modelcontextprotocol/inspector-test-server";
 import {
   resolveLoadOptions,
   runLoad,
@@ -72,6 +76,25 @@ describe("open loop (engine)", () => {
     expect(summary).not.toHaveProperty("openLoop");
   });
 
+  it("measures a request-capped run's rate from its actual starts", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(500);
+        return "ok";
+      },
+      { concurrency: 1, requests: 3, rate: 10, openLoop: true },
+      clock,
+    );
+    // Starts at 0, 500 and 1000 ms; the window runs to one slot after the
+    // last, 1100 ms, where the 10/s grid called for 11 starts.
+    expect(summary).toMatchObject({
+      plannedStarts: 11,
+      droppedSlots: 8,
+      achievedRate: 2.73,
+    });
+  });
+
   it("needs a rate to follow", () => {
     expect(() => resolveLoadOptions({ openLoop: true })).toThrow(
       "--load-open-loop requires --load-rate (or --load-step-by rate).",
@@ -103,6 +126,7 @@ describe("open loop (engine)", () => {
       clock,
     );
     expect(summary.stages!.every((s) => s.openLoop === true)).toBe(true);
+    expect(summary.openLoop).toBe(true);
   });
 });
 
@@ -467,6 +491,49 @@ describe("formatLoadSummaryHuman", () => {
     expect(text).toContain("\u001b[31m10.00%\u001b[39m");
     expect(text).toContain("\u001b[31m1 dropped\u001b[39m");
     expect(text).toContain("\u001b[31m1 failed\u001b[39m");
+  });
+});
+
+describe("the text summary is sanitized (CLI)", () => {
+  it("prints server-controlled text without its escape sequences", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-hostile", "1.0.0"),
+      tools: [
+        {
+          name: "hostile",
+          description: "Fails with an OSC 52 clipboard write",
+          inputSchema: {},
+          // The SDK answers a throwing handler with `isError: true` and the
+          // message as its text.
+          handler: async () => {
+            throw new Error("\u001b]52;c;cHduZWQ=\u0007gotcha");
+          },
+        },
+      ],
+    });
+    try {
+      await server.start();
+      const result = await runCli([
+        server.url,
+        "--cli",
+        "--transport",
+        "http",
+        "--method",
+        "tools/call",
+        "--tool-name",
+        "hostile",
+        "--load",
+        "--load-requests",
+        "2",
+        "--format",
+        "text",
+      ]);
+      expectCliSuccess(result);
+      expect(result.stdout).not.toContain("\u001b]52");
+      expect(result.stdout).toContain("␛]52;c;cHduZWQ=␇gotcha");
+    } finally {
+      await server.stop();
+    }
   });
 });
 

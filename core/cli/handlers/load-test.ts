@@ -1002,6 +1002,9 @@ async function runWindow(
   const interval = rate === undefined ? 0 : 1000 / rate;
   // Earliest time the next slot may start.
   let nextStart = start;
+  // When the latest call actually started. Open loop's `nextStart` is the
+  // arrival schedule, which a saturated run lags far behind (#2838).
+  let lastStartAt = start;
 
   // Everything inside the run watches `halt`, which the caller's `signal` and
   // the circuit breaker both trip, so either ends the run the same way.
@@ -1098,6 +1101,7 @@ async function runWindow(
           started++;
           // The slot's own time: here it is never after `now`.
           const scheduledAt = nextStart;
+          lastStartAt = now;
           // A wake that is merely late — timers always are, by a fraction of
           // a millisecond — keeps the slot grid, so the average rate holds.
           // Only a slot missed entirely (a stall longer than one interval)
@@ -1233,7 +1237,16 @@ async function runWindow(
    */
   const startWindowEnd = (): number => {
     let windowEnd = deadline;
-    if (requestCapped) windowEnd = Math.min(windowEnd, nextStart);
+    if (requestCapped) {
+      // Open loop's arrival cursor can sit well before the starts it caused
+      // (three 500 ms calls on a 10/s grid start at 0, 500 and 1000 ms with
+      // the cursor at 300), so its window runs one slot past the last
+      // actual start instead.
+      const after = openLoop
+        ? Math.max(nextStart, lastStartAt + interval)
+        : nextStart;
+      windowEnd = Math.min(windowEnd, after);
+    }
     if (stoppedEarly !== undefined) windowEnd = Math.min(windowEnd, stoppedAt);
     /* v8 ignore next -- defensive: a run with no duration, no request cap
        and no stop never ends, so one of the three always applies. */
@@ -1504,6 +1517,7 @@ async function runStages(
         stepSummary(step, sink.steps![i]!.summarize(elapsedMs)),
       ),
     }),
+    ...(options.openLoop === true && { openLoop: true }),
     stages: rows,
   };
 }

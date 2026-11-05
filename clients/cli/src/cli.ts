@@ -83,6 +83,7 @@ import {
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
 import { openLoadSampleFile } from "@inspector/core/cli/handlers/load-samples.js";
 import { styleFromOpts } from "@inspector/core/cli/style.js";
+import { sanitizeDeep } from "@inspector/core/cli/sanitize.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
   loadRampParser,
@@ -2240,7 +2241,11 @@ async function writeLoadSummary(
   if (format === "json") return writeFormattedResult(summary, "json");
   if (format === "text" || process.stdout.isTTY === true) {
     const style = styleFromOpts({ format: "text" });
-    await awaitableLog(`${formatLoadSummaryHuman(summary, style)}\n`);
+    // The summary carries server-controlled text (tool-error text, thrown
+    // messages, a scenario's names). Sanitized before styling, as mcpdo does,
+    // so none of it reaches the terminal as an escape sequence.
+    const safe = sanitizeDeep(summary);
+    await awaitableLog(`${formatLoadSummaryHuman(safe, style)}\n`);
     return;
   }
   await writeFormattedResult(summary, "text");
