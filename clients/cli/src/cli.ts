@@ -81,6 +81,14 @@ import {
   type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
+import {
+  checkLoadRegression,
+  compareLoadToBaseline,
+  formatLoadBaselineComparison,
+  maxRegressionParser,
+  resolveLoadBaseline,
+  type LoadBaselineGate,
+} from "@inspector/core/cli/handlers/load-baseline.js";
 import { openLoadSampleFile } from "@inspector/core/cli/handlers/load-samples.js";
 import { styleFromOpts } from "@inspector/core/cli/style.js";
 import { sanitizeDeep } from "@inspector/core/cli/sanitize.js";
@@ -200,6 +208,7 @@ async function callMethod(
   oauthDebug: boolean,
   load?: LoadOptions,
   loadThresholds?: LoadThresholds,
+  loadBaseline?: LoadBaselineGate,
 ): Promise<void> {
   // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
   // spawns its own server process, so N of them test N isolated servers rather
@@ -446,7 +455,23 @@ async function callMethod(
       // After the summary is out, so a cut-short or breached run still shows
       // its numbers. An interrupted run exits 130 and is not graded.
       assertNotInterrupted(summary);
+      // `--load-baseline` (#2910): a run shaped unlike its baseline is a
+      // usage error, raised before any grading; otherwise the comparison is
+      // printed — advisory, so `--quiet` drops it — and graded after the
+      // absolute thresholds.
+      const comparison =
+        loadBaseline !== undefined
+          ? compareLoadToBaseline(summary, loadBaseline.baseline)
+          : undefined;
+      if (comparison !== undefined && !args.quiet) {
+        for (const line of formatLoadBaselineComparison(comparison)) {
+          await awaitableError(`${line}\n`);
+        }
+      }
       checkLoadThresholds(summary, loadThresholds);
+      if (comparison !== undefined) {
+        checkLoadRegression(comparison, loadBaseline!.maxRegressionPct);
+      }
       return;
     }
 
@@ -998,6 +1023,7 @@ type ParseResult =
       serverSettings: InspectorServerSettings | undefined;
       methodArgs: MethodArgs & { method: string };
       loadThresholds?: LoadThresholds;
+      loadBaseline?: LoadBaselineGate;
       clientConfigPath?: string;
       clientId?: string;
       clientSecret?: string;
@@ -1406,6 +1432,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       minThroughputParser,
     )
     .option(
+      "--load-baseline <file>",
+      "With --load: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with --format json, printing the comparison on stderr. The runs must be shaped alike (same tool or scenario, concurrency, bounds, rate, connections and stages), or the run exits 1 (load_baseline_mismatch).",
+    )
+    .option(
+      "--load-max-regression <pct>",
+      "With --load-baseline: exit 10 (load_regression) when p50 or p99 is higher, or ok throughput lower, than the baseline by more than this percentage, or the error rate higher by more than this many percentage points (e.g. 10 or 10%).",
+      maxRegressionParser,
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -1629,6 +1664,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadMaxP50?: number;
     loadMaxP95?: number;
     loadMinThroughput?: number;
+    loadBaseline?: string;
+    loadMaxRegression?: number;
   };
 
   if (options.relogin) {
@@ -1741,6 +1778,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-max-p50", options.loadMaxP50],
     ["--load-max-p95", options.loadMaxP95],
     ["--load-min-throughput", options.loadMinThroughput],
+    ["--load-baseline", options.loadBaseline],
+    ["--load-max-regression", options.loadMaxRegression],
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
@@ -2106,9 +2145,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     maxP99Ms: options.loadMaxP99,
     minThroughput: options.loadMinThroughput,
   });
+  // `--load-baseline` (#2910): read now, before anything connects, so a bad
+  // path or a file that is not a summary fails without running the load.
+  const loadBaseline = resolveLoadBaseline({
+    baseline: options.loadBaseline,
+    maxRegressionPct: options.loadMaxRegression,
+  });
 
   return {
     loadThresholds,
+    ...(loadBaseline && { loadBaseline }),
     serverConfig,
     serverSettings,
     methodArgs,
@@ -2300,6 +2346,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     oauthDebug,
     load,
     loadThresholds,
+    loadBaseline,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
@@ -2333,5 +2380,6 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     oauthDebug === true,
     load,
     loadThresholds,
+    loadBaseline,
   );
 }

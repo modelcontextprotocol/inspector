@@ -374,6 +374,46 @@ describe("resolveLoadFlags with the #2838 gates", () => {
   });
 });
 
+describe("resolveLoadFlags with --load-baseline (#2910)", () => {
+  it("reads the baseline file in the front end and carries the budget", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcpdo-baseline-"));
+    try {
+      const file = path.join(dir, "prev.json");
+      fs.writeFileSync(file, JSON.stringify(SUMMARY));
+      expect(
+        resolveLoadFlags({
+          load: true,
+          toolName: "echo",
+          loadBaseline: file,
+          loadMaxRegression: 10,
+        })?.baseline,
+      ).toEqual({
+        baseline: { source: file, summary: SUMMARY },
+        maxRegressionPct: 10,
+      });
+      expect(
+        resolveLoadFlags({ load: true, toolName: "echo" }),
+      ).not.toHaveProperty("baseline");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    [{ loadBaseline: "x.json" }, "--load-baseline requires --load."],
+    [{ loadMaxRegression: 5 }, "--load-max-regression requires --load."],
+    [
+      { load: true, loadMaxRegression: 5 },
+      "--load-max-regression requires --load-baseline.",
+    ],
+    [{ load: true, loadBaseline: "/nonexistent/prev.json" }, "cannot be read"],
+  ])("refuses %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
 describe("resolveLoadFlags with #2838 items 1–3", () => {
   it("passes the interval, warm-up and progress through", () => {
     expect(
@@ -1205,6 +1245,51 @@ describe.skipIf(unixDaemonOnly)(
           { env: e, timeout: DAEMON_COMMAND_MS },
         ),
       );
+    });
+
+    it("compares against a saved baseline and fails a regression (#2910)", async () => {
+      const e = env();
+      await connectStdio(e);
+      const run = [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-requests",
+        "4",
+        "--load-concurrency",
+        "1",
+        "--format",
+        "json",
+      ];
+      const saved = await runMcp(run, { env: e, timeout: DAEMON_COMMAND_MS });
+      expectCliSuccess(saved);
+      const baselinePath = path.join(storageDir!, "baseline.json");
+      fs.writeFileSync(baselinePath, saved.stdout);
+      const compared = await runMcp([...run, "--load-baseline", baselinePath], {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      });
+      expectCliSuccess(compared);
+      expect(compared.stderr).toContain(`Baseline ${baselinePath}: p50 `);
+
+      // A baseline no real call can match: microsecond latencies.
+      const fast = JSON.parse(saved.stdout) as LoadSummary;
+      fast.latencyMs = { ...fast.latencyMs!, p50: 0.001, p99: 0.001 };
+      fs.writeFileSync(baselinePath, JSON.stringify(fast));
+      const regressed = await runMcp(
+        [
+          ...run,
+          "--load-baseline",
+          baselinePath,
+          "--load-max-regression",
+          "10%",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expect(regressed.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
+      expect(JSON.parse(regressed.stdout)).toMatchObject({ requests: 4 });
+      expect(regressed.stderr).toContain("load_regression");
     });
 
     it("refuses more than one session over stdio", async () => {

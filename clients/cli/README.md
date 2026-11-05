@@ -177,6 +177,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--load-max-p50 <ms>`, `--load-max-p95 <ms>` | With `--load`: the same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
 | `--load-min-throughput <n>`   | With `--load`: after printing the summary, exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`). Positive number. |
+| `--load-baseline <file>`      | With `--load`: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with `--format json`, printing the comparison on stderr. A baseline from a differently shaped run exits `1` (`load_baseline_mismatch`). See [Comparing against a baseline](#comparing-against-a-baseline---load-baseline). |
+| `--load-max-regression <pct>` | With `--load-baseline`: after printing the summary, exit `10` (`load_regression`) when any compared figure is worse than the baseline by more than this — percent for latency and throughput, percentage points for the error rate. `10` or `10%`; `0` fails on any regression. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -734,6 +736,46 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
 - A stepped run (below) is judged **stage by stage**, and the message names
   the first stage that breached.
 
+##### Comparing against a baseline (`--load-baseline`)
+
+An absolute threshold has to be picked, and re-picked as the server changes.
+To gate on "no worse than last time" instead, save a run's summary and compare
+later runs against it
+([#2910](https://github.com/modelcontextprotocol/inspector/issues/2910)):
+
+```bash
+# on the release: save the summary
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-duration 30 --format json > baseline.json
+
+# on each change: the same run, failing if anything is more than 10% worse
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-duration 30 \
+  --load-baseline baseline.json --load-max-regression 10%
+```
+
+- Four figures are compared: **p50** and **p99** of the successful calls and
+  **ok throughput** by relative change, and the **error rate** in
+  **percentage points** — a healthy baseline's error rate is usually `0`,
+  from which any relative change is infinite. `--load-max-error-rate` stays
+  the absolute ceiling. A run in which no call succeeded, against a baseline
+  in which some did, is a regression on both latencies.
+- The comparison is printed on stderr after the summary, one line per figure
+  as `baseline -> this run` (`--quiet` drops it). Without
+  `--load-max-regression` it only reports; with it, a figure worse by more
+  than the budget exits `10` (`load_regression`), naming each regressed
+  figure with both values. The absolute thresholds are judged first.
+- The two runs must be shaped alike — the same tool (or scenario steps),
+  `--load-concurrency`, `--load-duration`, `--load-requests`, `--load-rate`,
+  `--load-open-loop`, `--load-connections` and stages — or the run exits `1`
+  with `load_baseline_mismatch`, listing every difference, rather than
+  comparing numbers that mean different things. A stepped run is compared
+  **stage by stage**.
+- The baseline is read before anything connects. Either `--format json`
+  shape is accepted — this CLI's `{ "result": … }` envelope, or the bare
+  summary `mcpdo` and a piped run print. A file that is not a summary, or a
+  baseline run that stopped early, exits `1` with `load_baseline_invalid`.
+
 ##### Stepped and ramped load (`--load-steps`, `--load-ramp`)
 
 One concurrency or rate shows how a server behaves at one load level. To find
@@ -1065,7 +1107,7 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
-| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
+| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`, `load_regression` for `--load-max-regression`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 | `130` | A `--load` run was interrupted by Ctrl+C or SIGTERM (`interrupted`). The partial summary is printed on stdout first. See [Load testing a tool](#load-testing-a-tool---load). |
 
