@@ -10,6 +10,7 @@ import {
   awaitableError,
   awaitableLog,
 } from "@inspector/core/cli/utils/awaitable-log.js";
+import { parsePromptArgPair } from "@inspector/core/cli/utils/prompt-args.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -1059,8 +1060,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--prompt-args <pairs...>",
-      "Prompt arguments as key=value pairs",
-      parseKeyValuePair,
+      "Prompt arguments as key=value pairs (values are sent verbatim as strings)",
+      parsePromptArgPair,
       {},
     )
     .option(
@@ -1320,7 +1321,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     toolArg?: Record<string, JsonValue>;
     uri?: string;
     promptName?: string;
-    promptArgs?: Record<string, JsonValue>;
+    promptArgs?: Record<string, string>;
     logLevel?: LoggingLevel;
     metadata?: Record<string, StrictJsonValue>;
     toolMetadata?: Record<string, StrictJsonValue>;
