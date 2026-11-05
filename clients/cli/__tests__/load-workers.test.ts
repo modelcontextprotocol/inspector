@@ -268,6 +268,36 @@ describe("sharding", () => {
     expect(merged.droppedSlots).toBe(0);
   });
 
+  it("covers every counted start when the workers' calls differ in cost", async () => {
+    // Fast worker: starts at 0 and 1 s. Slow worker: at 0.5 s, then (its one
+    // worker busy) 5.5 s. The run's grid slot after 5.5 s is 6 s.
+    const options: LoadOptions = { concurrency: 2, requests: 4, rate: 2 };
+    const results = [];
+    for (const i of [0, 1]) {
+      const clock = fakeClock();
+      let raw: LoadRawStats | undefined;
+      const summary = await runLoad(
+        async () => {
+          await clock.sleep(i === 0 ? 1 : 5000);
+          return "ok";
+        },
+        shardLoadOptions(options, i, 2),
+        clock,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          raw: (r) => {
+            raw = r;
+          },
+        },
+      );
+      results.push({ summary, raw: raw! });
+    }
+    expect(mergeLoadWorkerResults(results, options).achievedRate).toBe(0.67);
+  });
+
   it("reports a request-capped run's rate over one window too", async () => {
     // Each worker's own window ends at 1, 1.25, 1.5 and 1.75 s; the run's
     // schedule (0, 0.25, 0.5, 0.75 s) ends at 1 s.
