@@ -13,8 +13,9 @@
 // reporters there.
 //
 // Security advisories (#2766) need a hand on both ends: a GHSA fix lands as
-// a merge from the advisory's private fork, not as a PR, so generate-notes
-// never lists it, and its reporter filed no issue, so nothing credits them.
+// an ordinary PR (#2880; before that, as a merge from the advisory's private
+// fork, which generate-notes never listed), so the list shows it only as one
+// more PR, and its reporter filed no issue, so nothing credits them.
 // Each `--advisory "<GHSA-id>: <markdown>"` adds a bullet under a
 // `### Security fixes` heading inside What's Changed (the PR list moves under
 // `### Other changes`) and credits the advisory's reporters, in every credit
