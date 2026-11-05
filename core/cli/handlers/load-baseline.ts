@@ -348,6 +348,14 @@ function round2(n: number): number {
 }
 
 /**
+ * Two places, or two significant figures below 0.01, so a small but real
+ * change (a 0.0025-point error rate rise) never displays as 0.
+ */
+function shownNumber(n: number): number {
+  return n !== 0 && Math.abs(n) < 0.01 ? Number(n.toPrecision(2)) : round2(n);
+}
+
+/**
  * Relative change in percent, positive when `value` is worse in the given
  * direction. Unrounded, so a budget of 0 still sees a tiny regression.
  */
@@ -401,8 +409,11 @@ function compareFigures(
     latencyFigure("p99", run, base),
     {
       figure: "errorRate",
-      baseline: base.errorRate,
-      value: run.errorRate,
+      // Exact, not the summary's four-place `errorRate`: one failure in
+      // 40 000 rounds to 0 there, and a budget of 0 that fails on it must
+      // be able to say so.
+      baseline: baseRate,
+      value: runRate,
       // Percentage points, from the exact counts.
       change: (runRate - baseRate) * 100,
     },
@@ -468,7 +479,7 @@ function figureValue(f: LoadFigureComparison, n: number | null): string {
     case "p99":
       return `${n}ms`;
     case "errorRate":
-      return `${round2(n * 100)}%`;
+      return `${shownNumber(n * 100)}%`;
     case "okThroughput":
       return `${n}/s`;
   }
@@ -479,7 +490,7 @@ function changeText(f: LoadFigureComparison): string {
   if (f.change === Infinity) return "no call succeeded";
   const unit = f.figure === "errorRate" ? " pts" : "%";
   const sign = f.change > 0 ? "+" : "";
-  return `${sign}${round2(f.change)}${unit} worse`;
+  return `${sign}${shownNumber(f.change)}${unit} worse`;
 }
 
 /** One figure as `p99 40ms -> 44ms (+10% worse)`. */

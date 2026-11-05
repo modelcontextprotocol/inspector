@@ -476,7 +476,10 @@ describe("checkLoadRegression", () => {
     const err = thrown(() =>
       checkLoadRegression(compareLoadToBaseline(run, base(baseline)), 0),
     );
-    expect(err.message).toContain("error rate");
+    // Exact and unrounded, so the failure explains itself.
+    expect(err.message).toContain(
+      "error rate 0% -> 0.0025% (+0.0025 pts worse)",
+    );
   });
 
   it("names the first regressed stage", () => {
