@@ -438,6 +438,27 @@ describe("load-test engine", () => {
       expect(summary.requests).toBeLessThan(limit);
     });
 
+    it("yields with setTimeout where there is no setImmediate (#2911)", async () => {
+      // The web client runs this engine in a browser, which has no
+      // `setImmediate`; the run must still yield rather than throw.
+      const abort = new AbortController();
+      setTimeout(() => abort.abort(), 0);
+      vi.stubGlobal("setImmediate", undefined);
+      try {
+        const limit = 200_000;
+        const summary = await runLoad(
+          async () => "tool_error",
+          { concurrency: 4, requests: limit },
+          undefined,
+          abort.signal,
+        );
+        expect(summary.requests).toBeGreaterThan(0);
+        expect(summary.requests).toBeLessThan(limit);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+
     it("starts nothing when its signal has already aborted", async () => {
       const summary = await runLoad(
         async () => "ok",

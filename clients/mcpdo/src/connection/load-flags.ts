@@ -8,11 +8,13 @@ import {
   resolveLoadOptions,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
-import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
+import {
+  readLoadArgsFile,
+  readLoadScenarioFile,
+} from "@inspector/core/cli/handlers/load-files.js";
 import {
   assertLoadArgsTemplate,
   LOAD_ARGS_INVALID,
-  readLoadArgsFile,
 } from "@inspector/core/cli/handlers/load-template.js";
 import { LOAD_SCENARIO_INVALID } from "@inspector/core/cli/handlers/load-scenario.js";
 import {

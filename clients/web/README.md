@@ -59,6 +59,10 @@ Components live under `src/components/` in four layers, smallest to largest:
 
 Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
 
+## Load testing (`#2911`)
+
+The Tools screen's **Load test** button opens a panel that runs the shared `--load` engine (`core/cli/handlers/load-test.ts`, the one the CLI and `mcpdo` run) **in the browser, over the tab's live `InspectorClient`** — the selected tool with the form's arguments, or a pasted scenario — and shows progress and the summary as tables. It runs here rather than on the backend because the connection being inspected (transport, OAuth tokens, headers, negotiated era) lives in this tab; a backend run would be a second session needing its own copy of all of that. Two consequences, both stated in the panel: every call crosses the browser→backend hop, and the page records each call in the monitoring sidebar, so close the sidebar for figures that measure the server rather than the page. The runtime half is `src/lib/loadTest.ts`; the form-to-options and summary-to-rows logic is `src/utils/loadTest.ts`.
+
 ## Tool-schema portability (`#1005`)
 
 The Tools tab flags tools whose advertised `inputSchema` / `outputSchema`

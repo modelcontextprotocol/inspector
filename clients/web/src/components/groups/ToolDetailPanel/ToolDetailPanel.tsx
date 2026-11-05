@@ -67,6 +67,11 @@ export interface ToolDetailPanelProps {
    * any caller whose list cannot repeat one.
    */
   resetKey?: string;
+  /**
+   * Open the load-test panel for this tool (#2911). The button shows only when
+   * it is set, so a host with no load engine to offer never renders it.
+   */
+  onLoadTest?: () => void;
 }
 
 // Outer column: title/annotations pin at top, the Execute footer pins at the
@@ -146,6 +151,12 @@ const DescriptionText = Text.withProps({
   c: "dimmed",
 });
 
+// Secondary to Execute: a load run is many calls, not the one the form is for.
+const LoadTestButton = Button.withProps({
+  size: "md",
+  variant: "default",
+});
+
 const CancelButton = Button.withProps({
   variant: "subtle",
   color: "red",
@@ -212,6 +223,7 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
   resetKey,
+  onLoadTest,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
   // Narrow the SDK protocol schema to the form renderer's schema type.
@@ -390,6 +402,12 @@ export function ToolDetailPanel({
           Execute Tool
         </Button>
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
+        {onLoadTest && (
+          // The same gate as Execute: every load call sends these arguments.
+          <LoadTestButton onClick={onLoadTest} disabled={executeDisabled}>
+            Load test
+          </LoadTestButton>
+        )}
       </FooterRow>
     </PanelStack>
   );

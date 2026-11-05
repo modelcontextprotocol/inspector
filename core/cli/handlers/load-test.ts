@@ -2,7 +2,7 @@ import type { Tool } from "@modelcontextprotocol/client";
 import type { InspectorClient } from "../../mcp/index.js";
 import type { RequestMetadata } from "../../mcp/types.js";
 import { ManagedToolsState } from "../../mcp/state/index.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 import type { MethodArgs } from "./method-types.js";
 import {
   createWeightedPicker,
@@ -623,8 +623,16 @@ export const RATE_SHORTFALL_RATIO = 0.9;
  */
 export const YIELD_EVERY_SLOTS = 64;
 
-const yieldToEventLoop = (): Promise<void> =>
-  new Promise((resolve) => setImmediate(resolve));
+/**
+ * A macrotask turn: `setImmediate` in Node, and `setTimeout(0)` in a browser,
+ * which has no `setImmediate` — the web client runs this engine there (#2911).
+ * Looked up per call, not once at load, so either host gets its own.
+ */
+export const yieldToEventLoop = (): Promise<void> =>
+  new Promise((resolve) => {
+    if (typeof setImmediate === "function") setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
 
 /** Injected so tests can drive the clock instead of waiting on it. */
 export type LoadClock = {

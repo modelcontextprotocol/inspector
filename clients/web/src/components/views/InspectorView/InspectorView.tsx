@@ -428,6 +428,7 @@ export function InspectorView({
     onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
+    onRunLoadTest,
   } = toolsPanel;
   const {
     prompts,
@@ -1233,6 +1234,7 @@ export function InspectorView({
                 onCancelCall={onCancelToolCall}
                 onClearResult={onClearToolResult}
                 onReadResource={onReadResourceContents}
+                onRunLoadTest={onRunLoadTest}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Apps"}>

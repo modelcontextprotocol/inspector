@@ -135,6 +135,7 @@ import { HeadersReconnectToastMessage } from "./components/elements/Toasts/Heade
 import { OutputValidationToastMessage } from "./components/elements/Toasts/OutputValidationToastMessage";
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
 import { errorMessage } from "./utils/errorFormat";
+import { runWebLoadTest, type RunLoadTest } from "./lib/loadTest";
 
 /**
  * Terminates a dispatched handler's promise by reporting the failure, for the
@@ -1798,6 +1799,15 @@ function App() {
     },
     [onCallTool],
   );
+  // The load panel (#2911) runs the shared engine over this tab's live
+  // client — see `lib/loadTest.ts` for why the browser, not the backend.
+  const onRunLoadTest = useMemo<RunLoadTest | undefined>(
+    () =>
+      inspectorClient
+        ? (request, hooks) => runWebLoadTest(inspectorClient, request, hooks)
+        : undefined,
+    [inspectorClient],
+  );
   const dispatchGetPrompt = useCallback(
     (name: string, args: Record<string, string>) => {
       onGetPrompt(name, args).catch(
@@ -1889,6 +1899,7 @@ function App() {
     onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
+    onRunLoadTest,
   };
 
   const promptsPanelProps: PromptsPanelProps = {

@@ -14,6 +14,7 @@
 //     the same locals and passes them down to the screens as before, so
 //     nothing below the view knows they exist.
 import type { Ref } from "react";
+import type { RunLoadTest } from "../../../lib/loadTest";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -252,6 +253,8 @@ export interface ToolsPanelProps {
    * Returns the linked resource's contents so the result panel can inline them.
    */
   onReadResourceContents?: (uri: string) => Promise<ReadResourceResult>;
+  /** Run a load test over the current connection (#2911). */
+  onRunLoadTest?: RunLoadTest;
 }
 
 /** The Prompts screen: its list, lifted UI state, and actions. */

@@ -13,10 +13,10 @@ import {
   createWeightedPicker,
   LOAD_SCENARIO_INVALID,
   parseLoadScenario,
-  readLoadScenarioFile,
   validateLoadScenario,
   type LoadScenario,
 } from "@inspector/core/cli/handlers/load-scenario.js";
+import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-files.js";
 import {
   resolveLoadOptions,
   runLoad,

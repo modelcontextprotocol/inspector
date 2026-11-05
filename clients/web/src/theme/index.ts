@@ -18,6 +18,7 @@ export { ThemeSelect } from "./Select";
 export { ThemeSwitch } from "./Switch";
 export { ThemeTable } from "./Table";
 export { ThemeText } from "./Text";
+export { ThemeTextarea } from "./Textarea";
 export { ThemeTextInput } from "./TextInput";
 export { ThemeTitle } from "./Title";
 export { ThemeUnstyledButton } from "./UnstyledButton";

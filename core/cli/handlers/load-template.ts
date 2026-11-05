@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   isSerializableJson,
   type StrictJsonValue,
 } from "../../json/jsonUtils.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 
 /**
  * Varying arguments for `--load` (#2840), so the calls in a run are not all
@@ -79,6 +77,27 @@ export function checkLoadTemplate(value: unknown, where: string): void {
   }
 }
 
+/**
+ * `{{uuid}}`: a random v4 UUID. `crypto.randomUUID` where it exists; the web
+ * client runs this engine in the browser (#2911), where `randomUUID` needs a
+ * secure context that a plain-HTTP, non-loopback host is not, so the
+ * fallback builds the same v4 shape from `crypto.getRandomValues`, which is
+ * not gated on one.
+ */
+export function loadUuid(cryptoImpl: Crypto = globalThis.crypto): string {
+  if (typeof cryptoImpl.randomUUID === "function") {
+    return cryptoImpl.randomUUID();
+  }
+  const bytes = cryptoImpl.getRandomValues(new Uint8Array(16));
+  // RFC 9562 version (4) and variant (10xx) bits.
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join(
+    "",
+  );
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function substitute(
   token: string,
   min: string | undefined,
@@ -88,7 +107,7 @@ function substitute(
 ): number | string {
   if (token === "seq") return ctx.seq;
   if (token === "worker") return ctx.worker;
-  if (token === "uuid") return randomUUID();
+  if (token === "uuid") return loadUuid();
   const lo = Number(min);
   return lo + Math.floor(random() * (Number(max) - lo + 1));
 }
@@ -205,28 +224,6 @@ export function parseLoadArgsRows(text: string): LoadArgsRow[] {
 }
 
 /**
- * Read `--load-args-file <path>`. Any failure is a usage error (exit 1) under
- * {@link LOAD_ARGS_INVALID}, raised before anything connects. Read by the
- * front end, like a scenario file, so a relative path means the caller's
- * working directory.
- */
-export function readLoadArgsFile(path: string): LoadArgsRow[] {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (err) {
-    throw loadArgsError(
-      `--load-args-file ${path}: cannot be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  try {
-    return parseLoadArgsRows(text);
-  } catch (err) {
-    throw loadArgsError(`--load-args-file ${path}: ${(err as Error).message}`);
-  }
-}
-
-/**
  * {@link checkLoadTemplate} over the flag arguments, as a usage error. The
  * front ends call it before connecting.
  */
@@ -238,7 +235,11 @@ export function assertLoadArgsTemplate(value: unknown, where: string): void {
   }
 }
 
-function loadArgsError(message: string): CliExitCodeError {
+/**
+ * A {@link LOAD_ARGS_INVALID} usage error (exit 1). Exported for the file
+ * reader in `load-files.ts`.
+ */
+export function loadArgsError(message: string): CliExitCodeError {
   return new CliExitCodeError(EXIT_CODES.USAGE, message, {
     code: LOAD_ARGS_INVALID,
   });

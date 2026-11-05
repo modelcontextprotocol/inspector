@@ -246,6 +246,36 @@ describe("ToolDetailPanel", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
+  // #2911: the load-test entry point shows only when the host offers it, and
+  // is gated like Execute, since every load call sends the same arguments.
+  it("offers Load test only when given a handler, gated like Execute", async () => {
+    const user = userEvent.setup();
+    const onLoadTest = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ToolDetailPanel {...baseProps} tool={simpleTool} formValues={{}} />,
+    );
+    expect(screen.queryByRole("button", { name: "Load test" })).toBeNull();
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{}}
+        onLoadTest={onLoadTest}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Load test" })).toBeDisabled();
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{ message: "hi" }}
+        onLoadTest={onLoadTest}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(onLoadTest).toHaveBeenCalledTimes(1);
+  });
+
   // #2171: the panel opts its form into tool-argument type enforcement, so a
   // raw-JSON draft the client would retype is refused here rather than sent as
   // something other than what the editor showed.

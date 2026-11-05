@@ -50,7 +50,8 @@ inspector/
 ├── core/             Shared code, consumed via the `@inspector/core` alias (no package.json)
 │   ├── auth/         OAuth end to end + the per-server SecretStore backends
 │   ├── cli/          Node-only surface the one-shot CLI and mcpdo share (method handlers,
-│   │                 exit codes, interactive OAuth flow, output styling); tested + gated by clients/cli
+│   │                 exit codes, interactive OAuth flow, output styling); tested + gated by clients/cli.
+│   │                 The --load engine in it is kept browser-safe: the web load panel runs it too
 │   ├── client/       Install-level client config (`client.json`)
 │   ├── extension/    Host-side adapters for MCP extensions whose protocol an upstream SDK owns
 │   │   ├── skills/   What the SDK's Skills client leaves to an inspector: permissive entry schemas, the
