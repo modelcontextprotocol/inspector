@@ -957,6 +957,36 @@ describe("redactUrlsInText", () => {
     );
   });
 
+  it("joins only at a sensitive parameter the redactor masks (#2907)", () => {
+    // A key-like run inside another parameter's value, or in the fragment, is
+    // not a parameter: the nested URL stays separate and is redacted itself.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?note=?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example/t?note=?token=https://app.example/cb?code=${R}`);
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok#?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok#?token=https://app.example/cb?code=${R}`,
+    );
+    // A `&` in the path is not a parameter delimiter either.
+    expect(
+      redactUrlsInText(
+        "https://as.example/a&token=https://app.example/?code=S",
+      ),
+    ).toBe(`https://as.example/a&token=https://app.example/?code=${R}`);
+    // A second scheme still inside a joined sensitive value joins too, and a
+    // percent-encoded sensitive key is decoded as the redactor decodes it.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?%74oken=https://s.example/p?code=https://x.example/q",
+      ),
+    ).toBe(`https://as.example/t?token=${R}`);
+  });
+
   it("joins a nested URL on the caller's own sensitive names (#2907)", () => {
     const seen: string[] = [];
     const text = "x https://a.example/?custom=https://b.example/p y";

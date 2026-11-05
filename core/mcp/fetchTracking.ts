@@ -107,12 +107,8 @@ export function redactUrlQuery(url: string): string {
   }
 }
 
-/** {@link embeddedUrlPattern}'s compiled patterns, one per sensitive-name set. */
-const EMBEDDED_URL_PATTERNS = new WeakMap<ReadonlySet<string>, RegExp>();
-
 /**
- * An `http(s)://` URL embedded in free text, matched by the pattern
- * {@link embeddedUrlPattern} builds. Stops at whitespace, at the
+ * An `http(s)://` URL embedded in free text. Stops at whitespace, at the
  * double-quote/angle-bracket characters that commonly delimit a URL inside a
  * message, and where a second `http(s)://` begins — so two URLs joined by a
  * comma are redacted separately rather than the second one's query being read
@@ -122,33 +118,35 @@ const EMBEDDED_URL_PATTERNS = new WeakMap<ReadonlySet<string>, RegExp>();
  * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
  * URL and must not slip past the redaction (Copilot).
  *
- * The one place a second scheme does NOT end the match is where it opens the
- * value of a sensitive query parameter (`?client_secret=https://…`): that
- * scheme belongs to the secret, and splitting there printed the secret's tail
- * verbatim after the redacted head (#2907). Only a scheme that starts the
- * value right after `=` joins it — one after a comma or other punctuation is
- * still a separate URL — and only for a sensitive key: joining a
- * non-sensitive value such as `redirect_uri=https://app/cb?code=…` would hide
- * the nested URL's own `code` inside a value nobody redacts.
+ * Stopping at a second scheme is undone in one case, by
+ * {@link opensSensitiveValue}: see {@link mapUrlsInText}.
  */
-function embeddedUrlPattern(sensitiveNames: ReadonlySet<string>): RegExp {
-  const cached = EMBEDDED_URL_PATTERNS.get(sensitiveNames);
-  if (cached) return cached;
-  const names = [...sensitiveNames]
-    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-    .join("|");
-  // The join is an alternative that CONSUMES `[?&]<name>=https://` rather than
-  // a lookbehind, so the pattern needs no lookbehind support from the engine
-  // (Copilot). It is listed first so it wins at a `?`/`&` the other
-  // alternative would otherwise take one character at a time. With no names
-  // there is nothing to join, and an empty `(?:)` would join after any `?=`.
-  const join = names ? `[?&](?:${names})=https?:\\/\\/|` : "";
-  const pattern = new RegExp(
-    `\\bhttps?:\\/\\/(?:${join}(?!https?:\\/\\/)[^\\s"<>])+`,
-    "gi",
+const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
+
+/**
+ * Whether `url` — a URL matched so far, which the next match continues with no
+ * gap — ends by opening the value of a sensitive query parameter, so the
+ * scheme that follows belongs to that value rather than starting a new URL
+ * (#2907). True only for a parameter the redactor will actually mask: one in
+ * the query proper (after the first `?`, before any `#`), delimited by that
+ * `?` or a `&`, whose decoded name is in `sensitiveNames`. A key-like run
+ * inside another parameter's value (`?note=?token=`) or in the fragment
+ * (`#?token=`) is not one, and joining there would hide the nested URL inside a
+ * value nobody masks (Copilot).
+ */
+function opensSensitiveValue(
+  url: string,
+  sensitiveNames: ReadonlySet<string>,
+): boolean {
+  if (!url.endsWith("=")) return false;
+  const queryStart = url.indexOf("?");
+  if (queryStart === -1 || url.includes("#")) return false;
+  const paramStart = Math.max(queryStart, url.lastIndexOf("&")) + 1;
+  // The slice holds no `&`, so it parses to exactly one entry; its key is
+  // decoded exactly as the redactors' own URLSearchParams decode it.
+  return [...new URLSearchParams(url.slice(paramStart)).keys()].some((key) =>
+    sensitiveNames.has(key.toLowerCase()),
   );
-  EMBEDDED_URL_PATTERNS.set(sensitiveNames, pattern);
-  return pattern;
 }
 
 /** Sentence punctuation (or a closing quote) a message may put right after a URL. */
@@ -200,20 +198,43 @@ export function redactUrlsInText(text: string): string {
  * caller with its own per-URL redaction (`--oauth-debug`'s trace, #2844)
  * finds URLs exactly as this does rather than with a second, weaker pattern.
  *
- * `sensitiveNames` must be the query-parameter names `redact` masks (any
- * casing): a nested `http(s)://` opening one of their values is kept inside
- * the URL so `redact` masks all of it (#2907). Defaults to the set
- * {@link redactUrlQuery} masks.
+ * A match the pattern cut short at a second scheme is rejoined with the next
+ * one when the cut opened a sensitive query value
+ * (`?client_secret=https://…`): that scheme belongs to the secret, and
+ * splitting there printed the secret's tail verbatim after its redacted head
+ * (#2907). `sensitiveNames` must therefore be the lowercase query-parameter
+ * names `redact` masks; it defaults to the set {@link redactUrlQuery} masks.
+ * Every other cut — a comma-joined URL, a nested URL opening a non-sensitive
+ * value — stays a separate URL, redacted on its own.
  */
 export function mapUrlsInText(
   text: string,
   redact: (url: string) => string,
   sensitiveNames: ReadonlySet<string> = SENSITIVE_BODY_FIELDS,
 ): string {
-  return text.replace(embeddedUrlPattern(sensitiveNames), (match) => {
-    const end = trailingPunctuationStart(match);
-    return redact(match.slice(0, end)) + match.slice(end);
-  });
+  let out = "";
+  let copied = 0;
+  let url = "";
+  const flush = () => {
+    const end = trailingPunctuationStart(url);
+    out += redact(url.slice(0, end)) + url.slice(end);
+  };
+  for (const match of text.matchAll(EMBEDDED_URL_PATTERN)) {
+    const joins =
+      url !== "" &&
+      match.index === copied &&
+      opensSensitiveValue(url, sensitiveNames);
+    if (joins) {
+      url += match[0];
+    } else {
+      if (url !== "") flush();
+      out += text.slice(copied, match.index);
+      url = match[0];
+    }
+    copied = match.index + match[0].length;
+  }
+  if (url !== "") flush();
+  return out + text.slice(copied);
 }
 
 /** Recursively redact sensitive keys in a parsed JSON value (in place). */
