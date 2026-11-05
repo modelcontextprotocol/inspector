@@ -16,6 +16,7 @@ import type {
   DaemonRequest,
   DaemonResponse,
   ElicitationRequestFrame,
+  LoadProgressFrame,
   ElicitationResponseFrame,
 } from "./protocol.js";
 
@@ -53,6 +54,11 @@ export type DaemonClientOptions = {
   onElicitation?: (
     frame: ElicitationRequestFrame,
   ) => Promise<ElicitationResponseFrame>;
+  /**
+   * Called for each `tools/call --load` progress frame (#2838). Omit to
+   * ignore them; they need no answer.
+   */
+  onLoadProgress?: (progress: LoadProgressFrame["progress"]) => void;
   /**
    * Abort the in-flight request (e.g. on SIGINT/SIGTERM), failing it with a
    * clear cancellation error instead of leaving the caller to kill the
@@ -175,11 +181,12 @@ export async function callDaemon<T = unknown>(
     function handleLine(line: string): Promise<void> {
       const trimmed = line.trim();
       if (!trimmed) return Promise.resolve();
-      let parsed: DaemonResponse | ElicitationRequestFrame;
+      let parsed: DaemonResponse | ElicitationRequestFrame | LoadProgressFrame;
       try {
         parsed = JSON.parse(trimmed) as
           | DaemonResponse
-          | ElicitationRequestFrame;
+          | ElicitationRequestFrame
+          | LoadProgressFrame;
       } catch (error) {
         fail(error);
         return Promise.resolve();
@@ -191,6 +198,16 @@ export async function callDaemon<T = unknown>(
         parsed.kind === "elicitation-request"
       ) {
         return handleElicitationRequest(parsed as ElicitationRequestFrame);
+      }
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "kind" in parsed &&
+        parsed.kind === "load-progress"
+      ) {
+        const frame = parsed as LoadProgressFrame;
+        if (frame.id === id) options.onLoadProgress?.(frame.progress);
+        return Promise.resolve();
       }
       handleResponse(parsed as DaemonResponse);
       return Promise.resolve();

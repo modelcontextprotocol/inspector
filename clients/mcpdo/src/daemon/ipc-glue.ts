@@ -11,6 +11,7 @@ import type {
   DaemonStreamFrame,
   ElicitationRequestFrame,
   ElicitationResponseFrame,
+  LoadProgressFrame,
 } from "./protocol.js";
 
 /**
@@ -39,6 +40,12 @@ export type HandleOutcome = {
  */
 export type ElicitationChannel = {
   request(frame: ElicitationRequestFrame): Promise<ElicitationResponseFrame>;
+  /**
+   * Write a one-way frame to the caller (#2838: `--load` progress). Optional
+   * so a channel that cannot reach a caller — a test double, an auto-cancel
+   * channel — simply drops it.
+   */
+  notify?(frame: LoadProgressFrame): void;
 };
 
 export type HandleRequest = (
@@ -103,6 +110,11 @@ class ConnectionElicitationChannel implements ElicitationChannel {
       }
       this.socket.write(JSON.stringify(frame) + "\n");
     });
+  }
+
+  notify(frame: LoadProgressFrame): void {
+    if (this.socket.destroyed) return;
+    this.socket.write(JSON.stringify(frame) + "\n");
   }
 
   /** Returns true if this line was consumed as a pending elicitation answer. */

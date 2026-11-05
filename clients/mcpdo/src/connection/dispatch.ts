@@ -6,7 +6,11 @@ import type {
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import { checkLoadThresholds } from "@inspector/core/cli/handlers/load-thresholds.js";
-import { loadSummaryWarnings } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  formatLoadProgress,
+  loadSummaryWarnings,
+  type LoadOptions,
+} from "@inspector/core/cli/handlers/load-test.js";
 import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
 import type { LoadFlags } from "./load-flags.js";
 import { writeConnectionOutput } from "./format-connection.js";
@@ -36,6 +40,18 @@ export type ConnectionDispatchOpts = {
 };
 
 /**
+ * The load options sent to the daemon. Progress lines (#2838) are for a
+ * person watching the terminal, so `--format json` — a machine reading the
+ * one payload — asks for none.
+ */
+function loadOptionsFor(load: LoadFlags, format: OutputFormat): LoadOptions {
+  if (format === "text") return load.options;
+  const rest = { ...load.options };
+  delete rest.progressMs;
+  return rest;
+}
+
+/**
  * Run one connection MCP method via daemon `rpc` or `stream`.
  */
 export async function dispatchConnectionRpc(
@@ -54,7 +70,7 @@ export async function dispatchConnectionRpc(
     method,
     name: stripAt(opts.connection),
     requireExplicit: opts.requireExplicit,
-    ...(opts.load !== undefined && { load: opts.load.options }),
+    ...(opts.load !== undefined && { load: loadOptionsFor(opts.load, format) }),
   };
 
   const { socketPath } = await ensureDaemon();
@@ -126,6 +142,9 @@ export async function dispatchConnectionRpc(
       // fixed local deadline would falsely fail long-running tool calls.
       timeoutMs: 0,
       signal: ac.signal,
+      onLoadProgress: (progress) => {
+        process.stderr.write(`${formatLoadProgress(progress)}\n`);
+      },
       onElicitation: (frame) =>
         promptElicitation(frame, {
           style,

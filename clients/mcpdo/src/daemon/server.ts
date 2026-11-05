@@ -672,6 +672,7 @@ export class DaemonServer {
           params,
           params.load,
           openLoadClient,
+          elicitation,
           signal,
         );
       }
@@ -755,6 +756,7 @@ export class DaemonServer {
     params: RpcParams,
     load: LoadOptions,
     openLoadClient: LoadClientOpener | undefined,
+    channel: ElicitationChannel,
     signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
@@ -813,8 +815,19 @@ export class DaemonServer {
     // its own `finally`; this releases what the daemon set up around them.
     const extras: { client: InspectorClient; release: () => void }[] = [];
     try {
+      // Progress (#2838) goes back over the caller's socket as one-way
+      // frames, ahead of the summary.
+      const notify = channel.notify?.bind(channel);
       const summary = await runLoadTest(client, methodArgs, load, {
         signal: stop.signal,
+        ...(load.progressMs !== undefined &&
+          notify && {
+            progress: {
+              everyMs: load.progressMs,
+              emit: (progress) =>
+                notify({ id: requestId, kind: "load-progress", progress }),
+            },
+          }),
         ...(openLoadClient && {
           openConnection: async () => {
             // The run's signal reaches the dial too, so a stalled handshake

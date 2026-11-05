@@ -270,6 +270,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-scenario <file>` | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it. |
 | `--load-args-file <file>` | NDJSON argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Not with `--load-scenario`. |
 | `--load-args-random`     | With `--load-args-file`: pick each call's row at random. |
+| `--load-interval <sec>` / `--load-warmup <sec>` / `--load-progress <sec>` | A per-interval time series in `intervals`; a warm-up left out of the statistics; how often to print a progress line on stderr (default `5`). As in the [one-shot CLI](../cli/README.md#watching-a-run---load-progress---load-interval---load-warmup). |
 | `--load-steps <list>` / `--load-ramp <from:to:sec>` | Run consecutive stages at rising concurrency (or rate, with `--load-step-by rate`), each `--load-step-duration` seconds (default `10`), with one row per stage; `--load-stop-on-breach` ends the run at the first stage breaching a threshold. |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
@@ -294,6 +295,13 @@ use the [one-shot CLI's file format](../cli/README.md#scenarios---load-scenario)
 `mcpdo` process, so a relative path is relative to your working directory, not
 the daemon's; the parsed steps travel to the daemon with the run. The text
 summary lists each step under the totals.
+
+**Progress lines** ([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838))
+are written by the daemon as one-way frames on the command's socket while the
+run is going, and printed on stderr by `mcpdo`. They show only with
+`--format text` (the default). `--format json` asks the daemon for none, since
+a machine reading the one payload has no use for them. The text summary also
+shows the warm-up and one line per `--load-interval` bucket.
 
 **Stepped and ramped load** ([#2841](https://github.com/modelcontextprotocol/inspector/issues/2841))
 works exactly as in the

@@ -4,6 +4,7 @@ import {
 } from "@inspector/core/cli/error-handler.js";
 import {
   LOAD_FLAG_CONFLICT,
+  DEFAULT_LOAD_PROGRESS_SEC,
   resolveLoadOptions,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -69,6 +70,9 @@ export function resolveLoadFlags(flags: {
   loadStepBy?: LoadStepBy;
   loadStepDuration?: number;
   loadStopOnBreach?: boolean;
+  loadInterval?: number;
+  loadWarmup?: number;
+  loadProgress?: number;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   loadMaxP50?: number;
@@ -95,6 +99,9 @@ export function resolveLoadFlags(flags: {
     ["--load-step-by", flags.loadStepBy],
     ["--load-step-duration", flags.loadStepDuration],
     ["--load-stop-on-breach", flags.loadStopOnBreach],
+    ["--load-interval", flags.loadInterval],
+    ["--load-warmup", flags.loadWarmup],
+    ["--load-progress", flags.loadProgress],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
     ["--load-max-p50", flags.loadMaxP50],
@@ -188,6 +195,11 @@ export function resolveLoadFlags(flags: {
       scenario,
       argRows,
       stages,
+      intervalSec: flags.loadInterval,
+      warmupSec: flags.loadWarmup,
+      // Always requested here; the dispatcher drops it for `--format json`,
+      // where nobody is watching stderr (#2838).
+      progressSec: flags.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
     });
   } catch (err) {
     // A stage conflict, or `--load-connections` above the workers: the

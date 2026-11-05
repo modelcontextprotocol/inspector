@@ -74,7 +74,10 @@ import {
   loadSummaryWarnings,
   resolveLoadOptions,
   runLoadTest,
+  DEFAULT_LOAD_PROGRESS_SEC,
+  formatLoadProgress,
   type LoadOptions,
+  type LoadProgress,
 } from "@inspector/core/cli/handlers/load-test.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
@@ -395,6 +398,12 @@ async function callMethod(
               runLoadTest(inspectorClient, args, load, {
                 openConnection: openLoadConnection,
                 signal,
+                ...(load.progressMs !== undefined && {
+                  progress: {
+                    everyMs: load.progressMs,
+                    emit: writeLoadProgress,
+                  },
+                }),
               }),
             { storedAuthOnly, autoOpenControl, quiet: args.quiet },
           ),
@@ -1301,6 +1310,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveNumberParser("--load-step-duration"),
     )
     .option(
+      "--load-interval <sec>",
+      "With --load: also report the run as a time series of buckets this many seconds long (completions, errors, latency per bucket) in an intervals array.",
+      positiveNumberParser("--load-interval"),
+    )
+    .option(
+      "--load-warmup <sec>",
+      "With --load: run this many seconds first at the same concurrency and rate, and leave those calls out of every statistic.",
+      positiveNumberParser("--load-warmup"),
+    )
+    .option(
+      "--load-progress <sec>",
+      "With --load: print a progress line on stderr this often (default 5; --quiet turns it off).",
+      positiveNumberParser("--load-progress"),
+    )
+    .option(
       "--load-stop-on-breach",
       "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
     )
@@ -1569,6 +1593,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadStepBy?: LoadStepBy;
     loadStepDuration?: number;
     loadStopOnBreach?: boolean;
+    loadInterval?: number;
+    loadWarmup?: number;
+    loadProgress?: number;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
     loadMaxP50?: number;
@@ -1677,6 +1704,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-step-by", options.loadStepBy],
     ["--load-step-duration", options.loadStepDuration],
     ["--load-stop-on-breach", options.loadStopOnBreach],
+    ["--load-interval", options.loadInterval],
+    ["--load-warmup", options.loadWarmup],
+    ["--load-progress", options.loadProgress],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
     ["--load-max-p50", options.loadMaxP50],
@@ -2099,6 +2129,10 @@ function resolveCliLoadOptions(
     loadStepBy?: LoadStepBy;
     loadStepDuration?: number;
     loadStopOnBreach?: boolean;
+    loadInterval?: number;
+    loadWarmup?: number;
+    loadProgress?: number;
+    quiet?: boolean;
   },
   thresholds: LoadThresholds | undefined,
 ): LoadOptions {
@@ -2147,10 +2181,25 @@ function resolveCliLoadOptions(
       scenario,
       argRows,
       stages,
+      intervalSec: options.loadInterval,
+      warmupSec: options.loadWarmup,
+      // Progress is on by default and `--quiet` turns it off (#2838).
+      ...(options.quiet !== true && {
+        progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
+      }),
     });
   } catch (err) {
     throw loadFlagConflict((err as Error).message);
   }
+}
+
+/**
+ * One `--load` progress line on stderr (#2838). Written directly rather
+ * than through the awaited writer: a progress report is advisory, and the
+ * run must not wait on stderr between calls.
+ */
+function writeLoadProgress(progress: LoadProgress): void {
+  process.stderr.write(`${formatLoadProgress(progress)}\n`);
 }
 
 /**

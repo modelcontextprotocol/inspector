@@ -10,6 +10,7 @@ import type {
 import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
   LoadOptions,
+  LoadProgress,
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import type {
@@ -166,6 +167,18 @@ export type DaemonStreamFrame =
  * pending at a time (sequential by design) — though a single call can
  * pause/resume through several of these exchanges before its final response.
  */
+/**
+ * `tools/call --load` progress (#2838): written by the daemon on the `rpc`
+ * call's socket every `LoadOptions.progressMs`, ahead of the final response.
+ * One-way — the client never answers it — so it needs none of the
+ * elicitation exchange's pairing.
+ */
+export type LoadProgressFrame = {
+  id: string;
+  kind: "load-progress";
+  progress: LoadProgress;
+};
+
 export type ElicitationRequestFrame = {
   id: string;
   kind: "elicitation-request";
