@@ -98,6 +98,12 @@ export type LoadOptions = {
    * the latency rather than being hidden by a slower request rate.
    */
   openLoop?: boolean;
+  /**
+   * `--load-churn` (#2912): every worker opens a fresh session, makes
+   * `callsPerSession` calls on it, and closes it, over and over, so session
+   * setup and teardown are under load too. Replaces `connections`.
+   */
+  churn?: { callsPerSession: number };
 };
 
 /**
@@ -226,6 +232,30 @@ export type LoadSummary = {
    * nothing was measured.
    */
   warmup?: LoadWarmupSummary;
+  /** `--load-churn` only (#2912): the sessions the run opened and closed. */
+  churn?: LoadChurnSummary;
+};
+
+/**
+ * The sessions of a `--load-churn` run (#2912). Connecting happens after a
+ * worker takes its slot but before its call is timed, so none of it is in
+ * `latencyMs`; it is reported here instead. A session that failed to open
+ * used up its slot, is counted in `failed`, and feeds the circuit breaker
+ * like a thrown call, so a server refusing every session stops the run.
+ * Warm-up sessions (`--load-warmup`) are included.
+ */
+export type LoadChurnSummary = {
+  callsPerSession: number;
+  /** Sessions that opened. */
+  opened: number;
+  /** Sessions that failed to open. */
+  failed: number;
+  /** Sessions whose close threw; the run carries on regardless. */
+  closeFailed: number;
+  /** Time to open each session, handshake included; `null` if none opened. */
+  connectMs: LoadLatency | null;
+  /** Connect failure messages by frequency, capped like `errorMessages`. */
+  errorMessages: { message: string; count: number }[];
 };
 
 /** One bucket of a `--load-interval` time series (#2838). */
@@ -356,6 +386,8 @@ export const DEFAULT_LOAD_CONCURRENCY = 10;
 export const DEFAULT_LOAD_CONNECTIONS = 1;
 /** Applied only when neither a duration nor a request count is given. */
 export const DEFAULT_LOAD_DURATION_MS = 10_000;
+/** `--load-churn`: calls per session when `--load-churn-calls` is not given. */
+export const DEFAULT_LOAD_CHURN_CALLS = 1;
 
 // The flag parsers live in `load-parsers.ts` so `load-thresholds.ts` can use
 // them without importing this module (which imports it back, #2841).
@@ -389,8 +421,22 @@ export function resolveLoadOptions(flags: {
   progressSec?: number;
   /** `--load-open-loop` (#2838). */
   openLoop?: boolean;
+  /** `--load-churn` (#2912). */
+  churn?: boolean;
+  /** `--load-churn-calls` (#2912); needs `churn`. */
+  churnCalls?: number;
 }): LoadOptions {
   const { stages } = flags;
+  if (flags.churnCalls !== undefined && flags.churn !== true) {
+    throw new Error("--load-churn-calls requires --load-churn.");
+  }
+  // Churn opens its own sessions, one per worker at a time; a fixed pool of
+  // `--load-connections` is the other model, and the two do not combine.
+  if (flags.churn === true && flags.connections !== undefined) {
+    throw new Error(
+      "--load-churn cannot be combined with --load-connections; each worker opens its own sessions.",
+    );
+  }
   // Open loop follows the rate grid, so it needs one to follow.
   if (
     flags.openLoop === true &&
@@ -448,6 +494,11 @@ export function resolveLoadOptions(flags: {
       progressMs: flags.progressSec * 1000,
     }),
     ...(flags.openLoop === true && { openLoop: true }),
+    ...(flags.churn === true && {
+      churn: {
+        callsPerSession: flags.churnCalls ?? DEFAULT_LOAD_CHURN_CALLS,
+      },
+    }),
   };
 }
 
@@ -810,6 +861,7 @@ export function runLoad(
   signal?: AbortSignal,
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
+  sessions?: LoadSessionHooks,
 ): Promise<LoadSummary> {
   if (options.stages) {
     return runStages(
@@ -820,6 +872,7 @@ export function runLoad(
       signal,
       progress,
       onSample,
+      sessions,
     );
   }
   if (options.warmupMs !== undefined) {
@@ -831,14 +884,27 @@ export function runLoad(
       signal,
       progress,
       onSample,
+      sessions,
     );
   }
   return runWindow(call, options, clock, signal, undefined, false, {
     hook: progress,
     phase: "run",
     ...(onSample && { onSample }),
+    ...(sessions && { sessions }),
   });
 }
+
+/**
+ * Per-worker session hooks (#2912): `prepare` runs after a worker takes its
+ * slot and before its call is timed, `release` after the call is recorded,
+ * so neither lands in a call's latency. A `prepare` that throws costs the
+ * slot and counts toward the circuit breaker; `release` must not throw.
+ */
+export type LoadSessionHooks = {
+  prepare: (worker: number) => Promise<void>;
+  release: (worker: number) => Promise<void>;
+};
 
 /** Progress reporting for one window: where to send it, and its label. */
 type WindowProgress = {
@@ -852,6 +918,8 @@ type WindowProgress = {
    * so a sample's `seq` is the run-wide one `{{seq}}` saw.
    */
   seqOffset?: number;
+  /** `--load-churn` session hooks (#2912). */
+  sessions?: LoadSessionHooks;
 };
 
 /**
@@ -871,6 +939,7 @@ async function runWithWarmup(
   signal: AbortSignal | undefined,
   progress: LoadProgressHook | undefined,
   onSample: LoadSampleSink | undefined,
+  sessions: LoadSessionHooks | undefined,
 ): Promise<LoadSummary> {
   const warm = await runWindow(
     call,
@@ -886,7 +955,7 @@ async function runWithWarmup(
     signal,
     undefined,
     true,
-    { hook: progress, phase: "warmup" },
+    { hook: progress, phase: "warmup", ...(sessions && { sessions }) },
   );
   const warmup: LoadWarmupSummary = {
     // What actually ran: shorter when it stopped early, longer when calls
@@ -918,6 +987,7 @@ async function runWithWarmup(
       phase: "run",
       seqOffset: offset,
       ...(onSample && { onSample }),
+      ...(sessions && { sessions }),
     },
   );
   return { ...summary, warmup };
@@ -1152,6 +1222,22 @@ async function runWindow(
         started--;
         return;
       }
+      const sessions = progress?.sessions;
+      if (sessions) {
+        // `--load-churn` (#2912): open this worker's session, untimed. A
+        // failed open spends the slot, and a server refusing every session
+        // must still trip the breaker rather than spin on instant failures.
+        try {
+          await sessions.prepare(index);
+        } catch {
+          noteThrown(clock.now());
+          continue;
+        }
+        if (halt.signal.aborted) {
+          started--;
+          return;
+        }
+      }
       const stats = stepRuns?.[step]?.stats;
       // Open loop times a call from its scheduled start, so the wait for a
       // free worker counts in its latency: that is the queueing it exposes.
@@ -1197,6 +1283,7 @@ async function runWindow(
         sink?.steps?.[step]?.addThrown(message, now - t0);
         noteThrown(now);
       }
+      if (sessions) await sessions.release(index);
     }
   };
 
@@ -1439,6 +1526,7 @@ async function runStages(
   signal: AbortSignal | undefined,
   progress: LoadProgressHook | undefined,
   onSample: LoadSampleSink | undefined,
+  sessions: LoadSessionHooks | undefined,
 ): Promise<LoadSummary> {
   const { scenario } = options;
   const sink: LoadSink = {
@@ -1480,6 +1568,7 @@ async function runStages(
         stage: i + 1,
         seqOffset: offset,
         ...(onSample && { onSample }),
+        ...(sessions && { sessions }),
       },
     );
     used += summary.requests;
@@ -1602,7 +1691,24 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   signal?: AbortSignal,
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
+  onClosed?: (connection: C) => void,
 ): Promise<LoadSummary> {
+  if (options.churn) {
+    if (!openConnection) {
+      throw new Error("--load-churn needs a way to open connections.");
+    }
+    return runChurnLoad(
+      openConnection,
+      callOn,
+      options,
+      options.churn.callsPerSession,
+      clock,
+      signal,
+      progress,
+      onSample,
+      onClosed,
+    );
+  }
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
     return runLoad(
@@ -1661,7 +1767,100 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       },
     };
   } finally {
-    await Promise.allSettled(extras.map((c) => c.disconnect()));
+    await Promise.allSettled(
+      extras.map((c) => c.disconnect().finally(() => onClosed?.(c))),
+    );
+  }
+}
+
+/**
+ * `--load-churn` (#2912): each worker opens a session with `openConnection`,
+ * makes `callsPerSession` calls on it, closes it, and starts over, so the
+ * server's session setup and teardown run under the same load as its calls.
+ * Opening and closing happen outside each call's timing (see
+ * {@link LoadSessionHooks}); connect times and failures go to `churn`.
+ * Sessions still open when the run ends — a worker part-way through its
+ * calls, or one stopped between connecting and calling — are closed in a
+ * `finally`. The caller's own connection is not used for calls at all.
+ */
+async function runChurnLoad<C extends LoadConnection>(
+  open: () => Promise<C>,
+  callOn: (
+    connection: C,
+    step: number,
+    ctx: LoadCallContext,
+  ) => Promise<LoadCallOutcome>,
+  options: LoadOptions,
+  callsPerSession: number,
+  clock: LoadClock,
+  signal: AbortSignal | undefined,
+  progress: LoadProgressHook | undefined,
+  onSample: LoadSampleSink | undefined,
+  onClosed: ((connection: C) => void) | undefined,
+): Promise<LoadSummary> {
+  const sessions = new Map<number, { connection: C; callsLeft: number }>();
+  const connectTimes = new LatencyRecorder();
+  const tally = new ErrorTally();
+  let opened = 0;
+  let failed = 0;
+  let closeFailed = 0;
+  const close = async (connection: C): Promise<void> => {
+    try {
+      await connection.disconnect();
+    } catch {
+      closeFailed++;
+    } finally {
+      onClosed?.(connection);
+    }
+  };
+  const hooks: LoadSessionHooks = {
+    prepare: async (worker) => {
+      if (sessions.has(worker)) return;
+      const t0 = clock.now();
+      try {
+        const connection = await open();
+        connectTimes.add(clock.now() - t0);
+        opened++;
+        sessions.set(worker, { connection, callsLeft: callsPerSession });
+      } catch (err) {
+        failed++;
+        tally.add(err instanceof Error ? err.message : String(err));
+        throw err;
+      }
+    },
+    release: async (worker) => {
+      const session = sessions.get(worker)!;
+      if (--session.callsLeft > 0) return;
+      sessions.delete(worker);
+      await close(session.connection);
+    },
+  };
+  try {
+    const summary = await runLoad(
+      (worker, step, seq) =>
+        callOn(sessions.get(worker)!.connection, step, { seq, worker }),
+      options,
+      clock,
+      signal,
+      progress,
+      onSample,
+      hooks,
+    );
+    return {
+      ...summary,
+      churn: {
+        callsPerSession,
+        opened,
+        failed,
+        closeFailed,
+        connectMs: connectTimes.summarize(),
+        errorMessages: tally.entries(),
+      },
+    };
+  } finally {
+    const left = [...sessions.values()].map((s) => s.connection);
+    sessions.clear();
+    await Promise.allSettled(left.map(close));
   }
 }
 
@@ -1705,6 +1904,7 @@ export async function runToolLoad(
     extra.signal,
     extra.progress,
     extra.onSample,
+    extra.onConnectionClosed,
   );
   return { tool: tool!.name, ...summary };
 }
@@ -1719,6 +1919,13 @@ export type LoadRunExtras = {
   progress?: LoadProgressHook;
   /** Each measured call, for `--output` (#2838). */
   onSample?: LoadSampleSink;
+  /**
+   * Told about each connection from `openConnection` once the engine has
+   * closed it, so a caller tracking them (mcpdo's daemon) can let go of it
+   * then rather than only when the run ends — a `--load-churn` run opens
+   * one per session.
+   */
+  onConnectionClosed?: (connection: InspectorClient) => void;
 };
 
 /**
@@ -1808,6 +2015,7 @@ export async function runScenarioLoad(
     extra.signal,
     extra.progress,
     extra.onSample,
+    extra.onConnectionClosed,
   );
 }
 

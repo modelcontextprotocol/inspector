@@ -158,6 +158,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load`                      | Load-test one tool: call it repeatedly and concurrently, then print a latency / error-rate summary in place of a result. Requires `--method tools/call --tool-name <name>`. See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
 | `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
+| `--load-churn`                | With `--load`: session churn. Each worker connects, makes `--load-churn-calls` calls, disconnects, and repeats; connect times and failures are reported in `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. See [Session churn](#session-churn---load-churn). |
+| `--load-churn-calls <n>`      | With `--load-churn`: calls per session before it is closed (positive integer; default `1`). |
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
@@ -515,6 +517,43 @@ contention that only appear across sessions:
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
+##### Session churn (`--load-churn`)
+
+`--load-connections` opens its sessions once and keeps them, so a server's
+session setup, its per-session state and its behaviour under many short-lived
+sessions — what a server behind a gateway mostly sees — are never under load.
+`--load-churn` ([#2912](https://github.com/modelcontextprotocol/inspector/issues/2912))
+makes every worker **connect, make `--load-churn-calls` calls (default `1`),
+disconnect, and start over**:
+
+```bash
+# 20 workers, each opening a fresh session for every 5 calls, for 30 s
+mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-concurrency 20 --load-duration 30 \
+  --load-churn --load-churn-calls 5
+```
+
+- **Connecting is not in the call latency.** A worker opens its session after
+  taking its slot and before its call is timed, and closes it after the call
+  is recorded, so `latencyMs` is still the calls alone. The sessions are
+  reported in their own `churn` block: `opened`, `failed`, `closeFailed`,
+  `connectMs` (handshake included) and the connect `errorMessages`. Under
+  `--load-open-loop` a call is timed from its scheduled start, so the connect
+  is inside it there — that wait is the queueing open loop exposes.
+- **A session that fails to open spends its slot** and is counted in
+  `churn.failed`, never in `errors` or `errorRate`. It does count toward the
+  circuit breaker, so a server refusing every session stops the run in about
+  a second (`stoppedEarly.reason: "consecutive_errors"`) rather than spinning
+  on instant failures.
+- **HTTP and SSE only**, for the reason `--load-connections` is: over stdio
+  each session would spawn its own server process. Not combined with
+  `--load-connections`; each worker holds at most one session at a time.
+  Sessions are opened like `--load-connections` extras — stored credentials
+  only — so the connection the CLI opens first completes any login, and is
+  used only to look up the tool.
+- Warm-up sessions (`--load-warmup`) count in `churn`. A session still open
+  when the run ends is closed then.
+
 ##### Per-call samples (`--output`)
 
 `--output <path>` with `--load` writes **one NDJSON line per measured call**
@@ -767,7 +806,7 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   figure with both values. The absolute thresholds are judged first.
 - The two runs must be shaped alike — the same tool (or scenario steps),
   `--load-concurrency`, `--load-duration`, `--load-requests`, `--load-rate`,
-  `--load-open-loop`, `--load-connections` and stages — or the run exits `1`
+  `--load-open-loop`, `--load-connections`, `--load-churn-calls` and stages — or the run exits `1`
   with `load_baseline_mismatch`, listing every difference, rather than
   comparing numbers that mean different things. A stepped run is compared
   **stage by stage**.

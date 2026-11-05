@@ -84,6 +84,8 @@ export function resolveLoadFlags(flags: {
   loadWarmup?: number;
   loadProgress?: number;
   loadOpenLoop?: boolean;
+  loadChurn?: boolean;
+  loadChurnCalls?: number;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   loadMaxP50?: number;
@@ -116,6 +118,8 @@ export function resolveLoadFlags(flags: {
     ["--load-warmup", flags.loadWarmup],
     ["--load-progress", flags.loadProgress],
     ["--load-open-loop", flags.loadOpenLoop],
+    ["--load-churn", flags.loadChurn],
+    ["--load-churn-calls", flags.loadChurnCalls],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
     ["--load-max-p50", flags.loadMaxP50],
@@ -214,6 +218,8 @@ export function resolveLoadFlags(flags: {
       intervalSec: flags.loadInterval,
       warmupSec: flags.loadWarmup,
       openLoop: flags.loadOpenLoop,
+      churn: flags.loadChurn,
+      churnCalls: flags.loadChurnCalls,
       // Always requested here; the dispatcher drops it for `--format json`,
       // where nobody is watching stderr (#2838).
       progressSec: flags.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,

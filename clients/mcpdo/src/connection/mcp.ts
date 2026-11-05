@@ -1501,6 +1501,15 @@ function registerRpcCommands(program: CommandType): void {
             "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
           )
           .option(
+            "--load-churn",
+            "With --load: session churn. Each worker opens a session to the connection's HTTP or SSE server with stored credentials, makes --load-churn-calls calls, closes it, and repeats; connect times and failures are reported apart from call latency. Not with --load-connections.",
+          )
+          .option(
+            "--load-churn-calls <n>",
+            "With --load-churn: calls per session before it is closed (positive integer; default 1).",
+            positiveIntegerParser("--load-churn-calls"),
+          )
+          .option(
             "--load-concurrency <n>",
             "With --load: most calls in flight at once (positive integer; default 10).",
             positiveIntegerParser("--load-concurrency"),

@@ -414,6 +414,36 @@ describe("resolveLoadFlags with --load-baseline (#2910)", () => {
   });
 });
 
+describe("resolveLoadFlags with --load-churn (#2912)", () => {
+  it("passes churn through to the engine's options", () => {
+    expect(
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadChurn: true,
+        loadChurnCalls: 4,
+      })?.options.churn,
+    ).toEqual({ callsPerSession: 4 });
+  });
+
+  it.each([
+    [{ loadChurn: true }, "--load-churn requires --load."],
+    [{ loadChurnCalls: 2 }, "--load-churn-calls requires --load."],
+    [
+      { load: true, loadChurnCalls: 2 },
+      "--load-churn-calls requires --load-churn.",
+    ],
+    [
+      { load: true, loadChurn: true, loadConnections: 2, loadConcurrency: 4 },
+      "--load-churn cannot be combined with --load-connections",
+    ],
+  ])("refuses %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
 describe("resolveLoadFlags with #2838 items 1–3", () => {
   it("passes the interval, warm-up and progress through", () => {
     expect(
@@ -1361,6 +1391,59 @@ describe.skipIf(unixDaemonOnly)(
           timeout: DAEMON_COMMAND_MS,
         });
         expectCliSuccess(listed);
+        expect(
+          (
+            JSON.parse(listed.stdout) as { connections: { name: string }[] }
+          ).connections.map((c) => c.name),
+        ).toEqual(["remote"]);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("churns sessions that never become connections (#2912)", async () => {
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo("load-churn", "1.0.0"),
+        tools: [createEchoTool()],
+      });
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: { remote: { type: "streamable-http", url: server.url } },
+        });
+        const e = env();
+        expectCliSuccess(
+          await runMcp(["connect", "remote", "--config", configPath], {
+            env: e,
+            timeout: DAEMON_COMMAND_MS,
+          }),
+        );
+        const loaded = await runMcp(
+          [
+            "tools/call",
+            "echo",
+            "message:=hi",
+            "--load",
+            "--load-requests",
+            "4",
+            "--load-concurrency",
+            "1",
+            "--load-churn",
+            "--format",
+            "json",
+          ],
+          { env: e, timeout: DAEMON_COMMAND_MS },
+        );
+        expectCliSuccess(loaded);
+        expect(JSON.parse(loaded.stdout)).toMatchObject({
+          requests: 4,
+          ok: 4,
+          churn: { callsPerSession: 1, opened: 4, failed: 0 },
+        });
+        const listed = await runMcp(["connections/list", "--format", "json"], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        });
         expect(
           (
             JSON.parse(listed.stdout) as { connections: { name: string }[] }

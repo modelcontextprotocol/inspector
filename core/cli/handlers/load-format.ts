@@ -46,6 +46,7 @@ export function formatLoadSummaryHuman(
       : []),
     ...(summary.rate !== undefined ? [`rate ${summary.rate}/s`] : []),
     ...(summary.openLoop === true ? ["open loop"] : []),
+    ...(summary.churn !== undefined ? ["churn"] : []),
   ];
   const failed = summary.toolErrors + summary.errors;
   const rate = `${(summary.errorRate * 100).toFixed(2)}%`;
@@ -137,6 +138,23 @@ export function formatLoadSummaryHuman(
       `  Sessions:   ${c.opened} of ${c.requested} opened, ${c.failed > 0 ? style.red(failed) : failed}${connect}`,
     );
     for (const { message, count } of c.errorMessages) {
+      lines.push(`    ${count}× ${message}`);
+    }
+  }
+  // `--load-churn` (#2912): sessions opened and closed through the run.
+  const churn = summary.churn;
+  if (churn !== undefined) {
+    const failed = `${churn.failed} failed to open`;
+    const connect =
+      churn.connectMs === null
+        ? ""
+        : ` (connect p50 ${churn.connectMs.p50} / p99 ${churn.connectMs.p99} / max ${churn.connectMs.max} ms)`;
+    const closeFailed =
+      churn.closeFailed > 0 ? `, ${churn.closeFailed} failed to close` : "";
+    lines.push(
+      `  Churn:      ${churn.opened} sessions of ${churn.callsPerSession} ${churn.callsPerSession === 1 ? "call" : "calls"}, ${churn.failed > 0 ? style.red(failed) : failed}${closeFailed}${connect}`,
+    );
+    for (const { message, count } of churn.errorMessages) {
       lines.push(`    ${count}× ${message}`);
     }
   }

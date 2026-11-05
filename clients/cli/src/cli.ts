@@ -213,6 +213,13 @@ async function callMethod(
   // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
   // spawns its own server process, so N of them test N isolated servers rather
   // than one server under N sessions. Checked before anything connects.
+  if (load?.churn !== undefined && !isOAuthCapableServerConfig(serverConfig)) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-churn requires an HTTP or SSE server; over stdio each session would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
   if (
     load?.connections !== undefined &&
     load.connections > 1 &&
@@ -1382,6 +1389,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
     )
     .option(
+      "--load-churn",
+      "With --load: session churn. Each worker connects, makes --load-churn-calls calls, disconnects, and repeats, so session setup and teardown are under load too; connect times and failures are reported apart from call latency. HTTP or SSE only; not with --load-connections.",
+    )
+    .option(
+      "--load-churn-calls <n>",
+      "With --load-churn: calls per session before it is closed (positive integer; default 1).",
+      positiveIntegerParser("--load-churn-calls"),
+    )
+    .option(
       "--load-concurrency <n>",
       "With --load: most calls in flight at once (positive integer; default 10).",
       positiveIntegerParser("--load-concurrency"),
@@ -1659,6 +1675,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadWarmup?: number;
     loadProgress?: number;
     loadOpenLoop?: boolean;
+    loadChurn?: boolean;
+    loadChurnCalls?: number;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
     loadMaxP50?: number;
@@ -1773,6 +1791,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-warmup", options.loadWarmup],
     ["--load-progress", options.loadProgress],
     ["--load-open-loop", options.loadOpenLoop],
+    ["--load-churn", options.loadChurn],
+    ["--load-churn-calls", options.loadChurnCalls],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
     ["--load-max-p50", options.loadMaxP50],
@@ -2210,6 +2230,8 @@ function resolveCliLoadOptions(
     loadWarmup?: number;
     loadProgress?: number;
     loadOpenLoop?: boolean;
+    loadChurn?: boolean;
+    loadChurnCalls?: number;
     quiet?: boolean;
   },
   thresholds: LoadThresholds | undefined,
@@ -2262,6 +2284,8 @@ function resolveCliLoadOptions(
       intervalSec: options.loadInterval,
       warmupSec: options.loadWarmup,
       openLoop: options.loadOpenLoop,
+      churn: options.loadChurn,
+      churnCalls: options.loadChurnCalls,
       // Progress is on by default and `--quiet` turns it off (#2838).
       ...(options.quiet !== true && {
         progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
