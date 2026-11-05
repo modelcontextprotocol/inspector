@@ -58,4 +58,40 @@ describe("ToolRunDiff", () => {
     renderWithMantine(<ToolRunDiff before={big(1)} after={big(2)} />);
     expect(screen.getByText("Too large to compare")).toBeInTheDocument();
   });
+
+  it("folds unchanged context around a small change in a large result", () => {
+    const big = (sequence: number, last: string): ToolRun => ({
+      ...run(sequence, ""),
+      result: {
+        content: [
+          ...Array.from({ length: 50 }, (_, i) => ({
+            type: "text" as const,
+            text: `line ${i}`,
+          })),
+          { type: "text" as const, text: last },
+        ],
+      },
+    });
+    const { container } = renderWithMantine(
+      <ToolRunDiff before={big(1, "old")} after={big(2, "new")} />,
+    );
+    // One fold before the change, one after it (the closing brackets).
+    expect(container.querySelectorAll('[data-diff="folded"]').length).toBe(2);
+    expect(screen.getAllByText(/unchanged lines/)).toHaveLength(2);
+    expect(container.querySelectorAll('[data-diff="same"]').length).toBe(6);
+  });
+
+  it("cuts off a very long diff and says how much is hidden", () => {
+    const after: ToolRun = {
+      ...run(2, ""),
+      result: {
+        content: Array.from({ length: 300 }, (_, i) => ({
+          type: "text" as const,
+          text: `${i}`,
+        })),
+      },
+    };
+    renderWithMantine(<ToolRunDiff before={run(1, "x")} after={after} />);
+    expect(screen.getByText(/more lines not shown/)).toBeInTheDocument();
+  });
 });

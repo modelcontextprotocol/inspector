@@ -568,6 +568,7 @@ describe("automation contract (#2148)", () => {
           runHistory={history}
           onCallTool={onCallTool}
           onUiChange={onUiChange}
+          serverSupportsTaskToolCalls
           ui={{
             ...EMPTY_TOOLS_UI,
             selectedToolKey: "0:alpha",
@@ -579,7 +580,31 @@ describe("automation contract (#2148)", () => {
       expect(onUiChange).toHaveBeenCalledWith(
         expect.objectContaining({ formValues: { n: 1 } }),
       );
-      expect(onCallTool).toHaveBeenCalledWith("alpha", { n: 1 }, true);
+      // `alpha` declares no task support, so the screen-wide "Run as task"
+      // toggle must not route its re-run through the task path.
+      expect(onCallTool).toHaveBeenCalledWith("alpha", { n: 1 }, false);
+    });
+
+    it("re-runs an optional-task tool as a task when the toggle is on", async () => {
+      const onCallTool = vi.fn();
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          runHistory={{
+            delta: [{ ...run(1, { n: 1 }), toolName: "delta" }],
+          }}
+          onCallTool={onCallTool}
+          serverSupportsTaskToolCalls
+          ui={{
+            ...EMPTY_TOOLS_UI,
+            selectedToolKey: "3:delta",
+            runAsTask: true,
+          }}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Re-run Run #1" }));
+      expect(onCallTool).toHaveBeenCalledWith("delta", { n: 1 }, true);
     });
 
     it("shows the latest call's duration and arguments on its result", async () => {

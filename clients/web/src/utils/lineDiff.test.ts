@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { canonicalJson, diffLines } from "./lineDiff";
+import {
+  canonicalJson,
+  countLabel,
+  diffLines,
+  foldDiff,
+  type DiffLine,
+} from "./lineDiff";
 
 describe("canonicalJson", () => {
   it("sorts object keys at every depth and keeps array order", () => {
@@ -73,5 +79,48 @@ describe("diffLines", () => {
   it("returns null when the changed region exceeds the cell budget", () => {
     expect(diffLines("a\nb\nc", "x\ny\nz", 8)).toBeNull();
     expect(diffLines("a\nb\nc", "x\ny\nz", 9)).not.toBeNull();
+  });
+});
+
+describe("foldDiff", () => {
+  const same = (text: string): DiffLine => ({ kind: "same", text });
+  const added = (text: string): DiffLine => ({ kind: "added", text });
+
+  it("folds long unchanged runs around a change, keeping context", () => {
+    const lines = [
+      ...["a", "b", "c", "d", "e"].map(same),
+      added("x"),
+      ...["f", "g", "h", "i", "j"].map(same),
+    ];
+    expect(foldDiff(lines, 2).rows).toEqual([
+      { kind: "folded", count: 3 },
+      same("d"),
+      same("e"),
+      added("x"),
+      same("f"),
+      same("g"),
+      { kind: "folded", count: 3 },
+    ]);
+  });
+
+  it("keeps a short unchanged run between changes whole", () => {
+    const lines = [added("x"), same("a"), same("b"), added("y")];
+    expect(foldDiff(lines, 1).rows).toEqual(lines);
+  });
+
+  it("cuts the rows at the limit and counts the rest", () => {
+    const lines = ["1", "2", "3", "4"].map(added);
+    expect(foldDiff(lines, 3, 3)).toEqual({
+      rows: lines.slice(0, 3),
+      omitted: 1,
+    });
+    expect(foldDiff(lines).omitted).toBe(0);
+  });
+});
+
+describe("countLabel", () => {
+  it("pluralizes past one", () => {
+    expect(countLabel(1, "line")).toBe("1 line");
+    expect(countLabel(3, "line")).toBe("3 lines");
   });
 });

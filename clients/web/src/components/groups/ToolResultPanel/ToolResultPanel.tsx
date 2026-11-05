@@ -282,13 +282,17 @@ function CallArguments({ args }: { args: Record<string, unknown> }) {
         />
       </ArgumentsHeaderRow>
       <Collapse in={expanded}>
-        <ArgumentsScroll>
-          <ContentViewer
-            block={{ type: "text", text: JSON.stringify(args, null, 2) }}
-            mimeType="application/json"
-            copyable
-          />
-        </ArgumentsScroll>
+        {/* Serialized only once expanded: the form beside the result keeps
+            re-rendering this panel, and the arguments may be large. */}
+        {expanded && (
+          <ArgumentsScroll>
+            <ContentViewer
+              block={{ type: "text", text: JSON.stringify(args, null, 2) }}
+              mimeType="application/json"
+              copyable
+            />
+          </ArgumentsScroll>
+        )}
       </Collapse>
     </ArgumentsBox>
   );

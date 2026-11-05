@@ -2,7 +2,12 @@ import { useMemo } from "react";
 import { Alert, Group, ScrollArea, Stack, Text } from "@mantine/core";
 import type { ToolRun } from "../../../utils/toolRunHistory";
 import { formatDuration, toolRunEnvelope } from "../../../utils/toolRunHistory";
-import { canonicalJson, diffLines } from "../../../utils/lineDiff";
+import {
+  canonicalJson,
+  countLabel,
+  diffLines,
+  foldDiff,
+} from "../../../utils/lineDiff";
 import type { DiffLine } from "../../../utils/lineDiff";
 
 export interface ToolRunDiffProps {
@@ -46,6 +51,13 @@ const DiffLines = Stack.withProps({
   gap: 0,
 });
 
+// A folded run of unchanged lines, or the count of rows cut off at the end.
+const FoldedText = Text.withProps({
+  size: "xs",
+  c: "dimmed",
+  py: 2,
+});
+
 const NoDifferenceAlert = Alert.withProps({
   color: "gray",
   variant: "light",
@@ -86,6 +98,7 @@ export function ToolRunDiff({ before, after }: ToolRunDiffProps) {
     [before, after],
   );
   const changed = lines?.some((line) => line.kind !== "same") ?? false;
+  const folded = useMemo(() => foldDiff(lines ?? []), [lines]);
 
   return (
     <DiffStack data-testid="tool-run-diff">
@@ -109,17 +122,28 @@ export function ToolRunDiff({ before, after }: ToolRunDiffProps) {
       ) : (
         <DiffScroll>
           <DiffLines>
-            {lines.map((line, index) => (
-              <Text
-                // Diff lines have no identity beyond their position.
-                key={index}
-                variant={DIFF_VARIANT[line.kind]}
-                data-diff={line.kind}
-              >
-                {DIFF_PREFIX[line.kind]}
-                {line.text}
-              </Text>
-            ))}
+            {folded.rows.map((row, index) =>
+              row.kind === "folded" ? (
+                // Diff rows have no identity beyond their position.
+                <FoldedText key={index} data-diff="folded">
+                  ⋯ {countLabel(row.count, "unchanged line")}
+                </FoldedText>
+              ) : (
+                <Text
+                  key={index}
+                  variant={DIFF_VARIANT[row.kind]}
+                  data-diff={row.kind}
+                >
+                  {DIFF_PREFIX[row.kind]}
+                  {row.text}
+                </Text>
+              ),
+            )}
+            {folded.omitted > 0 && (
+              <FoldedText data-diff="omitted">
+                ⋯ {countLabel(folded.omitted, "more line")} not shown
+              </FoldedText>
+            )}
           </DiffLines>
         </DiffScroll>
       )}

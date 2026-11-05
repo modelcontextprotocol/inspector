@@ -98,3 +98,61 @@ export function diffLines(
   for (let k = endA; k < a.length; k++) out.push({ kind: "same", text: a[k] });
   return out;
 }
+
+/** A run of unchanged lines folded out of the rendered diff. */
+export interface FoldedLines {
+  kind: "folded";
+  count: number;
+}
+
+export type DiffRow = DiffLine | FoldedLines;
+
+/** Unchanged lines kept on each side of a change. */
+export const DIFF_CONTEXT_LINES = 3;
+
+/** The most rows a diff renders before the rest is cut off. */
+export const MAX_DIFF_ROWS = 1000;
+
+/**
+ * Shapes a diff for display: unchanged stretches longer than twice
+ * `context` fold down to `context` lines either side of the nearest change, and
+ * the result is cut at `maxRows`. The rendered rows are not virtualized, so
+ * without this a one-line change in a large result would mount every unchanged
+ * line, and a wholesale replacement every changed one (#2830).
+ */
+export function foldDiff(
+  lines: DiffLine[],
+  context: number = DIFF_CONTEXT_LINES,
+  maxRows: number = MAX_DIFF_ROWS,
+): { rows: DiffRow[]; omitted: number } {
+  const rows: DiffRow[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    if (lines[index].kind !== "same") {
+      rows.push(lines[index]);
+      index++;
+      continue;
+    }
+    let end = index;
+    while (end < lines.length && lines[end].kind === "same") end++;
+    // Context is kept only on a side that borders a change.
+    const keepBefore = index > 0 ? context : 0;
+    const keepAfter = end < lines.length ? context : 0;
+    const run = end - index;
+    if (run > keepBefore + keepAfter) {
+      rows.push(...lines.slice(index, index + keepBefore));
+      rows.push({ kind: "folded", count: run - keepBefore - keepAfter });
+      rows.push(...lines.slice(end - keepAfter, end));
+    } else {
+      rows.push(...lines.slice(index, end));
+    }
+    index = end;
+  }
+  if (rows.length <= maxRows) return { rows, omitted: 0 };
+  return { rows: rows.slice(0, maxRows), omitted: rows.length - maxRows };
+}
+
+/** "1 unchanged line" / "4 unchanged lines". */
+export function countLabel(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}

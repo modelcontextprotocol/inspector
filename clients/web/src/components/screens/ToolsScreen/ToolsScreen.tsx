@@ -18,7 +18,7 @@ import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPa
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { ToolRunHistoryPanel } from "../../groups/ToolRunHistoryPanel/ToolRunHistoryPanel";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
-import { findToolByRowKey } from "../../../utils/toolUtils";
+import { effectiveRunAsTask, findToolByRowKey } from "../../../utils/toolUtils";
 import {
   EMPTY_TOOL_RUN_HISTORY,
   runsForTool,
@@ -233,12 +233,19 @@ export function ToolsScreen({
     onUiChange({ ...ui, selectedToolKey: key, formValues: nextFormValues });
   };
 
-  const handleRerun = (run: ToolRun) => {
+  // Only reachable from the history, which renders only for a selected tool.
+  const handleRerun = (tool: Tool, run: ToolRun) => {
     // Load the run's arguments into the form as well as sending them, so the
     // form beside the new result shows what was sent.
     onUiChange({ ...ui, formValues: run.args });
     setRerunCount((count) => count + 1);
-    onCallTool(run.toolName, run.args, ui.runAsTask);
+    // The same task routing Execute applies, not the raw toggle: the toggle is
+    // screen-wide, so it can be on while this tool forbids tasks.
+    onCallTool(
+      tool.name,
+      run.args,
+      effectiveRunAsTask(tool, serverSupportsTaskToolCalls, ui.runAsTask),
+    );
   };
 
   // The result (or a thrown rejection) of the latest call, in its own column.
@@ -273,12 +280,12 @@ export function ToolsScreen({
   ) : null;
 
   const historyNode =
-    runs.length > 0 ? (
+    selectedTool && runs.length > 0 ? (
       <ContentCard>
         <ToolRunHistoryPanel
           runs={runs}
           isExecuting={isExecuting}
-          onRerun={handleRerun}
+          onRerun={(run) => handleRerun(selectedTool, run)}
         />
       </ContentCard>
     ) : null;
