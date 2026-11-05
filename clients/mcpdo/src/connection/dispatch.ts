@@ -7,6 +7,11 @@ import type {
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import { checkLoadThresholds } from "@inspector/core/cli/handlers/load-thresholds.js";
 import {
+  checkLoadRegression,
+  compareLoadToBaseline,
+  formatLoadBaselineComparison,
+} from "@inspector/core/cli/handlers/load-baseline.js";
+import {
   formatLoadProgress,
   loadSummaryWarnings,
   type LoadOptions,
@@ -176,7 +181,22 @@ export async function dispatchConnectionRpc(
     for (const warning of loadSummaryWarnings(outcome.summary)) {
       await awaitableError(`${warning}\n`);
     }
+    // `--load-baseline` (#2910), in the one-shot CLI's order: a mismatch
+    // first, then the comparison, the thresholds, and the regression budget.
+    const baseline = opts.load?.baseline;
+    const comparison =
+      baseline !== undefined
+        ? compareLoadToBaseline(outcome.summary, baseline.baseline)
+        : undefined;
+    for (const line of comparison !== undefined
+      ? formatLoadBaselineComparison(comparison)
+      : []) {
+      await awaitableError(`${line}\n`);
+    }
     checkLoadThresholds(outcome.summary, opts.load?.thresholds);
+    if (comparison !== undefined) {
+      checkLoadRegression(comparison, baseline!.maxRegressionPct);
+    }
   }
 }
 

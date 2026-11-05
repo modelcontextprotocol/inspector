@@ -72,6 +72,7 @@ import {
   maxP99Parser,
   minThroughputParser,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
+import { maxRegressionParser } from "@inspector/core/cli/handlers/load-baseline.js";
 import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
 import {
   loadRampParser,
@@ -1550,6 +1551,16 @@ function registerRpcCommands(program: CommandType): void {
             "--load-min-throughput <n>",
             "With --load: exit 10 (load_throughput_below) when fewer than this many calls per second succeeded (okThroughput), after printing the summary (positive number).",
             minThroughputParser,
+          )
+          // `--load-baseline` (#2910): judged here, after the summary.
+          .option(
+            "--load-baseline <file>",
+            "With --load: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with --format json, printing the comparison on stderr. The runs must be shaped alike (same tool or scenario, concurrency, bounds, rate, connections and stages), or the run exits 1 (load_baseline_mismatch).",
+          )
+          .option(
+            "--load-max-regression <pct>",
+            "With --load-baseline: exit 10 (load_regression) when p50 or p99 is higher, or ok throughput lower, than the baseline by more than this percentage, or the error rate higher by more than this many percentage points (e.g. 10 or 10%).",
+            maxRegressionParser,
           );
         cmd.action(
           async (

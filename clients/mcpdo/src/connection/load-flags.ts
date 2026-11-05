@@ -22,6 +22,10 @@ import {
 } from "@inspector/core/cli/handlers/load-stages.js";
 import { MAX_REQUEST_LINE_BYTES } from "../daemon/ipc-glue.js";
 import {
+  resolveLoadBaseline,
+  type LoadBaselineGate,
+} from "@inspector/core/cli/handlers/load-baseline.js";
+import {
   resolveLoadThresholds,
   type LoadThresholds,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
@@ -35,6 +39,12 @@ export type LoadFlags = {
    * sees it, since it judges a summary rather than bounding the run.
    */
   thresholds?: LoadThresholds;
+  /**
+   * `--load-baseline` (#2910): the saved summary to compare against, read
+   * here so a relative path is the caller's. Front-end only, like
+   * `thresholds`.
+   */
+  baseline?: LoadBaselineGate;
 };
 
 /**
@@ -79,6 +89,8 @@ export function resolveLoadFlags(flags: {
   loadMaxP50?: number;
   loadMaxP95?: number;
   loadMinThroughput?: number;
+  loadBaseline?: string;
+  loadMaxRegression?: number;
   appInfo?: boolean;
   toolName?: string;
   /** The resolved tool arguments, from positionals or flags. */
@@ -109,6 +121,8 @@ export function resolveLoadFlags(flags: {
     ["--load-max-p50", flags.loadMaxP50],
     ["--load-max-p95", flags.loadMaxP95],
     ["--load-min-throughput", flags.loadMinThroughput],
+    ["--load-baseline", flags.loadBaseline],
+    ["--load-max-regression", flags.loadMaxRegression],
   ] as const;
   if (flags.load !== true) {
     for (const [flag, value] of bounds) {
@@ -211,7 +225,17 @@ export function resolveLoadFlags(flags: {
     throw usage((err as Error).message);
   }
   assertFitsOneRequest(options);
-  return { options, ...(thresholds && { thresholds }) };
+  // Read last, after every flag conflict has had its say: a bad file is a
+  // usage error of its own (`load_baseline_invalid`).
+  const baseline = resolveLoadBaseline({
+    baseline: flags.loadBaseline,
+    maxRegressionPct: flags.loadMaxRegression,
+  });
+  return {
+    options,
+    ...(thresholds && { thresholds }),
+    ...(baseline && { baseline }),
+  };
 }
 
 /**

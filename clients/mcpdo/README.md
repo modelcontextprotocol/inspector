@@ -277,6 +277,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
 | `--load-max-p50 <ms>` / `--load-max-p95 <ms>` | The same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
 | `--load-min-throughput <n>` | Exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`). |
+| `--load-baseline <file>` / `--load-max-regression <pct>` | Compare p50, p99, error rate and ok throughput against a summary saved with `--format json`, on stderr; with a budget, exit `10` (`load_regression`) when a figure is worse by more than that (percent; percentage points for the error rate). A differently shaped baseline exits `1` (`load_baseline_mismatch`). As in the [one-shot CLI](../cli/README.md#comparing-against-a-baseline---load-baseline); the file is read by the `mcpdo` process, so a relative path is yours. |
 
 Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
 `--app-info`. `--format json` prints the summary object itself, with no

@@ -193,6 +193,10 @@ more).
 - Latency has `p50`/`p90`/`p95`/`p99`/`p999`. Gate a run with
   `--load-max-p50`/`-p95`/`-p99`, `--load-max-error-rate` or
   `--load-min-throughput` (ok calls/s); a breach exits `10` after the summary.
+  To gate on "no worse than last time", save a `--format json` summary and
+  pass `--load-baseline prev.json --load-max-regression 10%` on the same run
+  shape (`load_regression` on a regression, `load_baseline_mismatch` when the
+  runs differ in tool, concurrency, bounds, rate or stages).
 - `--load-interval <sec>` adds an `intervals[]` time series (spot a GC pause
   or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
   of the statistics (reported under `warmup`). Progress lines on stderr appear
