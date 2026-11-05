@@ -257,7 +257,7 @@ describe("resolveLoadFlags with varying arguments (#2840)", () => {
     ],
     [
       { toolArg: { n: "{{rand:4-1}}" } },
-      "tool arguments.n: {{rand:4-1}} needs safe integer bounds with min <= max.",
+      "tool arguments.n: {{rand:4-1}} needs safe integer bounds with min <= max and a span (max - min + 1) no larger than 9007199254740991.",
       "load_args_invalid",
     ],
   ])("refuses %j", (flags, message, code) => {

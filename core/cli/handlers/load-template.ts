@@ -57,13 +57,16 @@ export function checkLoadTemplate(value: unknown, where: string): void {
       if (m[2] === undefined) continue;
       const min = Number(m[2]);
       const max = Number(m[3]);
+      // The span is checked too: `-9007199254740991-1` has safe bounds, but
+      // its size rounds, which leaves the upper bound unreachable.
       if (
         !Number.isSafeInteger(min) ||
         !Number.isSafeInteger(max) ||
-        min > max
+        min > max ||
+        !Number.isSafeInteger(max - min + 1)
       ) {
         throw new Error(
-          `${where}: ${m[0]} needs safe integer bounds with min <= max.`,
+          `${where}: ${m[0]} needs safe integer bounds with min <= max and a span (max - min + 1) no larger than ${Number.MAX_SAFE_INTEGER}.`,
         );
       }
     }

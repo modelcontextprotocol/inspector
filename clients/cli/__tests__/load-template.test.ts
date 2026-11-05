@@ -104,16 +104,24 @@ describe("checkLoadTemplate", () => {
     expect(() =>
       checkLoadTemplate({ a: ["{{rand:1-2}}", 3], b: null }, "args"),
     ).not.toThrow();
+    // The widest span allowed: exactly MAX_SAFE_INTEGER values.
+    expect(() =>
+      checkLoadTemplate("{{rand:0-9007199254740990}}", "args"),
+    ).not.toThrow();
   });
 
   it.each([
     [
       "{{rand:9-1}}",
-      "args.x: {{rand:9-1}} needs safe integer bounds with min <= max.",
+      "args.x: {{rand:9-1}} needs safe integer bounds with min <= max and a span",
     ],
     [
       "{{rand:1-99999999999999999999}}",
-      "args.x: {{rand:1-99999999999999999999}} needs safe integer bounds with min <= max.",
+      "args.x: {{rand:1-99999999999999999999}} needs safe integer bounds with min <= max and a span",
+    ],
+    [
+      "{{rand:-9007199254740991-1}}",
+      "args.x: {{rand:-9007199254740991-1}} needs safe integer bounds with min <= max and a span",
     ],
   ])("refuses %s", (bad, message) => {
     expect(() => checkLoadTemplate({ x: bad }, "args")).toThrow(message);

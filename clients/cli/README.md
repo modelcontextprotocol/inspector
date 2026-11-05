@@ -518,7 +518,8 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   integer; a placeholder inside other text (`user-{{seq}}`) yields a string.
   Anything else in double braces — `{{name}}`, `{{ seq }}` — is sent as
   written, so an argument that is itself a Mustache template is untouched. A
-  `{{rand:…}}` whose bounds are reversed or not safe integers is refused
+  `{{rand:…}}` whose bounds are reversed or not safe integers, or whose span
+(`max - min + 1`) is not a safe integer, is refused
   before anything connects (exit `1`, `load_args_invalid`).
 - **`--load-args-file <file>`** is NDJSON: one JSON object per line, blank
   lines ignored. Call `n` takes row `(n - 1) mod rows` (`--load-args-random`:
