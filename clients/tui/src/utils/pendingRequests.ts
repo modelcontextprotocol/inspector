@@ -24,6 +24,7 @@ import {
   decodeFormValues,
   missingRequiredFields,
   schemaToForm,
+  selectionCountErrors,
 } from "./schemaToForm.js";
 
 type SamplingParams = CreateMessageRequest["params"];
@@ -219,20 +220,24 @@ export function elicitationForm(schema: RequestedSchema): FormStructure {
 
 /**
  * Turn a submitted elicitation form into the `accept` result, or report the
- * required fields it leaves empty.
+ * required fields it leaves empty, or the multi-selects whose selection falls
+ * outside the schema's `minItems` / `maxItems` (#2904).
  *
- * Unfilled optional fields are dropped rather than sent as `undefined`, and a
- * multi-select — which ink-form can only render as a single select — is sent
- * as the one-element array the schema's `type: "array"` demands.
+ * Unfilled optional fields are dropped rather than sent as `undefined`. A
+ * multi-select arrives as the list of chosen values; a bare string — only a
+ * non-array value a field could have been seeded with — is still wrapped as
+ * the one-element array the schema's `type: "array"` demands.
  */
 export function elicitationContentFromForm(
   schema: RequestedSchema,
   rawValues: Record<string, unknown>,
-): { result: ElicitResult } | { missing: string[] } {
+): { result: ElicitResult } | { missing: string[] } | { invalid: string[] } {
   const normalized = normalizeElicitationSchema(schema);
   const decoded = decodeFormValues(normalized, rawValues);
   const missing = missingRequiredFields(normalized, decoded, rawValues);
   if (missing.length > 0) return { missing };
+  const invalid = selectionCountErrors(normalized, decoded, rawValues);
+  if (invalid.length > 0) return { invalid };
   // Built through `fromEntries` rather than by assignment: `__proto__` is a
   // legal property name, and assigning it would invoke the legacy prototype
   // setter — the answer would pass the required check and then vanish.

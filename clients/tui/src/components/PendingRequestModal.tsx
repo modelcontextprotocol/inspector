@@ -19,6 +19,7 @@
 import React, { useRef, useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
 import { Form } from "ink-form";
+import { FORM_FIELD_MANAGERS } from "./MultiSelectField.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import type { SamplingCreateMessage } from "@inspector/core/mcp/samplingCreateMessage.js";
@@ -354,6 +355,12 @@ function ElicitationFormRequest({
       );
       return;
     }
+    if ("invalid" in outcome) {
+      setStatus(
+        `Invalid field${outcome.invalid.length > 1 ? "s" : ""}: ${outcome.invalid.join("; ")}`,
+      );
+      return;
+    }
     settle(outcome.result);
   };
 
@@ -387,6 +394,7 @@ function ElicitationFormRequest({
       <Box flexGrow={1} width="100%">
         <Form
           form={form}
+          customManagers={FORM_FIELD_MANAGERS}
           onSubmit={(values: object) =>
             handleSubmit(values as Record<string, unknown>)
           }
