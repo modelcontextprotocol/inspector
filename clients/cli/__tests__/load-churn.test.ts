@@ -255,6 +255,70 @@ describe("runLoadAcrossConnections with churn", () => {
     expect(staged.made.every((c) => c.closed)).toBe(true);
   });
 
+  it("counts a failed close of a session left open when the run ends", async () => {
+    const { open } = opener({ failClose: true });
+    const summary = await runLoadAcrossConnections(primary, open, callOn, {
+      concurrency: 1,
+      requests: 1,
+      churn: { callsPerSession: 3 },
+    });
+    expect(summary.churn).toMatchObject({ opened: 1, closeFailed: 1 });
+  });
+
+  it("keeps seq unique across a warm-up and stages when opens fail", async () => {
+    // Three slots in the first phase, its first open failing: a numbered
+    // slot with no call, so counting completed calls would hand the next
+    // phase's first call the first phase's last seq again.
+    let attempts = 0;
+    const failOn = new Set([1]);
+    const open = async (): Promise<FakeConnection> => {
+      if (failOn.has(++attempts)) throw new Error("refused");
+      return opener().open();
+    };
+    const seqs: number[] = [];
+    const record = async (
+      c: FakeConnection,
+      _step: number,
+      ctx: { seq: number },
+    ): Promise<LoadCallOutcome> => {
+      seqs.push(ctx.seq);
+      return callOn(c);
+    };
+    const clock = fakeClock();
+    await runLoadAcrossConnections(
+      primary,
+      open,
+      record,
+      {
+        concurrency: 1,
+        durationMs: 30,
+        rate: 100,
+        warmupMs: 30,
+        churn: { callsPerSession: 1 },
+      },
+      clock,
+    );
+    expect(seqs.length).toBeGreaterThan(1);
+    expect(new Set(seqs).size).toBe(seqs.length);
+
+    seqs.length = 0;
+    attempts = 0;
+    await runLoadAcrossConnections(
+      primary,
+      open,
+      record,
+      {
+        concurrency: 1,
+        rate: 100,
+        stages: { by: "concurrency", levels: [1, 1, 1], stageMs: 30 },
+        churn: { callsPerSession: 1 },
+      },
+      fakeClock(),
+    );
+    expect(seqs.length).toBeGreaterThan(2);
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
+
   it("needs a way to open connections", async () => {
     await expect(
       runLoadAcrossConnections(primary, undefined, callOn, {

@@ -920,6 +920,13 @@ type WindowProgress = {
   seqOffset?: number;
   /** `--load-churn` session hooks (#2912). */
   sessions?: LoadSessionHooks;
+  /**
+   * Set to the slots this window numbered, once it ends. Not always its
+   * `requests`: a `--load-churn` slot whose session failed to open (#2912)
+   * took a `seq` and completed no call, so the next window (after a warm-up,
+   * or the next stage) must count from here to keep `seq` unique.
+   */
+  numbered?: { slots: number };
 };
 
 /**
@@ -941,6 +948,7 @@ async function runWithWarmup(
   onSample: LoadSampleSink | undefined,
   sessions: LoadSessionHooks | undefined,
 ): Promise<LoadSummary> {
+  const numbered = { slots: 0 };
   const warm = await runWindow(
     call,
     // No time series either: the warm-up's buckets would be built only to be
@@ -955,7 +963,12 @@ async function runWithWarmup(
     signal,
     undefined,
     true,
-    { hook: progress, phase: "warmup", ...(sessions && { sessions }) },
+    {
+      hook: progress,
+      phase: "warmup",
+      numbered,
+      ...(sessions && { sessions }),
+    },
   );
   const warmup: LoadWarmupSummary = {
     // What actually ran: shorter when it stopped early, longer when calls
@@ -974,7 +987,7 @@ async function runWithWarmup(
     stopped.abort(warm.stoppedEarly);
     measuredSignal = stopped.signal;
   }
-  const offset = warm.requests;
+  const offset = numbered.slots;
   const summary = await runWindow(
     (worker, step, seq) => call(worker, step, seq + offset),
     options,
@@ -1345,6 +1358,7 @@ async function runWindow(
        and no stop never ends, so one of the three always applies. */
     return Number.isFinite(windowEnd) ? windowEnd : end;
   };
+  if (progress?.numbered) progress.numbered.slots = started;
   const totals = total.summarize(elapsedMs);
   return {
     concurrency,
@@ -1553,6 +1567,7 @@ async function runStages(
       ...(options.openLoop === true && { openLoop: true }),
     };
     const offset = used;
+    const numbered = { slots: 0 };
     const summary = await runWindow(
       (worker, step, seq) => call(worker, step, seq + offset),
       stageOptions,
@@ -1567,11 +1582,12 @@ async function runStages(
         phase: "run",
         stage: i + 1,
         seqOffset: offset,
+        numbered,
         ...(onSample && { onSample }),
         ...(sessions && { sessions }),
       },
     );
-    used += summary.requests;
+    used += numbered.slots;
     elapsedMs += summary.elapsedMs;
     rows.push({ stage: i + 1, stepBy: stages.by, level, ...summary });
     if (summary.stoppedEarly) {
@@ -1835,6 +1851,11 @@ async function runChurnLoad<C extends LoadConnection>(
       await close(session.connection);
     },
   };
+  const closeLeftovers = async (): Promise<void> => {
+    const left = [...sessions.values()].map((s) => s.connection);
+    sessions.clear();
+    await Promise.allSettled(left.map(close));
+  };
   try {
     const summary = await runLoad(
       (worker, step, seq) =>
@@ -1846,6 +1867,8 @@ async function runChurnLoad<C extends LoadConnection>(
       onSample,
       hooks,
     );
+    // Before the summary is built, so a leftover's failed close is counted.
+    await closeLeftovers();
     return {
       ...summary,
       churn: {
@@ -1858,9 +1881,8 @@ async function runChurnLoad<C extends LoadConnection>(
       },
     };
   } finally {
-    const left = [...sessions.values()].map((s) => s.connection);
-    sessions.clear();
-    await Promise.allSettled(left.map(close));
+    // The error path; after a normal run there is nothing left.
+    await closeLeftovers();
   }
 }
 
