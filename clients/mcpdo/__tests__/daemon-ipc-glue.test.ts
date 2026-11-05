@@ -181,6 +181,49 @@ describe("acceptDaemonConnection elicitation channel", () => {
   });
 });
 
+describe("acceptDaemonConnection notify (#2838)", () => {
+  const frame = (id: string) => ({
+    id,
+    kind: "load-progress" as const,
+    progress: {
+      phase: "run" as const,
+      elapsedMs: 1000,
+      requests: 1,
+      ok: 1,
+      failed: 0,
+      throughput: 1,
+      latencyMs: null,
+    },
+  });
+
+  it("writes a one-way frame ahead of the response", async () => {
+    const socket = accept(async (request, elicitation) => {
+      elicitation.notify!(frame(request.id));
+      return { response: { id: request.id, ok: true, result: {} } };
+    });
+    socket.pushLine(REQUEST);
+    await until(() => socket.all.includes('"ok":true'));
+    const progressAt = socket.all.indexOf('"load-progress"');
+    expect(progressAt).toBeGreaterThanOrEqual(0);
+    expect(progressAt).toBeLessThan(socket.all.indexOf('"ok":true'));
+  });
+
+  it("drops a frame once the socket is gone", async () => {
+    let channel: ElicitationChannel | undefined;
+    const socket = accept(async (request, elicitation) => {
+      channel = elicitation;
+      return { response: { id: request.id, ok: true, result: {} } };
+    });
+    socket.pushLine(REQUEST);
+    await until(() => socket.all.includes('"ok":true'));
+    socket.destroy();
+    await until(() => socket.destroyed);
+    const before = socket.all;
+    channel!.notify!(frame("late"));
+    expect(socket.all).toBe(before);
+  });
+});
+
 describe("acceptDaemonConnection guards", () => {
   it("aborts the per-request signal when the caller's socket closes", async () => {
     let seen: AbortSignal | undefined;
