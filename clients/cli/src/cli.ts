@@ -78,6 +78,10 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
+  assertLoadArgsTemplate,
+  readLoadArgsFile,
+} from "@inspector/core/cli/handlers/load-template.js";
+import {
   assertNotInterrupted,
   withLoadInterrupt,
 } from "./handlers/load-interrupt.js";
@@ -1258,6 +1262,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces --tool-name, --tool-arg, --tool-args-json and --tool-metadata.",
     )
     .option(
+      "--load-args-file <file>",
+      "With --load: NDJSON file of argument objects, one per line; each call merges the next row over --tool-arg (row wins), cycling. Placeholders {{seq}}, {{worker}}, {{uuid}} and {{rand:<min>-<max>}} work in rows and in --tool-arg values.",
+    )
+    .option(
+      "--load-args-random",
+      "With --load-args-file: pick each call's row at random instead of in turn.",
+    )
+    .option(
       "--load-concurrency <n>",
       "With --load: most calls in flight at once (positive integer; default 10).",
       positiveIntegerParser("--load-concurrency"),
@@ -1500,6 +1512,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadRequests?: number;
     loadRate?: number;
     loadScenario?: string;
+    loadArgsFile?: string;
+    loadArgsRandom?: boolean;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
   };
@@ -1598,6 +1612,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-requests", options.loadRequests],
     ["--load-rate", options.loadRate],
     ["--load-scenario", options.loadScenario],
+    ["--load-args-file", options.loadArgsFile],
+    ["--load-args-random", options.loadArgsRandom],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
   ] as const;
@@ -1640,6 +1656,16 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
           );
         }
       }
+      // A scenario step carries its own `args`; rows would have no step to
+      // merge into (#2840).
+      if (options.loadArgsFile !== undefined) {
+        throw loadFlagConflict(
+          "--load-args-file cannot be combined with --load-scenario; put placeholders in each step's args instead.",
+        );
+      }
+    }
+    if (options.loadArgsRandom && options.loadArgsFile === undefined) {
+      throw loadFlagConflict("--load-args-random requires --load-args-file.");
     }
   }
 
@@ -1914,6 +1940,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     toolArg = parsed as Record<string, JsonValue>;
   }
 
+  // A reversed `{{rand:9-1}}` in a flag argument fails here, before anything
+  // connects, rather than on every call (#2840).
+  if (options.load) assertLoadArgsTemplate(toolArg, "--tool-arg");
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
@@ -1992,12 +2022,24 @@ function resolveCliLoadOptions(options: {
   loadRequests?: number;
   loadRate?: number;
   loadScenario?: string;
+  loadArgsFile?: string;
+  loadArgsRandom?: boolean;
 }): LoadOptions {
   // Read before anything connects; a bad file is a usage error of its own
-  // (`load_scenario_invalid`), so it is not folded into the conflict below.
+  // (`load_scenario_invalid`, `load_args_invalid`), so neither is folded into
+  // the conflict below.
   const scenario =
     options.loadScenario !== undefined
       ? readLoadScenarioFile(options.loadScenario)
+      : undefined;
+  const argRows =
+    options.loadArgsFile !== undefined
+      ? {
+          rows: readLoadArgsFile(options.loadArgsFile),
+          order: options.loadArgsRandom
+            ? ("random" as const)
+            : ("sequential" as const),
+        }
       : undefined;
   try {
     return resolveLoadOptions({
@@ -2007,6 +2049,7 @@ function resolveCliLoadOptions(options: {
       requests: options.loadRequests,
       rate: options.loadRate,
       scenario,
+      argRows,
     });
   } catch (err) {
     throw loadFlagConflict((err as Error).message);

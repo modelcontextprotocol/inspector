@@ -181,6 +181,10 @@ more).
   `tools/call` / `resources/read` / `prompts/get` steps; the top-level counts
   are totals and `steps[]` breaks them down per step — find the slow or
   failing step there.
+- Identical calls flatter a caching server. Vary them with placeholders in
+  argument values (`id:=user-{{seq}}`, `{{uuid}}`, `{{rand:1-50}}`,
+  `{{worker}}`) or `--load-args-file rows.ndjson` (one argument object per
+  line, cycled; `--load-args-random` to shuffle).
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
   `consecutive_errors` (the server stopped answering), `connection_lost`, or
   `interrupted`. The counts cover only what completed.

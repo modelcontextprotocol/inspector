@@ -9,6 +9,13 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
+  assertLoadArgsTemplate,
+  LOAD_ARGS_INVALID,
+  readLoadArgsFile,
+} from "@inspector/core/cli/handlers/load-template.js";
+import { LOAD_SCENARIO_INVALID } from "@inspector/core/cli/handlers/load-scenario.js";
+import { MAX_REQUEST_LINE_BYTES } from "../daemon/ipc-glue.js";
+import {
   resolveLoadThresholds,
   type LoadThresholds,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
@@ -50,6 +57,8 @@ export function resolveLoadFlags(flags: {
   loadRequests?: number;
   loadRate?: number;
   loadScenario?: string;
+  loadArgsFile?: string;
+  loadArgsRandom?: boolean;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   appInfo?: boolean;
@@ -66,6 +75,8 @@ export function resolveLoadFlags(flags: {
     ["--load-requests", flags.loadRequests],
     ["--load-rate", flags.loadRate],
     ["--load-scenario", flags.loadScenario],
+    ["--load-args-file", flags.loadArgsFile],
+    ["--load-args-random", flags.loadArgsRandom],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
   ] as const;
@@ -93,15 +104,36 @@ export function resolveLoadFlags(flags: {
         );
       }
     }
+    if (flags.loadArgsFile !== undefined) {
+      throw usage(
+        "--load-args-file cannot be combined with --load-scenario; put placeholders in each step's args instead.",
+      );
+    }
   } else if (!flags.toolName) {
     // Checked here rather than left to the daemon so a missing name fails
     // before a connection is resolved, with the flag a user can act on.
     throw usage("--load requires a tool name.", "missing_tool_name");
   }
-  // A bad file is a usage error of its own (`load_scenario_invalid`).
+  if (flags.loadArgsRandom === true && flags.loadArgsFile === undefined) {
+    throw usage("--load-args-random requires --load-args-file.");
+  }
+  // Placeholders (#2840): a reversed `{{rand:9-1}}` fails before connecting.
+  assertLoadArgsTemplate(flags.toolArg, "tool arguments");
+  // A bad file is a usage error of its own (`load_scenario_invalid`,
+  // `load_args_invalid`), read here so a relative path is the caller's.
   const scenario =
     flags.loadScenario !== undefined
       ? readLoadScenarioFile(flags.loadScenario)
+      : undefined;
+  const argRows =
+    flags.loadArgsFile !== undefined
+      ? {
+          rows: readLoadArgsFile(flags.loadArgsFile),
+          order:
+            flags.loadArgsRandom === true
+              ? ("random" as const)
+              : ("sequential" as const),
+        }
       : undefined;
   let options: LoadOptions;
   try {
@@ -112,6 +144,7 @@ export function resolveLoadFlags(flags: {
       requests: flags.loadRequests,
       rate: flags.loadRate,
       scenario,
+      argRows,
     });
   } catch (err) {
     // `--load-connections` above `--load-concurrency`: the engine's own
@@ -123,7 +156,35 @@ export function resolveLoadFlags(flags: {
     maxErrorRate: flags.loadMaxErrorRate,
     maxP99Ms: flags.loadMaxP99,
   });
+  assertFitsOneRequest(options);
   return { options, ...(thresholds && { thresholds }) };
+}
+
+/**
+ * Room left in a daemon request line for everything besides the load
+ * options: the method, connection name and tool arguments.
+ */
+export const LOAD_REQUEST_HEADROOM_BYTES = 64 * 1024;
+
+/**
+ * The parsed scenario and args-file rows ride to the daemon in ONE request
+ * line, which the daemon refuses past {@link MAX_REQUEST_LINE_BYTES}. A file
+ * that large would otherwise be accepted here and then fail as an unreachable
+ * daemon before any call ran, so it is refused up front with the file's own
+ * code and the limit it hit.
+ */
+function assertFitsOneRequest(options: LoadOptions): void {
+  const budget = MAX_REQUEST_LINE_BYTES - LOAD_REQUEST_HEADROOM_BYTES;
+  const bytes = Buffer.byteLength(JSON.stringify(options));
+  if (bytes <= budget) return;
+  const [flag, code] =
+    options.argRows !== undefined
+      ? ["--load-args-file", LOAD_ARGS_INVALID]
+      : ["--load-scenario", LOAD_SCENARIO_INVALID];
+  throw usage(
+    `${flag} is too large for mcpdo: the run's options encode to ${bytes} bytes, over the ${budget}-byte limit of one daemon request. Use fewer or smaller rows, or the one-shot CLI (mcp-inspector --cli), which has no such limit.`,
+    code,
+  );
 }
 
 function usage(message: string, code = LOAD_FLAG_CONFLICT): CliExitCodeError {

@@ -268,6 +268,8 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
 | `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
 | `--load-scenario <file>` | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it. |
+| `--load-args-file <file>` | NDJSON argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Not with `--load-scenario`. |
+| `--load-args-random`     | With `--load-args-file`: pick each call's row at random. |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
 
@@ -289,6 +291,13 @@ use the [one-shot CLI's file format](../cli/README.md#scenarios---load-scenario)
 `mcpdo` process, so a relative path is relative to your working directory, not
 the daemon's; the parsed steps travel to the daemon with the run. The text
 summary lists each step under the totals.
+
+**Varying arguments** ([#2840](https://github.com/modelcontextprotocol/inspector/issues/2840)):
+`{{seq}}`, `{{worker}}`, `{{uuid}}` and `{{rand:<min>-<max>}}` in argument
+values are substituted per call, and `--load-args-file` supplies whole argument
+rows. Both behave exactly as in the
+[one-shot CLI](../cli/README.md#varying-the-arguments---load-args-file-placeholders).
+Like a scenario, the args file is read by the `mcpdo` process.
 
 **Multiple sessions** (`--load-connections`, #2800) open the extra sessions
 inside the daemon, before the clock starts, from the connection's stored server

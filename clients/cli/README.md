@@ -162,6 +162,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
 | `--load-scenario <file>`      | With `--load`: run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step breakdown. Replaces `--tool-name`, `--tool-arg`, `--tool-args-json` and `--tool-metadata`. See [Scenarios](#scenarios---load-scenario). |
+| `--load-args-file <file>`    | With `--load`: an NDJSON file of argument objects, one per line; each call merges the next row over `--tool-arg` (the row wins on a key), cycling. Not with `--load-scenario`. See [Varying the arguments](#varying-the-arguments---load-args-file-placeholders). |
+| `--load-args-random`          | With `--load-args-file`: pick each call's row at random instead of in turn. |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
@@ -343,7 +345,9 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   --tool-arg query=mcp --load --load-requests 500 --load-rate 50
 ```
 
-Every call sends the same arguments and `_meta`. When the run ends, one summary
+Every call sends the same arguments and `_meta`, unless the arguments use
+placeholders or an args file (see [Varying the arguments](#varying-the-arguments---load-args-file-placeholders)).
+When the run ends, one summary
 is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
 
 ```json
@@ -479,6 +483,51 @@ contention that only appear across sessions:
 
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
+
+##### Varying the arguments (`--load-args-file`, placeholders)
+
+A server that caches results or dedupes identical requests looks far faster
+under one fixed argument than under real traffic, and its per-key code paths
+never run. Two ways to vary each call's arguments
+([#2840](https://github.com/modelcontextprotocol/inspector/issues/2840)),
+usable together:
+
+```bash
+# a distinct id per call, and a random page from 1 to 50
+mcp-inspector --cli <server> --method tools/call --tool-name lookup \
+  --tool-arg id=user-{{seq}} --tool-arg page={{rand:1-50}} --load --load-requests 1000
+
+# one argument object per line of args.ndjson, in turn (or --load-args-random)
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --load --load-args-file args.ndjson --load-duration 30
+```
+
+- **Placeholders** work in any string value of a call's arguments
+  (`--tool-arg`, `--tool-args-json`, an args-file row, and a scenario step's
+  `args` and `uri`), only in a `--load` run:
+
+  | Placeholder              | Becomes                                              |
+  | ------------------------ | ---------------------------------------------------- |
+  | `{{seq}}`                | The call's number in start order, from `1`.          |
+  | `{{worker}}`             | The index of the worker making it, from `0`.         |
+  | `{{uuid}}`               | A fresh random UUID (v4).                            |
+  | `{{rand:<min>-<max>}}`   | A random integer from `min` to `max`, inclusive.     |
+
+  A value that is exactly one numeric placeholder (`page={{rand:1-50}}`,
+  `"{{seq}}"`) is sent as a **number**, so an integer-typed argument receives an
+  integer; a placeholder inside other text (`user-{{seq}}`) yields a string.
+  Anything else in double braces — `{{name}}`, `{{ seq }}` — is sent as
+  written, so an argument that is itself a Mustache template is untouched. A
+  `{{rand:…}}` whose bounds are reversed or not safe integers, or whose span
+(`max - min + 1`) is not a safe integer, is refused
+  before anything connects (exit `1`, `load_args_invalid`).
+- **`--load-args-file <file>`** is NDJSON: one JSON object per line, blank
+  lines ignored. Call `n` takes row `(n - 1) mod rows` (`--load-args-random`:
+  any row), merged over the `--tool-arg` / `--tool-args-json` arguments with
+  the row winning on a shared key; placeholders inside a row are substituted
+  too. A file that cannot be read, a line that is not a JSON object, or a
+  number that overflows to `Infinity` exits `1` with `load_args_invalid`. It
+  is refused with `--load-scenario`, whose steps carry their own `args`.
 
 ##### Scenarios (`--load-scenario`)
 

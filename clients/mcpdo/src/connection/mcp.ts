@@ -1440,6 +1440,14 @@ function registerRpcCommands(program: CommandType): void {
             "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces the tool name, its arguments and --tool-metadata.",
           )
           .option(
+            "--load-args-file <file>",
+            "With --load: NDJSON file of argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Placeholders {{seq}}, {{worker}}, {{uuid}} and {{rand:<min>-<max>}} work in rows and in argument values.",
+          )
+          .option(
+            "--load-args-random",
+            "With --load-args-file: pick each call's row at random instead of in turn.",
+          )
+          .option(
             "--load-concurrency <n>",
             "With --load: most calls in flight at once (positive integer; default 10).",
             positiveIntegerParser("--load-concurrency"),

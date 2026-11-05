@@ -220,6 +220,124 @@ describe("resolveLoadFlags", () => {
   });
 });
 
+describe("resolveLoadFlags with varying arguments (#2840)", () => {
+  let dir: string | undefined;
+  afterEach(() => {
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+    dir = undefined;
+  });
+  function argsFile(content: string): string {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcpdo-args-"));
+    const file = path.join(dir, "args.ndjson");
+    fs.writeFileSync(file, content);
+    return file;
+  }
+
+  it("reads the rows in the front end, in turn by default", () => {
+    const file = argsFile('{"q":"a"}\n{"q":"b"}\n');
+    expect(
+      resolveLoadFlags({ load: true, toolName: "echo", loadArgsFile: file })
+        ?.options.argRows,
+    ).toEqual({ rows: [{ q: "a" }, { q: "b" }], order: "sequential" });
+    expect(
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadArgsFile: file,
+        loadArgsRandom: true,
+      })?.options.argRows?.order,
+    ).toBe("random");
+  });
+
+  it.each([
+    [
+      { loadArgsRandom: true },
+      "--load-args-random requires --load-args-file.",
+      "load_flag_conflict",
+    ],
+    [
+      { toolArg: { n: "{{rand:4-1}}" } },
+      "tool arguments.n: {{rand:4-1}} needs safe integer bounds with min <= max and a span (max - min + 1) no larger than 9007199254740991.",
+      "load_args_invalid",
+    ],
+  ])("refuses %j", (flags, message, code) => {
+    expect(() =>
+      resolveLoadFlags({ load: true, toolName: "echo", ...flags }),
+    ).toThrow(
+      expect.objectContaining({
+        message,
+        envelope: expect.objectContaining({ code }),
+      }),
+    );
+  });
+
+  it("refuses an args file alongside a scenario", () => {
+    expect(() =>
+      resolveLoadFlags({
+        load: true,
+        loadScenario: "s.json",
+        loadArgsFile: "a.ndjson",
+      }),
+    ).toThrow("--load-args-file cannot be combined with --load-scenario");
+  });
+
+  it.each([
+    ["--load-args-file", "load_args_invalid"],
+    ["--load-scenario", "load_scenario_invalid"],
+  ])("refuses a %s too large for one daemon request", (flag, code) => {
+    const big = "x".repeat(2000);
+    const content =
+      flag === "--load-args-file"
+        ? Array.from({ length: 600 }, () => JSON.stringify({ q: big })).join(
+            "\n",
+          )
+        : JSON.stringify(
+            Array.from({ length: 600 }, () => ({
+              method: "tools/call",
+              tool: "echo",
+              args: { q: big },
+            })),
+          );
+    const file = argsFile(content);
+    expect(() =>
+      resolveLoadFlags(
+        flag === "--load-args-file"
+          ? { load: true, toolName: "echo", loadArgsFile: file }
+          : { load: true, loadScenario: file },
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        message: expect.stringMatching(
+          new RegExp(
+            `^${flag} is too large for mcpdo: .* over the \\d+-byte limit`,
+          ),
+        ),
+        envelope: expect.objectContaining({ code }),
+      }),
+    );
+  });
+
+  it("reports a bad args file as load_args_invalid", () => {
+    const file = argsFile("[1]");
+    expect(() =>
+      resolveLoadFlags({ load: true, toolName: "echo", loadArgsFile: file }),
+    ).toThrow(
+      expect.objectContaining({
+        envelope: expect.objectContaining({ code: "load_args_invalid" }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ loadArgsFile: "a.ndjson" }, "--load-args-file requires --load."],
+    [{ loadArgsRandom: true }, "--load-args-random requires --load."],
+  ])("requires --load for %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
 describe("formatLoadSummaryHuman", () => {
   it("renders bounds, outcomes, latency and top errors", () => {
     const text = formatLoadSummaryHuman(SUMMARY, PLAIN);
@@ -615,6 +733,36 @@ describe.skipIf(unixDaemonOnly)(
         ["tools/call echo", 3],
         ["resources/read test://env", 3],
       ]);
+    });
+
+    it("sends --load-args-file rows through the daemon (#2840)", async () => {
+      const e = env();
+      await connectStdio(e);
+      const file = path.join(storageDir!, "args.ndjson");
+      // Every second row breaks echo's `message: string` schema, so the
+      // failure count shows the rows reached the daemon's calls.
+      fs.writeFileSync(file, '{"message":"ok-{{seq}}"}\n{"message":5}\n');
+      const result = await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "--load",
+          "--load-args-file",
+          file,
+          "--load-requests",
+          "4",
+          "--load-concurrency",
+          "1",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expectCliSuccess(result);
+      const summary = JSON.parse(result.stdout) as LoadSummary;
+      expect(summary.requests).toBe(4);
+      expect(summary.ok).toBe(2);
+      expect(summary.toolErrors + summary.errors).toBe(2);
     });
 
     async function connectStdio(e: Record<string, string>): Promise<void> {
