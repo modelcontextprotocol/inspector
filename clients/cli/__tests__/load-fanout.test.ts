@@ -17,7 +17,8 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import {
   runFanout,
-  tallyFanout,
+  FanoutTally,
+  MAX_FANOUT_PENDING,
   type LoadFanoutOptions,
   type LoadFanoutSummary,
   type LoadSubscriber,
@@ -178,7 +179,7 @@ describe("resolveLoadOptions with --load-subscribe", () => {
   });
 });
 
-describe("tallyFanout", () => {
+describe("FanoutTally", () => {
   const base = {
     uri: URI,
     requested: 2,
@@ -188,15 +189,23 @@ describe("tallyFanout", () => {
     errorMessages: [],
   };
 
-  it("measures each receipt from its trigger, counting misses and extras", () => {
-    const f = tallyFanout(
-      [
-        [12, 25, 33, 40],
-        [14, 30],
-      ],
-      [10, 20, 30],
-      base,
-    );
+  it("times each receipt from its trigger, counting misses and extras", () => {
+    const t = new FanoutTally(true);
+    const a = t.addSession();
+    const b = t.addSession();
+    // Notifications land before their trigger's sample does.
+    t.receive(a, 12);
+    t.receive(b, 14);
+    t.addTrigger(10);
+    t.receive(a, 25);
+    t.addTrigger(20);
+    t.receive(b, 30);
+    t.receive(a, 33);
+    t.addTrigger(30);
+    t.receive(a, 40);
+    t.freeze();
+    expect(t.done()).toBe(false);
+    const f = t.summarize(base);
     expect(f).toMatchObject({
       mode: "triggered",
       subscribed: 2,
@@ -210,22 +219,81 @@ describe("tallyFanout", () => {
     expect(f.deliveryMs).toMatchObject({ min: 2, max: 10 });
   });
 
-  it("measures a passive receipt from the first subscriber's", () => {
-    const f = tallyFanout(
-      [
-        [100, 200],
-        [103, 201],
-      ],
-      undefined,
-      base,
-    );
-    expect(f).toMatchObject({ mode: "passive", updates: 2, missed: 0 });
+  it("counts a notification older than its would-be trigger as unexpected", () => {
+    const t = new FanoutTally(true);
+    const a = t.addSession();
+    // From setup, before any trigger started.
+    t.receive(a, 5);
+    t.receive(a, 12);
+    t.addTrigger(10);
+    expect(t.summarize(base)).toMatchObject({
+      updates: 1,
+      delivered: 1,
+      unexpected: 1,
+    });
+    expect(t.done()).toBe(true);
+  });
+
+  it("caps a session's unmatched receipts", () => {
+    const t = new FanoutTally(true);
+    const a = t.addSession();
+    for (let i = 0; i <= MAX_FANOUT_PENDING; i++) t.receive(a, i);
+    expect(t.summarize(base).unexpected).toBe(MAX_FANOUT_PENDING + 1);
+  });
+
+  it("forgets trigger starts every session has passed", () => {
+    const t = new FanoutTally(true);
+    const a = t.addSession();
+    for (let i = 0; i < 3000; i++) {
+      t.receive(a, i * 10 + 1);
+      t.addTrigger(i * 10);
+    }
+    expect(t.summarize(base)).toMatchObject({ updates: 3000, delivered: 3000 });
+  });
+
+  it("times a passive receipt from the first subscriber's", () => {
+    const t = new FanoutTally(false);
+    const a = t.addSession();
+    const b = t.addSession();
+    // Before the window: setup, not measured.
+    t.receive(a, 50);
+    t.startPassive(100);
+    t.receive(a, 100);
+    t.receive(b, 103);
+    t.receive(a, 200);
+    t.freeze();
+    // A new update during the catch-up wait is not one to wait for...
+    t.receive(a, 300);
+    // ...but a lagging subscriber catching up still counts.
+    t.receive(b, 201);
+    const f = t.summarize(base);
+    expect(f).toMatchObject({
+      mode: "passive",
+      updates: 2,
+      delivered: 4,
+      missed: 0,
+      unexpected: 2,
+    });
     expect(f.deliveryMs).toMatchObject({ min: 0, max: 3 });
   });
 
+  it("caps the passive updates it tracks for their first receipt", () => {
+    const t = new FanoutTally(false);
+    const a = t.addSession();
+    t.addSession();
+    t.startPassive(0);
+    for (let i = 0; i <= MAX_FANOUT_PENDING; i++) t.receive(a, i);
+    expect(t.summarize(base).delivered).toBe(MAX_FANOUT_PENDING + 1);
+  });
+
   it("has no latency when nothing was delivered", () => {
-    const f = tallyFanout([[], []], undefined, base);
-    expect(f).toMatchObject({ updates: 0, delivered: 0, deliveryMs: null });
+    const t = new FanoutTally(false);
+    t.addSession();
+    expect(t.summarize(base)).toMatchObject({
+      updates: 0,
+      delivered: 0,
+      deliveryMs: null,
+    });
   });
 });
 
@@ -424,6 +492,48 @@ describe("runFanout", () => {
       stop.signal,
     );
     expect(summary.stoppedEarly?.reason).toBe("interrupted");
+  });
+
+  it("reports an interrupt during the catch-up wait", async () => {
+    const clock = fakeClock();
+    const primary = fakeSubscriber(0);
+    const stop = new AbortController();
+    const summary = await runFanout(
+      primary,
+      undefined,
+      { ...FANOUT, subscribers: 1, settleMs: 1000 },
+      OPTIONS,
+      async (onSample) => {
+        const result = await triggers(clock, 1, () => [])(onSample);
+        void clock.sleep(5).then(() => stop.abort());
+        return result;
+      },
+      clock,
+      stop.signal,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("interrupted");
+    expect(summary.fanout).toMatchObject({ updates: 1, missed: 1 });
+  });
+
+  it("names the stop a passive run was aborted with", async () => {
+    const stop = new AbortController();
+    stop.abort({
+      reason: "connection_lost",
+      detail: "the connection went error",
+    });
+    const summary = await runFanout(
+      fakeSubscriber(0),
+      undefined,
+      { ...FANOUT, subscribers: 1 },
+      { concurrency: 1, durationMs: 60_000, fanout: FANOUT },
+      undefined,
+      fakeClock(),
+      stop.signal,
+    );
+    expect(summary.stoppedEarly).toEqual({
+      reason: "connection_lost",
+      detail: "the connection went error",
+    });
   });
 
   it("needs a way to open more than one session", async () => {

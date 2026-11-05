@@ -786,7 +786,7 @@ function scenarioPicker(scenario: LoadScenario | undefined): () => number {
 }
 
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
-function stopFromAbort(reason: unknown): LoadStop {
+export function stopFromAbort(reason: unknown): LoadStop {
   return isLoadStop(reason)
     ? reason
     : { reason: "interrupted", detail: "the run was interrupted" };

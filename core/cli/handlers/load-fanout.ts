@@ -6,6 +6,7 @@ import {
   realClock,
   runLoadTest,
   sleepUnlessAborted,
+  stopFromAbort,
   type LoadClock,
   type LoadConnection,
   type LoadLatency,
@@ -109,7 +110,18 @@ export function subscriberOf(client: InspectorClient): LoadSubscriber {
   return {
     disconnect: () => client.disconnect(),
     subscribeToResource: (uri) => client.subscribeToResource(uri),
-    unsubscribeFromResource: (uri) => client.unsubscribeFromResource(uri),
+    unsubscribeFromResource: async (uri) => {
+      // Teardown runs while an interrupted run's aborted request signal may
+      // still be the client's ambient one (mcpdo's daemon restores it only
+      // after the run returns), which would refuse the unsubscribe and leave
+      // the connection subscribed. So it runs with none.
+      const restore = client.setAmbientRequestSignal(undefined);
+      try {
+        await client.unsubscribeFromResource(uri);
+      } finally {
+        restore();
+      }
+    },
     isSubscribedToResource: (uri) => client.isSubscribedToResource(uri),
     onResourceUpdated: (listener) => {
       const handler = (event: CustomEvent<{ uri: string }>): void =>
@@ -216,27 +228,28 @@ export async function runFanout<S extends LoadSubscriber>(
   if (requested > 1 && !open) {
     throw new Error("--load-subscribers above 1 needs a way to open sessions.");
   }
-  const tally = new ErrorTally();
+  const errors = new ErrorTally();
   const connectTimes: number[] = [];
   const subscribeTimes: number[] = [];
   const extras: S[] = [];
-  const listening: {
-    subscriber: S;
-    receipts: number[];
-    stop: () => void;
-    unsubscribe: boolean;
-  }[] = [];
+  const listening: { subscriber: S; stop: () => void; unsubscribe: boolean }[] =
+    [];
+  // Receipts are only counted once a session is in `listening`; until then
+  // a notification on it goes nowhere.
+  const tally = new FanoutTally(triggers !== undefined);
   const failure = (err: unknown): void =>
-    tally.add(err instanceof Error ? err.message : String(err));
+    errors.add(err instanceof Error ? err.message : String(err));
 
   // Subscribe one session and start listening; a failure is tallied.
   const subscribe = async (subscriber: S): Promise<void> => {
     // A session already subscribed (an mcpdo connection someone is
     // streaming) is listened on as it is, and left subscribed afterwards.
     const already = subscriber.isSubscribedToResource(uri);
-    const receipts: number[] = [];
+    let index: number | undefined;
     const stop = subscriber.onResourceUpdated((updated) => {
-      if (updated === uri) receipts.push(clock.now());
+      if (updated === uri && index !== undefined) {
+        tally.receive(index, clock.now());
+      }
     });
     try {
       if (!already) {
@@ -244,7 +257,8 @@ export async function runFanout<S extends LoadSubscriber>(
         await subscriber.subscribeToResource(uri);
         subscribeTimes.push(clock.now() - t0);
       }
-      listening.push({ subscriber, receipts, stop, unsubscribe: !already });
+      index = tally.addSession();
+      listening.push({ subscriber, stop, unsubscribe: !already });
     } catch (err) {
       stop();
       failure(err);
@@ -266,64 +280,55 @@ export async function runFanout<S extends LoadSubscriber>(
     );
     await Promise.all([primary, ...extras].map(subscribe));
     if (listening.length === 0) {
+      const [first] = errors.entries();
       throw new Error(
-        `--load-subscribe: no session could subscribe to ${uri}${
-          tally.entries()[0] ? ` (${tally.entries()[0]!.message})` : ""
-        }.`,
+        `--load-subscribe: no session could subscribe to ${uri}${first ? ` (${first.message})` : ""}.`,
       );
     }
 
     // The run: the triggers, or a passive listen.
-    const triggerStarts: { seq: number; at: number }[] = [];
     let summary: LoadSummary;
     if (triggers) {
       summary = await triggers((sample) => {
-        // A sample arrives as its call completes: its start is now minus
+        // A sample arrives as its call completes, so its start is now minus
         // its latency. Only successful triggers are expected to update.
         if (sample.outcome === "ok") {
-          triggerStarts.push({
-            seq: sample.seq,
-            at: clock.now() - sample.latencyMs,
-          });
+          tally.addTrigger(clock.now() - sample.latencyMs);
         }
       });
     } else {
+      // Setup is over: what arrived before now is not measured.
+      tally.startPassive(clock.now());
       summary = await listenPassively(options, clock, signal);
     }
-    triggerStarts.sort((a, b) => a.seq - b.seq);
+    // What arrives from here on can only catch a subscriber up, never add
+    // an update to wait for.
+    tally.freeze();
 
     // Give every subscriber `settleMs` to receive what it should have.
-    const expected = (): number =>
-      triggers
-        ? triggerStarts.length
-        : Math.max(...listening.map((l) => l.receipts.length));
     const settleUntil = clock.now() + settleMs;
-    while (
-      !signal?.aborted &&
-      listening.some((l) => l.receipts.length < expected()) &&
-      clock.now() < settleUntil
-    ) {
+    while (!signal?.aborted && !tally.done() && clock.now() < settleUntil) {
       await sleepUnlessAborted(
         clock,
         Math.min(SETTLE_STEP_MS, settleUntil - clock.now()),
         signal,
       );
     }
+    // An interrupt while settling still ends the run as one (exit 130).
+    if (signal?.aborted && summary.stoppedEarly === undefined) {
+      summary = { ...summary, stoppedEarly: stopFromAbort(signal.reason) };
+    }
 
     return {
       ...summary,
-      fanout: tallyFanout(
-        listening.map((l) => l.receipts),
-        triggers ? triggerStarts.map((t) => t.at) : undefined,
-        {
-          uri,
-          requested,
-          failed: requested - listening.length,
-          connectMs: summarizeLatency(connectTimes),
-          subscribeMs: summarizeLatency(subscribeTimes),
-          errorMessages: tally.entries(),
-        },
-      ),
+      fanout: tally.summarize({
+        uri,
+        requested,
+        failed: requested - listening.length,
+        connectMs: summarizeLatency(connectTimes),
+        subscribeMs: summarizeLatency(subscribeTimes),
+        errorMessages: errors.entries(),
+      }),
     };
   } finally {
     for (const l of listening) l.stop();
@@ -340,7 +345,7 @@ export async function runFanout<S extends LoadSubscriber>(
 
 /**
  * A passive run's summary: no calls, just the window it listened for, ended
- * early by `signal`.
+ * early by `signal` with the stop it names.
  */
 async function listenPassively(
   options: LoadOptions,
@@ -348,7 +353,7 @@ async function listenPassively(
   signal: AbortSignal | undefined,
 ): Promise<LoadSummary> {
   const start = clock.now();
-  // Resolved by the CLI layers; a passive run always has a duration.
+  // `runFanoutLoadTest` refuses a passive run without one.
   const durationMs = options.durationMs!;
   await sleepUnlessAborted(clock, durationMs, signal);
   const elapsedMs = clock.now() - start;
@@ -367,68 +372,196 @@ async function listenPassively(
     errorLatencyMs: null,
     errorMessages: [],
     toolErrorMessages: [],
-    ...(signal?.aborted && {
-      stoppedEarly: {
-        reason: "interrupted" as const,
-        detail: "the run was interrupted",
-      },
-    }),
+    ...(signal?.aborted && { stoppedEarly: stopFromAbort(signal.reason) }),
   };
 }
 
 /**
- * Match each subscriber's receipts to updates and summarize. The k-th
- * receipt on a session is the k-th update; its reference time is the k-th
- * trigger's start, or (passive, `triggerStarts` absent) the earliest receipt
- * of update k on any session.
+ * Most unmatched receipts a session holds, and most passive updates tracked
+ * for their first receipt. Past it a receipt is counted but not timed, so a
+ * server flooding notifications nobody asked for cannot grow memory.
  */
-export function tallyFanout(
-  receipts: number[][],
-  triggerStarts: number[] | undefined,
-  base: Pick<
-    LoadFanoutSummary,
-    | "uri"
-    | "requested"
-    | "failed"
-    | "connectMs"
-    | "subscribeMs"
-    | "errorMessages"
-  >,
-): LoadFanoutSummary {
-  const updates =
-    triggerStarts?.length ?? Math.max(0, ...receipts.map((r) => r.length));
-  const reference: number[] =
-    triggerStarts ??
-    Array.from({ length: updates }, (_, k) =>
-      Math.min(...receipts.filter((r) => r.length > k).map((r) => r[k]!)),
-    );
-  const delivery = new LatencyRecorder();
-  let delivered = 0;
-  let unexpected = 0;
-  let sessionsMissed = 0;
-  for (const session of receipts) {
-    const matched = Math.min(session.length, updates);
-    for (let k = 0; k < matched; k++) {
-      delivery.add(Math.max(0, session[k]! - reference[k]!));
-    }
-    delivered += matched;
-    unexpected += session.length - matched;
-    if (matched < updates) sessionsMissed++;
+export const MAX_FANOUT_PENDING = 10_000;
+
+type SessionTally = {
+  /** Receipts matched to an update: delivered. */
+  matched: number;
+  /** Triggered: receipts waiting for their trigger's start to be known. */
+  pending: number[];
+  /** Receipts that matched no update: early, extra, or past the cap. */
+  unexpected: number;
+};
+
+/**
+ * The fan-out measurement, folded in as notifications arrive so memory stays
+ * bounded however long the run: delivery latencies go to a
+ * {@link LatencyRecorder}, and only what cannot be matched yet is held.
+ *
+ * - **Triggered**: a session's k-th notification belongs to the k-th
+ *   successful trigger and is timed from its start. A notification can
+ *   arrive before its trigger's sample does (the server notifies before it
+ *   answers), so it waits in `pending` until then. One that predates the
+ *   start of the trigger it would match — a notification from setup, or the
+ *   server's own — cannot have been caused by it, and is counted as
+ *   unexpected instead.
+ * - **Passive**: a session's k-th notification is update k, timed from the
+ *   first receipt of update k on any session. Only notifications after
+ *   {@link startPassive} count.
+ *
+ * {@link freeze} fixes the number of updates when the run ends, so the
+ * catch-up wait only lets subscribers reach it.
+ */
+export class FanoutTally {
+  private readonly sessions: SessionTally[] = [];
+  private readonly delivery = new LatencyRecorder();
+  /** Triggered: starts of successful triggers, from ordinal `startBase`. */
+  private starts: number[] = [];
+  private startBase = 0;
+  private triggerCount = 0;
+  /** Passive: first receipt of each update still being received. */
+  private readonly firsts = new Map<number, { at: number; seen: number }>();
+  private passiveFrom = Infinity;
+  private frozen: number | undefined;
+
+  private readonly triggered: boolean;
+
+  constructor(triggered: boolean) {
+    this.triggered = triggered;
   }
-  return {
-    uri: base.uri,
-    mode: triggerStarts ? "triggered" : "passive",
-    requested: base.requested,
-    subscribed: receipts.length,
-    failed: base.failed,
-    connectMs: base.connectMs,
-    subscribeMs: base.subscribeMs,
-    errorMessages: base.errorMessages,
-    updates,
-    delivered,
-    missed: updates * receipts.length - delivered,
-    sessionsMissed,
-    unexpected,
-    deliveryMs: delivery.summarize(),
-  };
+
+  /** Register a subscribed session; returns its index. */
+  addSession(): number {
+    this.sessions.push({ matched: 0, pending: [], unexpected: 0 });
+    return this.sessions.length - 1;
+  }
+
+  /** Triggered: a successful trigger started at `at`. */
+  addTrigger(at: number): void {
+    this.starts.push(at);
+    this.triggerCount++;
+    for (const s of this.sessions) this.drain(s);
+    this.trimStarts();
+  }
+
+  /** Passive: measure from `at` on. */
+  startPassive(at: number): void {
+    this.passiveFrom = at;
+  }
+
+  /** The run is over: no more updates to wait for. */
+  freeze(): void {
+    this.frozen = this.updates;
+  }
+
+  /** A notification reached session `index` at `at`. */
+  receive(index: number, at: number): void {
+    const s = this.sessions[index]!;
+    if (this.triggered) {
+      if (s.pending.length >= MAX_FANOUT_PENDING) {
+        s.unexpected++;
+        return;
+      }
+      s.pending.push(at);
+      this.drain(s);
+      return;
+    }
+    const k = s.matched;
+    if (
+      at < this.passiveFrom ||
+      (this.frozen !== undefined && k >= this.frozen)
+    ) {
+      s.unexpected++;
+      return;
+    }
+    s.matched++;
+    const first = this.firsts.get(k);
+    if (first === undefined) {
+      this.delivery.add(0);
+      this.firsts.set(k, { at, seen: 1 });
+      // Bounded: the oldest update (lowest k, inserted first) goes.
+      if (this.firsts.size > MAX_FANOUT_PENDING) {
+        this.firsts.delete(this.firsts.keys().next().value!);
+      }
+      return;
+    }
+    this.delivery.add(Math.max(0, at - first.at));
+    if (++first.seen === this.sessions.length) this.firsts.delete(k);
+  }
+
+  /** Updates each subscriber should receive. */
+  get updates(): number {
+    if (this.frozen !== undefined) return this.frozen;
+    return this.triggered
+      ? this.triggerCount
+      : Math.max(0, ...this.sessions.map((s) => s.matched));
+  }
+
+  /** Every subscriber has received every update. */
+  done(): boolean {
+    const updates = this.updates;
+    return this.sessions.every((s) => s.matched >= updates);
+  }
+
+  summarize(
+    base: Pick<
+      LoadFanoutSummary,
+      | "uri"
+      | "requested"
+      | "failed"
+      | "connectMs"
+      | "subscribeMs"
+      | "errorMessages"
+    >,
+  ): LoadFanoutSummary {
+    const updates = this.updates;
+    let delivered = 0;
+    let unexpected = 0;
+    let sessionsMissed = 0;
+    for (const s of this.sessions) {
+      delivered += s.matched;
+      // Still pending once every trigger is known: matches no update.
+      unexpected += s.unexpected + s.pending.length;
+      if (s.matched < updates) sessionsMissed++;
+    }
+    return {
+      uri: base.uri,
+      mode: this.triggered ? "triggered" : "passive",
+      requested: base.requested,
+      subscribed: this.sessions.length,
+      failed: base.failed,
+      connectMs: base.connectMs,
+      subscribeMs: base.subscribeMs,
+      errorMessages: base.errorMessages,
+      updates,
+      delivered,
+      missed: updates * this.sessions.length - delivered,
+      sessionsMissed,
+      unexpected,
+      deliveryMs: this.delivery.summarize(),
+    };
+  }
+
+  /** Match a session's pending receipts to the triggers known so far. */
+  private drain(s: SessionTally): void {
+    while (s.pending.length > 0 && s.matched < this.triggerCount) {
+      const at = s.pending.shift()!;
+      const start = this.starts[s.matched - this.startBase]!;
+      if (at < start) {
+        s.unexpected++;
+        continue;
+      }
+      this.delivery.add(at - start);
+      s.matched++;
+    }
+  }
+
+  /** Drop trigger starts every session has matched past. */
+  private trimStarts(): void {
+    const passed = Math.min(...this.sessions.map((s) => s.matched));
+    const drop = passed - this.startBase;
+    if (drop >= 1024) {
+      this.starts = this.starts.slice(drop);
+      this.startBase = passed;
+    }
+  }
 }
