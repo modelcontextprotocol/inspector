@@ -314,8 +314,9 @@ async function callMethod(
   // A destination-guard refusal OAuth discovery recovered from is otherwise
   // invisible: the later failure names a different URL (#2846). The main
   // client only — `--load-connections` clients share its config, and would
-  // print the same warning N more times.
-  warnOnFetchRefusals(inspectorClient);
+  // print the same warning N more times. Advisory, so `--quiet` drops it
+  // (#2435).
+  if (!args.quiet) warnOnFetchRefusals(inspectorClient);
 
   // Opens one extra `--load-connections` client (#2746), connected. Stored
   // auth only: the connection above already completed any login the run
@@ -1682,6 +1683,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
           token = await refreshStoredAuthToken(
             options.serverUrl,
             oauthStatePath,
+            // A warning, not the result — `--quiet` drops it, as it does every
+            // other advisory line (#2435, #2846).
+            options.quiet === true ? { warn: discardWarning } : {},
           );
         } catch (err) {
           // A failed refresh (transient auth-server hiccup, missing client
@@ -1862,7 +1866,10 @@ function resolveCliLoadOptions(options: {
   }
 }
 
-/** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
+/**
+ * Stands in for `console.warn` during a `--quiet` run (see `parseArgs`), and
+ * for the refusal-warning sink of the stored-auth refresh (#2846).
+ */
 function discardWarning(): void {}
 
 export async function runCli(argv?: string[]): Promise<void> {
