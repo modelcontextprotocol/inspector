@@ -38,6 +38,11 @@ import {
   type OutputFileFormat,
 } from "@inspector/core/cli/handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
+import {
+  createCliOAuthFetch,
+  oauthDebugNavigationHook,
+  traceCliOAuthFetch,
+} from "@inspector/core/cli/oauth-debug.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
@@ -168,6 +173,7 @@ async function callMethod(
   storedAuthOnly: boolean,
   relogin: boolean,
   revoke: boolean,
+  oauthDebug: boolean,
   load?: LoadOptions,
   loadThresholds?: LoadThresholds,
 ): Promise<void> {
@@ -226,8 +232,10 @@ async function callMethod(
     fetch: createProxyFetch(),
     // OAuth on its own base, which refuses link-local and cloud-metadata
     // destinations a hostile server could steer discovery at (#2749). It is
-    // proxy-aware itself, so the proxy still covers OAuth.
-    oauthFetch: createGuardedFetch(),
+    // proxy-aware itself, so the proxy still covers OAuth. `--oauth-debug`
+    // (#2844) traces every request on it to stderr — discovery, registration
+    // and the token exchange all run here.
+    oauthFetch: createCliOAuthFetch(oauthDebug),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
@@ -241,6 +249,7 @@ async function callMethod(
       navigation: createCliOAuthNavigation({
         autoOpenControl,
         disableAutoOpen: storedAuthOnly,
+        onAuthorizationUrl: oauthDebugNavigationHook(oauthDebug),
       }),
       redirectUrlProvider,
     };
@@ -547,6 +556,8 @@ export interface RefreshStoredAuthDeps {
   discover?: typeof discoverAuthorizationServerMetadata;
   /** Where a destination-guard refusal warning goes (#2846). stderr by default. */
   warn?: WarningSink;
+  /** `--oauth-debug` (#2844): trace the discovery and refresh grant. */
+  oauthDebug?: boolean;
 }
 
 /**
@@ -586,11 +597,16 @@ export async function refreshStoredAuthToken(
   // deadline too.
   //
   // #2846: refusals are reported innermost, before discovery's candidate walk
-  // can swallow one and fall back to the next URL.
+  // can swallow one and fall back to the next URL. `--oauth-debug` (#2844)
+  // traces just above that, as on the connect path, so each request is shown
+  // as it goes on the wire.
   const storedAuthFetch = withRfc8414OidcCompat(
     withOAuthRequestTimeout(
-      withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
-        writeFetchRefusalWarning(refusal, deps.warn),
+      traceCliOAuthFetch(
+        withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
+          writeFetchRefusalWarning(refusal, deps.warn),
+        ),
+        deps.oauthDebug === true,
       ),
     ),
   );
@@ -941,6 +957,7 @@ type ParseResult =
       storedAuthOnly?: boolean;
       relogin?: boolean;
       revoke?: boolean;
+      oauthDebug?: boolean;
       load?: LoadOptions;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
@@ -1359,6 +1376,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Requires --relogin. Skips the RFC 7009 revocation request that would otherwise end the grant at the authorization server when the local state is deleted. Also skipped when the server entry sets oauth.revokeOnClear to false.",
     )
     .option(
+      "--oauth-debug",
+      "Print each OAuth step to stderr as it happens: protected-resource and authorization-server metadata URLs and statuses, the client registration request and response, the authorization URL, and the token request and response. Tokens, codes, verifiers and client secrets are redacted. Printed even under --quiet.",
+    )
+    .option(
       "--wait-for-auth <sec>",
       "Poll the OAuth state file until a token for --server-url appears (or the timeout elapses), then proceed as if --use-stored-auth were set. Use after handing off to a human to complete OAuth in a browser.",
       (v: string) => {
@@ -1462,6 +1483,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     storedAuthOnly?: boolean;
     relogin?: boolean;
     revoke?: boolean;
+    oauthDebug?: boolean;
     waitForAuth?: number;
     listStoredAuth?: boolean;
     printHandoff?: boolean;
@@ -1771,9 +1793,12 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
           token = await refreshStoredAuthToken(
             options.serverUrl,
             oauthStatePath,
-            // A warning, not the result — `--quiet` drops it, as it does every
-            // other advisory line (#2435, #2846).
-            options.quiet === true ? { warn: discardWarning } : {},
+            {
+              // A warning, not the result — `--quiet` drops it, as it does
+              // every other advisory line (#2435, #2846).
+              ...(options.quiet === true && { warn: discardWarning }),
+              oauthDebug: options.oauthDebug === true,
+            },
           );
         } catch (err) {
           // A failed refresh (transient auth-server hiccup, missing client
@@ -1912,6 +1937,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // Commander's `--no-revoke` defaults this to true; only an explicit
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
+    oauthDebug: options.oauthDebug === true,
     ...(options.load && {
       load: resolveCliLoadOptions(options),
     }),
@@ -1988,6 +2014,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     storedAuthOnly,
     relogin,
     revoke,
+    oauthDebug,
     load,
     loadThresholds,
   } = parsed;
@@ -2020,6 +2047,7 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     storedAuthOnly === true,
     relogin === true,
     revoke !== false,
+    oauthDebug === true,
     load,
     loadThresholds,
   );

@@ -113,6 +113,73 @@ describe("mcp.ts auth / daemon error paths", () => {
     expect(params.serverSettings?.enterpriseManaged).toBe(true);
   });
 
+  it("connect --oauth-debug signs in here, traced, before the daemon dials (#2844)", async () => {
+    configPath = createSampleTestConfig();
+    const order: string[] = [];
+    authorizeInFrontend.mockImplementation(async () => {
+      order.push("authorize");
+    });
+    callDaemon.mockImplementation(async () => {
+      order.push("daemon");
+      return { name: "test-stdio", isMru: true, serverIdentity: "stdio" };
+    });
+
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--oauth-debug",
+      "--stored-auth-only",
+      "--format",
+      "json",
+    ]);
+
+    expect(order).toEqual(["authorize", "daemon"]);
+    expect(authorizeInFrontend.mock.calls[0]?.[2]).toEqual({
+      storedAuthOnly: true,
+      oauthDebug: true,
+    });
+  });
+
+  it("connect --oauth-debug traces the auth_required retry too", async () => {
+    process.stderr.isTTY = true; // human path: blocking interactive OAuth
+    configPath = createSampleTestConfig();
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce({
+        name: "test-stdio",
+        isMru: true,
+        serverIdentity: "stdio",
+      });
+
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--oauth-debug",
+      "--format",
+      "json",
+    ]);
+
+    expect(authorizeInFrontend).toHaveBeenCalledTimes(2);
+    expect(authorizeInFrontend.mock.calls[1]?.[2]).toEqual({
+      storedAuthOnly: false,
+      oauthDebug: true,
+    });
+  });
+
   it("retries connect after auth_required via authorizeInFrontend", async () => {
     process.stderr.isTTY = true; // human path: blocking interactive OAuth
     configPath = createSampleTestConfig();

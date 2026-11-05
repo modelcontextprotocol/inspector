@@ -73,6 +73,7 @@ mcpdo servers/list --config path/to/mcp.json
 mcpdo servers/show test-stdio --config path/to/mcp.json
 mcpdo connect test-stdio --config path/to/mcp.json
 mcpdo connect my-http --config path/to/mcp.json --relogin   # (-r) ignore stored OAuth; login only if auth required
+mcpdo connect my-http --config path/to/mcp.json -r --oauth-debug   # trace each OAuth step to stderr
 mcpdo auth/list
 mcpdo auth/clear https://example.com/mcp
 mcpdo auth/clear hosted-everything        # or a catalog/connection name (from auth/list "known as")
@@ -106,6 +107,8 @@ token. For a hard boundary, use OS-level isolation (separate user, container).
 **Output:** `--format text` (default) is human-readable (TTY ANSI unless `--plain` / `NO_COLOR`). `--format json` is pretty-printed payload with **no** `{ result }` envelope.
 
 **Auth:** shared `oauth.json` with other Inspector clients. Connect-time OAuth only on this CLI; mid-connection step-up remains on one-shot `mcp-inspector --cli`. `auth/list` annotates each stored URL with the catalog/connection names it is "known as" and marks `● live` when a connection currently holds it, so the raw store URLs correlate to the servers you actually use. EMA IdP login records (keyed `ema-idp:<issuer>` in the store) lead with their bare issuer URL and carry a trailing `enterprise IdP login` marker (parallel to `known as:`) rather than showing as unnamed servers. `auth/clear` accepts either a store URL **or** one of those friendly names (a name that maps to no URL — e.g. a stdio server — or to more than one URL is rejected with guidance); an EMA IdP login clears by its bare issuer URL (or its raw `ema-idp:` key). `--relogin` (`-r`) clears any URL-keyed store entry before connect (no-op for stdio). To force a clean logged-out state from an already-open connection, `disconnect <name> --clear-auth` (`-c`) tears the connection down **and** clears its stored tokens in one step, so the next plain `connect` re-triggers sign-in — no-op for stdio / servers with no stored entry. Non-TTY `connect` exits 0 with `pendingAuth: true` and an `authUrl` to relay; after the user signs in, any real command completes the connection, `connections/show` completes it too, and `connections/list` marks the entry `pendingAuthSignedIn` ("signed in — completing on next use") without dialing.
+
+**`connect --oauth-debug`** ([#2844](https://github.com/modelcontextprotocol/inspector/issues/2844)) prints each OAuth step to stderr in the same `[oauth]` format as the one-shot CLI's flag (see [Tracing OAuth](../cli/README.md#tracing-oauth---oauth-debug)): metadata URLs and statuses, the registration request and response, the authorization URL, and the token request and response, with tokens, codes, verifiers and client secrets redacted. The daemon's stderr is not your terminal, so with the flag `connect` runs the sign-in in the front-end **before** the daemon dials, and the daemon then connects on the tokens it stored. That makes the flow blocking even without a TTY (no `pendingAuth` hand-off), and costs one extra MCP connection to an HTTP/SSE server. A server whose stored token is still valid makes no OAuth requests; add `--relogin` to trace a fresh login. It traces `connect` only — a refresh the daemon makes later is not shown.
 
 See [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md) for the as-built design and to-do list.
 

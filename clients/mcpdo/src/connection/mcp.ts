@@ -591,6 +591,16 @@ function registerConnect(program: CommandType): void {
         "per-server OAuth client id/secret from the catalog entry, so it " +
         "cannot be used with an ad-hoc target.",
     )
+    .option(
+      "--oauth-debug",
+      "Print each OAuth step to stderr: protected-resource and " +
+        "authorization-server metadata URLs and statuses, the client " +
+        "registration request and response, the authorization URL, and the " +
+        "token request and response, with tokens, codes and secrets redacted. " +
+        "Runs the sign-in in this process before the daemon connects, so the " +
+        "whole flow is traced here (an HTTP/SSE server with a valid stored " +
+        "token makes no OAuth requests; add --relogin to trace a fresh login).",
+    )
     .action(async (target: string[], cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
       const { name: positionalConnection, rest } =
@@ -689,6 +699,20 @@ function registerConnect(program: CommandType): void {
         await clearStoredAuthForRelogin(serverConfig.url);
       }
 
+      // `--oauth-debug` (#2844): sign in here, before the daemon dials. The
+      // daemon's own first attempt would otherwise run discovery and
+      // registration in a process whose stderr is not this terminal, leaving
+      // the front-end retry to trace only the tail of the flow; done first,
+      // the daemon then connects on the stored tokens this wrote. A no-op for
+      // stdio; a server with a still-valid stored token is connected once and
+      // makes no OAuth request, so there is nothing to trace.
+      if (cmdOpts.oauthDebug === true) {
+        await authorizeInFrontend(serverConfig, serverSettings, {
+          storedAuthOnly: opts.storedAuthOnly === true,
+          oauthDebug: true,
+        });
+      }
+
       const { socketPath } = await ensureDaemon();
       const connectParams = {
         name,
@@ -749,6 +773,7 @@ function registerConnect(program: CommandType): void {
         }
         await authorizeInFrontend(serverConfig, serverSettings, {
           storedAuthOnly: false,
+          oauthDebug: cmdOpts.oauthDebug === true,
         });
         // Interactive OAuth can run well past the daemon's idle timeout
         // (60s, armed while it holds zero connections) — a slow human login
