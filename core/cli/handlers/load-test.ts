@@ -669,6 +669,12 @@ async function runWindow(
   clock: LoadClock,
   signal: AbortSignal | undefined,
   sink?: LoadSink,
+  /**
+   * Wait out the rest of `durationMs` after the last call settles (#2841).
+   * A stage that is not the last sets it, so the next stage cannot start
+   * early; an abort during the wait is recorded here like any other.
+   */
+  holdToDeadline = false,
 ): Promise<LoadSummary> {
   const { concurrency, durationMs, requests, rate, scenario } = options;
   const total = new OutcomeStats();
@@ -829,6 +835,15 @@ async function runWindow(
 
   try {
     await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
+    // A rate-limited window ends when its last start is due, which can be
+    // well before its deadline. Waiting with `onAbort` still listening means
+    // an interrupt here sets `stoppedEarly` and `stoppedAt`, so the window
+    // reports the time that actually passed, not the padded window.
+    if (holdToDeadline && !halt.signal.aborted && durationMs !== undefined) {
+      const remaining = deadline - clock.now();
+      if (remaining > 0)
+        await sleepUnlessAborted(clock, remaining, halt.signal);
+    }
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
@@ -929,13 +944,15 @@ async function runStages(
       ...(scenario && { scenario }),
     };
     const offset = used;
-    const stageStart = clock.now();
     const summary = await runWindow(
       (worker, step, seq) => call(worker, step, seq + offset),
       stageOptions,
       clock,
       signal,
       sink,
+      // Every stage but the last holds to its deadline, so the next one
+      // neither starts early nor bursts at the boundary.
+      i < stages.levels.length - 1,
     );
     used += summary.requests;
     elapsedMs += summary.elapsedMs;
@@ -953,18 +970,6 @@ async function runStages(
         detail: `stage ${i + 1} (${stages.by} ${level}) breached a threshold: ${breaches.map((b) => b.message).join("; ")}`,
       };
       break;
-    }
-    // A window ends when its last start is due, and a rate-limited one can
-    // finish well before its deadline (its `elapsedMs` is padded to the
-    // window). Waiting out the rest keeps every stage at its real length, so
-    // the next one neither starts early nor bursts at the boundary.
-    if (i < stages.levels.length - 1) {
-      const remaining = stageStart + stages.stageMs - clock.now();
-      if (remaining > 0) await sleepUnlessAborted(clock, remaining, signal);
-      if (signal?.aborted) {
-        stoppedEarly = stopFromAbort(signal.reason);
-        break;
-      }
     }
   }
   const totals = sink.total.summarize(elapsedMs);

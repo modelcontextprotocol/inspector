@@ -333,10 +333,15 @@ describe("runLoad with stages", () => {
       controller.signal,
     );
     expect(summary.stages).toHaveLength(1);
-    expect(summary.stoppedEarly).toEqual({
-      reason: "connection_lost",
-      detail: "gone",
-    });
+    const lost = { reason: "connection_lost", detail: "gone" };
+    expect(summary.stoppedEarly).toEqual(lost);
+    // The stage itself records the stop, and the time that actually passed
+    // (1 ms on this clock), not its padded 1,000,000 ms window.
+    const [stage] = summary.stages!;
+    expect(stage!.stoppedEarly).toEqual(lost);
+    expect(stage!.elapsedMs).toBe(1);
+    expect(stage!.throughput).toBe(1000);
+    expect(summary.elapsedMs).toBe(1);
   });
 
   it("reports a plain abort in the wait as an interrupt", async () => {
@@ -356,6 +361,7 @@ describe("runLoad with stages", () => {
       controller.signal,
     );
     expect(summary.stoppedEarly?.reason).toBe("interrupted");
+    expect(summary.stages![0]!.stoppedEarly?.reason).toBe("interrupted");
   });
 
   it("keeps a fixed rate on every concurrency stage", async () => {
