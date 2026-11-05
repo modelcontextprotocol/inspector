@@ -351,3 +351,13 @@ admits the vulnerable versions** rather than carrying it forever. tsup is gone
 (#1492, #2797), and mcpdo and the CLI dropped the override with it, but web
 and tui still carry it: Vite (both) and Storybook (web) accept `^0.27.0`,
 which still admits the advisory range.
+
+`minimatch` is the same case (#2863, GHSA-g3hv-75wg-m249): the lint toolchain
+(`eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`)
+declares `^10.2.x` and the fix is 11.0.1, so root, web and tui carry
+`overrides.minimatch: ^11.0.4`. Web also overrides `glob` to `^14`, because its
+one `glob` (13, under Storybook's react-docgen-typescript plugin) reads
+`Minimatch#set` as `RegExp`s, which minimatch 11 replaced with matcher objects;
+glob 14 is the release built for it. Here the real gate is that lint still
+resolves the same files to the same configs, not the audit. Drop the overrides once
+those upstreams declare `^11`.
