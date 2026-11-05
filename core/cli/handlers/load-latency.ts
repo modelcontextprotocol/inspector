@@ -60,8 +60,15 @@ function nearestRank(n: number, p: number): number {
   return Math.min(Math.max(rank, 1), n);
 }
 
+/**
+ * Two places, or four below a millisecond. A flat two places is up to 5%
+ * off at 0.1 ms, more than the histogram's own 1% — enough for a reported
+ * p50 of 0.10 to pass `--load-max-p50 0.101` on a true 0.1048. Four places
+ * keeps a sub-millisecond figure within 0.1%.
+ */
 function round(n: number): number {
-  return Math.round(n * 100) / 100;
+  const scale = Math.abs(n) < 1 ? 10_000 : 100;
+  return Math.round(n * scale) / scale;
 }
 
 function bucketOf(ms: number): number {

@@ -83,7 +83,8 @@ describe("LatencyRecorder", () => {
     recorder.add(7);
     const summary = recorder.summarize()!;
     expect(summary.min).toBe(0);
-    expect(summary.p50).toBe(0);
+    // 0 and 0.0005 share the 1 µs floor bucket, which reads as 0.001.
+    expect(summary.p50).toBe(0.001);
     expect(summary.max).toBe(7);
     // The top bucket's value, never above the observed max, within 1%.
     expect(summary.p999).toBeLessThanOrEqual(7);
@@ -122,6 +123,22 @@ describe("LatencyRecorder", () => {
     internals.buckets.set(slowBucket!, n - fast);
     internals.count = n;
     expect(recorder.summarize()!.p999).toBeCloseTo(1, 1);
+  });
+
+  it("keeps sub-millisecond percentiles precise enough to gate on", () => {
+    const recorder = new LatencyRecorder(10_000);
+    recorder.add(0.001);
+    for (let i = 0; i < 9_999; i++) recorder.add(0.1051);
+    recorder.add(1);
+    const { p50 } = recorder.summarize()!;
+    expect(Math.abs(p50 - 0.1051) / 0.1051).toBeLessThanOrEqual(
+      LATENCY_BUCKET_GROWTH - 1,
+    );
+    expect(p50).toBeGreaterThan(0.101);
+    expect(summarizeLatency([0.12345, 2.34567])).toMatchObject({
+      min: 0.1235,
+      max: 2.35,
+    });
   });
 
   it("returns null when nothing was recorded", () => {
