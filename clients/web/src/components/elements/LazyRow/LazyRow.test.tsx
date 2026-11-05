@@ -56,6 +56,20 @@ function heightOf(px: number): string {
   return `calc(${px / 16}rem * var(--mantine-scale))`;
 }
 
+// A control that refuses focus, as a browser refuses it for one that is not
+// rendered (inside a closed `Collapse`); happy-dom has no rendering to refuse on.
+const refusedFocus = vi.fn();
+function RefusesFocus() {
+  const refuse = (element: HTMLButtonElement | null) => {
+    if (element) element.focus = refusedFocus;
+  };
+  return (
+    <button type="button" ref={refuse}>
+      hidden round
+    </button>
+  );
+}
+
 function Keeper({ keep }: { keep: boolean }) {
   useKeepRowMounted(keep);
   return <button type="button">content</button>;
@@ -197,6 +211,26 @@ describe("LazyRow", () => {
     act(() => screen.getByText("after").focus());
     act(() => row().focus());
     expect(screen.getByText("last")).toHaveFocus();
+  });
+
+  it("skips a control that will not take focus, as in a closed Collapse", () => {
+    const { registry } = fakeRegistry(false);
+    renderWithMantine(
+      inRegion(
+        registry,
+        <>
+          <LazyRow estimatedHeight={100}>
+            <button type="button">toggle</button>
+            <RefusesFocus />
+          </LazyRow>
+          <button type="button">after</button>
+        </>,
+      ),
+    );
+    act(() => screen.getByText("after").focus());
+    act(() => row().focus());
+    expect(screen.getByText("toggle")).toHaveFocus();
+    expect(refusedFocus).toHaveBeenCalled();
   });
 
   it("treats focus from nowhere as forward, and tolerates a row with no controls", () => {

@@ -163,10 +163,15 @@ export function LazyRow({
     const element = rootRef.current;
     if (!mounted || !target || !element) return;
     pendingFocus.current = null;
-    const controls = element.querySelectorAll<HTMLElement>(TABBABLE);
-    const next =
-      target === "first" ? controls[0] : controls[controls.length - 1];
-    next?.focus();
+    const controls = [...element.querySelectorAll<HTMLElement>(TABBABLE)];
+    if (target === "last") controls.reverse();
+    // Take the first that actually accepts focus: a control inside a closed
+    // `Collapse` (a compact MRTR conversation's rounds) is in the DOM but not
+    // focusable, and stopping at it would skip the visible toggle.
+    for (const control of controls) {
+      control.focus();
+      if (control.ownerDocument.activeElement === control) break;
+    }
   }, [mounted]);
 
   // A bare `Box`: the only props are per-instance (the ref, a height that is
