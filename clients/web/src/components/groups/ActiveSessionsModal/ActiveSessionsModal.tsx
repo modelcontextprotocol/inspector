@@ -9,6 +9,7 @@ import {
   Table,
   Text,
   Tooltip,
+  VisuallyHidden,
 } from "@mantine/core";
 import { MdRefresh } from "react-icons/md";
 import type { RemoteSessionSummary } from "@inspector/core/mcp/remote/index.js";
@@ -150,7 +151,9 @@ export function ActiveSessionsModal({
                 <Table.Th>Created</Table.Th>
                 <Table.Th>Last consumer</Table.Th>
                 <Table.Th>Queued</Table.Th>
-                <Table.Th />
+                <Table.Th>
+                  <VisuallyHidden>Actions</VisuallyHidden>
+                </Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
