@@ -158,6 +158,35 @@ describe("authorizeInFrontend", () => {
     }
   });
 
+  it("hands each refusal to onFetchRefusal instead of stderr (#2905)", async () => {
+    const write = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const refusal = {
+      url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+      reason: "Refusing to fetch from a link-local or metadata address",
+    };
+    connectSpy.mockImplementation(async (client: EventTarget) => {
+      client.dispatchEvent(
+        new CustomEvent("fetchRefused", { detail: refusal }),
+      );
+    });
+    const onFetchRefusal = vi.fn();
+    try {
+      const { authorizeInFrontend } =
+        await import("../src/connection/authorize.js");
+      await authorizeInFrontend(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        undefined,
+        { onFetchRefusal },
+      );
+      expect(onFetchRefusal).toHaveBeenCalledWith(refusal);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+    }
+  });
+
   it("advertises the configured roots, as the daemon's client does (#2844)", async () => {
     connectSpy.mockResolvedValue(undefined);
     const { authorizeInFrontend } =

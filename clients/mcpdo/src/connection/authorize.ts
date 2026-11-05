@@ -37,6 +37,7 @@ import {
 } from "@inspector/core/cli/error-handler.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import type { CallbackNavigation } from "@inspector/core/auth/index.js";
+import type { FetchRefusal } from "@inspector/core/auth/fetchRefusal.js";
 import type { CliOAuthAutoOpenControl } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { mcpdoEmaGuidance } from "./ema.js";
 
@@ -51,6 +52,11 @@ import { mcpdoEmaGuidance } from "./ema.js";
  *
  * `oauthDebug` (`connect --oauth-debug`, #2844) traces every OAuth request
  * this flow makes, and the authorize URL, to stderr.
+ *
+ * `onFetchRefusal` takes over reporting each destination-guard refusal
+ * (#2846), which otherwise prints a `Warning:` line to this process's stderr.
+ * The detached auth helper passes one because its stderr is discarded: it
+ * relays each refusal to the parent over its stdout protocol instead (#2905).
  */
 export async function authorizeInFrontend(
   serverConfig: MCPServerConfig,
@@ -61,6 +67,7 @@ export async function authorizeInFrontend(
     makeNavigation?: (
       autoOpenControl: CliOAuthAutoOpenControl,
     ) => CallbackNavigation;
+    onFetchRefusal?: (refusal: FetchRefusal) => void;
   },
 ): Promise<void> {
   if (!isOAuthCapableServerConfig(serverConfig)) {
@@ -147,7 +154,14 @@ export async function authorizeInFrontend(
   // A destination-guard refusal discovery recovered from would otherwise be
   // invisible, the later failure naming a different URL (#2846). Here and not
   // in the daemon, which has no terminal: this front-end is where OAuth runs.
-  warnOnFetchRefusals(client);
+  const onFetchRefusal = options?.onFetchRefusal;
+  if (onFetchRefusal) {
+    client.addEventListener("fetchRefused", (event) =>
+      onFetchRefusal(event.detail),
+    );
+  } else {
+    warnOnFetchRefusals(client);
+  }
 
   try {
     await connectInspectorWithOAuth(
