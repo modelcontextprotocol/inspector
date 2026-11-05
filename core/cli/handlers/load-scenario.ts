@@ -4,6 +4,7 @@ import {
   type StrictJsonValue,
 } from "../../json/jsonUtils.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { checkLoadTemplate } from "./load-template.js";
 
 /**
  * `--load-scenario <file>` (#2839): a weighted mix of `tools/call`,
@@ -135,6 +136,10 @@ function validateStep(raw: unknown, index: number): LoadScenarioStep {
   if (typeof target !== "string" || target.trim() === "") {
     throw invalid(`${where}: ${method} needs a non-empty "${targetKey}".`);
   }
+  // Placeholders (#2840) may appear in `args` and in a `uri`; a reversed
+  // `{{rand:9-1}}` fails here rather than on every call.
+  checkLoadTemplate(raw.args, `${where} args`);
+  if (method === "resources/read") checkLoadTemplate(target, `${where} uri`);
   // Defaulted only when absent: an explicit `null` is a malformed weight.
   const weight = raw.weight === undefined ? 1 : raw.weight;
   if (typeof weight !== "number" || !Number.isFinite(weight) || weight <= 0) {

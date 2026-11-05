@@ -11,6 +11,14 @@ import {
   type LoadScenarioMethod,
   type LoadScenarioStep,
 } from "./load-scenario.js";
+import {
+  loadArgsTemplate,
+  loadTemplateOrConstant,
+  type LoadArgRows,
+  type LoadArgsRow,
+  type LoadCallContext,
+  type LoadTemplate,
+} from "./load-template.js";
 
 /**
  * `--load` (#2439): drive one tool with sustained, concurrent `tools/call`
@@ -47,6 +55,11 @@ export type LoadOptions = {
    * gains a per-step breakdown in `steps`.
    */
   scenario?: LoadScenario;
+  /**
+   * `--load-args-file` (#2840): argument rows merged over the tool's flag
+   * arguments, one per call, in turn or at random. Single-tool runs only.
+   */
+  argRows?: LoadArgRows;
 };
 
 /**
@@ -257,6 +270,7 @@ export function resolveLoadOptions(flags: {
   requests?: number;
   rate?: number;
   scenario?: LoadScenario;
+  argRows?: LoadArgRows;
 }): LoadOptions {
   const durationMs =
     flags.durationSec !== undefined
@@ -277,6 +291,7 @@ export function resolveLoadOptions(flags: {
     ...(flags.requests !== undefined && { requests: flags.requests }),
     ...(flags.rate !== undefined && { rate: flags.rate }),
     ...(flags.scenario !== undefined && { scenario: flags.scenario }),
+    ...(flags.argRows !== undefined && { argRows: flags.argRows }),
   };
 }
 
@@ -595,7 +610,7 @@ export function loadRateShortfallWarning(
  * ({@link CIRCUIT_BREAKER_ERRORS}) ends a run the same way on its own.
  */
 export async function runLoad(
-  call: (worker: number, step: number) => Promise<LoadCallOutcome>,
+  call: (worker: number, step: number, seq: number) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
@@ -689,7 +704,9 @@ export async function runLoad(
    * the bounds on every wake. So a timer that fires late — a stalled event
    * loop — starts one call, never a burst of everything that was due.
    */
-  const claimSlot = async (): Promise<number | undefined> => {
+  const claimSlot = async (): Promise<
+    { step: number; seq: number } | undefined
+  > => {
     const ahead = turnstile;
     let release!: () => void;
     turnstile = new Promise((resolve) => (release = resolve));
@@ -717,7 +734,7 @@ export async function runLoad(
             now - nextStart < interval ? nextStart + interval : now + interval;
           // Picked while holding the turnstile, so the order is the slot
           // order whatever the workers' timing.
-          return pickStep();
+          return { step: pickStep(), seq: started };
         }
         await sleepUnlessAborted(clock, scheduled - now, halt.signal);
       }
@@ -728,8 +745,9 @@ export async function runLoad(
 
   const worker = async (index: number): Promise<void> => {
     for (;;) {
-      const step = await claimSlot();
-      if (step === undefined) return;
+      const slot = await claimSlot();
+      if (slot === undefined) return;
+      const { step, seq } = slot;
       // Another worker's call can abort the run between this worker taking
       // its slot and resuming here. The slot was never used, so it is handed
       // back: `started` feeds the `--load-rate` figures.
@@ -740,7 +758,7 @@ export async function runLoad(
       const stats = stepRuns?.[step]?.stats;
       const t0 = clock.now();
       try {
-        const outcome = await call(index, step);
+        const outcome = await call(index, step, seq);
         const latency = clock.now() - t0;
         errorStreak = 0;
         total.addResult(outcome, latency);
@@ -883,14 +901,23 @@ export type LoadConnection = { disconnect: () => Promise<void> };
 export async function runLoadAcrossConnections<C extends LoadConnection>(
   primary: C,
   openConnection: (() => Promise<C>) | undefined,
-  callOn: (connection: C, step: number) => Promise<LoadCallOutcome>,
+  callOn: (
+    connection: C,
+    step: number,
+    ctx: LoadCallContext,
+  ) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
-    return runLoad((_, step) => callOn(primary, step), options, clock, signal);
+    return runLoad(
+      (worker, step, seq) => callOn(primary, step, { seq, worker }),
+      options,
+      clock,
+      signal,
+    );
   }
   if (!openConnection) {
     throw new Error(
@@ -920,7 +947,8 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
     }
     const pool = [primary, ...extras];
     const summary = await runLoad(
-      (worker, step) => callOn(pool[worker % pool.length]!, step),
+      (worker, step, seq) =>
+        callOn(pool[worker % pool.length]!, step, { seq, worker }),
       options,
       clock,
       signal,
@@ -961,11 +989,20 @@ export async function runToolLoad(
     throw new Error("--load requires --tool-name.");
   }
   const [tool] = await findTools(inspectorClient, args, [args.toolName]);
-  const call = toolCaller(tool!, args.toolArg ?? {}, args, args.toolMeta);
+  // Values from the CLI's own parsers are never `undefined`, so the flag
+  // arguments are strict JSON; the single cast narrows `JsonValue`'s
+  // `undefined` away.
+  const flagArgs = (args.toolArg ?? {}) as LoadArgsRow;
+  const call = toolCaller(
+    tool!,
+    loadArgsTemplate(flagArgs, options.argRows),
+    args,
+    args.toolMeta,
+  );
   const summary = await runLoadAcrossConnections(
     inspectorClient,
     extra.openConnection,
-    call,
+    (client, _step, ctx) => call(client, ctx),
     options,
     extra.clock,
     extra.signal,
@@ -1023,34 +1060,43 @@ export async function runScenarioLoad(
     ).map((t) => [t.name, t]),
   );
   const callers = scenario.steps.map(
-    (step): ((client: InspectorClient) => Promise<LoadCallOutcome>) => {
+    (
+      step,
+    ): ((
+      client: InspectorClient,
+      ctx: LoadCallContext,
+    ) => Promise<LoadCallOutcome>) => {
       const metadata = mergeStepMeta(args.metadata, step.meta);
       switch (step.method) {
         case "tools/call":
           // `meta` is the tool-specific `_meta`, as `--tool-metadata` is.
           return toolCaller(
             tools.get(step.tool)!,
-            step.args ?? {},
+            loadTemplateOrConstant(step.args ?? {}),
             args,
             step.meta,
           );
-        case "resources/read":
-          return async (client) => {
-            await client.readResource(step.uri, metadata);
+        case "resources/read": {
+          const uri = loadTemplateOrConstant(step.uri);
+          return async (client, ctx) => {
+            await client.readResource(uri(ctx), metadata);
             return "ok";
           };
-        case "prompts/get":
-          return async (client) => {
-            await client.getPrompt(step.prompt, step.args ?? {}, metadata);
+        }
+        case "prompts/get": {
+          const promptArgs = loadTemplateOrConstant(step.args ?? {});
+          return async (client, ctx) => {
+            await client.getPrompt(step.prompt, promptArgs(ctx), metadata);
             return "ok";
           };
+        }
       }
     },
   );
   return runLoadAcrossConnections(
     inspectorClient,
     extra.openConnection,
-    (client, step) => callers[step]!(client),
+    (client, step, ctx) => callers[step]!(client, ctx),
     // The engine picks steps from `options.scenario`; set it from the
     // argument so the two can never disagree.
     { ...options, scenario },
@@ -1103,15 +1149,15 @@ async function findTools(
 /** One `tools/call` of `tool`, as a load call. */
 function toolCaller(
   tool: Tool,
-  toolArgs: Record<string, JsonValue>,
+  toolArgs: LoadTemplate<LoadArgsRow>,
   args: MethodArgs,
   toolMeta: RequestMetadata | undefined,
-): (client: InspectorClient) => Promise<LoadCallOutcome> {
+): (client: InspectorClient, ctx: LoadCallContext) => Promise<LoadCallOutcome> {
   // Same rule as a single `tools/call` (#2649): a tool that requires task
   // support can only be called task-augmented.
   const useTask = tool.execution?.taskSupport === "required";
-  return async (client) => {
-    const params = [tool, toolArgs, args.metadata, toolMeta] as const;
+  return async (client, ctx) => {
+    const params = [tool, toolArgs(ctx), args.metadata, toolMeta] as const;
     const invocation = useTask
       ? await client.callToolStream(...params)
       : await client.callTool(...params);
