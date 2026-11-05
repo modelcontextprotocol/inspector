@@ -607,7 +607,8 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --load \
   `--load-connections` does, and the extra sessions open with stored
   credentials only.
 - Not combined with `--load-connections`, `--load-churn`, `--load-steps` /
-  `--load-ramp` or `--load-warmup`. The CLI's own connection is subscribed too,
+  `--load-ramp`, `--load-warmup` or `--load-open-loop` (which would time each
+  trigger from its scheduled start). The CLI's own connection is subscribed too,
   and unsubscribed when the run ends.
 
 ##### Per-call samples (`--output`)

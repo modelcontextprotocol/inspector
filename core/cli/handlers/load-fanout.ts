@@ -420,6 +420,8 @@ export class FanoutTally {
   private triggerCount = 0;
   /** Passive: first receipt of each update still being received. */
   private readonly firsts = new Map<number, { at: number; seen: number }>();
+  /** Passive: updates seen so far; any below it without a `firsts` entry was evicted. */
+  private passiveUpdates = 0;
   private passiveFrom = Infinity;
   private frozen: number | undefined;
 
@@ -475,7 +477,14 @@ export class FanoutTally {
     }
     s.matched++;
     const first = this.firsts.get(k);
+    if (first === undefined && k < this.passiveUpdates) {
+      // Its first receipt was evicted (another subscriber ran more than
+      // MAX_FANOUT_PENDING updates ahead): delivered, but with nothing to
+      // time it from.
+      return;
+    }
     if (first === undefined) {
+      this.passiveUpdates = k + 1;
       this.delivery.add(0);
       this.firsts.set(k, { at, seen: 1 });
       // Bounded: the oldest update (lowest k, inserted first) goes.
@@ -545,6 +554,12 @@ export class FanoutTally {
   private drain(s: SessionTally): void {
     while (s.pending.length > 0 && s.matched < this.triggerCount) {
       const at = s.pending.shift()!;
+      if (s.matched < this.startBase) {
+        // That trigger's start was evicted (see `trimStarts`): delivered,
+        // but with nothing to time it from.
+        s.matched++;
+        continue;
+      }
       const start = this.starts[s.matched - this.startBase]!;
       if (at < start) {
         s.unexpected++;
@@ -555,9 +570,17 @@ export class FanoutTally {
     }
   }
 
-  /** Drop trigger starts every session has matched past. */
+  /**
+   * Drop trigger starts every session has matched past, and — so a silent
+   * subscriber cannot hold them all — any beyond the newest
+   * {@link MAX_FANOUT_PENDING}; a receipt for an evicted one is delivered
+   * but untimed.
+   */
   private trimStarts(): void {
-    const passed = Math.min(...this.sessions.map((s) => s.matched));
+    const passed = Math.max(
+      Math.min(...this.sessions.map((s) => s.matched)),
+      this.triggerCount - MAX_FANOUT_PENDING,
+    );
     const drop = passed - this.startBase;
     if (drop >= 1024) {
       this.starts = this.starts.slice(drop);

@@ -538,6 +538,7 @@ export const DEFAULT_LOAD_SUBSCRIBE_WAIT_SEC = 2;
  * combine with it.
  */
 function assertFanoutFlags(flags: {
+  openLoop?: boolean;
   concurrency?: number;
   connections?: number;
   stages?: LoadStages;
@@ -561,6 +562,9 @@ function assertFanoutFlags(flags: {
     ["--load-churn", flags.churn === true],
     ["--load-steps or --load-ramp", flags.stages !== undefined],
     ["--load-warmup", flags.warmupSec !== undefined],
+    // Open loop times a call from its scheduled start, which would put the
+    // wait for a worker into every notification's delivery latency.
+    ["--load-open-loop", flags.openLoop === true],
   ] as const;
   for (const [flag, given] of conflicts) {
     if (given) {

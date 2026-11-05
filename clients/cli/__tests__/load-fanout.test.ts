@@ -173,6 +173,10 @@ describe("resolveLoadOptions with --load-subscribe", () => {
       { subscribe: URI, warmupSec: 1 },
       "--load-subscribe cannot be combined with --load-warmup.",
     ],
+    [
+      { subscribe: URI, rate: 5, openLoop: true },
+      "--load-subscribe cannot be combined with --load-open-loop.",
+    ],
     [{ subscribe: URI, concurrency: 2 }, "--load-concurrency must be 1"],
   ])("refuses %j", (flags, message) => {
     expect(() => resolveLoadOptions(flags)).toThrow(message);
@@ -251,6 +255,23 @@ describe("FanoutTally", () => {
     expect(t.summarize(base)).toMatchObject({ updates: 3000, delivered: 3000 });
   });
 
+  it("bounds trigger starts a silent subscriber would otherwise hold", () => {
+    const t = new FanoutTally(true);
+    const live = t.addSession();
+    const silent = t.addSession();
+    const n = MAX_FANOUT_PENDING + 2000;
+    for (let i = 0; i < n; i++) {
+      t.receive(live, i * 10 + 1);
+      t.addTrigger(i * 10);
+    }
+    // The silent one catches up at last: its early receipts' triggers were
+    // evicted, so they count as delivered without a latency.
+    for (let i = 0; i < n; i++) t.receive(silent, i * 10 + 5);
+    const f = t.summarize(base);
+    expect(f).toMatchObject({ updates: n, delivered: 2 * n, missed: 0 });
+    expect(f.deliveryMs!.max).toBe(5);
+  });
+
   it("times a passive receipt from the first subscriber's", () => {
     const t = new FanoutTally(false);
     const a = t.addSession();
@@ -277,13 +298,19 @@ describe("FanoutTally", () => {
     expect(f.deliveryMs).toMatchObject({ min: 0, max: 3 });
   });
 
-  it("caps the passive updates it tracks for their first receipt", () => {
+  it("caps the passive updates it tracks, timing no evicted one", () => {
     const t = new FanoutTally(false);
     const a = t.addSession();
-    t.addSession();
+    const b = t.addSession();
     t.startPassive(0);
     for (let i = 0; i <= MAX_FANOUT_PENDING; i++) t.receive(a, i);
-    expect(t.summarize(base).delivered).toBe(MAX_FANOUT_PENDING + 1);
+    // `b` lags: update 0's first receipt was evicted, so it is delivered
+    // untimed rather than timed as a fresh 0 ms first receipt.
+    t.receive(b, 50_000);
+    t.receive(b, 50_001);
+    const f = t.summarize(base);
+    expect(f.delivered).toBe(MAX_FANOUT_PENDING + 3);
+    expect(f.deliveryMs!.max).toBe(50_000);
   });
 
   it("has no latency when nothing was delivered", () => {
