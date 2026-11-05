@@ -169,7 +169,7 @@ export function resolveLoadStages(flags: {
   }
   if (flags.stopOnBreach === true && flags.thresholds === undefined) {
     throw new Error(
-      "--load-stop-on-breach requires --load-max-error-rate or --load-max-p99.",
+      "--load-stop-on-breach requires a threshold (--load-max-error-rate, --load-max-p50, --load-max-p95, --load-max-p99 or --load-min-throughput).",
     );
   }
   const stepSec = flags.stepDurationSec ?? DEFAULT_LOAD_STEP_DURATION_SEC;

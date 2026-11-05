@@ -8,6 +8,7 @@ import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
 import type {
+  LoadLatency,
   LoadStageSummary,
   LoadStepSummary,
   LoadSummary,
@@ -1062,14 +1063,12 @@ export function formatLoadSummaryHuman(
   lines.push(
     l === null
       ? `  Latency:    ${style.dim("no calls succeeded")}`
-      : `  Latency:    min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p99 ${l.p99} / max ${l.max} ms`,
+      : `  Latency:    ${latencyLine(l)}`,
   );
   // Failures are timed apart from successes (#2836).
   const e = summary.errorLatencyMs;
   if (e !== null) {
-    lines.push(
-      `  Failed in:  min ${e.min} / mean ${e.mean} / p50 ${e.p50} / p90 ${e.p90} / p99 ${e.p99} / max ${e.max} ms`,
-    );
+    lines.push(`  Failed in:  ${latencyLine(e)}`);
   }
   if (summary.errorMessages.length > 0) {
     lines.push(`  ${style.bold("Top errors:")}`);
@@ -1119,6 +1118,11 @@ export function formatLoadSummaryHuman(
     }
   }
   return lines.join("\n");
+}
+
+/** A latency distribution on one line, p95 and p99.9 included (#2838). */
+function latencyLine(l: LoadLatency): string {
+  return `min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p95 ${l.p95} / p99 ${l.p99} / p99.9 ${l.p999} / max ${l.max} ms`;
 }
 
 /** One stage's line in {@link formatLoadSummaryHuman} (#2841). */

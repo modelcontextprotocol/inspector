@@ -21,6 +21,11 @@ import {
 } from "./load-template.js";
 import type { LoadStages, LoadStepBy } from "./load-stages.js";
 import { loadThresholdBreaches } from "./load-thresholds.js";
+import {
+  LatencyRecorder,
+  summarizeLatency,
+  type LoadLatency,
+} from "./load-latency.js";
 
 /**
  * `--load` (#2439): drive one tool with sustained, concurrent `tools/call`
@@ -99,15 +104,10 @@ export type LoadStopReason =
 /** An early stop, as reported in {@link LoadSummary.stoppedEarly}. */
 export type LoadStop = { reason: LoadStopReason; detail: string };
 
-/** Latency distribution in milliseconds, nearest-rank percentiles. */
-export type LoadLatency = {
-  min: number;
-  mean: number;
-  p50: number;
-  p90: number;
-  p99: number;
-  max: number;
-};
+// Latency recording lives in `load-latency.ts` (#2838): bounded memory, and
+// p95 / p99.9 alongside the original percentiles.
+export type { LoadLatency } from "./load-latency.js";
+export { percentile, summarizeLatency } from "./load-latency.js";
 
 export type LoadSummary = {
   tool?: string;
@@ -406,29 +406,9 @@ function sleepUnlessAborted(
   });
 }
 
-/** Nearest-rank percentile over an ascending-sorted, non-empty array. */
-export function percentile(sorted: number[], p: number): number {
-  const rank = Math.ceil((p / 100) * sorted.length);
-  return sorted[Math.min(Math.max(rank, 1), sorted.length) - 1]!;
-}
-
 function round(n: number, places = 2): number {
   const scale = 10 ** places;
   return Math.round(n * scale) / scale;
-}
-
-export function summarizeLatency(latencies: number[]): LoadLatency | null {
-  if (latencies.length === 0) return null;
-  const sorted = [...latencies].sort((a, b) => a - b);
-  const total = sorted.reduce((sum, n) => sum + n, 0);
-  return {
-    min: round(sorted[0]!),
-    mean: round(total / sorted.length),
-    p50: round(percentile(sorted, 50)),
-    p90: round(percentile(sorted, 90)),
-    p99: round(percentile(sorted, 99)),
-    max: round(sorted[sorted.length - 1]!),
-  };
 }
 
 /**
@@ -467,8 +447,9 @@ class OutcomeStats {
   ok = 0;
   toolErrors = 0;
   errors = 0;
-  private readonly okLatencies: number[] = [];
-  private readonly errorLatencies: number[] = [];
+  // Bounded memory however long the run (#2838): see `LatencyRecorder`.
+  private readonly okLatencies = new LatencyRecorder();
+  private readonly errorLatencies = new LatencyRecorder();
   private readonly tally = new ErrorTally();
   private readonly toolTally = new ErrorTally();
 
@@ -476,11 +457,11 @@ class OutcomeStats {
   addResult(outcome: LoadCallOutcome, latency: number): void {
     if (outcome === "ok") {
       this.ok++;
-      this.okLatencies.push(latency);
+      this.okLatencies.add(latency);
       return;
     }
     this.toolErrors++;
-    this.errorLatencies.push(latency);
+    this.errorLatencies.add(latency);
     this.toolTally.add(
       typeof outcome === "object" ? outcome.message : NO_TOOL_ERROR_TEXT,
     );
@@ -489,7 +470,7 @@ class OutcomeStats {
   /** A call that threw. */
   addThrown(message: string, latency: number): void {
     this.errors++;
-    this.errorLatencies.push(latency);
+    this.errorLatencies.add(latency);
     this.tally.add(message);
   }
 
@@ -511,8 +492,8 @@ class OutcomeStats {
           : round((this.toolErrors + this.errors) / completed, 4),
       throughput: elapsedMs > 0 ? round((completed * 1000) / elapsedMs) : 0,
       okThroughput: elapsedMs > 0 ? round((this.ok * 1000) / elapsedMs) : 0,
-      latencyMs: summarizeLatency(this.okLatencies),
-      errorLatencyMs: summarizeLatency(this.errorLatencies),
+      latencyMs: this.okLatencies.summarize(),
+      errorLatencyMs: this.errorLatencies.summarize(),
       errorMessages: this.tally.entries(),
       toolErrorMessages: this.toolTally.entries(),
     };

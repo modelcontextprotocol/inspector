@@ -190,6 +190,9 @@ more).
   stage `--load-step-duration` seconds. Read `stages[]` top to bottom for
   where `latencyMs.p99` or `errorRate` jumps. `--load-stop-on-breach` with a
   `--load-max-*` threshold stops at the first breaching stage.
+- Latency has `p50`/`p90`/`p95`/`p99`/`p999`. Gate a run with
+  `--load-max-p50`/`-p95`/`-p99`, `--load-max-error-rate` or
+  `--load-min-throughput` (ok calls/s); a breach exits `10` after the summary.
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
   `consecutive_errors` (the server stopped answering), `connection_lost`,
   `threshold_breached` (a stepped run's `--load-stop-on-breach`), or

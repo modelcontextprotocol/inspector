@@ -48,7 +48,9 @@ describe("load-test engine", () => {
         mean: 2,
         p50: 2,
         p90: 3,
+        p95: 3,
         p99: 3,
+        p999: 3,
         max: 3,
       });
     });
