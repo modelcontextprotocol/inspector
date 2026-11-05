@@ -416,6 +416,7 @@ function ElicitationUrlRequest({
   const [status, setStatus] = useState<string | null>(null);
   const settleWith = useSettle(setStatus);
   const refusal = elicitationUrlRefusal(url);
+  const messageRef = useRef<ScrollViewRef>(null);
 
   const settle = (result: ElicitResult) =>
     settleWith(() => settleElicitation(elicitation, result, inspectorClient));
@@ -436,24 +437,38 @@ function ElicitationUrlRequest({
       settle({ action: "decline" });
     } else if (key.escape || input === "c") {
       settle({ action: "cancel" });
+    } else if (key.pageDown) {
+      messageRef.current?.scrollBy(1);
+    } else if (key.pageUp) {
+      messageRef.current?.scrollBy(-1);
     }
   });
 
   return (
     <ModalFrame
       title="Elicitation request (URL)"
-      hint="(o: open in browser, Enter: done, d: decline, ESC: cancel)"
+      hint="(o: open in browser, Enter: done, d: decline, ESC: cancel, PgUp/PgDn: scroll)"
       queueLabel={queueLabel}
       note={originNote(elicitation.origin, elicitation.taskId)}
       status={status}
       width={width}
       height={height}
     >
+      {/* The destination first, so it is always on screen to read or copy
+          by hand when no browser can be launched (over SSH, say); the
+          message under it is bounded and scrolls with PgUp/PgDn. */}
       <Box flexShrink={0} marginBottom={1}>
-        <Text>{message}</Text>
-      </Box>
-      <Box flexShrink={0}>
         <Text color="cyan">{url}</Text>
+      </Box>
+      <Box
+        height={messageBoxHeight(message, width - 6, height)}
+        flexShrink={0}
+        flexDirection="column"
+        overflow="hidden"
+      >
+        <ScrollView ref={messageRef}>
+          <Text>{message}</Text>
+        </ScrollView>
       </Box>
       <Box flexShrink={0} marginTop={1}>
         <Text dimColor>

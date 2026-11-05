@@ -399,6 +399,19 @@ describe("PendingRequestModal", () => {
       expect(elicitation.respond).toHaveBeenCalledWith({ action });
     });
 
+    it("scrolls a long message without settling", async () => {
+      const elicitation = entry("e1", {
+        ...urlParams,
+        message: Array(40).fill("line").join("\n"),
+      });
+      const { stdin } = mount({ elicitations: [elicitation] });
+      await tick();
+      stdin.write(PAGE_DOWN);
+      stdin.write(PAGE_UP);
+      await tick();
+      expect(elicitation.respond).not.toHaveBeenCalled();
+    });
+
     it("ignores unrelated keys", async () => {
       const elicitation = entry("e1", urlParams);
       const { stdin } = mount({ elicitations: [elicitation] });
