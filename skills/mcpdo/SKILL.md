@@ -201,6 +201,10 @@ more).
   or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
   of the statistics (reported under `warmup`). Progress lines on stderr appear
   only with `--format text`.
+- If the generator rather than the server is the bottleneck (throughput stops
+  rising while the server is idle), mcpdo cannot help: use the one-shot CLI's
+  `mcp-inspector --cli <url> … --load --load-workers 4`, which spreads the
+  run over processes and merges one summary.
 - To measure notification fan-out, `--load-subscribe <uri>
   --load-subscribers 50` subscribes 50 sessions; a tool name makes each
   successful call a trigger (latency from its start), and no tool listens for

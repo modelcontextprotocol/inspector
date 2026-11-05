@@ -48,6 +48,9 @@ export function formatLoadSummaryHuman(
     ...(summary.rate !== undefined ? [`rate ${summary.rate}/s`] : []),
     ...(summary.openLoop === true ? ["open loop"] : []),
     ...(summary.churn !== undefined ? ["churn"] : []),
+    ...(summary.workers !== undefined
+      ? [`${summary.workers} worker processes`]
+      : []),
   ];
   const failed = summary.toolErrors + summary.errors;
   const rate = `${(summary.errorRate * 100).toFixed(2)}%`;
