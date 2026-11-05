@@ -25,6 +25,7 @@ import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigati
 import {
   createCliOAuthFetch,
   oauthDebugNavigationHook,
+  traceCliOAuthFetch,
   writeOAuthDebugToStderr,
 } from "@inspector/core/cli/oauth-debug.js";
 import { OAUTH_DEBUG_PREFIX } from "@inspector/core/auth/oauthDebug.js";
@@ -106,6 +107,25 @@ describe("createCliOAuthFetch", () => {
     expect(stderr).toHaveBeenCalledWith(
       `${OAUTH_DEBUG_PREFIX} request: GET http://169.254.169.254/x\n`,
     );
+  });
+});
+
+describe("traceCliOAuthFetch", () => {
+  it("returns the fetch untouched when off", () => {
+    const base = vi.fn<typeof fetch>();
+    expect(traceCliOAuthFetch(base, false)).toBe(base);
+  });
+
+  it("traces a caller-composed fetch to stderr when on", async () => {
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const base = vi.fn<typeof fetch>(
+      async () => new Response(null, { status: 204 }),
+    );
+    await traceCliOAuthFetch(base, true)("https://as.example/x");
+    expect(base).toHaveBeenCalledOnce();
+    expect(stderr).toHaveBeenCalledWith(`${OAUTH_DEBUG_PREFIX}   -> 204\n`);
   });
 });
 
