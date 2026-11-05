@@ -51,9 +51,9 @@ function row() {
   return document.querySelector<HTMLElement>("[data-lazy-row]")!;
 }
 
-// Mantine writes a numeric `h` in rem, scaled.
+// The stand-in's height is written in real px, whatever the root font size.
 function heightOf(px: number): string {
-  return `calc(${px / 16}rem * var(--mantine-scale))`;
+  return `calc(${px}px)`;
 }
 
 // A control that refuses focus, as a browser refuses it for one that is not

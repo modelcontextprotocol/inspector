@@ -31,6 +31,14 @@ export interface LazyRowProps {
   forceMount?: boolean;
 }
 
+// A height in real px. Mantine reads a bare number (or "123px") as px at a
+// 16px root and writes it in rem, so under any other root font size a measured
+// height would no longer match the row it stands in for; a `calc()` passes
+// through untouched.
+function asPixels(height: number): string {
+  return `calc(${height}px)`;
+}
+
 // What a Tab can land on inside a row.
 const TABBABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -180,7 +188,7 @@ export function LazyRow({
   return (
     <Box
       ref={rootRef}
-      h={mounted ? undefined : (measuredHeight ?? estimatedHeight)}
+      h={mounted ? undefined : asPixels(measuredHeight ?? estimatedHeight)}
       tabIndex={mounted ? undefined : 0}
       data-lazy-row={mounted ? "mounted" : "placeholder"}
       onFocus={handleFocus}
