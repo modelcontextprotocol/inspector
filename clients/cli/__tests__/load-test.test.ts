@@ -803,9 +803,11 @@ describe("--load (CLI)", () => {
         "echo",
         "--load",
         "--output",
-        "out.json",
+        "out.ndjson",
+        "--output-format",
+        "json",
       ],
-      "--load cannot be combined with --output or --output-format",
+      "--load cannot be combined with --output-format",
     ],
     [
       [

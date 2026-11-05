@@ -1492,6 +1492,10 @@ function registerRpcCommands(program: CommandType): void {
             positiveNumberParser("--load-progress"),
           )
           .option(
+            "--load-open-loop",
+            "With --load-rate: open-loop mode. Keep every slot of the rate grid instead of dropping the ones no worker is free for, and time each call from its scheduled start, so queueing shows in the latency.",
+          )
+          .option(
             "--load-stop-on-breach",
             "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
           )

@@ -78,7 +78,12 @@ import {
   formatLoadProgress,
   type LoadOptions,
   type LoadProgress,
+  type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
+import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
+import { openLoadSampleFile } from "@inspector/core/cli/handlers/load-samples.js";
+import { styleFromOpts } from "@inspector/core/cli/style.js";
+import { sanitizeDeep } from "@inspector/core/cli/sanitize.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
   loadRampParser,
@@ -384,35 +389,52 @@ async function callMethod(
     // mix (#2839) — then a single summary, in place of the one result a
     // plain `tools/call` prints.
     if (load) {
+      // `--output` (#2838): every measured call as NDJSON. Opened here, after
+      // the connect succeeded, and closed whatever the run's outcome.
+      const samples =
+        args.output !== undefined ? openLoadSampleFile(args.output) : undefined;
       // Ctrl+C / SIGTERM end the run early rather than the process (#2834),
       // so the partial summary below still gets out.
-      const summary = await withLoadInterrupt(
-        (signal) =>
-          withCliAuthRecoveryRetry(
-            inspectorClient,
-            serverConfig,
-            redirectUrlProvider,
-            callbackUrlConfig,
-            serverSettings,
-            () =>
-              runLoadTest(inspectorClient, args, load, {
-                openConnection: openLoadConnection,
-                signal,
-                ...(load.progressMs !== undefined && {
-                  progress: {
-                    everyMs: load.progressMs,
-                    emit: writeLoadProgress,
-                  },
+      let summary: LoadSummary;
+      try {
+        summary = await withLoadInterrupt(
+          (signal) =>
+            withCliAuthRecoveryRetry(
+              inspectorClient,
+              serverConfig,
+              redirectUrlProvider,
+              callbackUrlConfig,
+              serverSettings,
+              () =>
+                runLoadTest(inspectorClient, args, load, {
+                  openConnection: openLoadConnection,
+                  signal,
+                  ...(load.progressMs !== undefined && {
+                    progress: {
+                      everyMs: load.progressMs,
+                      emit: writeLoadProgress,
+                    },
+                  }),
+                  ...(samples && { onSample: samples.write }),
                 }),
-              }),
-            { storedAuthOnly, autoOpenControl, quiet: args.quiet },
-          ),
-        { quiet: args.quiet },
+              { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+            ),
+          { quiet: args.quiet },
+        );
+      } catch (err) {
+        // The run's own error wins; the file is closed as best it can be.
+        await samples?.close().catch(() => {});
+        throw err;
+      }
+      // Flushed before the summary goes out, so a script that waits for the
+      // summary can read a complete file; a write failure is raised after
+      // the summary, which is still worth printing.
+      const written = samples?.close().then(
+        () => undefined,
+        (err: unknown) => err,
       );
-      await writeFormattedResult(
-        summary,
-        args.format === "json" ? "json" : "text",
-      );
+      const writeFailure = await written;
+      await writeLoadSummary(summary, args.format);
       // Advisory, so `--quiet` drops them (#2435): a missed `--load-rate`
       // (#2837) and an early stop the summary also records (#2835).
       if (!args.quiet) {
@@ -420,6 +442,7 @@ async function callMethod(
           await awaitableError(`${warning}\n`);
         }
       }
+      if (writeFailure !== undefined) throw writeFailure;
       // After the summary is out, so a cut-short or breached run still shows
       // its numbers. An interrupted run exits 130 and is not graded.
       assertNotInterrupted(summary);
@@ -1325,6 +1348,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveNumberParser("--load-progress"),
     )
     .option(
+      "--load-open-loop",
+      "With --load-rate: open-loop mode. Keep every slot of the rate grid instead of dropping the ones no worker is free for, and time each call from its scheduled start, so queueing shows in the latency.",
+    )
+    .option(
       "--load-stop-on-breach",
       "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
     )
@@ -1596,6 +1623,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadInterval?: number;
     loadWarmup?: number;
     loadProgress?: number;
+    loadOpenLoop?: boolean;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
     loadMaxP50?: number;
@@ -1707,6 +1735,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-interval", options.loadInterval],
     ["--load-warmup", options.loadWarmup],
     ["--load-progress", options.loadProgress],
+    ["--load-open-loop", options.loadOpenLoop],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
     ["--load-max-p50", options.loadMaxP50],
@@ -1731,9 +1760,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--load cannot be combined with --list-stored-auth or --print-handoff.",
       );
     }
-    if (options.output !== undefined || options.outputFormat !== undefined) {
+    // `--output` with `--load` writes one NDJSON line per call (#2838); it
+    // has a single format, so `--output-format` has nothing to choose.
+    if (options.outputFormat !== undefined) {
       throw loadFlagConflict(
-        "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",
+        "--load cannot be combined with --output-format; --output with --load always writes NDJSON, one line per call.",
       );
     }
     // The scenario names each step's tool and arguments (#2839), so a flag
@@ -2132,6 +2163,7 @@ function resolveCliLoadOptions(
     loadInterval?: number;
     loadWarmup?: number;
     loadProgress?: number;
+    loadOpenLoop?: boolean;
     quiet?: boolean;
   },
   thresholds: LoadThresholds | undefined,
@@ -2183,6 +2215,7 @@ function resolveCliLoadOptions(
       stages,
       intervalSec: options.loadInterval,
       warmupSec: options.loadWarmup,
+      openLoop: options.loadOpenLoop,
       // Progress is on by default and `--quiet` turns it off (#2838).
       ...(options.quiet !== true && {
         progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
@@ -2191,6 +2224,31 @@ function resolveCliLoadOptions(
   } catch (err) {
     throw loadFlagConflict((err as Error).message);
   }
+}
+
+/**
+ * Print a `--load` summary (#2838 item 7): the readable text summary for
+ * `--format text`, or when no `--format` was given and stdout is a terminal;
+ * the `{ "result": … }` envelope for `--format json`; and, when no `--format`
+ * was given and stdout is not a terminal — a pipe, a file, a script — the
+ * pretty-printed JSON it has always been, so scripts that read it keep
+ * working.
+ */
+async function writeLoadSummary(
+  summary: LoadSummary,
+  format: OutputFormat | undefined,
+): Promise<void> {
+  if (format === "json") return writeFormattedResult(summary, "json");
+  if (format === "text" || process.stdout.isTTY === true) {
+    const style = styleFromOpts({ format: "text" });
+    // The summary carries server-controlled text (tool-error text, thrown
+    // messages, a scenario's names). Sanitized before styling, as mcpdo does,
+    // so none of it reaches the terminal as an escape sequence.
+    const safe = sanitizeDeep(summary);
+    await awaitableLog(`${formatLoadSummaryHuman(safe, style)}\n`);
+    return;
+  }
+  await writeFormattedResult(summary, "text");
 }
 
 /**

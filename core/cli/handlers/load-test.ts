@@ -91,6 +91,13 @@ export type LoadOptions = {
    * which runs the engine, learns it with the rest of the run.
    */
   progressMs?: number;
+  /**
+   * `--load-open-loop` (#2838; needs `rate`): keep every slot of the rate
+   * grid instead of dropping the ones no worker was free for, and time each
+   * call from its scheduled start, so queueing behind a slow server shows in
+   * the latency rather than being hidden by a slower request rate.
+   */
+  openLoop?: boolean;
 };
 
 /**
@@ -146,6 +153,12 @@ export type LoadSummary = {
   droppedSlots?: number;
   /** With `rate` only: calls started per second over the start window. */
   achievedRate?: number;
+  /**
+   * `--load-open-loop` only (#2838): latencies are from each call's
+   * scheduled start, and `droppedSlots` counts slots still waiting for a
+   * worker when the window closed.
+   */
+  openLoop?: boolean;
   ok: number;
   /** Calls that returned a result with `isError: true`. */
   toolErrors: number;
@@ -250,6 +263,28 @@ export type LoadProgress = {
   latencyMs: { p50: number; p99: number } | null;
 };
 
+/**
+ * One measured call, as `--output` writes it (#2838): one NDJSON line each.
+ * `startMs` is from the start of its window — the run, or its stage — and in
+ * open-loop mode it is the call's scheduled start. Warm-up calls have none.
+ */
+export type LoadSample = {
+  seq: number;
+  worker: number;
+  startMs: number;
+  latencyMs: number;
+  outcome: "ok" | "tool_error" | "error";
+  /** The tool error's text, or the thrown message. */
+  message?: string;
+  /** With a scenario: the step's name. */
+  step?: string;
+  /** With stages: the 1-based stage. */
+  stage?: number;
+};
+
+/** Receives each {@link LoadSample} as its call completes. */
+export type LoadSampleSink = (sample: LoadSample) => void;
+
 /** Where and how often a run reports progress. */
 export type LoadProgressHook = {
   everyMs: number;
@@ -352,8 +387,20 @@ export function resolveLoadOptions(flags: {
   warmupSec?: number;
   /** `--load-progress` (#2838); absent means no progress reports. */
   progressSec?: number;
+  /** `--load-open-loop` (#2838). */
+  openLoop?: boolean;
 }): LoadOptions {
   const { stages } = flags;
+  // Open loop follows the rate grid, so it needs one to follow.
+  if (
+    flags.openLoop === true &&
+    flags.rate === undefined &&
+    stages?.by !== "rate"
+  ) {
+    throw new Error(
+      "--load-open-loop requires --load-rate (or --load-step-by rate).",
+    );
+  }
   // A warm-up before a staircase would run at which stage's level? The
   // stages are the ramp-up already, so the two are not combined.
   if (flags.warmupSec !== undefined && stages !== undefined) {
@@ -400,6 +447,7 @@ export function resolveLoadOptions(flags: {
     ...(flags.progressSec !== undefined && {
       progressMs: flags.progressSec * 1000,
     }),
+    ...(flags.openLoop === true && { openLoop: true }),
   };
 }
 
@@ -761,9 +809,18 @@ export function runLoad(
   clock: LoadClock = realClock,
   signal?: AbortSignal,
   progress?: LoadProgressHook,
+  onSample?: LoadSampleSink,
 ): Promise<LoadSummary> {
   if (options.stages) {
-    return runStages(call, options, options.stages, clock, signal, progress);
+    return runStages(
+      call,
+      options,
+      options.stages,
+      clock,
+      signal,
+      progress,
+      onSample,
+    );
   }
   if (options.warmupMs !== undefined) {
     return runWithWarmup(
@@ -773,11 +830,13 @@ export function runLoad(
       clock,
       signal,
       progress,
+      onSample,
     );
   }
   return runWindow(call, options, clock, signal, undefined, false, {
     hook: progress,
     phase: "run",
+    ...(onSample && { onSample }),
   });
 }
 
@@ -786,6 +845,13 @@ type WindowProgress = {
   hook: LoadProgressHook | undefined;
   phase: LoadProgress["phase"];
   stage?: number;
+  /** `--output` samples (#2838); never set for a warm-up. */
+  onSample?: LoadSampleSink;
+  /**
+   * Calls already numbered before this window (a warm-up, earlier stages),
+   * so a sample's `seq` is the run-wide one `{{seq}}` saw.
+   */
+  seqOffset?: number;
 };
 
 /**
@@ -804,6 +870,7 @@ async function runWithWarmup(
   clock: LoadClock,
   signal: AbortSignal | undefined,
   progress: LoadProgressHook | undefined,
+  onSample: LoadSampleSink | undefined,
 ): Promise<LoadSummary> {
   const warm = await runWindow(
     call,
@@ -846,7 +913,12 @@ async function runWithWarmup(
     measuredSignal,
     undefined,
     false,
-    { hook: progress, phase: "run" },
+    {
+      hook: progress,
+      phase: "run",
+      seqOffset: offset,
+      ...(onSample && { onSample }),
+    },
   );
   return { ...summary, warmup };
 }
@@ -897,8 +969,15 @@ async function runWindow(
   holdToDeadline = false,
   progress?: WindowProgress,
 ): Promise<LoadSummary> {
-  const { concurrency, durationMs, requests, rate, scenario, intervalMs } =
-    options;
+  const {
+    concurrency,
+    durationMs,
+    requests,
+    rate,
+    scenario,
+    intervalMs,
+    openLoop,
+  } = options;
   const total = new OutcomeStats();
   const stepRuns = scenario?.steps.map((step) => ({
     step,
@@ -923,6 +1002,9 @@ async function runWindow(
   const interval = rate === undefined ? 0 : 1000 / rate;
   // Earliest time the next slot may start.
   let nextStart = start;
+  // When the latest call actually started. Open loop's `nextStart` is the
+  // arrival schedule, which a saturated run lags far behind (#2838).
+  let lastStartAt = start;
 
   // Everything inside the run watches `halt`, which the caller's `signal` and
   // the circuit breaker both trip, so either ends the run the same way.
@@ -996,7 +1078,7 @@ async function runWindow(
    * loop — starts one call, never a burst of everything that was due.
    */
   const claimSlot = async (): Promise<
-    { step: number; seq: number } | undefined
+    { step: number; seq: number; scheduledAt: number } | undefined
   > => {
     const ahead = turnstile;
     let release!: () => void;
@@ -1017,15 +1099,22 @@ async function runWindow(
         if (scheduled >= deadline) return undefined;
         if (scheduled <= now) {
           started++;
+          // The slot's own time: here it is never after `now`.
+          const scheduledAt = nextStart;
+          lastStartAt = now;
           // A wake that is merely late — timers always are, by a fraction of
           // a millisecond — keeps the slot grid, so the average rate holds.
           // Only a slot missed entirely (a stall longer than one interval)
           // is dropped, and spacing restarts from now: no catch-up burst.
+          // Open loop (#2838) never drops one: the grid is the arrival
+          // schedule, and a late slot runs as soon as a worker frees.
           nextStart =
-            now - nextStart < interval ? nextStart + interval : now + interval;
+            openLoop || now - nextStart < interval
+              ? nextStart + interval
+              : now + interval;
           // Picked while holding the turnstile, so the order is the slot
           // order whatever the workers' timing.
-          return { step: pickStep(), seq: started };
+          return { step: pickStep(), seq: started, scheduledAt };
         }
         await sleepUnlessAborted(clock, scheduled - now, halt.signal);
       }
@@ -1034,11 +1123,28 @@ async function runWindow(
     }
   };
 
+  // The fields every `--output` sample (#2838) shares.
+  const sampleBase = (
+    seq: number,
+    worker: number,
+    t0: number,
+    latency: number,
+  ): Pick<LoadSample, "seq" | "worker" | "startMs" | "latencyMs"> => ({
+    seq: seq + (progress?.seqOffset ?? 0),
+    worker,
+    startMs: round(t0 - start),
+    latencyMs: round(latency, 3),
+  });
+  const sampleWhere = (step: number): Pick<LoadSample, "step" | "stage"> => ({
+    ...(scenario && { step: scenario.steps[step]!.name }),
+    ...(progress?.stage !== undefined && { stage: progress.stage }),
+  });
+
   const worker = async (index: number): Promise<void> => {
     for (;;) {
       const slot = await claimSlot();
       if (slot === undefined) return;
-      const { step, seq } = slot;
+      const { step, seq, scheduledAt } = slot;
       // Another worker's call can abort the run between this worker taking
       // its slot and resuming here. The slot was never used, so it is handed
       // back: `started` feeds the `--load-rate` figures.
@@ -1047,7 +1153,9 @@ async function runWindow(
         return;
       }
       const stats = stepRuns?.[step]?.stats;
-      const t0 = clock.now();
+      // Open loop times a call from its scheduled start, so the wait for a
+      // free worker counts in its latency: that is the queueing it exposes.
+      const t0 = openLoop ? scheduledAt : clock.now();
       try {
         const outcome = await call(index, step, seq);
         const done = clock.now();
@@ -1056,6 +1164,19 @@ async function runWindow(
         total.addResult(outcome, latency);
         series?.at(done).addResult(outcome, latency);
         ticker?.recent.addResult(outcome, latency);
+        progress?.onSample?.({
+          ...sampleBase(seq, index, t0, latency),
+          ...(outcome === "ok"
+            ? { outcome: "ok" }
+            : {
+                outcome: "tool_error",
+                message:
+                  typeof outcome === "object"
+                    ? outcome.message
+                    : NO_TOOL_ERROR_TEXT,
+              }),
+          ...sampleWhere(step),
+        });
         stats?.addResult(outcome, latency);
         sink?.total.addResult(outcome, latency);
         sink?.steps?.[step]?.addResult(outcome, latency);
@@ -1065,6 +1186,12 @@ async function runWindow(
         total.addThrown(message, now - t0);
         series?.at(now).addThrown(message, now - t0);
         ticker?.recent.addThrown(message, now - t0);
+        progress?.onSample?.({
+          ...sampleBase(seq, index, t0, now - t0),
+          outcome: "error",
+          message,
+          ...sampleWhere(step),
+        });
         stats?.addThrown(message, now - t0);
         sink?.total.addThrown(message, now - t0);
         sink?.steps?.[step]?.addThrown(message, now - t0);
@@ -1110,7 +1237,22 @@ async function runWindow(
    */
   const startWindowEnd = (): number => {
     let windowEnd = deadline;
-    if (requestCapped) windowEnd = Math.min(windowEnd, nextStart);
+    if (requestCapped) {
+      // Open loop's arrival cursor can sit well before the starts it caused
+      // (three 500 ms calls on a 10/s grid start at 0, 500 and 1000 ms with
+      // the cursor at 300), so its window runs to the first grid slot after
+      // the last actual start instead. Snapped to the grid, not `+ interval`
+      // from it: a start a hair late (200.1 ms) must not stretch the window
+      // to 300.1 and count a slot nobody missed.
+      const after = openLoop
+        ? Math.max(
+            nextStart,
+            start +
+              (Math.floor((lastStartAt - start) / interval) + 1) * interval,
+          )
+        : nextStart;
+      windowEnd = Math.min(windowEnd, after);
+    }
     if (stoppedEarly !== undefined) windowEnd = Math.min(windowEnd, stoppedAt);
     /* v8 ignore next -- defensive: a run with no duration, no request cap
        and no stop never ends, so one of the three always applies. */
@@ -1121,6 +1263,7 @@ async function runWindow(
     concurrency,
     ...(durationMs !== undefined && { durationMs }),
     ...(requests !== undefined && { requestLimit: requests }),
+    ...(openLoop === true && { openLoop: true }),
     ...(rate !== undefined &&
       rateFigures(rate, {
         started,
@@ -1295,6 +1438,7 @@ async function runStages(
   clock: LoadClock,
   signal: AbortSignal | undefined,
   progress: LoadProgressHook | undefined,
+  onSample: LoadSampleSink | undefined,
 ): Promise<LoadSummary> {
   const { scenario } = options;
   const sink: LoadSink = {
@@ -1318,6 +1462,7 @@ async function runStages(
       ...(options.intervalMs !== undefined && {
         intervalMs: options.intervalMs,
       }),
+      ...(options.openLoop === true && { openLoop: true }),
     };
     const offset = used;
     const summary = await runWindow(
@@ -1329,7 +1474,13 @@ async function runStages(
       // Every stage but the last holds to its deadline, so the next one
       // neither starts early nor bursts at the boundary.
       i < stages.levels.length - 1,
-      { hook: progress, phase: "run", stage: i + 1 },
+      {
+        hook: progress,
+        phase: "run",
+        stage: i + 1,
+        seqOffset: offset,
+        ...(onSample && { onSample }),
+      },
     );
     used += summary.requests;
     elapsedMs += summary.elapsedMs;
@@ -1372,6 +1523,7 @@ async function runStages(
         stepSummary(step, sink.steps![i]!.summarize(elapsedMs)),
       ),
     }),
+    ...(options.openLoop === true && { openLoop: true }),
     stages: rows,
   };
 }
@@ -1449,6 +1601,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   clock: LoadClock = realClock,
   signal?: AbortSignal,
   progress?: LoadProgressHook,
+  onSample?: LoadSampleSink,
 ): Promise<LoadSummary> {
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
@@ -1458,6 +1611,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       clock,
       signal,
       progress,
+      onSample,
     );
   }
   if (!openConnection) {
@@ -1494,6 +1648,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       clock,
       signal,
       progress,
+      onSample,
     );
     return {
       ...summary,
@@ -1549,6 +1704,7 @@ export async function runToolLoad(
     extra.clock,
     extra.signal,
     extra.progress,
+    extra.onSample,
   );
   return { tool: tool!.name, ...summary };
 }
@@ -1561,6 +1717,8 @@ export type LoadRunExtras = {
   signal?: AbortSignal;
   /** Periodic progress reports (#2838); see {@link LoadProgressHook}. */
   progress?: LoadProgressHook;
+  /** Each measured call, for `--output` (#2838). */
+  onSample?: LoadSampleSink;
 };
 
 /**
@@ -1649,6 +1807,7 @@ export async function runScenarioLoad(
     extra.clock,
     extra.signal,
     extra.progress,
+    extra.onSample,
   );
 }
 
