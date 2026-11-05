@@ -255,7 +255,7 @@ export function parseDockerBaseImage(dockerfile) {
 /**
  * The `Docker-Content-Digest` header out of a raw HTTP header dump, or `null`.
  * Header names are case-insensitive, and `curl -I` follows redirects into a
- * dump holding several responses, so the LAST match is the one that counts.
+ * dump holding several responses, so only the FINAL response's header counts.
  *
  * @param {string} headers raw header text from `curl -I`
  * @returns {string | null}
@@ -263,6 +263,9 @@ export function parseDockerBaseImage(dockerfile) {
 export function parseDigestHeader(headers) {
   let digest = null;
   for (const line of headers.split(/\r?\n/)) {
+    // Each status line starts a new response: a redirect's digest must not
+    // survive into a final response that omits the header (Copilot).
+    if (/^HTTP\//.test(line)) digest = null;
     const match = /^docker-content-digest:\s*(sha256:[0-9a-f]{64})\s*$/i.exec(
       line,
     );

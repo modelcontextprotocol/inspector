@@ -617,7 +617,7 @@ test("parseDockerBaseImage fails loudly when the pin is missing or reshaped", ()
   );
 });
 
-test("parseDigestHeader is case-insensitive and takes the last response's digest", () => {
+test("parseDigestHeader is case-insensitive and reads only the final response", () => {
   const other = `sha256:${"c".repeat(64)}`;
   const dump = [
     "HTTP/1.1 307 Temporary Redirect",
@@ -629,6 +629,19 @@ test("parseDigestHeader is case-insensitive and takes the last response's digest
   ].join("\r\n");
   assert.equal(parseDigestHeader(dump), DIGEST);
   assert.equal(parseDigestHeader("HTTP/1.1 200 OK\r\n"), null);
+  // A redirect's digest is not the final response's (Copilot).
+  assert.equal(
+    parseDigestHeader(
+      [
+        "HTTP/1.1 307 Temporary Redirect",
+        `docker-content-digest: ${other}`,
+        "",
+        "HTTP/1.1 200 OK",
+        "",
+      ].join("\r\n"),
+    ),
+    null,
+  );
 });
 
 test("buildIssueBody renders a Docker base image section with the bump line", () => {
