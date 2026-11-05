@@ -313,6 +313,7 @@ import {
 } from "./rateLimit.js";
 import { OAuthManager, type OAuthManagerConfig } from "./oauthManager.js";
 import { RemoteClientTransport } from "./remote/remoteClientTransport.js";
+import { terminateSessionBestEffort } from "./sessionTermination.js";
 
 /**
  * The notification stream the diagnostics are following, plus the fetch entry
@@ -2383,6 +2384,16 @@ export class InspectorClient extends InspectorClientEventTarget {
           }
         }
         await this.closeTaskSessionBestEffort();
+        // End the server-side session before closing (#2924): over Streamable
+        // HTTP with a session id this sends the spec's `DELETE`, through the
+        // same fetch stack and auth headers as the session's other requests.
+        // Best-effort and bounded — a refusal or a hang must not stop the
+        // local teardown below. It runs while `disconnecting` is set, so the
+        // `onerror` the SDK raises on a failed DELETE is ignored rather than
+        // flipping status to "error". In the browser `baseTransport` is the
+        // RemoteClientTransport, which has no session of its own; the web
+        // backend terminates the upstream one when it handles the disconnect.
+        await terminateSessionBestEffort(this.baseTransport);
         try {
           await this.client.close();
         } catch {
