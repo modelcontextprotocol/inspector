@@ -987,6 +987,43 @@ describe("redactUrlsInText", () => {
     ).toBe(`https://as.example/t?token=${R}`);
   });
 
+  it("keeps a literal `?` in a parameter name, so `&?token=` does not join (#2907)", () => {
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok&?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok&?token=https://app.example/cb?code=${R}`,
+    );
+  });
+
+  it("scans a long run of joins once, not once per join (#2907)", () => {
+    // Every match joins the one before it; re-reading the growing URL per
+    // join was quadratic on server-controlled text.
+    const run = "https://b.example/?token=".repeat(20_000);
+    const out = redactUrlsInText(`see https://a.example/?token=${run} end`);
+    expect(out).toBe(`see https://a.example/?token=${R} end`);
+  });
+
+  it("falls back to each match when the redactor cannot redact the join (#2907)", () => {
+    // A redactor that leaves the joined URL unchanged (oauthDebug's
+    // `redactUrl` on an unparseable URL) must not hide the nested URL.
+    const seen: string[] = [];
+    const out = mapUrlsInText(
+      "at https://a.example/?token=https://b.example/?code=x.",
+      (url) => {
+        seen.push(url);
+        return url.startsWith("https://b.") ? "<b>" : url;
+      },
+    );
+    expect(out).toBe("at https://a.example/?token=<b>.");
+    expect(seen).toEqual([
+      "https://a.example/?token=https://b.example/?code=x",
+      "https://a.example/?token=",
+      "https://b.example/?code=x",
+    ]);
+  });
+
   it("joins a nested URL on the caller's own sensitive names (#2907)", () => {
     const seen: string[] = [];
     const text = "x https://a.example/?custom=https://b.example/p y";

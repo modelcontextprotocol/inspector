@@ -326,6 +326,23 @@ describe("URLs embedded in prose", () => {
     ).toBe(`https://a.example/x?code=${R},https://b.example/y?state=ok`);
   });
 
+  it("still redacts a nested URL when the outer one is unparseable or `??`-keyed (#2907)", () => {
+    const R = encodeURIComponent(REDACTED);
+    // An invalid port makes `redactUrl` return the outer URL as is, so the
+    // nested URL is redacted on its own rather than hidden inside it.
+    expect(
+      redactUrlsInText(
+        "https://as.example:bad/t?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example:bad/t?token=https://app.example/cb?code=${R}`);
+    // `??token` is the key `?token`, which is not sensitive: no join.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t??token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example/t??token=https://app.example/cb?code=${R}`);
+  });
+
   it("matches sensitive field names case-insensitively", () => {
     expect(redactUrl("https://x.example/cb?Code=abc")).not.toContain("abc");
     expect(redactFormParams(new URLSearchParams({ Client_Secret: "s" }))).toBe(
