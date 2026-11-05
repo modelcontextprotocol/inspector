@@ -197,6 +197,9 @@ more).
   or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
   of the statistics (reported under `warmup`). Progress lines on stderr appear
   only with `--format text`.
+- `--load-rate` is closed-loop: busy workers drop slots, which hides
+  queueing. Add `--load-open-loop` to keep every slot and time calls from
+  their scheduled start (`openLoop: true` in the summary).
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
   `consecutive_errors` (the server stopped answering), `connection_lost`,
   `threshold_breached` (a stepped run's `--load-stop-on-breach`), or

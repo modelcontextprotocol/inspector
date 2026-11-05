@@ -172,6 +172,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-interval <sec>`       | With `--load`: also report the run as a time series of buckets this long, in `intervals`. See [Watching a run](#watching-a-run---load-progress---load-interval---load-warmup). |
 | `--load-warmup <sec>`         | With `--load`: run this long first, at the same concurrency and rate, and leave those calls out of every statistic. Not with `--load-steps` / `--load-ramp`. |
 | `--load-progress <sec>`       | With `--load`: how often to print a progress line on stderr (default `5`). `--quiet` turns progress off. |
+| `--load-open-loop`            | With `--load-rate`: open-loop mode. Keep every slot of the rate grid, and time each call from its scheduled start, so queueing shows in the latency. See [Open loop](#open-loop---load-open-loop). |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--load-max-p50 <ms>`, `--load-max-p95 <ms>` | With `--load`: the same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
@@ -334,7 +335,7 @@ The flag is `--output-format` rather than a new `--format` value because `--form
 
 Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
 
-`--output` is rejected where there is no single result to write — `--app-info`, `--load`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
+`--output` is rejected where there is no single result to write — `--app-info`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
 
 #### Load testing a tool (`--load`)
 
@@ -357,8 +358,18 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
 
 Every call sends the same arguments and `_meta`, unless the arguments use
 placeholders or an args file (see [Varying the arguments](#varying-the-arguments---load-args-file-placeholders)).
-When the run ends, one summary
-is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
+When the run ends, one summary is printed on stdout
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)):
+
+- **`--format text`**, or **no `--format` with stdout a terminal**: a short,
+  readable table, the same one `mcpdo` prints, with colour unless `NO_COLOR`
+  is set.
+- **`--format json`**: the summary wrapped in `{ "result": … }`.
+- **no `--format`, stdout not a terminal** (a pipe, a file, a script): the
+  summary as pretty-printed JSON, unwrapped, as it always has been. Scripts
+  that read it keep working; pass `--format json` to be explicit.
+
+The JSON summary looks like this:
 
 ```json
 {
@@ -502,6 +513,50 @@ contention that only appear across sessions:
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
+##### Per-call samples (`--output`)
+
+`--output <path>` with `--load` writes **one NDJSON line per measured call**
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)), for
+analysis the summary cannot do: your own histogram, a scatter over time, a
+join against server logs by `seq`. The summary still goes to stdout.
+
+```json
+{"seq":17,"worker":3,"startMs":412.5,"latencyMs":14.218,"outcome":"ok"}
+{"seq":18,"worker":0,"startMs":415.02,"latencyMs":30001.4,"outcome":"error","message":"Request timed out"}
+```
+
+- `seq` is the run-wide call number (the one `{{seq}}` sees) and `worker` the
+  worker that made the call. `startMs` is from the start of the run, or of its
+  stage in a stepped run. In open loop it is the scheduled start. `latencyMs`
+  is the call's latency.
+- `outcome` is `ok`, `tool_error` (with the result's text as `message`) or
+  `error` (with the thrown message). A scenario adds `step` (the step's name),
+  and a stepped run adds `stage`.
+- Lines are in completion order. Warm-up calls are not written.
+- `--output-format` is refused with `--load`, since this file has one format.
+  A file that cannot be written fails with `output_write_failed` (exit `1`)
+  after the summary is printed.
+
+##### Open loop (`--load-open-loop`)
+
+By default `--load-rate` is **closed-loop**: a slot that no worker is free to
+take is dropped, so a server too slow for the rate is sent fewer requests and
+its latency looks healthier than its users would see.
+`--load-open-loop`
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838))
+keeps the rate grid as the arrival schedule instead:
+
+- **No slot is dropped while the run lasts.** A slot that comes due while
+  every worker is busy waits, and starts as soon as one frees.
+- **Each call is timed from its scheduled start**, so the wait for a worker
+  counts in its latency. Queueing behind a slow server shows up in
+  `latencyMs`, where closed-loop mode hides it.
+- `--load-concurrency` still caps the calls in flight. Slots still waiting
+  when the window closes are not started; they are reported in
+  `droppedSlots`, and the summary carries `"openLoop": true`.
+- It needs `--load-rate`, or `--load-step-by rate`, whose stages all run open
+  loop.
+
 ##### Watching a run (`--load-progress`, `--load-interval`, `--load-warmup`)
 
 A long run used to be silent until its summary, and one aggregate p99 hides a
@@ -640,7 +695,7 @@ The tool is looked up once before the clock starts, so a missing tool fails
 the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
 is the result — unless a threshold below is set. `--load` is rejected with any other method and with `--app-info`,
-`--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
+`--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
 rejected without `--load`. Each of those refusals — and `--load-connections`
 above `--load-concurrency`, or above `1` over stdio — exits `1` with the
 envelope `code` `load_flag_conflict`, the code `mcpdo` uses for the same
