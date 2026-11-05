@@ -109,6 +109,29 @@ describe("RootsModal", () => {
     expect(client.setRoots).toHaveBeenCalledWith([{ uri: "file:///b" }]);
   });
 
+  it("does not submit while a pending request holds its input (#2829)", async () => {
+    const { stdin, client, rerender } = renderModal({});
+    await tick();
+    stdin.write("n");
+    await tick();
+    rerender(
+      <RootsModal
+        roots={roots}
+        inspectorClient={client}
+        connected
+        width={80}
+        height={24}
+        onClose={vi.fn()}
+        inputActive={false}
+      />,
+    );
+    await tick();
+    setSubmitValue({ uri: "file:///c" });
+    stdin.write("\r");
+    await tick();
+    expect(client.setRoots).not.toHaveBeenCalled();
+  });
+
   it("adds a root through the form", async () => {
     const { stdin, client } = renderModal({});
     await tick();

@@ -29,6 +29,11 @@ interface PromptTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
@@ -48,6 +53,7 @@ export function PromptTestModal({
   width,
   height,
   onClose,
+  inputActive = true,
   onAuthRecoveryRequired,
 }: PromptTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
@@ -124,10 +130,13 @@ export function PromptTestModal({
         }
       }
     },
-    { isActive: true },
+    { isActive: inputActive },
   );
 
   const handleFormSubmit = async (values: Record<string, string>) => {
+    // A pending sampling/elicitation request (#2829) is open above this
+    // modal: ink-form still sees its keys, so Enter must not submit here.
+    if (!inputActive) return;
     if (!inspectorClient || !prompt) return;
 
     setState("loading");

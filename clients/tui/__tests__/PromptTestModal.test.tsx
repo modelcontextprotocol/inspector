@@ -53,6 +53,27 @@ afterEach(() => {
 });
 
 describe("PromptTestModal", () => {
+  it("does not submit while a pending request holds its input (#2829)", async () => {
+    const getPrompt = vi.fn();
+    // Only getPrompt would be reached on submit.
+    const inspectorClient = { getPrompt } as unknown as InspectorClient;
+    const api = render(
+      <PromptTestModal
+        prompt={makePrompt()}
+        inspectorClient={inspectorClient}
+        width={120}
+        height={30}
+        onClose={vi.fn()}
+        inputActive={false}
+      />,
+    );
+    await tick();
+    api.stdin.write("\r");
+    await tick();
+    expect(getPrompt).not.toHaveBeenCalled();
+    api.unmount();
+  });
+
   it("submits the form, calls getPrompt, and shows results (success path)", async () => {
     const getPrompt = vi.fn().mockResolvedValue({
       result: {
