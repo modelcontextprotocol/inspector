@@ -17,6 +17,12 @@ import {
   writeClientConfigStore,
 } from "@inspector/core/client/node-persistence.js";
 
+// These cases make a write fail by `chmod 0o555` on the directory. Windows
+// does not honor POSIX directory mode bits, so the write succeeds there and
+// the rollback under test never runs; they are skipped on win32 by name
+// (#2748). The POSIX runs keep them, and the coverage they carry.
+const unwritableDirUnsupported = process.platform === "win32";
+
 const configWithPlaintextSecret = {
   enterpriseManagedAuth: {
     idp: {
@@ -224,181 +230,207 @@ describe("client node-persistence", () => {
     ).toBeNull();
   });
 
-  it("restores the prior keychain secret when the client.json write fails", async () => {
-    // Set/delete happens before the file write; without compensation a
-    // failed write would leave the new secret paired with the old on-disk
-    // config. Force the write to fail by making the directory read-only.
-    const filePath = await makeTmpFile(
-      JSON.stringify({
-        enterpriseManagedAuth: {
-          idp: { issuer: "https://idp.example.com", clientId: "cid" },
-        },
-      }),
-    );
-    const secretStore = new InMemorySecretStore();
-    await secretStore.set(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-      "old-secret",
-    );
+  it.skipIf(unwritableDirUnsupported)(
+    "restores the prior keychain secret when the client.json write fails",
+    async () => {
+      // Set/delete happens before the file write; without compensation a
+      // failed write would leave the new secret paired with the old on-disk
+      // config. Force the write to fail by making the directory read-only.
+      const filePath = await makeTmpFile(
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            idp: { issuer: "https://idp.example.com", clientId: "cid" },
+          },
+        }),
+      );
+      const secretStore = new InMemorySecretStore();
+      await secretStore.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        "old-secret",
+      );
 
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        writeClientConfigStore(
-          filePath,
-          {
-            enterpriseManagedAuth: {
-              idp: {
-                issuer: "https://idp.example.com",
-                clientId: "cid",
-                clientSecret: "new-secret",
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          writeClientConfigStore(
+            filePath,
+            {
+              enterpriseManagedAuth: {
+                idp: {
+                  issuer: "https://idp.example.com",
+                  clientId: "cid",
+                  clientSecret: "new-secret",
+                },
               },
             },
-          },
-          secretStore,
+            secretStore,
+          ),
+        ).rejects.toThrow();
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+      }
+
+      expect(
+        await secretStore.get(
+          CLIENT_KEYCHAIN_ID,
+          SECRET_FIELD_IDP_CLIENT_SECRET,
         ),
-      ).rejects.toThrow();
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-    }
+      ).toBe("old-secret");
+    },
+  );
 
-    expect(
-      await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
-    ).toBe("old-secret");
-  });
-
-  it("restores a cleared keychain secret when the client.json write fails", async () => {
-    const filePath = await makeTmpFile(
-      JSON.stringify({
-        enterpriseManagedAuth: {
-          idp: { issuer: "https://idp.example.com", clientId: "cid" },
-        },
-      }),
-    );
-    const secretStore = new InMemorySecretStore();
-    await secretStore.set(
-      CLIENT_KEYCHAIN_ID,
-      SECRET_FIELD_IDP_CLIENT_SECRET,
-      "old-secret",
-    );
-
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        writeClientConfigStore(
-          filePath,
-          {
-            cimd: {
-              enabled: true,
-              clientMetadataUrl: "https://x.example/c.json",
-            },
+  it.skipIf(unwritableDirUnsupported)(
+    "restores a cleared keychain secret when the client.json write fails",
+    async () => {
+      const filePath = await makeTmpFile(
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            idp: { issuer: "https://idp.example.com", clientId: "cid" },
           },
-          secretStore,
-        ),
-      ).rejects.toThrow();
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-    }
+        }),
+      );
+      const secretStore = new InMemorySecretStore();
+      await secretStore.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        "old-secret",
+      );
 
-    expect(
-      await secretStore.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
-    ).toBe("old-secret");
-  });
-
-  it("warns but rethrows the write failure when the restore itself fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const filePath = await makeTmpFile(
-      JSON.stringify({
-        enterpriseManagedAuth: {
-          idp: { issuer: "https://idp.example.com", clientId: "cid" },
-        },
-      }),
-    );
-    const store = new InMemorySecretStore();
-    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "old");
-    let sets = 0;
-    const failingRestore: SecretStore = {
-      get: (id, f) => store.get(id, f),
-      set: async (id, f, v) => {
-        sets += 1;
-        // First set is the write itself; the second is the restore.
-        if (sets > 1) throw new KeychainUnavailableError(new Error("gone"));
-        return store.set(id, f, v);
-      },
-      delete: (id, f) => store.delete(id, f),
-      deleteAllForServer: (id) => store.deleteAllForServer(id),
-    };
-
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        writeClientConfigStore(
-          filePath,
-          {
-            enterpriseManagedAuth: {
-              idp: {
-                issuer: "https://idp.example.com",
-                clientId: "cid",
-                clientSecret: "new",
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          writeClientConfigStore(
+            filePath,
+            {
+              cimd: {
+                enabled: true,
+                clientMetadataUrl: "https://x.example/c.json",
               },
             },
-          },
-          failingRestore,
+            secretStore,
+          ),
+        ).rejects.toThrow();
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+      }
+
+      expect(
+        await secretStore.get(
+          CLIENT_KEYCHAIN_ID,
+          SECRET_FIELD_IDP_CLIENT_SECRET,
         ),
-      ).rejects.toThrow(/EACCES|EPERM|permission/i);
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-      warn.mockRestore();
-    }
-  });
+      ).toBe("old-secret");
+    },
+  );
 
-  it("stringifies a non-Error restore failure in the warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const filePath = await makeTmpFile(
-      JSON.stringify({
-        enterpriseManagedAuth: {
-          idp: { issuer: "https://idp.example.com", clientId: "cid" },
+  it.skipIf(unwritableDirUnsupported)(
+    "warns but rethrows the write failure when the restore itself fails",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const filePath = await makeTmpFile(
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            idp: { issuer: "https://idp.example.com", clientId: "cid" },
+          },
+        }),
+      );
+      const store = new InMemorySecretStore();
+      await store.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        "old",
+      );
+      let sets = 0;
+      const failingRestore: SecretStore = {
+        get: (id, f) => store.get(id, f),
+        set: async (id, f, v) => {
+          sets += 1;
+          // First set is the write itself; the second is the restore.
+          if (sets > 1) throw new KeychainUnavailableError(new Error("gone"));
+          return store.set(id, f, v);
         },
-      }),
-    );
-    const store = new InMemorySecretStore();
-    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "old");
-    let sets = 0;
-    const failingRestore: SecretStore = {
-      get: (id, f) => store.get(id, f),
-      set: async (id, f, v) => {
-        sets += 1;
-        if (sets > 1) throw "gone"; // deliberately a bare string
-        return store.set(id, f, v);
-      },
-      delete: (id, f) => store.delete(id, f),
-      deleteAllForServer: (id) => store.deleteAllForServer(id),
-    };
+        delete: (id, f) => store.delete(id, f),
+        deleteAllForServer: (id) => store.deleteAllForServer(id),
+      };
 
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        writeClientConfigStore(
-          filePath,
-          {
-            enterpriseManagedAuth: {
-              idp: {
-                issuer: "https://idp.example.com",
-                clientId: "cid",
-                clientSecret: "new",
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          writeClientConfigStore(
+            filePath,
+            {
+              enterpriseManagedAuth: {
+                idp: {
+                  issuer: "https://idp.example.com",
+                  clientId: "cid",
+                  clientSecret: "new",
+                },
               },
             },
+            failingRestore,
+          ),
+        ).rejects.toThrow(/EACCES|EPERM|permission/i);
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+        warn.mockRestore();
+      }
+    },
+  );
+
+  it.skipIf(unwritableDirUnsupported)(
+    "stringifies a non-Error restore failure in the warning",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const filePath = await makeTmpFile(
+        JSON.stringify({
+          enterpriseManagedAuth: {
+            idp: { issuer: "https://idp.example.com", clientId: "cid" },
           },
-          failingRestore,
-        ),
-      ).rejects.toThrow();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-      warn.mockRestore();
-    }
-  });
+        }),
+      );
+      const store = new InMemorySecretStore();
+      await store.set(
+        CLIENT_KEYCHAIN_ID,
+        SECRET_FIELD_IDP_CLIENT_SECRET,
+        "old",
+      );
+      let sets = 0;
+      const failingRestore: SecretStore = {
+        get: (id, f) => store.get(id, f),
+        set: async (id, f, v) => {
+          sets += 1;
+          if (sets > 1) throw "gone"; // deliberately a bare string
+          return store.set(id, f, v);
+        },
+        delete: (id, f) => store.delete(id, f),
+        deleteAllForServer: (id) => store.deleteAllForServer(id),
+      };
+
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          writeClientConfigStore(
+            filePath,
+            {
+              enterpriseManagedAuth: {
+                idp: {
+                  issuer: "https://idp.example.com",
+                  clientId: "cid",
+                  clientSecret: "new",
+                },
+              },
+            },
+            failingRestore,
+          ),
+        ).rejects.toThrow();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+        warn.mockRestore();
+      }
+    },
+  );
 
   it("deleteClientConfigStore keeps the file when the keychain delete fails", async () => {
     // Keychain-first ordering: a failed confirmed delete leaves the file
@@ -460,84 +492,95 @@ describe("client node-persistence", () => {
     ).toBe("v");
   });
 
-  it("deleteClientConfigStore restores the secret when the file unlink fails", async () => {
-    // The other half of all-or-nothing: the secret delete succeeded but the
-    // unlink did not — without the restore, the surviving client.json would
-    // reload without its credential.
-    const filePath = await makeTmpFile(
-      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
-    );
-    const store = new InMemorySecretStore();
-    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+  it.skipIf(unwritableDirUnsupported)(
+    "deleteClientConfigStore restores the secret when the file unlink fails",
+    async () => {
+      // The other half of all-or-nothing: the secret delete succeeded but the
+      // unlink did not — without the restore, the surviving client.json would
+      // reload without its credential.
+      const filePath = await makeTmpFile(
+        JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+      );
+      const store = new InMemorySecretStore();
+      await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
 
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(deleteClientConfigStore(filePath, store)).rejects.toThrow();
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-    }
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          deleteClientConfigStore(filePath, store),
+        ).rejects.toThrow();
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+      }
 
-    expect(existsSync(filePath)).toBe(true);
-    expect(
-      await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
-    ).toBe("v");
-  });
+      expect(existsSync(filePath)).toBe(true);
+      expect(
+        await store.get(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET),
+      ).toBe("v");
+    },
+  );
 
-  it("delete: warns but rethrows the unlink failure when the restore fails", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const filePath = await makeTmpFile(
-      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
-    );
-    const store = new InMemorySecretStore();
-    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
-    const failingRestore: SecretStore = {
-      get: (id, f) => store.get(id, f),
-      set: async () => {
-        throw new KeychainUnavailableError(new Error("gone"));
-      },
-      delete: (id, f) => store.delete(id, f),
-      deleteAllForServer: (id) => store.deleteAllForServer(id),
-    };
+  it.skipIf(unwritableDirUnsupported)(
+    "delete: warns but rethrows the unlink failure when the restore fails",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const filePath = await makeTmpFile(
+        JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+      );
+      const store = new InMemorySecretStore();
+      await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+      const failingRestore: SecretStore = {
+        get: (id, f) => store.get(id, f),
+        set: async () => {
+          throw new KeychainUnavailableError(new Error("gone"));
+        },
+        delete: (id, f) => store.delete(id, f),
+        deleteAllForServer: (id) => store.deleteAllForServer(id),
+      };
 
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        deleteClientConfigStore(filePath, failingRestore),
-      ).rejects.toThrow(/EACCES|EPERM|permission/i);
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-      warn.mockRestore();
-    }
-    expect(existsSync(filePath)).toBe(true);
-  });
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          deleteClientConfigStore(filePath, failingRestore),
+        ).rejects.toThrow(/EACCES|EPERM|permission/i);
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+        warn.mockRestore();
+      }
+      expect(existsSync(filePath)).toBe(true);
+    },
+  );
 
-  it("delete: stringifies a non-Error restore failure in the warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const filePath = await makeTmpFile(
-      JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
-    );
-    const store = new InMemorySecretStore();
-    await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
-    const failingRestore: SecretStore = {
-      get: (id, f) => store.get(id, f),
-      set: async () => {
-        throw "gone"; // deliberately a bare string
-      },
-      delete: (id, f) => store.delete(id, f),
-      deleteAllForServer: (id) => store.deleteAllForServer(id),
-    };
+  it.skipIf(unwritableDirUnsupported)(
+    "delete: stringifies a non-Error restore failure in the warning",
+    async () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const filePath = await makeTmpFile(
+        JSON.stringify({ cimd: { enabled: false, clientMetadataUrl: "" } }),
+      );
+      const store = new InMemorySecretStore();
+      await store.set(CLIENT_KEYCHAIN_ID, SECRET_FIELD_IDP_CLIENT_SECRET, "v");
+      const failingRestore: SecretStore = {
+        get: (id, f) => store.get(id, f),
+        set: async () => {
+          throw "gone"; // deliberately a bare string
+        },
+        delete: (id, f) => store.delete(id, f),
+        deleteAllForServer: (id) => store.deleteAllForServer(id),
+      };
 
-    await fs.chmod(tmpDir, 0o555);
-    try {
-      await expect(
-        deleteClientConfigStore(filePath, failingRestore),
-      ).rejects.toThrow();
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
-    } finally {
-      await fs.chmod(tmpDir, 0o755);
-      warn.mockRestore();
-    }
-  });
+      await fs.chmod(tmpDir, 0o555);
+      try {
+        await expect(
+          deleteClientConfigStore(filePath, failingRestore),
+        ).rejects.toThrow();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("gone"));
+      } finally {
+        await fs.chmod(tmpDir, 0o755);
+        warn.mockRestore();
+      }
+    },
+  );
 });
 
 describe("session-scoped store keeps client.json durable (#1950 review r19)", () => {

@@ -15,6 +15,7 @@ import {
 } from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
 import { callDaemon } from "../src/daemon/client.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 describe("mcp.ts coverage", () => {
   let configPath: string | undefined;
@@ -38,8 +39,11 @@ describe("mcp.ts coverage", () => {
           await new Promise((r) => setTimeout(r, 50));
         }
       }
-      fs.rmSync(storageDir, { recursive: true, force: true });
+      // Cleared before the removal, so one failed `rmSync` cannot hand the
+      // same directory to every later test's teardown as well (#2748).
+      const dir = storageDir;
       storageDir = undefined;
+      fs.rmSync(dir, { recursive: true, force: true });
     }
     if (configPath) {
       deleteConfigFile(configPath);
@@ -56,437 +60,449 @@ describe("mcp.ts coverage", () => {
     };
   }
 
-  it("covers RPC registrations, metadata parse, and --plain", async () => {
-    configPath = createSampleTestConfig();
-    const e = env();
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "covers RPC registrations, metadata parse, and --plain",
+    async () => {
+      configPath = createSampleTestConfig();
+      const e = env();
 
-    const connected = await runMcp(
-      ["connect", "test-stdio", "--config", configPath, "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(connected);
-
-    const withMeta = await runMcp(
-      [
-        "tools/list",
-        "--metadata",
-        "client=connection-cov",
-        "--metadata",
-        "count=1",
-        // Object value must JSON.stringify (not String → "[object Object]").
-        "--metadata",
-        'nested={"a":1}',
-        "--plain",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(withMeta);
-
-    const badMeta = await runMcp(["tools/list", "--metadata", "novalue"], {
-      env: e,
-    });
-    expectCliFailure(badMeta);
-
-    const emptyMeta = await runMcp(["tools/list", "--metadata", "k="], {
-      env: e,
-    });
-    expectCliFailure(emptyMeta);
-
-    const read = await runMcp(
-      [
-        "resources/read",
-        "demo://resource/static/document/architecture.md",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(read);
-
-    // Same Commander action as subscribe (uri positional / --uri); prefer
-    // unsubscribe so we don't open a long-lived stream in this suite.
-    const unsub = await runMcp(
-      ["resources/unsubscribe", "test://env", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    // Default test server does not advertise subscriptions.
-    expectCliFailure(unsub);
-    expect(unsub.stderr).toMatch(/unsubscribe|Method not found/i);
-
-    const prompt = await runMcp(
-      [
-        "prompts/get",
-        "simple_prompt",
-        "--prompt-args",
-        "unused=1",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(prompt);
-
-    // #2859: prompt argument values reach the server verbatim — no JSON
-    // normalisation (`1.50` → `"1.5"`), and an empty value is legal.
-    const verbatim = await runMcp(
-      [
-        "prompts/get",
-        "args_prompt",
-        "--prompt-args",
-        "city=1.50",
-        "state=",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(verbatim);
-    expect(verbatim.stdout).toContain(
-      "This is a prompt with arguments: city=1.50, state=",
-    );
-
-    const completeBad = await runMcp(
-      ["prompts/complete", "--complete-ref-type", "nope"],
-      { env: e },
-    );
-    expectCliFailure(completeBad);
-
-    const complete = await runMcp(
-      [
-        "prompts/complete",
-        "--complete-ref-type",
-        "ref/prompt",
-        "--complete-ref",
-        "simple_prompt",
-        "--complete-arg-name",
-        "name",
-        "--complete-arg-value",
-        "s",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    // Completion support varies; assert the command ran (not a usage parse error).
-    expect(complete.stderr).not.toMatch(/complete-ref-type/);
-    expect([0, 1]).toContain(complete.exitCode);
-
-    const logOk = await runMcp(
-      ["logging/setLevel", "debug", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(logOk);
-
-    const logBad = await runMcp(["logging/setLevel", "--log-level", "nope"], {
-      env: e,
-    });
-    expectCliFailure(logBad);
-
-    const taskGet = await runMcp(
-      ["tasks/get", "missing-task", "--format", "json"],
-      {
-        env: e,
-        timeout: 20000,
-      },
-    );
-    expectCliFailure(taskGet);
-
-    const taskCancel = await runMcp(
-      ["tasks/cancel", "--task-id", "missing-task", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(taskCancel);
-
-    const taskResult = await runMcp(
-      ["tasks/result", "missing-task", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(taskResult);
-
-    const taskUpdateNoBody = await runMcp(
-      ["tasks/update", "missing-task", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(taskUpdateNoBody);
-    expect(taskUpdateNoBody.stderr).toMatch(/--input-responses/);
-
-    const taskUpdateBadJson = await runMcp(
-      [
-        "tasks/update",
-        "missing-task",
-        "--input-responses",
-        "not-json",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(taskUpdateBadJson);
-    expect(taskUpdateBadJson.stderr).toMatch(/--input-responses is invalid/);
-
-    const taskUpdate = await runMcp(
-      [
-        "tasks/update",
-        "missing-task",
-        "--input-responses",
-        '{"req-1":"answer"}',
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(taskUpdate);
-
-    const roots = await runMcp(
-      ["roots/set", "--roots-json", "[]", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(roots);
-
-    const called = await runMcp(
-      [
-        "tools/call",
-        "--tool-name",
-        "echo",
-        "--tool-arg",
-        "message=cov",
-        "--tool-metadata",
-        "src=test",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(called);
-
-    const templates = await runMcp(
-      ["resources/templates/list", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(templates);
-
-    const prompts = await runMcp(["prompts/list", "--format", "json"], {
-      env: e,
-      timeout: 20000,
-    });
-    expectCliSuccess(prompts);
-
-    const tasks = await runMcp(["tasks/list", "--format", "json"], {
-      env: e,
-      timeout: 20000,
-    });
-    expectCliSuccess(tasks);
-    expect(JSON.parse(tasks.stdout)).toHaveProperty("tasks");
-
-    const rootsList = await runMcp(["roots/list", "--format", "json"], {
-      env: e,
-      timeout: 20000,
-    });
-    expectCliSuccess(rootsList);
-    expect(JSON.parse(rootsList.stdout)).toHaveProperty("roots");
-
-    const show = await runMcp(
-      [
-        "servers/show",
-        "test-stdio",
-        "--config",
-        configPath,
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(show);
-    // Entry provenance rides along, mirroring servers/list.
-    expect(JSON.parse(show.stdout).source).toMatchObject({ kind: "config" });
-
-    // No name: falls back to the MRU connection's entry (test-stdio is
-    // connected above and MCP_ALLOW_DEFAULT_CONNECTION opts non-TTY in).
-    const showMru = await runMcp(
-      ["servers/show", "--config", configPath, "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(showMru);
-    expect(JSON.parse(showMru.stdout).name).toBe("test-stdio");
-
-    // MRU-inferred name missing from the shell's source: the error must
-    // explain the name came from the MRU connection, not look like a typo.
-    const otherConfig = createTestConfig({
-      mcpServers: { unrelated: { type: "stdio", command: "true" } },
-    });
-    try {
-      const crossCatalog = await runMcp(
-        ["servers/show", "--config", otherConfig],
+      const connected = await runMcp(
+        ["connect", "test-stdio", "--config", configPath, "--format", "json"],
         { env: e, timeout: 20000 },
       );
-      expectCliFailure(crossCatalog);
-      expect(crossCatalog.stderr).toMatch(
-        /most-recently-used connection 'test-stdio' has no entry in config/,
+      expectCliSuccess(connected);
+
+      const withMeta = await runMcp(
+        [
+          "tools/list",
+          "--metadata",
+          "client=connection-cov",
+          "--metadata",
+          "count=1",
+          // Object value must JSON.stringify (not String → "[object Object]").
+          "--metadata",
+          'nested={"a":1}',
+          "--plain",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
       );
-    } finally {
-      deleteConfigFile(otherConfig);
-    }
+      expectCliSuccess(withMeta);
 
-    // Skills support is optional; the default test server may not advertise
-    // it. Either way, the RPC action itself should run (not a usage error).
-    const skillsList = await runMcp(["skills/list", "--format", "json"], {
-      env: e,
-      timeout: 20000,
-    });
-    expect([0, 1]).toContain(skillsList.exitCode);
-
-    const skillsListVerify = await runMcp(
-      ["skills/list", "--verify", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expect([0, 1]).toContain(skillsListVerify.exitCode);
-
-    const skillsGet = await runMcp(
-      ["skills/get", "test://skill", "--verify", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expect([0, 1]).toContain(skillsGet.exitCode);
-
-    const skillsGetFlagUri = await runMcp(
-      ["skills/get", "--uri", "test://skill", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expect([0, 1]).toContain(skillsGetFlagUri.exitCode);
-
-    await runMcp(
-      ["disconnect", "--connection", "test-stdio", "--format", "json"],
-      {
+      const badMeta = await runMcp(["tools/list", "--metadata", "novalue"], {
         env: e,
-      },
-    );
-    await runMcp(["daemon", "stop", "--format", "json"], { env: e });
-  });
+      });
+      expectCliFailure(badMeta);
 
-  it("covers ad-hoc connect options and servers/list catalog env", async () => {
-    configPath = createSampleTestConfig();
-    const e = env();
-    const { command, args } = getTestMcpServerCommand();
+      const emptyMeta = await runMcp(["tools/list", "--metadata", "k="], {
+        env: e,
+      });
+      expectCliFailure(emptyMeta);
 
-    const adHoc = await runMcp(
-      [
-        "connect",
-        "--connection",
-        "opts",
-        "--transport",
-        "stdio",
-        "--cwd",
-        process.cwd(),
-        "-e",
-        "COV_FLAG=1",
-        "--connect-timeout",
-        "15000",
-        "--era",
-        "auto",
-        "--elicit",
-        "url",
-        "--format",
-        "json",
-        command,
-        ...args,
-      ],
-      { env: e, timeout: 20000 },
-    );
-    expectCliSuccess(adHoc);
+      const read = await runMcp(
+        [
+          "resources/read",
+          "demo://resource/static/document/architecture.md",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(read);
 
-    // --ema is rejected for ad-hoc targets: EMA needs per-server OAuth
-    // client id/secret, which only a catalog entry can supply.
-    const emaAdHoc = await runMcp(
-      ["connect", "--ema", "--format", "json", command, ...args],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(emaAdHoc);
-    expect(emaAdHoc.stderr).toMatch(/--ema cannot be used with an ad-hoc/);
+      // Same Commander action as subscribe (uri positional / --uri); prefer
+      // unsubscribe so we don't open a long-lived stream in this suite.
+      const unsub = await runMcp(
+        ["resources/unsubscribe", "test://env", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      // Default test server does not advertise subscriptions.
+      expectCliFailure(unsub);
+      expect(unsub.stderr).toMatch(/unsubscribe|Method not found/i);
 
-    // Invalid --era is rejected before any connection is attempted.
-    const badEra = await runMcp(
-      ["connect", "--era", "bogus", "--format", "json", command, ...args],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(badEra);
-    expect(badEra.stderr).toMatch(/Invalid --era/);
+      const prompt = await runMcp(
+        [
+          "prompts/get",
+          "simple_prompt",
+          "--prompt-args",
+          "unused=1",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(prompt);
 
-    // Invalid --elicit is rejected before any connection is attempted.
-    const badElicit = await runMcp(
-      ["connect", "--elicit", "bogus", "--format", "json", command, ...args],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(badElicit);
-    expect(badElicit.stderr).toMatch(/Invalid --elicit/);
+      // #2859: prompt argument values reach the server verbatim — no JSON
+      // normalisation (`1.50` → `"1.5"`), and an empty value is legal.
+      const verbatim = await runMcp(
+        [
+          "prompts/get",
+          "args_prompt",
+          "--prompt-args",
+          "city=1.50",
+          "state=",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(verbatim);
+      expect(verbatim.stdout).toContain(
+        "This is a prompt with arguments: city=1.50, state=",
+      );
 
-    await runMcp(["disconnect", "--connection", "opts", "--format", "json"], {
-      env: e,
-    });
+      const completeBad = await runMcp(
+        ["prompts/complete", "--complete-ref-type", "nope"],
+        { env: e },
+      );
+      expectCliFailure(completeBad);
 
-    // Ad-hoc HTTP with --server-url and no positional rest (empty-rest branch).
-    const urlOnly = await runMcp(
-      [
-        "connect",
-        "--connection",
-        "urlonly",
-        "--transport",
-        "http",
-        "--server-url",
-        "http://127.0.0.1:9/mcp",
-        "--header",
-        "X-Test: 1",
-        "--connect-timeout",
-        "100",
-        "--format",
-        "json",
-      ],
-      { env: e, timeout: 10000 },
-    );
-    expectCliFailure(urlOnly);
-    // Unreachable HTTP should classify as exit 4 when the error is network-shaped.
-    expect([1, 4]).toContain(urlOnly.exitCode);
+      const complete = await runMcp(
+        [
+          "prompts/complete",
+          "--complete-ref-type",
+          "ref/prompt",
+          "--complete-ref",
+          "simple_prompt",
+          "--complete-arg-name",
+          "name",
+          "--complete-arg-value",
+          "s",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      // Completion support varies; assert the command ran (not a usage parse error).
+      expect(complete.stderr).not.toMatch(/complete-ref-type/);
+      expect([0, 1]).toContain(complete.exitCode);
 
-    const listed = await runMcp(["servers/list", "--format", "json"], {
-      env: {
-        ...e,
-        MCP_CATALOG_PATH: configPath,
-      },
-    });
-    expectCliSuccess(listed);
+      const logOk = await runMcp(
+        ["logging/setLevel", "debug", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(logOk);
 
-    // Whitespace --config → trim || undefined branch on servers/list.
-    const emptyConfig = await runMcp(
-      ["servers/list", "--config", "   ", "--format", "json"],
-      { env: { ...e, MCP_CATALOG_PATH: configPath } },
-    );
-    expectCliSuccess(emptyConfig);
+      const logBad = await runMcp(["logging/setLevel", "--log-level", "nope"], {
+        env: e,
+      });
+      expectCliFailure(logBad);
 
-    await runMcp(["daemon", "stop", "--format", "json"], { env: e });
-  });
+      const taskGet = await runMcp(
+        ["tasks/get", "missing-task", "--format", "json"],
+        {
+          env: e,
+          timeout: 20000,
+        },
+      );
+      expectCliFailure(taskGet);
 
-  it("treats a single path-like token as ad-hoc stdio, a bare word as a catalog name", async () => {
-    configPath = createSampleTestConfig();
-    const e = { ...env(), MCP_CATALOG_PATH: configPath };
+      const taskCancel = await runMcp(
+        ["tasks/cancel", "--task-id", "missing-task", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(taskCancel);
 
-    // Bare word: catalog/config lookup — fails as a catalog miss, before
-    // any daemon or spawn work.
-    const bareWord = await runMcp(
-      ["connect", "no-such-catalog-entry", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(bareWord);
-    expect(bareWord.stderr).toMatch(/not found/i);
+      const taskResult = await runMcp(
+        ["tasks/result", "missing-task", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(taskResult);
 
-    // Path-like token: ad-hoc stdio target — never touches the catalog, so
-    // the failure is a spawn/connect failure, not a catalog miss.
-    const pathToken = await runMcp(
-      ["connect", "./no-such-server-binary", "--format", "json"],
-      { env: e, timeout: 20000 },
-    );
-    expectCliFailure(pathToken);
-    expect(pathToken.stderr).not.toMatch(/not found\. Available servers/);
-  });
+      const taskUpdateNoBody = await runMcp(
+        ["tasks/update", "missing-task", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(taskUpdateNoBody);
+      expect(taskUpdateNoBody.stderr).toMatch(/--input-responses/);
+
+      const taskUpdateBadJson = await runMcp(
+        [
+          "tasks/update",
+          "missing-task",
+          "--input-responses",
+          "not-json",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(taskUpdateBadJson);
+      expect(taskUpdateBadJson.stderr).toMatch(/--input-responses is invalid/);
+
+      const taskUpdate = await runMcp(
+        [
+          "tasks/update",
+          "missing-task",
+          "--input-responses",
+          '{"req-1":"answer"}',
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(taskUpdate);
+
+      const roots = await runMcp(
+        ["roots/set", "--roots-json", "[]", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(roots);
+
+      const called = await runMcp(
+        [
+          "tools/call",
+          "--tool-name",
+          "echo",
+          "--tool-arg",
+          "message=cov",
+          "--tool-metadata",
+          "src=test",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(called);
+
+      const templates = await runMcp(
+        ["resources/templates/list", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(templates);
+
+      const prompts = await runMcp(["prompts/list", "--format", "json"], {
+        env: e,
+        timeout: 20000,
+      });
+      expectCliSuccess(prompts);
+
+      const tasks = await runMcp(["tasks/list", "--format", "json"], {
+        env: e,
+        timeout: 20000,
+      });
+      expectCliSuccess(tasks);
+      expect(JSON.parse(tasks.stdout)).toHaveProperty("tasks");
+
+      const rootsList = await runMcp(["roots/list", "--format", "json"], {
+        env: e,
+        timeout: 20000,
+      });
+      expectCliSuccess(rootsList);
+      expect(JSON.parse(rootsList.stdout)).toHaveProperty("roots");
+
+      const show = await runMcp(
+        [
+          "servers/show",
+          "test-stdio",
+          "--config",
+          configPath,
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(show);
+      // Entry provenance rides along, mirroring servers/list.
+      expect(JSON.parse(show.stdout).source).toMatchObject({ kind: "config" });
+
+      // No name: falls back to the MRU connection's entry (test-stdio is
+      // connected above and MCP_ALLOW_DEFAULT_CONNECTION opts non-TTY in).
+      const showMru = await runMcp(
+        ["servers/show", "--config", configPath, "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(showMru);
+      expect(JSON.parse(showMru.stdout).name).toBe("test-stdio");
+
+      // MRU-inferred name missing from the shell's source: the error must
+      // explain the name came from the MRU connection, not look like a typo.
+      const otherConfig = createTestConfig({
+        mcpServers: { unrelated: { type: "stdio", command: "true" } },
+      });
+      try {
+        const crossCatalog = await runMcp(
+          ["servers/show", "--config", otherConfig],
+          { env: e, timeout: 20000 },
+        );
+        expectCliFailure(crossCatalog);
+        expect(crossCatalog.stderr).toMatch(
+          /most-recently-used connection 'test-stdio' has no entry in config/,
+        );
+      } finally {
+        deleteConfigFile(otherConfig);
+      }
+
+      // Skills support is optional; the default test server may not advertise
+      // it. Either way, the RPC action itself should run (not a usage error).
+      const skillsList = await runMcp(["skills/list", "--format", "json"], {
+        env: e,
+        timeout: 20000,
+      });
+      expect([0, 1]).toContain(skillsList.exitCode);
+
+      const skillsListVerify = await runMcp(
+        ["skills/list", "--verify", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expect([0, 1]).toContain(skillsListVerify.exitCode);
+
+      const skillsGet = await runMcp(
+        ["skills/get", "test://skill", "--verify", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expect([0, 1]).toContain(skillsGet.exitCode);
+
+      const skillsGetFlagUri = await runMcp(
+        ["skills/get", "--uri", "test://skill", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expect([0, 1]).toContain(skillsGetFlagUri.exitCode);
+
+      await runMcp(
+        ["disconnect", "--connection", "test-stdio", "--format", "json"],
+        {
+          env: e,
+        },
+      );
+      await runMcp(["daemon", "stop", "--format", "json"], { env: e });
+    },
+  );
+
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "covers ad-hoc connect options and servers/list catalog env",
+    async () => {
+      configPath = createSampleTestConfig();
+      const e = env();
+      const { command, args } = getTestMcpServerCommand();
+
+      const adHoc = await runMcp(
+        [
+          "connect",
+          "--connection",
+          "opts",
+          "--transport",
+          "stdio",
+          "--cwd",
+          process.cwd(),
+          "-e",
+          "COV_FLAG=1",
+          "--connect-timeout",
+          "15000",
+          "--era",
+          "auto",
+          "--elicit",
+          "url",
+          "--format",
+          "json",
+          command,
+          ...args,
+        ],
+        { env: e, timeout: 20000 },
+      );
+      expectCliSuccess(adHoc);
+
+      // --ema is rejected for ad-hoc targets: EMA needs per-server OAuth
+      // client id/secret, which only a catalog entry can supply.
+      const emaAdHoc = await runMcp(
+        ["connect", "--ema", "--format", "json", command, ...args],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(emaAdHoc);
+      expect(emaAdHoc.stderr).toMatch(/--ema cannot be used with an ad-hoc/);
+
+      // Invalid --era is rejected before any connection is attempted.
+      const badEra = await runMcp(
+        ["connect", "--era", "bogus", "--format", "json", command, ...args],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(badEra);
+      expect(badEra.stderr).toMatch(/Invalid --era/);
+
+      // Invalid --elicit is rejected before any connection is attempted.
+      const badElicit = await runMcp(
+        ["connect", "--elicit", "bogus", "--format", "json", command, ...args],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(badElicit);
+      expect(badElicit.stderr).toMatch(/Invalid --elicit/);
+
+      await runMcp(["disconnect", "--connection", "opts", "--format", "json"], {
+        env: e,
+      });
+
+      // Ad-hoc HTTP with --server-url and no positional rest (empty-rest branch).
+      const urlOnly = await runMcp(
+        [
+          "connect",
+          "--connection",
+          "urlonly",
+          "--transport",
+          "http",
+          "--server-url",
+          "http://127.0.0.1:9/mcp",
+          "--header",
+          "X-Test: 1",
+          "--connect-timeout",
+          "100",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: 10000 },
+      );
+      expectCliFailure(urlOnly);
+      // Unreachable HTTP should classify as exit 4 when the error is network-shaped.
+      expect([1, 4]).toContain(urlOnly.exitCode);
+
+      const listed = await runMcp(["servers/list", "--format", "json"], {
+        env: {
+          ...e,
+          MCP_CATALOG_PATH: configPath,
+        },
+      });
+      expectCliSuccess(listed);
+
+      // Whitespace --config → trim || undefined branch on servers/list.
+      const emptyConfig = await runMcp(
+        ["servers/list", "--config", "   ", "--format", "json"],
+        { env: { ...e, MCP_CATALOG_PATH: configPath } },
+      );
+      expectCliSuccess(emptyConfig);
+
+      await runMcp(["daemon", "stop", "--format", "json"], { env: e });
+    },
+  );
+
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "treats a single path-like token as ad-hoc stdio, a bare word as a catalog name",
+    async () => {
+      configPath = createSampleTestConfig();
+      const e = { ...env(), MCP_CATALOG_PATH: configPath };
+
+      // Bare word: catalog/config lookup — fails as a catalog miss, before
+      // any daemon or spawn work.
+      const bareWord = await runMcp(
+        ["connect", "no-such-catalog-entry", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(bareWord);
+      expect(bareWord.stderr).toMatch(/not found/i);
+
+      // Path-like token: ad-hoc stdio target — never touches the catalog, so
+      // the failure is a spawn/connect failure, not a catalog miss.
+      const pathToken = await runMcp(
+        ["connect", "./no-such-server-binary", "--format", "json"],
+        { env: e, timeout: 20000 },
+      );
+      expectCliFailure(pathToken);
+      expect(pathToken.stderr).not.toMatch(/not found\. Available servers/);
+    },
+  );
 
   it("bare mcpdo / --help print usage without an ErrorEnvelope", async () => {
     // Bare invocation: Commander writes help to stderr (help-after-error).
@@ -553,7 +569,11 @@ describe("mcp.ts coverage", () => {
     );
     expectCliFailure(unknown);
     expect(unknown.stderr).toMatch(/Server 'no-such-entry' not found/);
-    expect(unknown.stderr).toContain(`(config ${configPath}`);
+    // Compared in the envelope's own JSON encoding: a Windows path's
+    // backslashes arrive escaped (#2748).
+    expect(unknown.stderr).toContain(
+      `(config ${JSON.stringify(configPath).slice(1, -1)}`,
+    );
   });
 
   // Windows named pipes have no sun_path limit, so the check is a no-op there.

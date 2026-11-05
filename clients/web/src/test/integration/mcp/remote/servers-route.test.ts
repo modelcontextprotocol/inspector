@@ -30,6 +30,12 @@ import {
 } from "@inspector/core/auth/node/secret-store.js";
 import type { MCPConfig } from "@inspector/core/mcp/types.js";
 
+// These cases make a write fail by `chmod 0o555` on the directory. Windows
+// does not honor POSIX directory mode bits, so the write succeeds there and
+// the rollback under test never runs; they are skipped on win32 by name
+// (#2748). The POSIX runs keep them, and the coverage they carry.
+const unwritableDirUnsupported = process.platform === "win32";
+
 interface Harness {
   baseUrl: string;
   server: ServerType;
@@ -3330,54 +3336,60 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
     expect(await store.get("new-name", envSecretField("K"))).toBe(null);
   });
 
-  it("PUT in-place: a failed disk write rolls the keychain values back", async () => {
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        mcpServers: {
-          srv: { type: "stdio", command: "node", env: { A: "" } },
-        },
-      }),
-    );
-    await store.set("srv", envSecretField("A"), "value-A");
-    const before = readFileSync(configPath, "utf-8");
+  it.skipIf(unwritableDirUnsupported)(
+    "PUT in-place: a failed disk write rolls the keychain values back",
+    async () => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: { type: "stdio", command: "node", env: { A: "" } },
+          },
+        }),
+      );
+      await store.set("srv", envSecretField("A"), "value-A");
+      const before = readFileSync(configPath, "utf-8");
 
-    // The keychain set precedes the disk write: without compensation the
-    // old on-disk entry would rehydrate with the *new* secret.
-    chmodSync(tempDir, 0o555);
-    const res = await fetch(`${baseUrl}/api/servers/srv`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        config: { type: "stdio", command: "node", env: { A: "value-A2" } },
-      }),
-    });
-    chmodSync(tempDir, 0o755);
+      // The keychain set precedes the disk write: without compensation the
+      // old on-disk entry would rehydrate with the *new* secret.
+      chmodSync(tempDir, 0o555);
+      const res = await fetch(`${baseUrl}/api/servers/srv`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          config: { type: "stdio", command: "node", env: { A: "value-A2" } },
+        }),
+      });
+      chmodSync(tempDir, 0o755);
 
-    expect(res.status).toBe(500);
-    expect(readFileSync(configPath, "utf-8")).toBe(before);
-    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
-  });
+      expect(res.status).toBe(500);
+      expect(readFileSync(configPath, "utf-8")).toBe(before);
+      expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    },
+  );
 
-  it("POST: a failed disk write removes the just-written keychain entries", async () => {
-    writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
+  it.skipIf(unwritableDirUnsupported)(
+    "POST: a failed disk write removes the just-written keychain entries",
+    async () => {
+      writeFileSync(configPath, JSON.stringify({ mcpServers: {} }));
 
-    chmodSync(tempDir, 0o555);
-    const res = await fetch(`${baseUrl}/api/servers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: "newsrv",
-        config: { type: "stdio", command: "node", env: { A: "secret-A" } },
-      }),
-    });
-    chmodSync(tempDir, 0o755);
+      chmodSync(tempDir, 0o555);
+      const res = await fetch(`${baseUrl}/api/servers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "newsrv",
+          config: { type: "stdio", command: "node", env: { A: "secret-A" } },
+        }),
+      });
+      chmodSync(tempDir, 0o755);
 
-    expect(res.status).toBe(500);
-    // No disk entry indexes them, so leaving them would strand credentials;
-    // a retry POST must also not be trapped by leftovers.
-    expect(await store.get("newsrv", envSecretField("A"))).toBe(null);
-  });
+      expect(res.status).toBe(500);
+      // No disk entry indexes them, so leaving them would strand credentials;
+      // a retry POST must also not be trapped by leftovers.
+      expect(await store.get("newsrv", envSecretField("A"))).toBe(null);
+    },
+  );
 
   it("DELETE: a failed keychain purge leaves disk and keychain untouched", async () => {
     writeFileSync(
@@ -3434,28 +3446,31 @@ describe("catalog mutations are all-or-nothing (file/keychain compensation)", ()
     expect(await store.get("srv", envSecretField("B"))).toBe("value-B");
   });
 
-  it("DELETE: a failed disk write restores the purged secrets", async () => {
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        mcpServers: {
-          srv: { type: "stdio", command: "node", env: { A: "" } },
-        },
-      }),
-    );
-    await store.set("srv", envSecretField("A"), "value-A");
-    const before = readFileSync(configPath, "utf-8");
+  it.skipIf(unwritableDirUnsupported)(
+    "DELETE: a failed disk write restores the purged secrets",
+    async () => {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          mcpServers: {
+            srv: { type: "stdio", command: "node", env: { A: "" } },
+          },
+        }),
+      );
+      await store.set("srv", envSecretField("A"), "value-A");
+      const before = readFileSync(configPath, "utf-8");
 
-    // The purge succeeds but the file rewrite fails: without the restore
-    // the entry would rehydrate with no credential on the next read.
-    chmodSync(tempDir, 0o555);
-    const res = await fetch(`${baseUrl}/api/servers/srv`, {
-      method: "DELETE",
-    });
-    chmodSync(tempDir, 0o755);
+      // The purge succeeds but the file rewrite fails: without the restore
+      // the entry would rehydrate with no credential on the next read.
+      chmodSync(tempDir, 0o555);
+      const res = await fetch(`${baseUrl}/api/servers/srv`, {
+        method: "DELETE",
+      });
+      chmodSync(tempDir, 0o755);
 
-    expect(res.status).toBe(500);
-    expect(readFileSync(configPath, "utf-8")).toBe(before);
-    expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
-  });
+      expect(res.status).toBe(500);
+      expect(readFileSync(configPath, "utf-8")).toBe(before);
+      expect(await store.get("srv", envSecretField("A"))).toBe("value-A");
+    },
+  );
 });

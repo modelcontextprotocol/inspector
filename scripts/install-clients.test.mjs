@@ -104,7 +104,17 @@ function parentNpmEnv(home) {
 
 const npmCmd = { shell: process.platform === "win32", encoding: "utf8" };
 
-const npmVersion = spawnSync("npm", ["--version"], npmCmd).stdout.trim();
+// Probed under the SAME environment the premise below runs npm under, not the
+// ambient one. They can resolve different npms: on Windows the `npm.cmd` shim
+// picks its CLI from the global prefix, which `npm_config_*` variables steer —
+// and `parentNpmEnv` deletes those. Probing the ambient npm let the premise
+// run against an older one that never gates (#2748).
+const probeHome = mkdtempSync(join(tmpdir(), "install-clients-probe-"));
+const npmVersion = spawnSync("npm", ["--version"], {
+  ...npmCmd,
+  env: parentNpmEnv(probeHome),
+}).stdout.trim();
+rmSync(probeHome, { recursive: true, force: true });
 const [major, minor] = npmVersion.split(".").map(Number);
 const npmGatesAllowScripts = major > 11 || (major === 11 && minor >= 19);
 

@@ -33,8 +33,10 @@ import {
   expectCliSuccess,
   expectCliFailure,
 } from "../../cli/__tests__/helpers/assertions.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
-describe("daemon coverage", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
   let configPath: string | undefined;
@@ -1236,7 +1238,8 @@ describe("daemon coverage", () => {
   });
 });
 
-describe("mcp connection coverage", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("mcp connection coverage", () => {
   let configPath: string | undefined;
   let storageDir: string | undefined;
 

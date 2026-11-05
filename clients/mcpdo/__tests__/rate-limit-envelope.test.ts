@@ -18,6 +18,7 @@ import {
   type ThrottlingServer,
 } from "../../cli/__tests__/helpers/throttling-server.js";
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 /**
  * mcpdo's JSON error envelope for a throttled request (#2772). The envelope is
@@ -25,7 +26,8 @@ import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
  * the daemon socket first, so these tests cover that hop on each side and then
  * the whole path end to end.
  */
-describe("mcpdo rate-limited request envelope", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
   let dir: string | undefined;
   let server: DaemonServer | undefined;
   let throttling: ThrottlingServer | undefined;

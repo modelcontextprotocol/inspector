@@ -4,6 +4,12 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { resolveCommandPath } from "../src/connection/resolve-command.js";
 
+// These cases build extensionless executables and lean on the POSIX exec
+// bit. On win32 resolution goes through PATHEXT by design (an extensionless
+// file is not a command there, and every file passes X_OK), so they are
+// skipped there by name (#2748).
+const posixExecBits = process.platform !== "win32";
+
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-resolve-"));
 
 afterAll(() => {
@@ -18,26 +24,32 @@ function makeExecutable(dir: string, name: string): string {
 }
 
 describe("resolveCommandPath", () => {
-  it("resolves a bare name to the first executable on PATH", () => {
-    const first = path.join(tmpRoot, "first");
-    const second = path.join(tmpRoot, "second");
-    const expected = makeExecutable(first, "mytool");
-    makeExecutable(second, "mytool");
-    const env = { PATH: [first, second].join(path.delimiter) };
-    expect(resolveCommandPath("mytool", env)).toBe(expected);
-  });
+  it.runIf(posixExecBits)(
+    "resolves a bare name to the first executable on PATH",
+    () => {
+      const first = path.join(tmpRoot, "first");
+      const second = path.join(tmpRoot, "second");
+      const expected = makeExecutable(first, "mytool");
+      makeExecutable(second, "mytool");
+      const env = { PATH: [first, second].join(path.delimiter) };
+      expect(resolveCommandPath("mytool", env)).toBe(expected);
+    },
+  );
 
-  it("skips PATH entries where the name is missing or not a file", () => {
-    const missing = path.join(tmpRoot, "missing");
-    const hasDir = path.join(tmpRoot, "has-dir");
-    fs.mkdirSync(path.join(hasDir, "mytool2"), { recursive: true });
-    const real = path.join(tmpRoot, "real");
-    const expected = makeExecutable(real, "mytool2");
-    const env = { PATH: [missing, hasDir, "", real].join(path.delimiter) };
-    expect(resolveCommandPath("mytool2", env)).toBe(expected);
-  });
+  it.runIf(posixExecBits)(
+    "skips PATH entries where the name is missing or not a file",
+    () => {
+      const missing = path.join(tmpRoot, "missing");
+      const hasDir = path.join(tmpRoot, "has-dir");
+      fs.mkdirSync(path.join(hasDir, "mytool2"), { recursive: true });
+      const real = path.join(tmpRoot, "real");
+      const expected = makeExecutable(real, "mytool2");
+      const env = { PATH: [missing, hasDir, "", real].join(path.delimiter) };
+      expect(resolveCommandPath("mytool2", env)).toBe(expected);
+    },
+  );
 
-  it("skips non-executable files", () => {
+  it.runIf(posixExecBits)("skips non-executable files", () => {
     const dir = path.join(tmpRoot, "non-exec");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "mytool3"), "", { mode: 0o644 });
