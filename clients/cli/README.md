@@ -159,6 +159,9 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
 | `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-churn`                | With `--load`: session churn. Each worker connects, makes `--load-churn-calls` calls, disconnects, and repeats; connect times and failures are reported in `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. See [Session churn](#session-churn---load-churn). |
+| `--load-subscribe <uri>`      | With `--load`: notification fan-out. Subscribe `--load-subscribers` sessions to this resource and report how `notifications/resources/updated` reaches them, in `fanout`. With `--tool-name` (or `--load-scenario`) each successful call is a trigger; without one the run listens for `--load-duration`. See [Notification fan-out](#notification-fan-out---load-subscribe). |
+| `--load-subscribers <n>`      | With `--load-subscribe`: sessions to subscribe, this connection included (default `1`; above `1` HTTP/SSE only). |
+| `--load-subscribe-wait <sec>` | With `--load-subscribe`: how long subscribers get to catch up after the run before a notification counts as missed (default `2`). |
 | `--load-churn-calls <n>`      | With `--load-churn`: calls per session before it is closed (positive integer; default `1`). |
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
@@ -558,6 +561,54 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name sear
   so slots lost to failed or late connects show as `droppedSlots`.
 - Warm-up sessions (`--load-warmup`) count in `churn`. A session still open
   when the run ends is closed then.
+
+##### Notification fan-out (`--load-subscribe`)
+
+A request/response latency says nothing about what it costs a server to fan
+`notifications/resources/updated` out to many subscribers, or how long each one
+waits for it. `--load-subscribe <uri>`
+([#2913](https://github.com/modelcontextprotocol/inspector/issues/2913)) opens
+`--load-subscribers` sessions, subscribes each to `<uri>`, and measures the
+notifications instead:
+
+```bash
+# 50 subscribers; each call of update_doc should notify all of them
+mcp-inspector --cli https://example.com/mcp --method tools/call \
+  --tool-name update_doc --tool-arg id=1 --load --load-requests 100 \
+  --load-subscribe docs://1 --load-subscribers 50
+
+# no trigger: listen 30 s to the server's own updates
+mcp-inspector --cli https://example.com/mcp --method tools/call --load \
+  --load-subscribe feed://live --load-subscribers 50 --load-duration 30
+```
+
+- **Triggered** (with `--tool-name` or `--load-scenario`): the ordinary
+  `--load` run is the trigger, and each **successful** call is expected to
+  update the resource once. Triggers run **one at a time**
+  (`--load-concurrency` defaults to, and must be, `1`), so the k-th
+  notification a session receives is attributed to the k-th successful call,
+  and its delivery latency runs from that call's start. `--load-rate`,
+  `--load-requests` and `--load-duration` bound the triggers as usual, and the
+  top-level figures are the trigger calls'.
+- **Passive** (no tool): nothing is called. The run listens for
+  `--load-duration` (`--load-requests` is refused: there are no calls to
+  count), and delivery latency runs from the **first** subscriber's receipt
+  of each update, so it measures the spread of the fan-out rather than its
+  absolute cost.
+- After the run, subscribers get `--load-subscribe-wait` seconds (default
+  `2`) to catch up; whatever has not arrived by then is **missed**. The
+  `fanout` block reports `updates` (expected per subscriber), `delivered`,
+  `missed`, `sessionsMissed`, `unexpected` (notifications beyond `updates` —
+  the server's own, or repeats), `deliveryMs`, and the setup costs
+  `connectMs` and `subscribeMs`, none of which is in the trigger latency.
+- A session that fails to open or to subscribe is counted in `failed` with its
+  message, and the run goes on with the rest; if none can subscribe, the run
+  fails. More than one subscriber needs an HTTP or SSE server, for the reason
+  `--load-connections` does, and the extra sessions open with stored
+  credentials only.
+- Not combined with `--load-connections`, `--load-churn`, `--load-steps` /
+  `--load-ramp` or `--load-warmup`. The CLI's own connection is subscribed too,
+  and unsubscribed when the run ends.
 
 ##### Per-call samples (`--output`)
 

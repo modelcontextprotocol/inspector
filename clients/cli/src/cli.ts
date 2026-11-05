@@ -73,7 +73,6 @@ import {
   LOAD_FLAG_CONFLICT,
   loadSummaryWarnings,
   resolveLoadOptions,
-  runLoadTest,
   DEFAULT_LOAD_PROGRESS_SEC,
   formatLoadProgress,
   type LoadOptions,
@@ -81,6 +80,7 @@ import {
   type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
+import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
 import {
   checkLoadRegression,
   compareLoadToBaseline,
@@ -213,6 +213,17 @@ async function callMethod(
   // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
   // spawns its own server process, so N of them test N isolated servers rather
   // than one server under N sessions. Checked before anything connects.
+  if (
+    load?.fanout !== undefined &&
+    load.fanout.subscribers > 1 &&
+    !isOAuthCapableServerConfig(serverConfig)
+  ) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-subscribers above 1 requires an HTTP or SSE server; over stdio each session would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
   if (load?.churn !== undefined && !isOAuthCapableServerConfig(serverConfig)) {
     throw new CliExitCodeError(
       EXIT_CODES.USAGE,
@@ -422,7 +433,7 @@ async function callMethod(
               callbackUrlConfig,
               serverSettings,
               () =>
-                runLoadTest(inspectorClient, args, load, {
+                runLoadOrFanout(inspectorClient, args, load, {
                   openConnection: openLoadConnection,
                   signal,
                   ...(load.progressMs !== undefined && {
@@ -1398,6 +1409,20 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       positiveIntegerParser("--load-churn-calls"),
     )
     .option(
+      "--load-subscribe <uri>",
+      "With --load: notification fan-out. Subscribe --load-subscribers sessions to this resource and report how notifications/resources/updated reaches them: per-notification delivery latency, misses per session, and subscribe cost. With --tool-name (or --load-scenario) each successful call is a trigger and latency runs from its start; without one the run listens for --load-duration to the server's own updates. Triggers run one at a time.",
+    )
+    .option(
+      "--load-subscribers <n>",
+      "With --load-subscribe: sessions to subscribe, this connection included (positive integer; default 1; above 1 needs an HTTP or SSE server).",
+      positiveIntegerParser("--load-subscribers"),
+    )
+    .option(
+      "--load-subscribe-wait <sec>",
+      "With --load-subscribe: how long subscribers get to catch up after the run before a notification counts as missed (default 2).",
+      positiveNumberParser("--load-subscribe-wait"),
+    )
+    .option(
       "--load-concurrency <n>",
       "With --load: most calls in flight at once (positive integer; default 10).",
       positiveIntegerParser("--load-concurrency"),
@@ -1677,6 +1702,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadOpenLoop?: boolean;
     loadChurn?: boolean;
     loadChurnCalls?: number;
+    loadSubscribe?: string;
+    loadSubscribers?: number;
+    loadSubscribeWait?: number;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
     loadMaxP50?: number;
@@ -1793,6 +1821,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-open-loop", options.loadOpenLoop],
     ["--load-churn", options.loadChurn],
     ["--load-churn-calls", options.loadChurnCalls],
+    ["--load-subscribe", options.loadSubscribe],
+    ["--load-subscribers", options.loadSubscribers],
+    ["--load-subscribe-wait", options.loadSubscribeWait],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
     ["--load-max-p50", options.loadMaxP50],
@@ -2232,6 +2263,9 @@ function resolveCliLoadOptions(
     loadOpenLoop?: boolean;
     loadChurn?: boolean;
     loadChurnCalls?: number;
+    loadSubscribe?: string;
+    loadSubscribers?: number;
+    loadSubscribeWait?: number;
     quiet?: boolean;
   },
   thresholds: LoadThresholds | undefined,
@@ -2286,6 +2320,9 @@ function resolveCliLoadOptions(
       openLoop: options.loadOpenLoop,
       churn: options.loadChurn,
       churnCalls: options.loadChurnCalls,
+      subscribe: options.loadSubscribe,
+      subscribers: options.loadSubscribers,
+      subscribeWaitSec: options.loadSubscribeWait,
       // Progress is on by default and `--quiet` turns it off (#2838).
       ...(options.quiet !== true && {
         progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,

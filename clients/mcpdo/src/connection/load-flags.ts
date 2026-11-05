@@ -86,6 +86,9 @@ export function resolveLoadFlags(flags: {
   loadOpenLoop?: boolean;
   loadChurn?: boolean;
   loadChurnCalls?: number;
+  loadSubscribe?: string;
+  loadSubscribers?: number;
+  loadSubscribeWait?: number;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   loadMaxP50?: number;
@@ -120,6 +123,9 @@ export function resolveLoadFlags(flags: {
     ["--load-open-loop", flags.loadOpenLoop],
     ["--load-churn", flags.loadChurn],
     ["--load-churn-calls", flags.loadChurnCalls],
+    ["--load-subscribe", flags.loadSubscribe],
+    ["--load-subscribers", flags.loadSubscribers],
+    ["--load-subscribe-wait", flags.loadSubscribeWait],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
     ["--load-max-p50", flags.loadMaxP50],
@@ -157,7 +163,8 @@ export function resolveLoadFlags(flags: {
         "--load-args-file cannot be combined with --load-scenario; put placeholders in each step's args instead.",
       );
     }
-  } else if (!flags.toolName) {
+  } else if (!flags.toolName && flags.loadSubscribe === undefined) {
+    // A fan-out run (#2913) without a tool listens passively.
     // Checked here rather than left to the daemon so a missing name fails
     // before a connection is resolved, with the flag a user can act on.
     throw usage("--load requires a tool name.", "missing_tool_name");
@@ -220,6 +227,9 @@ export function resolveLoadFlags(flags: {
       openLoop: flags.loadOpenLoop,
       churn: flags.loadChurn,
       churnCalls: flags.loadChurnCalls,
+      subscribe: flags.loadSubscribe,
+      subscribers: flags.loadSubscribers,
+      subscribeWaitSec: flags.loadSubscribeWait,
       // Always requested here; the dispatcher drops it for `--format json`,
       // where nobody is watching stderr (#2838).
       progressSec: flags.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,

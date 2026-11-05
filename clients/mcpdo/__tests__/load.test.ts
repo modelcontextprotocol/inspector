@@ -6,6 +6,7 @@ import {
   createEchoTool,
   createTestServerHttp,
   createTestServerInfo,
+  type TestServerContext,
 } from "@modelcontextprotocol/inspector-test-server";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
@@ -441,6 +442,43 @@ describe("resolveLoadFlags with --load-churn (#2912)", () => {
     expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
       message,
     );
+  });
+});
+
+describe("resolveLoadFlags with --load-subscribe (#2913)", () => {
+  it("passes the fan-out through, and needs no tool for a passive run", () => {
+    expect(
+      resolveLoadFlags({
+        load: true,
+        loadSubscribe: "test://r",
+        loadSubscribers: 3,
+        loadSubscribeWait: 1,
+      })?.options,
+    ).toMatchObject({
+      concurrency: 1,
+      fanout: { uri: "test://r", subscribers: 3, settleMs: 1000 },
+    });
+  });
+
+  it.each([
+    [{ loadSubscribe: "test://r" }, "--load-subscribe requires --load."],
+    [{ loadSubscribers: 2 }, "--load-subscribers requires --load."],
+    [{ loadSubscribeWait: 1 }, "--load-subscribe-wait requires --load."],
+    [
+      { load: true, toolName: "echo", loadSubscribers: 2 },
+      "--load-subscribers requires --load-subscribe.",
+    ],
+    [
+      {
+        load: true,
+        toolName: "echo",
+        loadSubscribe: "test://r",
+        loadConcurrency: 4,
+      },
+      "--load-concurrency must be 1",
+    ],
+  ])("refuses %j", (flags, message) => {
+    expect(() => resolveLoadFlags(flags)).toThrow(message);
   });
 });
 
@@ -1396,6 +1434,79 @@ describe.skipIf(unixDaemonOnly)(
             JSON.parse(listed.stdout) as { connections: { name: string }[] }
           ).connections.map((c) => c.name),
         ).toEqual(["remote"]);
+      } finally {
+        await server.stop();
+      }
+    });
+
+    it("fans a triggered update out to subscribed sessions (#2913)", async () => {
+      const URI = "test://fanout";
+      const subscribed: TestServerContext[] = [];
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo("load-fanout", "1.0.0"),
+        subscriptions: true,
+        resources: [{ uri: URI, name: "fanout", text: "v" }],
+        onResourceSubscribe: (_uri, context) => subscribed.push(context),
+        tools: [
+          {
+            name: "bump",
+            description: "Updates the resource",
+            inputSchema: {},
+            handler: async () => {
+              await Promise.all(
+                subscribed.map((c) =>
+                  c.server.server
+                    .sendResourceUpdated({ uri: URI })
+                    .catch(() => {}),
+                ),
+              );
+              return { content: [{ type: "text", text: "bumped" }] };
+            },
+          },
+        ],
+      });
+      try {
+        await server.start();
+        configPath = createTestConfig({
+          mcpServers: { remote: { type: "streamable-http", url: server.url } },
+        });
+        const e = env();
+        expectCliSuccess(
+          await runMcp(["connect", "remote", "--config", configPath], {
+            env: e,
+            timeout: DAEMON_COMMAND_MS,
+          }),
+        );
+        const loaded = await runMcp(
+          [
+            "tools/call",
+            "bump",
+            "--load",
+            "--load-requests",
+            "2",
+            "--load-subscribe",
+            URI,
+            "--load-subscribers",
+            "2",
+            "--load-subscribe-wait",
+            "1",
+            "--format",
+            "json",
+          ],
+          { env: e, timeout: DAEMON_COMMAND_MS },
+        );
+        expectCliSuccess(loaded);
+        expect(JSON.parse(loaded.stdout)).toMatchObject({
+          requests: 2,
+          ok: 2,
+          fanout: {
+            mode: "triggered",
+            subscribed: 2,
+            updates: 2,
+            delivered: 4,
+            missed: 0,
+          },
+        });
       } finally {
         await server.stop();
       }

@@ -61,6 +61,12 @@ vi.mock(
       loadMock.impl(...args),
   }),
 );
+// The daemon enters through `runLoadOrFanout` (#2913); the fan-out itself
+// is tested in the CLI's suite, so the run is the same stub either way.
+vi.mock("@inspector/core/cli/handlers/load-fanout.js", () => ({
+  runLoadOrFanout: (...args: Parameters<typeof loadMock.impl>) =>
+    loadMock.impl(...args),
+}));
 
 /**
  * Observes the daemon's OAuth storage handling (#2800) without changing it:
@@ -535,6 +541,39 @@ describe("daemon rpc with --load", () => {
       expect((await rpc({ load: CHURN })).ok).toBe(true);
       expect(open).toHaveBeenCalledTimes(1);
       expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens --load-subscribers sessions through the registry (#2913)", async () => {
+      const { extra, open } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      const FANOUT: LoadOptions = {
+        concurrency: 1,
+        durationMs: 10,
+        fanout: { uri: "test://r", subscribers: 2, settleMs: 0 },
+      };
+      loadMock.impl = async (_client, _args, _options, run) => {
+        expect(await run.openConnection!()).toBe(extra.client);
+        return SUMMARY;
+      };
+      expect((await rpc({ load: FANOUT })).ok).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses --load-subscribers above 1 over stdio", async () => {
+      useConnection({ type: "stdio", command: "node" });
+      loadMock.impl = async () => SUMMARY;
+      const response = await rpc({
+        load: {
+          concurrency: 1,
+          durationMs: 10,
+          fanout: { uri: "test://r", subscribers: 2, settleMs: 0 },
+        },
+      });
+      expect(!response.ok && response.error.message).toContain(
+        "--load-subscribers above 1 requires an HTTP or SSE connection",
+      );
     });
 
     it("refuses --load-churn over stdio before the run starts", async () => {

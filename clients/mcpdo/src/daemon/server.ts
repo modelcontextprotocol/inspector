@@ -12,8 +12,8 @@ import {
 } from "@inspector/core/cli/handlers/run-method.js";
 import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
+import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
 import {
-  runLoadTest,
   type LoadOptions,
   type LoadStop,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -820,7 +820,7 @@ export class DaemonServer {
       // Progress (#2838) goes back over the caller's socket as one-way
       // frames, ahead of the summary.
       const notify = channel.notify?.bind(channel);
-      const summary = await runLoadTest(client, methodArgs, load, {
+      const summary = await runLoadOrFanout(client, methodArgs, load, {
         signal: stop.signal,
         ...(load.progressMs !== undefined &&
           notify && {
@@ -883,7 +883,12 @@ export class DaemonServer {
     load: LoadOptions,
   ): LoadClientOpener | undefined {
     const churn = load.churn !== undefined;
-    if (!churn && (load.connections === undefined || load.connections <= 1)) {
+    const fanout = load.fanout !== undefined && load.fanout.subscribers > 1;
+    if (
+      !churn &&
+      !fanout &&
+      (load.connections === undefined || load.connections <= 1)
+    ) {
       return undefined;
     }
     const connection = this.registry.connectionFor(
@@ -895,7 +900,9 @@ export class DaemonServer {
         EXIT_CODES.USAGE,
         churn
           ? "--load-churn requires an HTTP or SSE connection; over stdio each session would spawn its own server process."
-          : "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
+          : fanout
+            ? "--load-subscribers above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process."
+            : "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
         { code: "load_flag_conflict" },
       );
     }
