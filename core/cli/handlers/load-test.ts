@@ -748,10 +748,15 @@ async function runWindow(
     // Only while another call could still start: once the bounds have
     // ended starts, the failures are in-flight calls draining, and calling
     // that an early stop would misreport a run that ran to its bounds.
+    // A stage with a later stage after it (`holdToDeadline`) always counts
+    // as able to start more: its own last start may be behind it, but the
+    // run is not over, so single-call stages could otherwise fail forever
+    // without the breaker ever tripping.
     const canStart =
-      (requests === undefined || started < requests) &&
-      now < deadline &&
-      nextStart < deadline;
+      holdToDeadline ||
+      ((requests === undefined || started < requests) &&
+        now < deadline &&
+        nextStart < deadline);
     if (
       canStart &&
       (breaker.streak >= CIRCUIT_BREAKER_ERRORS ||

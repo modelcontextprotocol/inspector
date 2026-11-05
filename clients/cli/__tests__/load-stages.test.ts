@@ -364,6 +364,30 @@ describe("runLoad with stages", () => {
     expect(summary.stages![0]!.stoppedEarly?.reason).toBe("interrupted");
   });
 
+  it("trips the circuit breaker across single-call stages", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(10);
+        throw new Error("refused");
+      },
+      {
+        concurrency: 1,
+        // One call per stage: each failure lands after its stage's only
+        // start, so only the run-wide view can tell the server is gone.
+        stages: {
+          by: "rate",
+          levels: Array.from({ length: 80 }, () => 1),
+          stageMs: 1000,
+        },
+      },
+      clock,
+    );
+    expect(summary.stoppedEarly?.reason).toBe("consecutive_errors");
+    // At least five failures over a second trips it, long before 80 stages.
+    expect(summary.stages!.length).toBeLessThan(10);
+  });
+
   it("continues the weighted step cycle across stages", async () => {
     const clock = fakeClock();
     const picked: number[] = [];
