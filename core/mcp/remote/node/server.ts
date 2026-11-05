@@ -182,28 +182,54 @@ export interface PrimableSseStream {
  *
  * `cleanup` runs inside Hono's bare `subscriber()` call, so it must be
  * synchronous and must not throw — a rejection there has no owner.
+ *
+ * `end` lets the *server* end the stream too (#2831): when its signal fires,
+ * the same exactly-once `cleanup` runs, `flush` is awaited so events already
+ * handed to the stream reach the client, and the stream is closed — so a
+ * terminated session does not hold its events response open until the
+ * browser happens to abort it.
  */
 export async function primeAndHoldSseStream(
   stream: PrimableSseStream,
   cleanup: () => void,
+  end?: { signal: AbortSignal; flush: () => Promise<unknown> },
 ): Promise<void> {
   let done = false;
-  const aborted = new Promise<void>((resolve) => {
+  // Hono's `abort()` guards its own re-entry, but the guard belongs here
+  // too: this helper's contract is exactly-once teardown, and running a
+  // caller's cleanup twice would double-delete a subscriber that has
+  // since been re-added by a reconnect.
+  const finish = (): boolean => {
+    if (done) return false;
+    done = true;
+    cleanup();
+    return true;
+  };
+  const released = new Promise<void>((resolve) => {
     stream.onAbort(() => {
-      // Hono's `abort()` guards its own re-entry, but the guard belongs here
-      // too: this helper's contract is exactly-once teardown, and running a
-      // caller's cleanup twice would double-delete a subscriber that has
-      // since been re-added by a reconnect.
-      if (done) return;
-      done = true;
-      cleanup();
+      if (!finish()) return;
       closeAbortedStream(stream);
       resolve();
     });
+    if (!end) return;
+    const onEnd = (): void => {
+      if (!finish()) return;
+      // An abort listener cannot await; `flush` is settled by the `catch`
+      // and the close discards its own rejection (`closeAbortedStream`).
+      void end
+        .flush()
+        .catch(() => {})
+        .then(() => {
+          closeAbortedStream(stream);
+          resolve();
+        });
+    };
+    if (end.signal.aborted) onEnd();
+    else end.signal.addEventListener("abort", onEnd, { once: true });
   });
 
   await stream.write(SSE_PRIMING_COMMENT);
-  await aborted;
+  await released;
 }
 
 /**
@@ -1263,12 +1289,19 @@ export function createRemoteApp(
     }
 
     return streamSSE(c, async (stream) => {
+      // The most recent write, so a terminate (#2831) can let the event it
+      // just pushed reach the client before the stream is closed.
+      let lastWrite: Promise<unknown> = Promise.resolve();
       const consumer = (event: SessionEvent): void => {
         const data = JSON.stringify(event);
-        void stream.writeSSE({
-          event: event.type,
-          data,
-        });
+        lastWrite = stream
+          .writeSSE({
+            event: event.type,
+            data,
+          })
+          .catch(() => {
+            // The peer is gone; nothing is left to deliver it to.
+          });
       };
       session.setEventConsumer(consumer);
 
@@ -1294,21 +1327,25 @@ export function createRemoteApp(
       // events. See SSE_PRIMING_COMMENT. The disconnect cleanup is
       // registered ahead of that priming write and the stream is then held
       // open until the client aborts — see primeAndHoldSseStream (#1999).
-      await primeAndHoldSseStream(stream, () => {
-        // Client disconnected. A stream that was already replaced by a newer
-        // one owns nothing any more, so it must not touch the session.
-        if (!session.detachEventConsumer(consumer)) return;
+      await primeAndHoldSseStream(
+        stream,
+        () => {
+          // Client disconnected. A stream that was already replaced by a newer
+          // one owns nothing any more, so it must not touch the session.
+          if (!session.detachEventConsumer(consumer)) return;
 
-        // If transport is dead and no client connected, cleanup session
-        if (session.isTransportDead()) {
-          sessions.delete(sessionId);
-          return;
-        }
-        // Otherwise give a reattach (the OAuth redirect's) the grace window,
-        // then close the transport — a closed tab must not keep a stdio
-        // child alive until the Inspector exits (#2824).
-        armSessionReap(session);
-      });
+          // If transport is dead and no client connected, cleanup session
+          if (session.isTransportDead()) {
+            sessions.delete(sessionId);
+            return;
+          }
+          // Otherwise give a reattach (the OAuth redirect's) the grace window,
+          // then close the transport — a closed tab must not keep a stdio
+          // child alive until the Inspector exits (#2824).
+          armSessionReap(session);
+        },
+        { signal: session.terminatedSignal, flush: () => lastWrite },
+      );
     });
   });
 
@@ -1361,6 +1398,9 @@ export function createRemoteApp(
     // A tab still attached learns why its connection ended instead of seeing
     // the stream go quiet; a detached session queues it for nobody, harmlessly.
     session.markTransportDead(SESSION_TERMINATED_MESSAGE);
+    // …then end that tab's events stream, which would otherwise stay open
+    // until the browser aborts it.
+    session.terminate();
     session.rejectActiveRequestWaits(new Error(SESSION_TERMINATED_MESSAGE));
     await session.transport.close().catch(() => {
       // Best-effort: the session is already forgotten either way.

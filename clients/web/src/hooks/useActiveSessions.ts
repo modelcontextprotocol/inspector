@@ -72,7 +72,11 @@ export function useActiveSessions(
         await terminateActiveSession(sessionId, getApiOptions());
       } catch (err) {
         // Not re-listed: a successful list clears `error`, which would hide
-        // this one. The refresh button is there to re-read the list.
+        // this one. For the same reason any list already in flight is
+        // invalidated, so it cannot land afterwards and clear it either. The
+        // refresh button is there to re-read the list.
+        latestRequest.current++;
+        setLoading(false);
         setError(errorMessage(err));
         return;
       } finally {

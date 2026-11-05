@@ -19,7 +19,7 @@
  * settles on its own microtask.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { StreamingApi } from "hono/utils/stream";
 import {
   primeAndHoldSseStream,
@@ -157,6 +157,80 @@ describe("primeAndHoldSseStream (#1999)", () => {
     s.finishWrite();
     s.abort();
     await expect(withinTick(held)).resolves.toBeUndefined();
+  });
+
+  it("ends the stream from the server side once the flush settles (#2831)", async () => {
+    const s = controllableStream();
+    const ender = new AbortController();
+    let cleanups = 0;
+    let releaseFlush = (): void => {};
+    const flushed = new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    });
+    const held = primeAndHoldSseStream(
+      s.stream,
+      () => {
+        cleanups += 1;
+      },
+      { signal: ender.signal, flush: () => flushed },
+    );
+    s.finishWrite();
+
+    ender.abort();
+    expect(cleanups).toBe(1);
+    // Not closed until the pending event has gone out.
+    await Promise.resolve();
+    expect(s.closes).toBe(0);
+
+    releaseFlush();
+    await withinTick(held);
+    expect(s.closes).toBe(1);
+
+    // A client abort arriving afterwards is a no-op.
+    s.abort();
+    expect(cleanups).toBe(1);
+    expect(s.closes).toBe(1);
+  });
+
+  it("ends at once for a signal already aborted, and survives a failed flush", async () => {
+    const s = controllableStream();
+    const ender = new AbortController();
+    ender.abort();
+    let cleanups = 0;
+    const held = primeAndHoldSseStream(
+      s.stream,
+      () => {
+        cleanups += 1;
+      },
+      {
+        signal: ender.signal,
+        flush: () => Promise.reject(new Error("write lost")),
+      },
+    );
+    s.finishWrite();
+    await withinTick(held);
+    expect(cleanups).toBe(1);
+    expect(s.closes).toBe(1);
+  });
+
+  it("ignores the end signal once the client has already aborted", async () => {
+    const s = controllableStream();
+    const ender = new AbortController();
+    let cleanups = 0;
+    const flush = vi.fn(async () => {});
+    const held = primeAndHoldSseStream(
+      s.stream,
+      () => {
+        cleanups += 1;
+      },
+      { signal: ender.signal, flush },
+    );
+    s.finishWrite();
+    s.abort();
+    ender.abort();
+    await withinTick(held);
+    expect(cleanups).toBe(1);
+    expect(flush).not.toHaveBeenCalled();
   });
 
   it("documents the Hono behavior it exists for: onAbort has no replay", async () => {

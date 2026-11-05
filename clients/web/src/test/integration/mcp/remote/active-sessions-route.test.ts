@@ -234,6 +234,12 @@ describe("DELETE /api/mcp/sessions/:sessionId (#2831)", () => {
 
     const text = await readUntil(reader, /event: transport_error/);
     expect(text).toContain(SESSION_TERMINATED_MESSAGE);
+    // …and the backend ends the stream rather than holding it open until the
+    // browser aborts (the response must complete on its own).
+    for (;;) {
+      const { done } = await reader.read();
+      if (done) break;
+    }
     await vi.waitFor(() => expect(isAlive(pid)).toBe(false), {
       timeout: EXIT_WAIT_MS,
       interval: 50,

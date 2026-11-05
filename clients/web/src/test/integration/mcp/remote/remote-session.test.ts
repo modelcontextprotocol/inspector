@@ -660,6 +660,13 @@ describe("RemoteSession.describe (#2831)", () => {
     ).toMatchObject({ serverName: "Remote", transport: "streamable-http" });
   });
 
+  it("aborts its terminated signal on terminate", () => {
+    const session = new RemoteSession("s1");
+    expect(session.terminatedSignal.aborted).toBe(false);
+    session.terminate();
+    expect(session.terminatedSignal.aborted).toBe(true);
+  });
+
   it("counts queued events and a dead transport", () => {
     const session = new RemoteSession("s1");
     session.onStderr({ timestamp: new Date(), message: "one" });

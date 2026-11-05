@@ -78,6 +78,8 @@ export class RemoteSession {
   /** Last time a consumer attached or detached; `null` before the first attach. */
   private lastConsumerSeenAt: Date | null = null;
   public transport!: Transport;
+  /** Fired by {@link terminate}; ends the session's events stream (#2831). */
+  private readonly terminated = new AbortController();
   private eventQueue: SessionEvent[] = [];
   private droppedEventCount = 0;
   private detachTimer: ReturnType<typeof setTimeout> | undefined;
@@ -104,6 +106,16 @@ export class RemoteSession {
     this.serverName = descriptor.serverName;
     this.transportType = descriptor.transport ?? "stdio";
     this.createdAt = new Date();
+  }
+
+  /** Aborted once the session has been terminated from the session list. */
+  get terminatedSignal(): AbortSignal {
+    return this.terminated.signal;
+  }
+
+  /** Mark the session terminated, ending any attached events stream (#2831). */
+  terminate(): void {
+    this.terminated.abort();
   }
 
   /** The `GET /api/mcp/sessions` entry for this session (#2831). */

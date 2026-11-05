@@ -150,4 +150,31 @@ describe("useActiveSessions", () => {
     expect(result.current.terminatingId).toBeUndefined();
     expect(fetchFn).toHaveBeenCalledTimes(1);
   });
+
+  it("a failed terminate is not cleared by a list already in flight", async () => {
+    let releaseList: (r: Response) => void = () => {};
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () => new Promise<Response>((resolve) => (releaseList = resolve)),
+      )
+      .mockResolvedValueOnce(json({ error: "boom" }, 500));
+    const api = apiWith(fetchFn);
+    const { result } = renderHook(() => useActiveSessions(api));
+
+    let listing: Promise<void> = Promise.resolve();
+    act(() => {
+      listing = result.current.refresh();
+    });
+    expect(result.current.loading).toBe(true);
+    await act(() => result.current.terminate("a"));
+    expect(result.current.loading).toBe(false);
+
+    await act(async () => {
+      releaseList(json({ sessions: [] }));
+      await listing;
+    });
+    expect(result.current.error).toBe("Terminating the session failed: boom");
+    expect(result.current.loading).toBe(false);
+  });
 });
