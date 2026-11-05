@@ -7,6 +7,7 @@ import {
   redactFormParams,
   redactJson,
   redactUrl,
+  redactUrlsInText,
   REDACTED,
   withOAuthDebugTrace,
 } from "@inspector/core/auth/oauthDebug.js";
@@ -279,6 +280,42 @@ describe("URL values in trace summaries", () => {
     );
     expect(form[0]).not.toContain("SECRET");
     expect(json[0]).not.toContain("SECRET");
+  });
+});
+
+describe("URLs embedded in prose", () => {
+  it("redacts every URL inside free text and leaves the rest alone", () => {
+    expect(
+      redactUrlsInText(
+        "Request to https://as.example/token?client_secret=SECRET was rejected; see http://x.example/a?code=C2 or 'https://ok.example/p?scope=read'",
+      ),
+    ).toBe(
+      `Request to https://as.example/token?client_secret=${encodeURIComponent(REDACTED)} was rejected; see http://x.example/a?code=${encodeURIComponent(REDACTED)} or 'https://ok.example/p?scope=read'`,
+    );
+    expect(redactUrlsInText("no urls here")).toBe("no urls here");
+  });
+
+  it("redacts a URL quoted in an OAuth error_description", () => {
+    const summary = describeResponseJson("token request", 401, {
+      error: "invalid_client",
+      error_description:
+        "Request to https://as.example/token?client_secret=SECRET was rejected",
+    });
+    expect(summary).not.toContain("SECRET");
+    expect(summary).toContain("invalid_client");
+  });
+
+  it("redacts a URL quoted in a failure message, rethrowing the original error", async () => {
+    const error = new Error(
+      "fetch failed for https://as.example/token?refresh_token=SECRET",
+    );
+    const { lines, result } = await trace(error, "https://as.example/token");
+    expect(result).toBe(error);
+    expect(error.message).toContain("SECRET");
+    expect(lines[1]).not.toContain("SECRET");
+    expect(lines[1]).toContain(
+      "-> failed: fetch failed for https://as.example/token?refresh_token=",
+    );
   });
 });
 

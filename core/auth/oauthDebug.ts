@@ -174,13 +174,25 @@ export function redactUrl(url: string): string {
   return changed ? parsed.href : url;
 }
 
+/** An absolute http(s) URL inside free text, up to whitespace or a quote. */
+const EMBEDDED_URL = /\bhttps?:\/\/[^\s"'<>]+/g;
+
+/**
+ * `text` with {@link redactUrl} applied to every http(s) URL inside it, so a
+ * URL quoted in prose — an `error_description`, an error message — loses its
+ * credentials too. A string that is itself a URL is one match.
+ */
+export function redactUrlsInText(text: string): string {
+  return text.replace(EMBEDDED_URL, (match) => redactUrl(match));
+}
+
 /** A form body rendered as `key=value` pairs, sensitive values redacted. */
 export function redactFormParams(params: URLSearchParams): string {
   return [...params.entries()]
     .map(([key, value]) =>
       SENSITIVE_FIELDS.has(key)
         ? `${key}=${REDACTED}`
-        : `${key}=${redactUrl(value)}`,
+        : `${key}=${redactUrlsInText(value)}`,
     )
     .join(" ");
 }
@@ -206,7 +218,7 @@ export function redactJson(value: unknown): unknown {
  * credential in their query, and the trace prints them.
  */
 function redactUrlsIn(value: unknown): unknown {
-  if (typeof value === "string") return redactUrl(value);
+  if (typeof value === "string") return redactUrlsInText(value);
   if (Array.isArray(value)) return value.map(redactUrlsIn);
   if (!isRecord(value)) return value;
   const out: Record<string, unknown> = {};
@@ -320,7 +332,7 @@ export function withOAuthDebugTrace(
       response = await fetchFn(input, init);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      write(line(`  -> failed: ${message}`));
+      write(line(`  -> failed: ${redactUrlsInText(message)}`));
       throw error;
     }
     const summary = describeResponseJson(
