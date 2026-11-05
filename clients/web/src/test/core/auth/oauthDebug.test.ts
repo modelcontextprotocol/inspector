@@ -231,6 +231,57 @@ describe("describeResponseJson", () => {
   });
 });
 
+describe("URL values in trace summaries", () => {
+  const leaky = "https://as.example/token?client_secret=SECRET&x=1";
+  const redacted = redactUrl(leaky);
+
+  it("redacts credentials embedded in metadata, error and registration URLs", () => {
+    expect(redacted).not.toContain("SECRET");
+    const asMeta = describeResponseJson("authorization-server metadata", 200, {
+      issuer: "https://as.example",
+      token_endpoint: leaky,
+    });
+    const prm = describeResponseJson("protected-resource metadata", 200, {
+      authorization_servers: [leaky],
+    });
+    const error = describeResponseJson("token request", 400, {
+      error: "invalid_client",
+      error_uri: leaky,
+    });
+    const registration = describeResponseJson("client registration", 201, {
+      client_id: "id",
+      redirect_uris: [leaky],
+      nested: { uri: leaky },
+      count: 1,
+    });
+    for (const summary of [asMeta, prm, error, registration]) {
+      expect(summary).not.toContain("SECRET");
+      expect(summary).toContain(JSON.stringify(redacted).slice(1, -1));
+    }
+  });
+
+  it("redacts credentials embedded in request body URLs", async () => {
+    const { lines: form } = await trace(
+      jsonResponse({}),
+      "https://as.example/token",
+      {
+        method: "POST",
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          redirect_uri: leaky,
+        }),
+      },
+    );
+    const { lines: json } = await trace(
+      jsonResponse({}),
+      "https://as.example/register",
+      { method: "POST", body: JSON.stringify({ redirect_uris: [leaky] }) },
+    );
+    expect(form[0]).not.toContain("SECRET");
+    expect(json[0]).not.toContain("SECRET");
+  });
+});
+
 describe("withOAuthDebugTrace", () => {
   it("traces a token request and its response, redacting credentials", async () => {
     const { lines, result } = await trace(

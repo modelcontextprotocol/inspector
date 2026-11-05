@@ -748,7 +748,13 @@ function registerConnect(program: CommandType): void {
         // flow: that's an explicit unattended-automation opt-in.
         const humanPresent =
           process.stdin.isTTY === true || process.stderr.isTTY === true;
-        if (!humanPresent && !isCliAutoOpenForced()) {
+        // `--oauth-debug` stays on the blocking flow: the detached helper's
+        // stderr is not this terminal, so the trace would be lost (#2844).
+        if (
+          !humanPresent &&
+          !isCliAutoOpenForced() &&
+          cmdOpts.oauthDebug !== true
+        ) {
           const authUrl = await obtainPendingAuthUrl(
             serverConfig,
             serverSettings,

@@ -158,6 +158,25 @@ describe("authorizeInFrontend", () => {
     }
   });
 
+  it("advertises the configured roots, as the daemon's client does (#2844)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      { roots: [{ uri: "file:///work", name: "work" }] } as never,
+    );
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const withRoots = clientCtorSpy.mock.calls[0]?.[1] as { roots?: unknown };
+    const without = clientCtorSpy.mock.calls[1]?.[1] as { roots?: unknown };
+    expect(withRoots.roots).toEqual([{ uri: "file:///work", name: "work" }]);
+    // Passed even when empty: that is what negotiates the capability.
+    expect(without.roots).toEqual([]);
+  });
+
   it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {
     connectSpy.mockResolvedValue(undefined);
     const { authorizeInFrontend } =

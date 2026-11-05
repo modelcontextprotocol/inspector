@@ -11,6 +11,7 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
   createProxyFetch,
   createTransportNode,
@@ -131,6 +132,12 @@ export async function authorizeInFrontend(
     progress: false,
     sample: false,
     elicit: false,
+    // The configured roots, as the daemon's client advertises them
+    // (`daemon/connections.ts`). `connect --oauth-debug` runs this client
+    // ahead of the daemon's even for a server that needs no OAuth, so a
+    // server that asks for roots at `initialize` must see the same
+    // capability here (#2844).
+    roots: cleanRoots(serverSettings?.roots ?? []),
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),

@@ -180,6 +180,44 @@ describe("mcp.ts auth / daemon error paths", () => {
     });
   });
 
+  it("connect --oauth-debug keeps the traced retry blocking without a TTY", async () => {
+    process.stderr.isTTY = false;
+    process.stdin.isTTY = false;
+    configPath = createSampleTestConfig();
+    callDaemon
+      .mockRejectedValueOnce(
+        new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "need auth", {
+          code: "auth_required",
+        }),
+      )
+      .mockResolvedValueOnce({
+        name: "test-stdio",
+        isMru: true,
+        serverIdentity: "stdio",
+      });
+
+    const { runMcp } = await import("../src/connection/mcp.js");
+    await runMcp([
+      "node",
+      "mcpdo",
+      "connect",
+      "test-stdio",
+      "--config",
+      configPath,
+      "--oauth-debug",
+      "--format",
+      "json",
+    ]);
+
+    // No detached helper, no pendingAuth: the retry ran here, traced.
+    expect(obtainPendingAuthUrl).not.toHaveBeenCalled();
+    expect(authorizeInFrontend).toHaveBeenCalledTimes(2);
+    expect(authorizeInFrontend.mock.calls[1]?.[2]).toEqual({
+      storedAuthOnly: false,
+      oauthDebug: true,
+    });
+  });
+
   it("retries connect after auth_required via authorizeInFrontend", async () => {
     process.stderr.isTTY = true; // human path: blocking interactive OAuth
     configPath = createSampleTestConfig();

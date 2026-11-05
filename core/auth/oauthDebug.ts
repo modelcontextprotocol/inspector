@@ -178,7 +178,9 @@ export function redactUrl(url: string): string {
 export function redactFormParams(params: URLSearchParams): string {
   return [...params.entries()]
     .map(([key, value]) =>
-      SENSITIVE_FIELDS.has(key) ? `${key}=${REDACTED}` : `${key}=${value}`,
+      SENSITIVE_FIELDS.has(key)
+        ? `${key}=${REDACTED}`
+        : `${key}=${redactUrl(value)}`,
     )
     .join(" ");
 }
@@ -197,13 +199,31 @@ export function redactJson(value: unknown): unknown {
   return out;
 }
 
+/**
+ * A copy of `value` with {@link redactUrl} applied to every string in it, at
+ * any depth. Metadata documents and error responses carry URLs
+ * (`token_endpoint`, `authorization_servers`, `error_uri`) that could embed a
+ * credential in their query, and the trace prints them.
+ */
+function redactUrlsIn(value: unknown): unknown {
+  if (typeof value === "string") return redactUrl(value);
+  if (Array.isArray(value)) return value.map(redactUrlsIn);
+  if (!isRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value)) {
+    out[key] = redactUrlsIn(inner);
+  }
+  return out;
+}
+
+/** The named fields of `source`, with any URLs among them redacted. */
 function pick(
   source: Record<string, unknown>,
   keys: readonly string[],
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of keys) {
-    if (source[key] !== undefined) out[key] = source[key];
+    if (source[key] !== undefined) out[key] = redactUrlsIn(source[key]);
   }
   return out;
 }
@@ -215,7 +235,9 @@ function describeRequestBody(step: OAuthDebugStep, body: unknown): string {
     return redactFormParams(params);
   }
   const json = bodyJson(body);
-  if (json && step !== "request") return JSON.stringify(redactJson(json));
+  if (json && step !== "request") {
+    return JSON.stringify(redactUrlsIn(redactJson(json)));
+  }
   return "";
 }
 
@@ -241,7 +263,7 @@ export function describeResponseJson(
     return JSON.stringify(pick(json, AUTHORIZATION_SERVER_FIELDS));
   }
   if (step === "client registration" || step === "token request") {
-    return JSON.stringify(redactJson(json));
+    return JSON.stringify(redactUrlsIn(redactJson(json)));
   }
   return "";
 }
