@@ -930,16 +930,12 @@ function scenarioPicker(
   if (!scenario) return () => 0;
   const pick = createWeightedPicker(scenario.steps.map((s) => s.weight));
   if (shard === undefined) return pick;
-  // A `--load-workers` process (#2914) takes every `count`-th pick of the one
-  // weighted sequence, from its own `index`, so the processes together run
-  // the mix one picker would — not `count` fresh cycles each skewed to the
-  // heaviest steps.
-  let skip = shard.index;
-  return () => {
-    for (; skip > 0; skip--) pick();
-    skip = shard.count - 1;
-    return pick();
-  };
+  // A `--load-workers` process (#2914) runs the whole weighted cycle itself,
+  // so its own mix holds whatever each step costs, but starts `index` picks
+  // into it: the processes' first calls then cover the steps together, as
+  // one picker's would, instead of every process opening on the heaviest.
+  for (let skip = shard.index; skip > 0; skip--) pick();
+  return pick;
 }
 
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
@@ -1353,8 +1349,16 @@ async function runWindow(
         })
       : undefined;
   const interval = rate === undefined ? 0 : 1000 / rate;
+  // `--load-workers` (#2914): each process runs `rate / count` on a grid of
+  // its own, offset by its share of one interval of the whole run's grid, so
+  // the processes interleave into the run's even spacing instead of all
+  // starting a call at once.
+  const gridStart =
+    options.shard !== undefined
+      ? start + (options.shard.index * interval) / options.shard.count
+      : start;
   // Earliest time the next slot may start.
-  let nextStart = start;
+  let nextStart = gridStart;
   // When the latest call actually started. Open loop's `nextStart` is the
   // arrival schedule, which a saturated run lags far behind (#2838).
   let lastStartAt = start;
@@ -1623,8 +1627,8 @@ async function runWindow(
       const after = openLoop
         ? Math.max(
             nextStart,
-            start +
-              (Math.floor((lastStartAt - start) / interval) + 1) * interval,
+            gridStart +
+              (Math.floor((lastStartAt - gridStart) / interval) + 1) * interval,
           )
         : nextStart;
       windowEnd = Math.min(windowEnd, after);
@@ -1648,7 +1652,7 @@ async function runWindow(
     ...(rate !== undefined &&
       rateFigures(rate, {
         started: callsStarted,
-        windowMs: startWindowEnd() - start,
+        windowMs: Math.max(0, startWindowEnd() - gridStart),
       })),
     // Spelled out rather than spread, to keep the summary's established key
     // order: `elapsedMs` sits between the counts and the throughputs.

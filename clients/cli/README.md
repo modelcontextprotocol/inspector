@@ -594,6 +594,13 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name sear
   all and still prints the merged partial summary. If a worker fails outright,
   the run exits with that worker's exit code (`load_worker_failed`) once the
   rest have stopped.
+- **The rate and the mix hold across processes.** Each worker runs
+  `--load-rate / n` on a grid offset by its share of one interval, so the
+  processes interleave into the run's even spacing rather than all starting at
+  once. Each runs the whole `--load-scenario` cycle itself, starting a step
+  further in than the one before, so the mix holds whatever each step costs.
+  Processes start a few milliseconds apart, which shifts their grids by as
+  much.
 - **`{{seq}}` and `{{worker}}` stay unique** across processes: worker
   process `i` of `n` numbers its calls `i+1`, `i+1+n`, `i+1+2n`, and so on.
 - **Progress lines** add up every worker's latest report. Their p50 and p99

@@ -9,6 +9,7 @@ import {
   getTestMcpServerCommand,
 } from "@modelcontextprotocol/inspector-test-server";
 import { runCli } from "./helpers/cli-runner.js";
+import { fakeClock } from "./helpers/load-clock.js";
 import { expectCliSuccess, expectValidJson } from "./helpers/assertions.js";
 import {
   CliExitCodeError,
@@ -208,6 +209,50 @@ describe("sharding", () => {
         "--load-workers=2",
       ]),
     ).toEqual(["--cli", "--load"]);
+  });
+
+  it("keeps each process's own mix whatever the steps cost", async () => {
+    const scenario = {
+      steps: [
+        { name: "a", method: "tools/call" as const, tool: "echo", weight: 1 },
+        { name: "b", method: "tools/call" as const, tool: "echo", weight: 1 },
+      ],
+    };
+    const options: LoadOptions = { concurrency: 2, durationMs: 1000, scenario };
+    for (const i of [0, 1]) {
+      const clock = fakeClock();
+      const counts = [0, 0];
+      await runLoad(
+        async (_w, step) => {
+          counts[step]!++;
+          // A costs 1 ms, B 100 ms.
+          await clock.sleep(step === 0 ? 1 : 100);
+          return "ok";
+        },
+        shardLoadOptions(options, i, 2),
+        clock,
+      );
+      // Started in turn, so neither step is starved by the other's cost.
+      expect(Math.abs(counts[0]! - counts[1]!)).toBeLessThanOrEqual(1);
+      expect(counts[1]).toBeGreaterThan(1);
+    }
+  });
+
+  it("interleaves the processes' rate grids instead of bursting", async () => {
+    const options: LoadOptions = { concurrency: 4, durationMs: 1000, rate: 1 };
+    let started = 0;
+    for (const i of [0, 1, 2, 3]) {
+      await runLoad(
+        async () => {
+          started++;
+          return "ok";
+        },
+        shardLoadOptions(options, i, 4),
+        fakeClock(),
+      );
+    }
+    // One call a second for one second: one call, not one per process.
+    expect(started).toBe(1);
   });
 
   it("gives the processes together the mix one picker would", async () => {
