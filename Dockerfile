@@ -18,7 +18,9 @@ ARG NODE_IMAGE=node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd
 # lockfile records and fails if a manifest has drifted from it, so the image is
 # built from the dependency tree CI tested instead of one resolved fresh. The
 # root postinstall cascade runs `npm install` in each client, so it is skipped
-# here and each client gets its own `npm ci`. `npm pack` runs `prepack`
+# here and each client gets its own `npm ci` — each one exits the RUN on
+# failure, since a `for` loop returns only its last iteration's status and
+# would otherwise build on a partial tree. `npm pack` runs `prepack`
 # (`npm run build`) and emits `modelcontextprotocol-inspector-<version>.tgz`.
 #
 # Then the runtime tree is assembled HERE rather than in the runtime stage: the
@@ -34,7 +36,7 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /build
 COPY . .
 RUN INSPECTOR_SKIP_CLIENT_INSTALL=1 npm ci \
-    && for client in web cli mcpdo tui launcher; do npm ci --prefix "clients/$client"; done \
+    && for client in web cli mcpdo tui launcher; do npm ci --prefix "clients/$client" || exit 1; done \
     && npm pack
 RUN mkdir -p /opt/mcp-inspector \
     && tar -xzf modelcontextprotocol-inspector-*.tgz --strip-components=1 -C /opt/mcp-inspector \
