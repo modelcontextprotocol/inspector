@@ -169,7 +169,7 @@ describe("resolveLoadStages", () => {
     ],
     [
       { steps: [1], stopOnBreach: true },
-      "--load-stop-on-breach requires --load-max-error-rate or --load-max-p99.",
+      "--load-stop-on-breach requires a threshold (--load-max-error-rate, --load-max-p50, --load-max-p95, --load-max-p99 or --load-min-throughput).",
     ],
   ])("refuses %j", (flags, message) => {
     expect(() => resolveLoadStages(flags)).toThrow(message);
@@ -533,7 +533,16 @@ function staged(stages: Partial<LoadSummary>[]): LoadSummary {
     elapsedMs: 1000,
     throughput: 10,
     okThroughput: 10,
-    latencyMs: { min: 1, mean: 1, p50: 1, p90: 1, p99: 1, max: 1 },
+    latencyMs: {
+      min: 1,
+      mean: 1,
+      p50: 1,
+      p90: 1,
+      p95: 1,
+      p99: 1,
+      p999: 1,
+      max: 1,
+    },
     errorLatencyMs: null,
     errorMessages: [],
     toolErrorMessages: [],
@@ -557,7 +566,16 @@ describe("judging a stepped run", () => {
       {
         errors: 5,
         ok: 5,
-        latencyMs: { min: 1, mean: 1, p50: 1, p90: 1, p99: 900, max: 900 },
+        latencyMs: {
+          min: 1,
+          mean: 1,
+          p50: 1,
+          p90: 1,
+          p95: 900,
+          p99: 900,
+          p999: 900,
+          max: 900,
+        },
       },
     ]);
     expect(() =>

@@ -16,7 +16,8 @@ import type { LoadSummary } from "./load-test.js";
  * numbers that failed the gate are exactly what someone reading the CI log
  * needs next to the exit code.
  *
- * Reads only the aggregate counts and `latencyMs.p99` from {@link LoadSummary},
+ * Reads only the aggregate counts, `okThroughput` and the `latencyMs`
+ * percentiles from {@link LoadSummary},
  * so fields added to the summary later do not change the verdict.
  */
 
@@ -24,14 +25,26 @@ import type { LoadSummary } from "./load-test.js";
 export type LoadThresholds = {
   /** Fail when the share of failed calls is above this fraction (0..1). */
   maxErrorRate?: number;
+  /** Fail when the p50 latency, in milliseconds, is above this (#2838). */
+  maxP50Ms?: number;
+  /** Fail when the p95 latency, in milliseconds, is above this (#2838). */
+  maxP95Ms?: number;
   /** Fail when the p99 latency, in milliseconds, is above this value. */
   maxP99Ms?: number;
+  /** Fail when successful calls per second are below this (#2838). */
+  minThroughput?: number;
 };
 
 /** Envelope code for an error rate above `--load-max-error-rate`. */
 export const LOAD_ERROR_RATE_EXCEEDED = "load_error_rate_exceeded";
 /** Envelope code for a p99 above `--load-max-p99` (or no p99 to compare). */
 export const LOAD_P99_EXCEEDED = "load_p99_exceeded";
+/** Envelope code for a p50 above `--load-max-p50` (#2838). */
+export const LOAD_P50_EXCEEDED = "load_p50_exceeded";
+/** Envelope code for a p95 above `--load-max-p95` (#2838). */
+export const LOAD_P95_EXCEEDED = "load_p95_exceeded";
+/** Envelope code for an ok throughput below `--load-min-throughput` (#2838). */
+export const LOAD_THROUGHPUT_BELOW = "load_throughput_below";
 
 /**
  * Commander-style parser for a fraction flag (`--load-max-error-rate`):
@@ -51,22 +64,30 @@ export function fractionParser(flag: string): (value: string) => number {
 
 /** Parser for `--load-max-p99`: a positive number of milliseconds. */
 export const maxP99Parser = positiveNumberParser("--load-max-p99");
+/** Parser for `--load-max-p50` (#2838). */
+export const maxP50Parser = positiveNumberParser("--load-max-p50");
+/** Parser for `--load-max-p95` (#2838). */
+export const maxP95Parser = positiveNumberParser("--load-max-p95");
+/** Parser for `--load-min-throughput`: successful calls per second (#2838). */
+export const minThroughputParser = positiveNumberParser(
+  "--load-min-throughput",
+);
 
 /**
  * Build {@link LoadThresholds} from the raw flag values, or `undefined` when
- * neither flag was given — so "no thresholds" stays a single, falsy case and a
+ * none was given — so "no thresholds" stays a single, falsy case and a
  * run without them behaves exactly as before.
  */
 export function resolveLoadThresholds(flags: {
   maxErrorRate?: number;
+  maxP50Ms?: number;
+  maxP95Ms?: number;
   maxP99Ms?: number;
+  minThroughput?: number;
 }): LoadThresholds | undefined {
-  const { maxErrorRate, maxP99Ms } = flags;
-  if (maxErrorRate === undefined && maxP99Ms === undefined) return undefined;
-  return {
-    ...(maxErrorRate !== undefined && { maxErrorRate }),
-    ...(maxP99Ms !== undefined && { maxP99Ms }),
-  };
+  const entries = Object.entries(flags).filter(([, v]) => v !== undefined);
+  if (entries.length === 0) return undefined;
+  return Object.fromEntries(entries) as LoadThresholds;
 }
 
 /** One threshold a summary failed: its envelope code and why. */
@@ -101,20 +122,49 @@ function errorRateBreach(
  * Judged on the successful calls only (#2836): `latencyMs` excludes failures,
  * so an instant failure can never pull the p99 under the SLO.
  */
-function p99Breach(summary: LoadSummary, max: number): Breach | undefined {
-  const p99 = summary.latencyMs?.p99;
+/**
+ * A latency percentile above its ceiling. Judged on the successful calls
+ * only (#2836): `latencyMs` excludes failures, so an instant failure can
+ * never pull a percentile under the SLO.
+ */
+function percentileBreach(
+  summary: LoadSummary,
+  key: "p50" | "p95" | "p99",
+  max: number,
+  code: string,
+): Breach | undefined {
+  const flag = `--load-max-${key}`;
+  const value = summary.latencyMs?.[key];
   // No successful call means no latency to compare. Passing would let a run
   // that served nothing satisfy a latency SLO, so it fails — and says why.
-  if (p99 === undefined) {
+  if (value === undefined) {
     return {
-      code: LOAD_P99_EXCEEDED,
-      message: `no call succeeded, so there is no p99 latency to check against --load-max-p99 ${max}`,
+      code,
+      message: `no call succeeded, so there is no ${key} latency to check against ${flag} ${max}`,
     };
   }
-  if (p99 <= max) return undefined;
+  if (value <= max) return undefined;
   return {
-    code: LOAD_P99_EXCEEDED,
-    message: `p99 latency ${p99}ms is above --load-max-p99 ${max}ms`,
+    code,
+    message: `${key} latency ${value}ms is above ${flag} ${max}ms`,
+  };
+}
+
+/** Successful calls per second below `--load-min-throughput` (#2838). */
+function throughputBreach(
+  summary: LoadSummary,
+  min: number,
+): Breach | undefined {
+  // Recomputed from the counts, like the error rate: `okThroughput` is
+  // rounded to two places, so one success over 1001 ms reads as 1/s and
+  // would pass a minimum of 1 that the run did not reach.
+  const exact =
+    summary.elapsedMs > 0 ? (summary.ok * 1000) / summary.elapsedMs : 0;
+  if (exact >= min) return undefined;
+  return {
+    code: LOAD_THROUGHPUT_BELOW,
+    // Three places, so a near miss does not read as equal to the limit.
+    message: `ok throughput ${Math.round(exact * 1000) / 1000}/s is below --load-min-throughput ${min}/s`,
   };
 }
 
@@ -124,7 +174,8 @@ function p99Breach(summary: LoadSummary, max: number): Breach | undefined {
  * `EXIT_CODES.LOAD_THRESHOLD_EXCEEDED`.
  *
  * Every breach is named in the message. The envelope `code` names the first,
- * checked in a fixed order — error rate, then p99 — so a CI job branching on
+ * checked in a fixed order — error rate, p50, p95, p99, then throughput — so a
+ * CI job branching on
  * it sees a stable value when both fail.
  */
 export function checkLoadThresholds(
@@ -155,7 +206,8 @@ export function checkLoadThresholds(
 }
 
 /**
- * Every threshold `summary` fails, in the fixed order error rate, then p99;
+ * Every threshold `summary` fails, in the fixed order error rate, p50, p95,
+ * p99, throughput;
  * empty when all hold. The non-throwing half of {@link checkLoadThresholds},
  * which the engine uses to stop a stepped run at its first breach (#2841).
  * Judges `summary`'s own counts only, never its `stages`.
@@ -164,12 +216,24 @@ export function loadThresholdBreaches(
   summary: LoadSummary,
   thresholds: LoadThresholds,
 ): LoadBreach[] {
+  const { maxErrorRate, maxP50Ms, maxP95Ms, maxP99Ms, minThroughput } =
+    thresholds;
+  // A fixed order, so the envelope code (the first breach) is stable.
   return [
-    thresholds.maxErrorRate !== undefined
-      ? errorRateBreach(summary, thresholds.maxErrorRate)
+    maxErrorRate !== undefined
+      ? errorRateBreach(summary, maxErrorRate)
       : undefined,
-    thresholds.maxP99Ms !== undefined
-      ? p99Breach(summary, thresholds.maxP99Ms)
+    maxP50Ms !== undefined
+      ? percentileBreach(summary, "p50", maxP50Ms, LOAD_P50_EXCEEDED)
+      : undefined,
+    maxP95Ms !== undefined
+      ? percentileBreach(summary, "p95", maxP95Ms, LOAD_P95_EXCEEDED)
+      : undefined,
+    maxP99Ms !== undefined
+      ? percentileBreach(summary, "p99", maxP99Ms, LOAD_P99_EXCEEDED)
+      : undefined,
+    minThroughput !== undefined
+      ? throughputBreach(summary, minThroughput)
       : undefined,
   ].filter((b): b is Breach => b !== undefined);
 }

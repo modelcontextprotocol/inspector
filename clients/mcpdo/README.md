@@ -239,7 +239,7 @@ mcpdo connect https://example.com/mcp --elicit url
 connection ([#2744](https://github.com/modelcontextprotocol/inspector/issues/2744)).
 It calls one tool repeatedly and concurrently and prints a single summary in
 place of a result: `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`
-and the success-only `okThroughput`, latency `min`/`mean`/`p50`/`p90`/`p99`/`max`
+and the success-only `okThroughput`, latency `min`/`mean`/`p50`/`p90`/`p95`/`p99`/`p999`/`max`
 of the successful calls (`latencyMs`) and of the failed ones
 (`errorLatencyMs`), the most frequent thrown messages (`errorMessages`) and
 `isError` texts (`toolErrorMessages`), and — with `--load-rate` —
@@ -273,6 +273,8 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-steps <list>` / `--load-ramp <from:to:sec>` | Run consecutive stages at rising concurrency (or rate, with `--load-step-by rate`), each `--load-step-duration` seconds (default `10`), with one row per stage; `--load-stop-on-breach` ends the run at the first stage breaching a threshold. |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
+| `--load-max-p50 <ms>` / `--load-max-p95 <ms>` | The same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
+| `--load-min-throughput <n>` | Exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`). |
 
 Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
 `--app-info`. `--format json` prints the summary object itself, with no

@@ -71,6 +71,9 @@ export function resolveLoadFlags(flags: {
   loadStopOnBreach?: boolean;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
+  loadMaxP50?: number;
+  loadMaxP95?: number;
+  loadMinThroughput?: number;
   appInfo?: boolean;
   toolName?: string;
   /** The resolved tool arguments, from positionals or flags. */
@@ -94,6 +97,9 @@ export function resolveLoadFlags(flags: {
     ["--load-stop-on-breach", flags.loadStopOnBreach],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
+    ["--load-max-p50", flags.loadMaxP50],
+    ["--load-max-p95", flags.loadMaxP95],
+    ["--load-min-throughput", flags.loadMinThroughput],
   ] as const;
   if (flags.load !== true) {
     for (const [flag, value] of bounds) {
@@ -152,7 +158,10 @@ export function resolveLoadFlags(flags: {
       : undefined;
   const thresholds = resolveLoadThresholds({
     maxErrorRate: flags.loadMaxErrorRate,
+    maxP50Ms: flags.loadMaxP50,
+    maxP95Ms: flags.loadMaxP95,
     maxP99Ms: flags.loadMaxP99,
+    minThroughput: flags.loadMinThroughput,
   });
   let options: LoadOptions;
   try {

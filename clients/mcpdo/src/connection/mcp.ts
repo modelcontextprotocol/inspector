@@ -67,7 +67,10 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import {
   fractionParser,
+  maxP50Parser,
+  maxP95Parser,
   maxP99Parser,
+  minThroughputParser,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
 import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
 import {
@@ -1513,6 +1516,21 @@ function registerRpcCommands(program: CommandType): void {
             "--load-max-p99 <ms>",
             "With --load: exit 10 (load_p99_exceeded) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
             maxP99Parser,
+          )
+          .option(
+            "--load-max-p50 <ms>",
+            "With --load: exit 10 (load_p50_exceeded) when the p50 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+            maxP50Parser,
+          )
+          .option(
+            "--load-max-p95 <ms>",
+            "With --load: exit 10 (load_p95_exceeded) when the p95 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+            maxP95Parser,
+          )
+          .option(
+            "--load-min-throughput <n>",
+            "With --load: exit 10 (load_throughput_below) when fewer than this many calls per second succeeded (okThroughput), after printing the summary (positive number).",
+            minThroughputParser,
           );
         cmd.action(
           async (

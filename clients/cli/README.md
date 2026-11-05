@@ -171,6 +171,8 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-stop-on-breach`       | With `--load-steps` / `--load-ramp` and a `--load-max-*` threshold: stop after the first stage that breaches it. |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
+| `--load-max-p50 <ms>`, `--load-max-p95 <ms>` | With `--load`: the same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
+| `--load-min-throughput <n>`   | With `--load`: after printing the summary, exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`). Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
@@ -368,8 +370,8 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   "elapsedMs": 30012.4,
   "throughput": 1373.12,
   "okThroughput": 1372.35,
-  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p99": 61.3, "max": 212.8 },
-  "errorLatencyMs": { "min": 30001.2, "mean": 30003.1, "p50": 30002.9, "p90": 30004.1, "p99": 30004.8, "max": 30004.8 },
+  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p95": 30.7, "p99": 61.3, "p999": 140.2, "max": 212.8 },
+  "errorLatencyMs": { "min": 30001.2, "mean": 30003.1, "p50": 30002.9, "p90": 30004.1, "p95": 30004.6, "p99": 30004.8, "p999": 30004.8, "max": 30004.8 },
   "errorMessages": [{ "message": "Request timed out", "count": 23 }],
   "toolErrorMessages": []
 }
@@ -394,6 +396,14 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   Latency includes everything the Inspector does around the request, which
   is negligible next to a network round trip but not next to a
   sub-millisecond stdio echo.
+- **Percentiles** are `p50`, `p90`, `p95`, `p99` and `p999` (the 99.9th)
+  ([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)).
+  Memory stays bounded however long the run: the first 10,000 latencies of
+  each kind are kept exactly, so a short run's percentiles are exact, and
+  past that they fold into a log-bucketed histogram whose percentiles are
+  within 1% of the exact value. `min`, `max` and `mean` are always exact.
+  Latencies are given to two decimal places, or to four significant figures
+  below a millisecond.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
   A run that reaches its `--load-duration` is measured to the end of that
@@ -473,7 +483,7 @@ contention that only appear across sessions:
     "requested": 50,
     "opened": 48,
     "failed": 2,
-    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p99": 41.8, "max": 41.8 },
+    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p95": 38.1, "p99": 41.8, "p999": 41.8, "max": 41.8 },
     "errorMessages": [{ "message": "Too many sessions", "count": 2 }]
   }
   ```
@@ -615,16 +625,20 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
 
 - The full summary is printed first either way; a breach then exits `10`
   with an error envelope on stderr whose `code` names the threshold:
-  `load_error_rate_exceeded` or `load_p99_exceeded`. When both are breached
-  the message lists both and the `code` is `load_error_rate_exceeded`.
+  `load_error_rate_exceeded`, `load_p50_exceeded`, `load_p95_exceeded`,
+  `load_p99_exceeded` or `load_throughput_below`. When several are breached
+  the message lists them all and the `code` names the first in that order.
 - A value equal to the threshold passes. The error-rate check uses the exact
   share of failed calls (`toolErrors` plus `errors`, over `requests`), not the
   four-place `errorRate`, so `--load-max-error-rate 0` fails even one failure
   that rounds away in the summary.
-- `--load-max-p99` judges the **successful** calls (`latencyMs`), so a run
-  in which half the calls fail instantly cannot pass on the strength of its
-  failures. A run in which no call succeeded has no p99 to compare, and fails
-  rather than passing a latency check it never measured.
+- `--load-max-p50`, `--load-max-p95` and `--load-max-p99` judge the
+  **successful** calls (`latencyMs`), so a run in which half the calls fail
+  instantly cannot pass on the strength of its failures. A run in which no
+  call succeeded has no latency to compare, and fails rather than passing a
+  latency check it never measured.
+- `--load-min-throughput` judges `okThroughput`, the successful calls per
+  second, so a server failing fast cannot meet it with errors.
 - With no threshold set, nothing changes: a completed run exits `0`.
 - A stepped run (below) is judged **stage by stage**, and the message names
   the first stage that breached.
@@ -960,7 +974,7 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
-| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
+| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 | `130` | A `--load` run was interrupted by Ctrl+C or SIGTERM (`interrupted`). The partial summary is printed on stdout first. See [Load testing a tool](#load-testing-a-tool---load). |
 

@@ -47,7 +47,16 @@ const SUMMARY: LoadSummary = {
   elapsedMs: 1500,
   throughput: 20,
   okThroughput: 18,
-  latencyMs: { min: 1, mean: 2.5, p50: 2, p90: 4, p99: 5, max: 6 },
+  latencyMs: {
+    min: 1,
+    mean: 2.5,
+    p50: 2,
+    p90: 4,
+    p95: 5,
+    p99: 5,
+    p999: 5,
+    max: 6,
+  },
   errorLatencyMs: null,
   errorMessages: [{ message: "Request timed out", count: 2 }],
   toolErrorMessages: [],
@@ -338,6 +347,30 @@ describe("resolveLoadFlags with varying arguments (#2840)", () => {
   });
 });
 
+describe("resolveLoadFlags with the #2838 gates", () => {
+  it("passes the p50, p95 and throughput thresholds through", () => {
+    expect(
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadMaxP50: 5,
+        loadMaxP95: 20,
+        loadMinThroughput: 100,
+      })?.thresholds,
+    ).toEqual({ maxP50Ms: 5, maxP95Ms: 20, minThroughput: 100 });
+  });
+
+  it.each([
+    [{ loadMaxP50: 5 }, "--load-max-p50 requires --load."],
+    [{ loadMaxP95: 5 }, "--load-max-p95 requires --load."],
+    [{ loadMinThroughput: 5 }, "--load-min-throughput requires --load."],
+  ])("requires --load for %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
 describe("resolveLoadFlags with stages (#2841)", () => {
   it("plans the stages and carries the thresholds for a stop on breach", () => {
     expect(
@@ -441,7 +474,7 @@ describe("formatLoadSummaryHuman", () => {
         "  Requests:   30 in 1.50s (20/s, 18/s ok)",
         "  Outcomes:   27 ok, 1 tool errors, 2 errors",
         "  Error rate: 10.00%",
-        "  Latency:    min 1 / mean 2.5 / p50 2 / p90 4 / p99 5 / max 6 ms",
+        "  Latency:    min 1 / mean 2.5 / p50 2 / p90 4 / p95 5 / p99 5 / p99.9 5 / max 6 ms",
         "  Top errors:",
         "    2× Request timed out",
       ].join("\n"),
@@ -481,7 +514,16 @@ describe("formatLoadSummaryHuman", () => {
         plannedStarts: 30,
         droppedSlots: 12,
         achievedRate: 12,
-        errorLatencyMs: { min: 0, mean: 1, p50: 1, p90: 2, p99: 2, max: 2 },
+        errorLatencyMs: {
+          min: 0,
+          mean: 1,
+          p50: 1,
+          p90: 2,
+          p95: 2,
+          p99: 2,
+          p999: 2,
+          max: 2,
+        },
         toolErrorMessages: [{ message: "rate limited", count: 1 }],
         stoppedEarly: {
           reason: "consecutive_errors",
@@ -495,7 +537,7 @@ describe("formatLoadSummaryHuman", () => {
       "  Rate:       12/s achieved; 30 planned, 12 dropped\n",
     );
     expect(text).toContain(
-      "  Failed in:  min 0 / mean 1 / p50 1 / p90 2 / p99 2 / max 2 ms\n",
+      "  Failed in:  min 0 / mean 1 / p50 1 / p90 2 / p95 2 / p99 2 / p99.9 2 / max 2 ms\n",
     );
     expect(text).toContain("  Top tool errors:\n    1× rate limited");
     expect(text).toContain(
@@ -519,7 +561,16 @@ describe("formatLoadSummaryHuman", () => {
           requested: 3,
           opened: 2,
           failed: 1,
-          connectMs: { min: 4, mean: 4, p50: 4, p90: 4, p99: 4, max: 4 },
+          connectMs: {
+            min: 4,
+            mean: 4,
+            p50: 4,
+            p90: 4,
+            p95: 4,
+            p99: 4,
+            p999: 4,
+            max: 4,
+          },
           errorMessages: [{ message: "ECONNREFUSED", count: 1 }],
         },
       },
@@ -568,7 +619,16 @@ describe("formatLoadSummaryHuman with a scenario (#2839)", () => {
             errorRate: 0.05,
             throughput: 13.33,
             okThroughput: 12.67,
-            latencyMs: { min: 1, mean: 2, p50: 2, p90: 3, p99: 4, max: 5 },
+            latencyMs: {
+              min: 1,
+              mean: 2,
+              p50: 2,
+              p90: 3,
+              p95: 4,
+              p99: 4,
+              p999: 4,
+              max: 5,
+            },
             errorLatencyMs: null,
             errorMessages: [],
             toolErrorMessages: [{ message: "busy", count: 1 }],

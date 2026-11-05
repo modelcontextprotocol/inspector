@@ -96,7 +96,10 @@ import {
 import {
   checkLoadThresholds,
   fractionParser,
+  maxP50Parser,
+  maxP95Parser,
   maxP99Parser,
+  minThroughputParser,
   resolveLoadThresholds,
   type LoadThresholds,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
@@ -1337,6 +1340,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       maxP99Parser,
     )
     .option(
+      "--load-max-p50 <ms>",
+      "With --load: exit 10 (load_p50_exceeded) when the p50 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+      maxP50Parser,
+    )
+    .option(
+      "--load-max-p95 <ms>",
+      "With --load: exit 10 (load_p95_exceeded) when the p95 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+      maxP95Parser,
+    )
+    .option(
+      "--load-min-throughput <n>",
+      "With --load: exit 10 (load_throughput_below) when fewer than this many calls per second succeeded (okThroughput), after printing the summary (positive number).",
+      minThroughputParser,
+    )
+    .option(
       "--connect-timeout <ms>",
       `Connection timeout in ms (default ${DEFAULT_CONNECT_TIMEOUT_MS} for ad-hoc --server-url / target invocations; 0 = no timeout).`,
       (v: string) => {
@@ -1553,6 +1571,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadStopOnBreach?: boolean;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
+    loadMaxP50?: number;
+    loadMaxP95?: number;
+    loadMinThroughput?: number;
   };
 
   if (options.relogin) {
@@ -1658,6 +1679,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-stop-on-breach", options.loadStopOnBreach],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
+    ["--load-max-p50", options.loadMaxP50],
+    ["--load-max-p95", options.loadMaxP95],
+    ["--load-min-throughput", options.loadMinThroughput],
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
@@ -2016,7 +2040,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // bound it. `undefined` when neither flag is set (#2745).
   const loadThresholds = resolveLoadThresholds({
     maxErrorRate: options.loadMaxErrorRate,
+    maxP50Ms: options.loadMaxP50,
+    maxP95Ms: options.loadMaxP95,
     maxP99Ms: options.loadMaxP99,
+    minThroughput: options.loadMinThroughput,
   });
 
   return {
