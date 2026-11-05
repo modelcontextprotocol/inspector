@@ -143,6 +143,9 @@ export async function dispatchConnectionRpc(
       timeoutMs: 0,
       signal: ac.signal,
       onLoadProgress: (progress) => {
+        // Advisory: skipped while stderr is backed up, as in the one-shot
+        // CLI, so a slow reader cannot grow the buffer without bound.
+        if (process.stderr.writableNeedDrain) return;
         process.stderr.write(`${formatLoadProgress(progress)}\n`);
       },
       onElicitation: (frame) =>

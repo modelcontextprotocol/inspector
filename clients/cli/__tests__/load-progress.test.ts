@@ -100,6 +100,8 @@ describe("--load-warmup (engine)", () => {
     expect(summary.stoppedEarly?.reason).toBe("consecutive_errors");
     expect(summary.requests).toBe(0);
     expect(summary.warmup?.failed).toBe(calls);
+    // The warm-up reports the time it actually ran, not the 10 s asked for.
+    expect(summary.warmup!.durationMs).toBeLessThan(10_000);
   });
 });
 
@@ -276,10 +278,32 @@ describe("--load-interval / --load-warmup / --load-progress (CLI)", () => {
     expect(summary.intervals!.reduce((n, r) => n + r.requests, 0)).toBe(
       summary.requests,
     );
-    expect(summary.warmup?.durationMs).toBe(200);
+    expect(summary.warmup!.durationMs).toBeGreaterThanOrEqual(200);
     expect(summary.warmup!.requests).toBeGreaterThan(0);
     expect(result.stderr).toMatch(/\[load warm-up \d+\.\ds\] \d+ calls/);
     expect(result.stderr).toMatch(/\[load \d+\.\ds\] \d+ calls/);
+  });
+
+  it("skips progress lines while stderr is backed up", async () => {
+    Object.defineProperty(process.stderr, "writableNeedDrain", {
+      configurable: true,
+      get: () => true,
+    });
+    try {
+      const result = await runCli([
+        ...echoLoad,
+        "--load-duration",
+        "0.3",
+        "--load-progress",
+        "0.05",
+      ]);
+      expectCliSuccess(result);
+      expect(result.stderr).not.toContain("[load");
+    } finally {
+      // Back to the prototype's own getter.
+      delete (process.stderr as { writableNeedDrain?: boolean })
+        .writableNeedDrain;
+    }
   });
 
   it("prints no progress with --quiet", async () => {

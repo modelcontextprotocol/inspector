@@ -2199,6 +2199,9 @@ function resolveCliLoadOptions(
  * run must not wait on stderr between calls.
  */
 function writeLoadProgress(progress: LoadProgress): void {
+  // Advisory: while a slow reader has stderr backed up, skip the line
+  // rather than queue it, so a long run cannot grow the buffer unbounded.
+  if (process.stderr.writableNeedDrain) return;
   process.stderr.write(`${formatLoadProgress(progress)}\n`);
 }
 

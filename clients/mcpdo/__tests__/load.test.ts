@@ -1101,6 +1101,22 @@ describe.skipIf(unixDaemonOnly)(
       expect(json.stderr).not.toContain("[load");
       const summary = JSON.parse(json.stdout) as LoadSummary;
       expect(summary.intervals!.length).toBeGreaterThanOrEqual(2);
+      // A backed-up stderr drops the advisory lines rather than queue them.
+      Object.defineProperty(process.stderr, "writableNeedDrain", {
+        configurable: true,
+        get: () => true,
+      });
+      try {
+        const drained = await runMcp(args, {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        });
+        expectCliSuccess(drained);
+        expect(drained.stderr).not.toContain("[load");
+      } finally {
+        delete (process.stderr as { writableNeedDrain?: boolean })
+          .writableNeedDrain;
+      }
     });
 
     async function connectStdio(e: Record<string, string>): Promise<void> {

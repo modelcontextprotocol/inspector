@@ -815,7 +815,9 @@ async function runWithWarmup(
     { hook: progress, phase: "warmup" },
   );
   const warmup: LoadWarmupSummary = {
-    durationMs: warmupMs,
+    // What actually ran: shorter when it stopped early, longer when calls
+    // drained past its deadline.
+    durationMs: warm.elapsedMs,
     requests: warm.requests,
     ok: warm.ok,
     failed: warm.toolErrors + warm.errors,
