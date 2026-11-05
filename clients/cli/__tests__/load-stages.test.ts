@@ -364,6 +364,30 @@ describe("runLoad with stages", () => {
     expect(summary.stages![0]!.stoppedEarly?.reason).toBe("interrupted");
   });
 
+  it("continues the weighted step cycle across stages", async () => {
+    const clock = fakeClock();
+    const picked: number[] = [];
+    await runLoad(
+      async (_w, step) => {
+        picked.push(step);
+        await clock.sleep(10);
+        return "ok";
+      },
+      {
+        concurrency: 1,
+        scenario: validateLoadScenario([
+          { method: "tools/call", tool: "heavy", weight: 3 },
+          { method: "tools/call", tool: "light", weight: 1 },
+        ]),
+        // Two calls per stage: a fresh 3:1 cycle each stage would pick
+        // heavy, heavy every time and never reach light.
+        stages: { by: "concurrency", levels: [1, 1, 1, 1], stageMs: 20 },
+      },
+      clock,
+    );
+    expect(picked).toEqual([0, 0, 1, 0, 0, 0, 1, 0]);
+  });
+
   it("trips the circuit breaker on failures spanning stage boundaries", async () => {
     const clock = fakeClock();
     const summary = await runLoad(

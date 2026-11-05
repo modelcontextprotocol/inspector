@@ -519,6 +519,13 @@ class OutcomeStats {
   }
 }
 
+/** The step picker for a scenario, or step 0 forever without one. */
+function scenarioPicker(scenario: LoadScenario | undefined): () => number {
+  return scenario
+    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
+    : () => 0;
+}
+
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
 function stopFromAbort(reason: unknown): LoadStop {
   return isLoadStop(reason)
@@ -669,6 +676,12 @@ type LoadSink = {
    * a fresh streak and never reach the limit.
    */
   breaker: BreakerState;
+  /**
+   * The scenario's step picker, shared for the same reason: a fresh picker
+   * per stage restarts the weighted cycle, so a short stage could keep
+   * picking the heaviest step and never reach a light one.
+   */
+  pickStep?: () => number;
 };
 
 /** The current streak of thrown calls, and when its first one completed. */
@@ -694,9 +707,7 @@ async function runWindow(
     step,
     stats: new OutcomeStats(),
   }));
-  const pickStep = scenario
-    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
-    : () => 0;
+  const pickStep = sink?.pickStep ?? scenarioPicker(scenario);
   let started = 0;
 
   const start = clock.now();
@@ -940,6 +951,7 @@ async function runStages(
   const sink: LoadSink = {
     total: new OutcomeStats(),
     breaker: { streak: 0, since: 0 },
+    pickStep: scenarioPicker(scenario),
     ...(scenario && { steps: scenario.steps.map(() => new OutcomeStats()) }),
   };
   const rows: LoadStageSummary[] = [];
