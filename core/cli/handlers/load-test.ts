@@ -1250,6 +1250,10 @@ async function runWindow(
           started--;
           return;
         }
+        // A slow handshake can outlast the window (a stage's, a warm-up's).
+        // The slot keeps its `seq` but starts no call; the session stays for
+        // the next window or the final cleanup, and the next claim ends here.
+        if (clock.now() >= deadline) continue;
       }
       const stats = stepRuns?.[step]?.stats;
       // Open loop times a call from its scheduled start, so the wait for a

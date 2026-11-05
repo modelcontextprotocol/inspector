@@ -255,6 +255,28 @@ describe("runLoadAcrossConnections with churn", () => {
     expect(staged.made.every((c) => c.closed)).toBe(true);
   });
 
+  it("starts no call when the session opens after the window closed", async () => {
+    const clock = fakeClock();
+    const made: FakeConnection[] = [];
+    const open = async (): Promise<FakeConnection> => {
+      // A 50 ms handshake in a 30 ms window.
+      clock.advance(50);
+      const c = await opener().open();
+      made.push(c);
+      return c;
+    };
+    const summary = await runLoadAcrossConnections(
+      primary,
+      open,
+      callOn,
+      { concurrency: 1, durationMs: 30, churn: { callsPerSession: 1 } },
+      clock,
+    );
+    expect(summary.requests).toBe(0);
+    expect(summary.churn!.opened).toBe(1);
+    expect(made[0]).toMatchObject({ calls: 0, closed: true });
+  });
+
   it("counts a failed close of a session left open when the run ends", async () => {
     const { open } = opener({ failClose: true });
     const summary = await runLoadAcrossConnections(primary, open, callOn, {
