@@ -95,6 +95,29 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // One line of a tool-run diff (#2830): monospace, whitespace preserved so
+    // the JSON indentation survives, and a tinted background on a changed
+    // line. `diffSame` is the unchanged context line.
+    if (
+      props.variant === "diffAdded" ||
+      props.variant === "diffRemoved" ||
+      props.variant === "diffSame"
+    ) {
+      return {
+        root: {
+          fontFamily: "var(--mantine-font-family-monospace)",
+          fontSize: "var(--mantine-font-size-xs)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          backgroundColor:
+            props.variant === "diffAdded"
+              ? "var(--inspector-diff-added-bg)"
+              : props.variant === "diffRemoved"
+                ? "var(--inspector-diff-removed-bg)"
+                : undefined,
+        },
+      };
+    }
     if (
       props.variant === "versionBadge" ||
       props.variant === "copyrightBadge"

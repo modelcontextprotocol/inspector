@@ -1,10 +1,13 @@
+import { useState } from "react";
 import {
   Alert,
   CloseButton,
+  Collapse,
   Group,
   Paper,
   ScrollArea,
   Stack,
+  Text,
   Title,
 } from "@mantine/core";
 import type {
@@ -12,6 +15,8 @@ import type {
   ReadResourceResult,
 } from "@modelcontextprotocol/client";
 import { ContentViewer } from "../../elements/ContentViewer/ContentViewer";
+import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
+import { formatDuration } from "../../../utils/toolRunHistory";
 import { ResourceLink } from "../ResourceLink/ResourceLink";
 import { StructuredOutputPanel } from "../StructuredOutputPanel/StructuredOutputPanel";
 import { resultHasResourceLinks } from "./toolResultUtils";
@@ -19,9 +24,8 @@ import { resultHasResourceLinks } from "./toolResultUtils";
 export interface ToolResultPanelProps {
   result: CallToolResult;
   /**
-   * Dismiss the result and return to the input form (#1661). Mirrors the
-   * Prompts screen: the result replaces the form while present, and the
-   * top-left X flips back to the form so the tool can be re-run.
+   * Dismiss the result (#1661). The input form stays beside it (#2830), so
+   * this only clears the result panel; the run stays in the tool's history.
    */
   onClear: () => void;
   /**
@@ -29,6 +33,13 @@ export interface ToolResultPanelProps {
    * and inline their contents.
    */
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
+  /** How long the call took, shown beside the title when known (#2830). */
+  durationMs?: number;
+  /**
+   * The arguments the call was sent with, shown in a collapsed section when
+   * known (#2830) — the form beside the result may since have been edited.
+   */
+  args?: Record<string, unknown>;
 }
 
 type ContentBlock = CallToolResult["content"][number];
@@ -178,6 +189,39 @@ const ResultsTitle = Title.withProps({
   size: "h4",
 });
 
+const DurationText = Text.withProps({
+  size: "sm",
+  c: "dimmed",
+});
+
+// The "Arguments" box pins above the result body (`flex: 0 0 auto`) and caps
+// its own height, so expanding a long argument object can't push the result
+// out of the card.
+const ArgumentsBox = Paper.withProps({
+  withBorder: true,
+  radius: "md",
+  p: "sm",
+  variant: "panel",
+  flex: "0 0 auto",
+});
+
+const ArgumentsHeaderRow = Group.withProps({
+  justify: "space-between",
+  wrap: "nowrap",
+});
+
+const ArgumentsHeader = Title.withProps({
+  order: 3,
+  size: "h5",
+});
+
+const ArgumentsScroll = ScrollArea.Autosize.withProps({
+  mah: 200,
+  type: "auto",
+  scrollbars: "y",
+  offsetScrollbars: true,
+});
+
 const ErrorAlert = Alert.withProps({
   color: "red",
   variant: "light",
@@ -223,10 +267,39 @@ function ResourceLinksGroup({
   );
 }
 
+// Collapsed by default: the form beside the result usually still shows the
+// same values, so this is for the case where it no longer does.
+function CallArguments({ args }: { args: Record<string, unknown> }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <ArgumentsBox>
+      <ArgumentsHeaderRow>
+        <ArgumentsHeader>Arguments</ArgumentsHeader>
+        <ExpandToggle
+          expanded={expanded}
+          onToggle={() => setExpanded((value) => !value)}
+          ariaLabel={`${expanded ? "Collapse" : "Expand"} arguments`}
+        />
+      </ArgumentsHeaderRow>
+      <Collapse in={expanded}>
+        <ArgumentsScroll>
+          <ContentViewer
+            block={{ type: "text", text: JSON.stringify(args, null, 2) }}
+            mimeType="application/json"
+            copyable
+          />
+        </ArgumentsScroll>
+      </Collapse>
+    </ArgumentsBox>
+  );
+}
+
 export function ToolResultPanel({
   result,
   onClear,
   onReadResource,
+  durationMs,
+  args,
 }: ToolResultPanelProps) {
   const segments =
     result.isError || result.content.length === 0
@@ -281,7 +354,11 @@ export function ToolResultPanel({
           <CloseButton aria-label="Close results" onClick={onClear} />
           <ResultsTitle>Results</ResultsTitle>
         </HeaderLeft>
+        {durationMs !== undefined && (
+          <DurationText>{formatDuration(durationMs)}</DurationText>
+        )}
       </HeaderRow>
+      {args && <CallArguments args={args} />}
       {result.isError ? (
         <ResultScroll>
           <ResultStack>

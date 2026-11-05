@@ -314,6 +314,7 @@ function App() {
   const panels = useResultPanels();
   const {
     toolCallState,
+    toolRunHistory,
     getPromptState,
     readResourceState,
     clearResultPanels,
@@ -1873,6 +1874,7 @@ function App() {
     toolsLoadError: toolsPagination.error,
     toolsUi: ui.toolsUi,
     toolCallState,
+    toolRunHistory,
     toolsPagination: toolsPaginationControls,
     serverSupportsTaskToolCalls: offersRunAsTask(protocolEra, capabilities),
     onToolsUiChange,

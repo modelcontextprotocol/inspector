@@ -418,6 +418,7 @@ export function InspectorView({
     toolsLoadError,
     toolsUi,
     toolCallState,
+    toolRunHistory,
     toolsPagination,
     serverSupportsTaskToolCalls,
     onToolsUiChange,
@@ -1217,6 +1218,7 @@ export function InspectorView({
                 excludedTools={excludedTools}
                 malformedListItems={malformedListItems}
                 callState={toolCallState}
+                runHistory={toolRunHistory}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
                 loadError={toolsLoadError}

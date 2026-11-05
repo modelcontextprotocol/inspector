@@ -358,7 +358,19 @@ describe("useResultPanels", () => {
     });
     expect(h.panels().toolCallState).toEqual({ status: "pending" });
 
+    await act(async () =>
+      h.panels().recordToolRun({
+        toolName: "echo",
+        args: {},
+        startedAt: 0,
+        durationMs: 1,
+        status: "ok",
+      }),
+    );
+    expect(h.panels().toolRunHistory.echo).toHaveLength(1);
+
     await act(async () => h.panels().clearResultPanels());
+    expect(h.panels().toolRunHistory).toEqual({});
     expect(h.panels().toolCallState).toBeUndefined();
     expect(h.panels().getPromptState).toBeUndefined();
     expect(h.panels().readResourceState).toBeUndefined();
@@ -443,7 +455,37 @@ describe("onCallTool", () => {
       status: "ok",
       result: { ok: 1 },
       error: undefined,
+      durationMs: expect.any(Number),
+      args: { a: 1 },
     });
+    // The call is recorded in the tool's run history (#2830).
+    expect(h.panels().toolRunHistory.echo).toEqual([
+      expect.objectContaining({
+        id: "tool-run-1",
+        sequence: 1,
+        toolName: "echo",
+        args: { a: 1 },
+        status: "ok",
+        result: { ok: 1 },
+        startedAt: expect.any(Number),
+        durationMs: expect.any(Number),
+      }),
+    ]);
+  });
+
+  it("numbers successive runs of a tool, newest first", async () => {
+    const c = client({
+      callTool: vi.fn().mockResolvedValue({ success: true, result: { ok: 1 } }),
+    });
+    const h = harness({ client: c, tools: [tool("echo")] });
+    await act(async () => h.api().onCallTool("echo", { a: 1 }));
+    await act(async () => h.api().onCallTool("echo", { a: 2 }));
+    expect(
+      h.panels().toolRunHistory.echo.map((run) => [run.sequence, run.args]),
+    ).toEqual([
+      [2, { a: 2 }],
+      [1, { a: 1 }],
+    ]);
   });
 
   it("reports an unsuccessful invocation as an error panel", async () => {
@@ -457,6 +499,12 @@ describe("onCallTool", () => {
     expect(h.panels().toolCallState).toEqual({
       status: "error",
       result: undefined,
+      error: "boom",
+      durationMs: expect.any(Number),
+      args: {},
+    });
+    expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
+      status: "error",
       error: "boom",
     });
   });
@@ -557,6 +605,8 @@ describe("onCallTool", () => {
     const h = harness({ client: c, tools: [tool("echo")] });
     await act(async () => h.api().onCallTool("echo", {}));
     expect(h.panels().toolCallState).toBeUndefined();
+    // A deliberate cancel never completed, so it is not a run.
+    expect(h.panels().toolRunHistory).toEqual({});
     expect(notificationsMock.show).toHaveBeenCalledWith(
       expect.objectContaining({ title: "Tool call cancelled" }),
     );
@@ -576,6 +626,10 @@ describe("onCallTool", () => {
       status: "error",
       error: expect.stringContaining("looped"),
     });
+    expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
+      status: "error",
+      error: expect.stringContaining("looped"),
+    });
     expect(notificationsMock.show).toHaveBeenCalledWith(
       expect.objectContaining({ title: "URL elicitation loop" }),
     );
@@ -590,6 +644,9 @@ describe("onCallTool", () => {
     const h = harness({ client: c, tools: [tool("echo")] });
     await act(async () => h.api().onCallTool("echo", {}));
     expect(h.panels().toolCallState).toMatchObject({ status: "error" });
+    expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
+      status: "error",
+    });
     const shown = notificationsMock.show.mock.calls.at(-1)?.[0] as {
       title: string;
       message: ReactElement<{ onViewDetails: () => void }>;
@@ -609,6 +666,11 @@ describe("onCallTool", () => {
     const h = harness({ client: c, tools: [tool("echo")] });
     await act(async () => h.api().onCallTool("echo", {}));
     expect(h.panels().toolCallState).toMatchObject({
+      status: "error",
+      error: "bad",
+      errorCode: -32603,
+    });
+    expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
       status: "error",
       error: "bad",
       errorCode: -32603,
