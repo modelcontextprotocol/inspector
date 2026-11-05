@@ -112,6 +112,8 @@ export interface ShellProps {
   onToggleTheme: () => void;
   /** Open install-level client settings (client.json / EMA IdP). */
   onOpenClientSettings: () => void;
+  /** Open the backend's active session list (#2831). */
+  onOpenActiveSessions: () => void;
 }
 
 /**

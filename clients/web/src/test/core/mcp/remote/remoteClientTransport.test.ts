@@ -405,6 +405,30 @@ describe("RemoteClientTransport", () => {
     await transport.close();
     const parsed = JSON.parse(seenBodies[0]!) as Record<string, unknown>;
     expect("settings" in parsed).toBe(false);
+    expect("serverName" in parsed).toBe(false);
+  });
+
+  it("start() labels the backend session with serverName when provided (#2831)", async () => {
+    const seenBodies: string[] = [];
+    const fetchFn = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async (_input, init) => {
+        if (init?.method === "POST") {
+          seenBodies.push(init.body as string);
+          return new Response(JSON.stringify({ sessionId: "abc" }), {
+            status: 200,
+          });
+        }
+        return sseStreamResponse();
+      });
+    const transport = new RemoteClientTransport(
+      { baseUrl, fetchFn, serverName: "Everything" },
+      config,
+    );
+    await transport.start();
+    await transport.close();
+    const parsed = JSON.parse(seenBodies[0]!) as Record<string, unknown>;
+    expect(parsed.serverName).toBe("Everything");
   });
 
   it("retries send once after satisfied auth challenge and pushAuthState", async () => {

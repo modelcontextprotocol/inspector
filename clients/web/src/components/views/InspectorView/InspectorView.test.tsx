@@ -98,6 +98,7 @@ function makeProps(...overrides: PropOverrides[]): InspectorViewProps {
       onActiveTabChange: vi.fn(),
       onToggleTheme: vi.fn(),
       onOpenClientSettings: vi.fn(),
+      onOpenActiveSessions: vi.fn(),
       ...mergeBundle("shell", overrides),
     },
     connection: {

@@ -1,6 +1,7 @@
 /**
  * Hono-based remote server for MCP transports.
- * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log,
+ * Hosts /api/config, /api/mcp/connect, send, events, disconnect,
+ * /api/mcp/sessions (+ DELETE /api/mcp/sessions/:sessionId), /api/fetch, /api/log,
  * /api/storage/:storeId, /api/servers (+ /api/servers/:id), /api/import-source.
  */
 
@@ -43,6 +44,7 @@ import { isRateLimitError } from "../../rateLimit.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
+  RemoteSessionListResponse,
   RemoteSetAuthStateRequest,
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
@@ -651,6 +653,24 @@ export function mcpParamHeadersOnly(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Why a session ended, as its attached tab is told (#2831). */
+export const SESSION_TERMINATED_MESSAGE =
+  "Session terminated from the Inspector's active session list";
+
+/** Longest server name a session records; it is only a display label. */
+const MAX_SESSION_SERVER_NAME_CHARS = 256;
+
+/**
+ * The display name a connect body offers, if it is a usable one (#2831). The
+ * body is unvalidated JSON, so anything but a non-blank string is dropped
+ * rather than trusted, and an over-long one is cut to a label's length.
+ */
+export function sessionServerName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const name = value.trim();
+  return name === "" ? undefined : name.slice(0, MAX_SESSION_SERVER_NAME_CHARS);
+}
+
 export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
@@ -957,7 +977,10 @@ export function createRemoteApp(
     }
 
     const sessionId = crypto.randomUUID();
-    const session = new RemoteSession(sessionId);
+    const session = new RemoteSession(sessionId, {
+      serverName: sessionServerName(body.serverName),
+      transport: config.type ?? "stdio",
+    });
 
     let transport: Awaited<ReturnType<typeof createTransportNode>>["transport"];
     let authHandle: ReturnType<typeof createRemoteAuthProvider>;
@@ -1310,6 +1333,38 @@ export function createRemoteApp(
       sessions.delete(sessionId);
     }
 
+    return c.json({ ok: true });
+  });
+
+  // #2831: the operator's view of every live session, including ones whose
+  // tab went away, and a way to end one without restarting the Inspector.
+  // Behind the same `x-mcp-remote-auth` middleware as every other route.
+  app.get("/api/mcp/sessions", (c) => {
+    const list: RemoteSessionListResponse = {
+      sessions: [...sessions.values()]
+        .map((session) => session.describe())
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    };
+    return c.json(list);
+  });
+
+  app.delete("/api/mcp/sessions/:sessionId", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+    // Forgotten first, so the transport's `onclose` finds no session to mark
+    // dead and sweep — the same order the detach-grace reap uses.
+    sessions.delete(sessionId);
+    session.cancelDetachGrace();
+    // A tab still attached learns why its connection ended instead of seeing
+    // the stream go quiet; a detached session queues it for nobody, harmlessly.
+    session.markTransportDead(SESSION_TERMINATED_MESSAGE);
+    session.rejectActiveRequestWaits(new Error(SESSION_TERMINATED_MESSAGE));
+    await session.transport.close().catch(() => {
+      // Best-effort: the session is already forgotten either way.
+    });
     return c.json({ ok: true });
   });
 

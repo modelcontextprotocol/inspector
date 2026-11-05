@@ -6,6 +6,7 @@ import type {
   MCPServerConfig,
   FetchRequestEntryBase,
   InspectorServerSettings,
+  ServerType,
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
 import type { AuthChallenge } from "../../auth/challenge.js";
@@ -69,6 +70,41 @@ export interface RemoteConnectRequest {
   authState?: RemoteAuthState;
   /** @deprecated Prefer {@link authState}. */
   oauthTokens?: RemoteMcpOAuthTokens;
+  /**
+   * The display name of the server this session connects to (#2831). Only a
+   * label for `GET /api/mcp/sessions` — the config carries no name of its own,
+   * and the backend never acts on it.
+   */
+  serverName?: string;
+}
+
+/**
+ * One live backend MCP session, as listed by `GET /api/mcp/sessions` (#2831).
+ * Lets an operator find a session whose tab went away and terminate it with
+ * `DELETE /api/mcp/sessions/:sessionId` without restarting the Inspector.
+ */
+export interface RemoteSessionSummary {
+  sessionId: string;
+  /** The name the browser connected under; absent from an older client. */
+  serverName?: string;
+  transport: ServerType;
+  /** ISO timestamp of the connect. */
+  createdAt: string;
+  /** Whether a browser is attached to the session's event stream right now. */
+  consumerAttached: boolean;
+  /**
+   * ISO timestamp a consumer was last attached — the current time while one
+   * is — or `null` when none has ever attached.
+   */
+  lastConsumerSeenAt: string | null;
+  /** Events held for a consumer that is not attached. */
+  queuedEvents: number;
+  /** Whether the upstream transport has already closed. */
+  transportDead: boolean;
+}
+
+export interface RemoteSessionListResponse {
+  sessions: RemoteSessionSummary[];
 }
 
 export interface RemoteSetAuthStateRequest {

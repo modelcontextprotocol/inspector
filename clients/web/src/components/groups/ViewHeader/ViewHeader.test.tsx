@@ -54,6 +54,7 @@ const connectedProps = {
   onDisconnect: vi.fn(),
   onToggleTheme: vi.fn(),
   onOpenClientSettings: vi.fn(),
+  onOpenActiveSessions: vi.fn(),
 };
 
 describe("ViewHeader", () => {
@@ -68,6 +69,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       expect(screen.getByText("MCP Inspector")).toBeInTheDocument();
@@ -86,6 +88,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       await user.hover(screen.getByRole("link"));
@@ -100,10 +103,26 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={onOpenClientSettings}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       await user.click(screen.getByRole("button", { name: "Client settings" }));
       expect(onOpenClientSettings).toHaveBeenCalled();
+    });
+
+    it("invokes onOpenActiveSessions when the active sessions button is clicked", async () => {
+      const user = userEvent.setup();
+      const onOpenActiveSessions = vi.fn();
+      renderWithMantine(
+        <ViewHeader
+          connected={false}
+          onToggleTheme={vi.fn()}
+          onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={onOpenActiveSessions}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Active sessions" }));
+      expect(onOpenActiveSessions).toHaveBeenCalled();
     });
 
     it("invokes onToggleTheme when the theme button is clicked", async () => {
@@ -114,6 +133,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={onToggleTheme}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       await user.click(
@@ -128,6 +148,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       expect(
@@ -146,6 +167,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
           monitorToggle={{ open: false, onToggle }}
         />,
       );
@@ -266,6 +288,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       const exitingCell = screen
@@ -350,6 +373,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
       );
       expect(
@@ -403,6 +427,7 @@ describe("ViewHeader", () => {
           connected={false}
           onToggleTheme={vi.fn()}
           onOpenClientSettings={vi.fn()}
+          onOpenActiveSessions={vi.fn()}
         />,
         { settleMs: TRANSITION_SETTLE_MS },
       );
@@ -444,6 +469,7 @@ describe("ViewHeader", () => {
             connected={false}
             onToggleTheme={vi.fn()}
             onOpenClientSettings={vi.fn()}
+            onOpenActiveSessions={vi.fn()}
           />,
         );
         // Reconnect with a new tab: because glowArmed was reset, the freshly

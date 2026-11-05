@@ -635,3 +635,72 @@ describe("RemoteSession event queue cap (#2824)", () => {
     expect(types.at(-1)).toBe("transport_error");
   });
 });
+
+describe("RemoteSession.describe (#2831)", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("reports the descriptor, defaulting to an unnamed stdio session", () => {
+    vi.useFakeTimers({ now: new Date("2026-03-01T00:00:00Z") });
+    expect(new RemoteSession("s1").describe()).toEqual({
+      sessionId: "s1",
+      transport: "stdio",
+      createdAt: "2026-03-01T00:00:00.000Z",
+      consumerAttached: false,
+      lastConsumerSeenAt: null,
+      queuedEvents: 0,
+      transportDead: false,
+    });
+    expect(
+      new RemoteSession("s2", {
+        serverName: "Remote",
+        transport: "streamable-http",
+      }).describe(),
+    ).toMatchObject({ serverName: "Remote", transport: "streamable-http" });
+  });
+
+  it("counts queued events and a dead transport", () => {
+    const session = new RemoteSession("s1");
+    session.onStderr({ timestamp: new Date(), message: "one" });
+    session.markTransportDead("gone");
+    expect(session.describe()).toMatchObject({
+      queuedEvents: 2,
+      transportDead: true,
+    });
+  });
+
+  it("reports now while attached, and the detach time once the consumer leaves", () => {
+    vi.useFakeTimers({ now: new Date("2026-03-01T00:00:00Z") });
+    const session = new RemoteSession("s1");
+    const consumer = (): void => {};
+    session.setEventConsumer(consumer);
+    vi.setSystemTime(new Date("2026-03-01T00:05:00Z"));
+    expect(session.describe()).toMatchObject({
+      consumerAttached: true,
+      lastConsumerSeenAt: "2026-03-01T00:05:00.000Z",
+    });
+
+    expect(session.detachEventConsumer(consumer)).toBe(true);
+    vi.setSystemTime(new Date("2026-03-01T00:09:00Z"));
+    expect(session.describe()).toMatchObject({
+      consumerAttached: false,
+      lastConsumerSeenAt: "2026-03-01T00:05:00.000Z",
+    });
+  });
+
+  it("stamps the last-seen time when a consumer is cleared, and not when none was attached", () => {
+    vi.useFakeTimers({ now: new Date("2026-03-01T00:00:00Z") });
+    const session = new RemoteSession("s1");
+    session.clearEventConsumer();
+    expect(session.describe().lastConsumerSeenAt).toBeNull();
+
+    session.setEventConsumer(() => {});
+    vi.setSystemTime(new Date("2026-03-01T00:02:00Z"));
+    session.clearEventConsumer();
+    vi.setSystemTime(new Date("2026-03-01T00:07:00Z"));
+    expect(session.describe().lastConsumerSeenAt).toBe(
+      "2026-03-01T00:02:00.000Z",
+    );
+  });
+});
