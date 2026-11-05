@@ -64,6 +64,14 @@ describe("summarizeAccessToken", () => {
     });
   });
 
+  it("splits a space-delimited string scp", () => {
+    expect(
+      summarizeAccessToken({
+        access_token: jwt({ scp: "tools:read  tools:call" }),
+      }).scopes,
+    ).toEqual(["tools:read", "tools:call"]);
+  });
+
   it("drops malformed claim types and strips control characters", () => {
     const summary = summarizeAccessToken({
       access_token: jwt({

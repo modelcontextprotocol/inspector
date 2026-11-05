@@ -108,7 +108,12 @@ export function summarizeAccessToken(
       audience: listClaim(claims.aud),
       subject: stringClaim(claims.sub),
       clientId: stringClaim(claims.client_id) ?? stringClaim(claims.azp),
-      scopes: scopeString(claims.scope) ?? listClaim(claims.scp),
+      scopes:
+        scopeString(claims.scope) ??
+        // `scp` is a list in some issuers and a space-delimited string in others.
+        (typeof claims.scp === "string"
+          ? scopeString(claims.scp)
+          : listClaim(claims.scp)),
       issuedAt: numericClaim(claims.iat),
       expiresAt: numericClaim(claims.exp),
     };
