@@ -348,6 +348,7 @@ const shellArgs: ShellProps = {
   onActiveTabChange: fn(),
   onToggleTheme: fn(),
   onOpenClientSettings: fn(),
+  onOpenActiveSessions: fn(),
 };
 
 // Stories default to "disconnected"; per-story overrides drive the connected /

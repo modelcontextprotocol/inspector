@@ -1,6 +1,7 @@
 /**
  * Hono-based remote server for MCP transports.
- * Hosts /api/config, /api/mcp/connect, send, events, disconnect, /api/fetch, /api/log,
+ * Hosts /api/config, /api/mcp/connect, send, events, disconnect,
+ * /api/mcp/sessions (+ DELETE /api/mcp/sessions/:sessionId), /api/fetch, /api/log,
  * /api/storage/:storeId, /api/servers (+ /api/servers/:id), /api/import-source.
  */
 
@@ -43,6 +44,7 @@ import { isRateLimitError } from "../../rateLimit.js";
 import type {
   RemoteConnectRequest,
   RemoteSendRequest,
+  RemoteSessionListResponse,
   RemoteSetAuthStateRequest,
 } from "../types.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/client";
@@ -180,28 +182,67 @@ export interface PrimableSseStream {
  *
  * `cleanup` runs inside Hono's bare `subscriber()` call, so it must be
  * synchronous and must not throw — a rejection there has no owner.
+ *
+ * `end` lets the *server* end the stream too (#2831): when its signal fires,
+ * the same exactly-once `cleanup` runs, `flush` is awaited so events already
+ * handed to the stream reach the client, and the stream is closed — so a
+ * terminated session does not hold its events response open until the
+ * browser happens to abort it.
  */
 export async function primeAndHoldSseStream(
   stream: PrimableSseStream,
   cleanup: () => void,
+  end?: { signal: AbortSignal; flush: () => Promise<unknown> },
 ): Promise<void> {
   let done = false;
-  const aborted = new Promise<void>((resolve) => {
-    stream.onAbort(() => {
-      // Hono's `abort()` guards its own re-entry, but the guard belongs here
-      // too: this helper's contract is exactly-once teardown, and running a
-      // caller's cleanup twice would double-delete a subscriber that has
-      // since been re-added by a reconnect.
-      if (done) return;
-      done = true;
-      cleanup();
+  // Hono's `abort()` guards its own re-entry, but the guard belongs here
+  // too: this helper's contract is exactly-once teardown, and running a
+  // caller's cleanup twice would double-delete a subscriber that has
+  // since been re-added by a reconnect.
+  const finish = (): boolean => {
+    if (done) return false;
+    done = true;
+    cleanup();
+    return true;
+  };
+  const released = new Promise<void>((resolve) => {
+    // Closing the stream and releasing the handler is its own exactly-once
+    // step, separate from `cleanup`: a client abort that arrives while a
+    // server-side end is still flushing has already lost the cleanup race,
+    // but must still release the handler rather than leave it waiting on a
+    // write to a peer that is gone.
+    let closed = false;
+    const release = (): void => {
+      if (closed) return;
+      closed = true;
       closeAbortedStream(stream);
       resolve();
+    };
+    // Set below when there is an end signal to stop listening to.
+    let detachEnd = (): void => {};
+    stream.onAbort(() => {
+      // The session outlives this stream, so its end signal must not keep
+      // the finished stream's listener (and closures) alive across reattaches.
+      if (finish()) detachEnd();
+      release();
     });
+    if (!end) return;
+    const { signal, flush } = end;
+    const onEnd = (): void => {
+      if (!finish()) return;
+      // An abort listener cannot await; `flush` is settled by the `catch`,
+      // and `release` discards the close's own rejection.
+      void flush()
+        .catch(() => {})
+        .then(release);
+    };
+    detachEnd = () => signal.removeEventListener("abort", onEnd);
+    if (signal.aborted) onEnd();
+    else signal.addEventListener("abort", onEnd, { once: true });
   });
 
   await stream.write(SSE_PRIMING_COMMENT);
-  await aborted;
+  await released;
 }
 
 /**
@@ -651,6 +692,24 @@ export function mcpParamHeadersOnly(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Why a session ended, as its attached tab is told (#2831). */
+export const SESSION_TERMINATED_MESSAGE =
+  "Session terminated from the Inspector's active session list";
+
+/** Longest server name a session records; it is only a display label. */
+const MAX_SESSION_SERVER_NAME_CHARS = 256;
+
+/**
+ * The display name a connect body offers, if it is a usable one (#2831). The
+ * body is unvalidated JSON, so anything but a non-blank string is dropped
+ * rather than trusted, and an over-long one is cut to a label's length.
+ */
+export function sessionServerName(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const name = value.trim();
+  return name === "" ? undefined : name.slice(0, MAX_SESSION_SERVER_NAME_CHARS);
+}
+
 export function createRemoteApp(
   options: RemoteServerOptions,
 ): CreateRemoteAppResult {
@@ -957,7 +1016,10 @@ export function createRemoteApp(
     }
 
     const sessionId = crypto.randomUUID();
-    const session = new RemoteSession(sessionId);
+    const session = new RemoteSession(sessionId, {
+      serverName: sessionServerName(body.serverName),
+      transport: config.type ?? "stdio",
+    });
 
     let transport: Awaited<ReturnType<typeof createTransportNode>>["transport"];
     let authHandle: ReturnType<typeof createRemoteAuthProvider>;
@@ -1240,12 +1302,19 @@ export function createRemoteApp(
     }
 
     return streamSSE(c, async (stream) => {
+      // The most recent write, so a terminate (#2831) can let the event it
+      // just pushed reach the client before the stream is closed.
+      let lastWrite: Promise<unknown> = Promise.resolve();
       const consumer = (event: SessionEvent): void => {
         const data = JSON.stringify(event);
-        void stream.writeSSE({
-          event: event.type,
-          data,
-        });
+        lastWrite = stream
+          .writeSSE({
+            event: event.type,
+            data,
+          })
+          .catch(() => {
+            // The peer is gone; nothing is left to deliver it to.
+          });
       };
       session.setEventConsumer(consumer);
 
@@ -1271,21 +1340,25 @@ export function createRemoteApp(
       // events. See SSE_PRIMING_COMMENT. The disconnect cleanup is
       // registered ahead of that priming write and the stream is then held
       // open until the client aborts — see primeAndHoldSseStream (#1999).
-      await primeAndHoldSseStream(stream, () => {
-        // Client disconnected. A stream that was already replaced by a newer
-        // one owns nothing any more, so it must not touch the session.
-        if (!session.detachEventConsumer(consumer)) return;
+      await primeAndHoldSseStream(
+        stream,
+        () => {
+          // Client disconnected. A stream that was already replaced by a newer
+          // one owns nothing any more, so it must not touch the session.
+          if (!session.detachEventConsumer(consumer)) return;
 
-        // If transport is dead and no client connected, cleanup session
-        if (session.isTransportDead()) {
-          sessions.delete(sessionId);
-          return;
-        }
-        // Otherwise give a reattach (the OAuth redirect's) the grace window,
-        // then close the transport — a closed tab must not keep a stdio
-        // child alive until the Inspector exits (#2824).
-        armSessionReap(session);
-      });
+          // If transport is dead and no client connected, cleanup session
+          if (session.isTransportDead()) {
+            sessions.delete(sessionId);
+            return;
+          }
+          // Otherwise give a reattach (the OAuth redirect's) the grace window,
+          // then close the transport — a closed tab must not keep a stdio
+          // child alive until the Inspector exits (#2824).
+          armSessionReap(session);
+        },
+        { signal: session.terminatedSignal, flush: () => lastWrite },
+      );
     });
   });
 
@@ -1310,6 +1383,41 @@ export function createRemoteApp(
       sessions.delete(sessionId);
     }
 
+    return c.json({ ok: true });
+  });
+
+  // #2831: the operator's view of every live session, including ones whose
+  // tab went away, and a way to end one without restarting the Inspector.
+  // Behind the same `x-mcp-remote-auth` middleware as every other route.
+  app.get("/api/mcp/sessions", (c) => {
+    const list: RemoteSessionListResponse = {
+      sessions: [...sessions.values()]
+        .map((session) => session.describe())
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+    };
+    return c.json(list);
+  });
+
+  app.delete("/api/mcp/sessions/:sessionId", async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const session = sessions.get(sessionId);
+    if (!session) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+    // Forgotten first, so the transport's `onclose` finds no session to mark
+    // dead and sweep — the same order the detach-grace reap uses.
+    sessions.delete(sessionId);
+    session.cancelDetachGrace();
+    // A tab still attached learns why its connection ended instead of seeing
+    // the stream go quiet; a detached session queues it for nobody, harmlessly.
+    session.markTransportDead(SESSION_TERMINATED_MESSAGE);
+    // …then end that tab's events stream, which would otherwise stay open
+    // until the browser aborts it.
+    session.terminate();
+    session.rejectActiveRequestWaits(new Error(SESSION_TERMINATED_MESSAGE));
+    await session.transport.close().catch(() => {
+      // Best-effort: the session is already forgotten either way.
+    });
     return c.json({ ok: true });
   });
 

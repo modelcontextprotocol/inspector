@@ -10,6 +10,10 @@
  * `attachToSession`) cancels it, and otherwise the backend closes the transport
  * and forgets the session. While detached, events queue for that reattach, and
  * the queue is capped so a chatty server cannot grow it without bound.
+ *
+ * Each session also records what `GET /api/mcp/sessions` reports about it
+ * (#2831) — the server it was opened for, when, and when a consumer was last
+ * attached — so an operator can find one that outlived its tab and end it.
  */
 
 import type { Transport } from "@modelcontextprotocol/client";
@@ -19,7 +23,8 @@ import type { RemoteEvent } from "../types.js";
 import type { AuthChallenge } from "../../../auth/challenge.js";
 import { AuthChallengeError } from "../../../auth/challenge.js";
 import type { RemoteAuthProviderHandle } from "./tokenAuthProvider.js";
-import type { RemoteAuthState } from "../types.js";
+import type { RemoteAuthState, RemoteSessionSummary } from "../types.js";
+import type { ServerType } from "../../types.js";
 import { progressTokenOf, waitForProgressToken } from "../progressToken.js";
 import { RateLimitLedger } from "../../rateLimit.js";
 
@@ -41,6 +46,12 @@ type RequestWait = {
   resetTimeout: () => void;
 };
 
+/** What a session is a connection *to*, for the session list (#2831). */
+export interface RemoteSessionDescriptor {
+  serverName?: string;
+  transport?: ServerType;
+}
+
 export class RemoteSession {
   /**
    * How long a session may sit with no event consumer before the backend
@@ -61,7 +72,14 @@ export class RemoteSession {
   static readonly MAX_QUEUED_EVENTS = 1_000;
 
   public readonly sessionId: string;
+  public readonly serverName: string | undefined;
+  public readonly transportType: ServerType;
+  public readonly createdAt: Date;
+  /** Last time a consumer attached or detached; `null` before the first attach. */
+  private lastConsumerSeenAt: Date | null = null;
   public transport!: Transport;
+  /** Fired by {@link terminate}; ends the session's events stream (#2831). */
+  private readonly terminated = new AbortController();
   private eventQueue: SessionEvent[] = [];
   private droppedEventCount = 0;
   private detachTimer: ReturnType<typeof setTimeout> | undefined;
@@ -83,8 +101,37 @@ export class RemoteSession {
   /** A protocol version is a dated token (`2025-11-25`, `2026-07-28`, …). */
   private static readonly PROTOCOL_VERSION_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
 
-  constructor(sessionId: string) {
+  constructor(sessionId: string, descriptor: RemoteSessionDescriptor = {}) {
     this.sessionId = sessionId;
+    this.serverName = descriptor.serverName;
+    this.transportType = descriptor.transport ?? "stdio";
+    this.createdAt = new Date();
+  }
+
+  /** Aborted once the session has been terminated from the session list. */
+  get terminatedSignal(): AbortSignal {
+    return this.terminated.signal;
+  }
+
+  /** Mark the session terminated, ending any attached events stream (#2831). */
+  terminate(): void {
+    this.terminated.abort();
+  }
+
+  /** The `GET /api/mcp/sessions` entry for this session (#2831). */
+  describe(): RemoteSessionSummary {
+    const attached = this.eventConsumer !== null;
+    const lastSeen = attached ? new Date() : this.lastConsumerSeenAt;
+    return {
+      sessionId: this.sessionId,
+      ...(this.serverName !== undefined && { serverName: this.serverName }),
+      transport: this.transportType,
+      createdAt: this.createdAt.toISOString(),
+      consumerAttached: attached,
+      lastConsumerSeenAt: lastSeen ? lastSeen.toISOString() : null,
+      queuedEvents: this.eventQueue.length,
+      transportDead: this.transportDead,
+    };
   }
 
   setAuthProviderHandle(handle: RemoteAuthProviderHandle | null): void {
@@ -131,6 +178,7 @@ export class RemoteSession {
   setEventConsumer(consumer: (event: SessionEvent) => void): void {
     this.cancelDetachGrace();
     this.eventConsumer = consumer;
+    this.lastConsumerSeenAt = new Date();
     if (this.droppedEventCount > 0) {
       const dropped = this.droppedEventCount;
       this.droppedEventCount = 0;
@@ -150,6 +198,9 @@ export class RemoteSession {
   }
 
   clearEventConsumer(): boolean {
+    if (this.eventConsumer !== null) {
+      this.lastConsumerSeenAt = new Date();
+    }
     this.eventConsumer = null;
     // If transport is dead and no client connected, signal to cleanup
     return this.transportDead;
@@ -168,6 +219,7 @@ export class RemoteSession {
       return false;
     }
     this.eventConsumer = null;
+    this.lastConsumerSeenAt = new Date();
     return true;
   }
 

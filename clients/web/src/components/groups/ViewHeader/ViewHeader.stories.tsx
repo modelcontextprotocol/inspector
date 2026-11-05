@@ -39,6 +39,7 @@ export const Connected: Story = {
     onDisconnect: fn(),
     onToggleTheme: fn(),
     onOpenClientSettings: fn(),
+    onOpenActiveSessions: fn(),
   },
 };
 
@@ -47,5 +48,6 @@ export const Unconnected: Story = {
     connected: false,
     onToggleTheme: fn(),
     onOpenClientSettings: fn(),
+    onOpenActiveSessions: fn(),
   },
 };

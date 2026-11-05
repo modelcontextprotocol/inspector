@@ -118,6 +118,9 @@ import { parseDeepLink, deepLinkParseStatus } from "./utils/deepLink";
 import type { DeepLink, DeepLinkParseStatus } from "./utils/deepLink";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { getAuthToken } from "./lib/authToken";
+import { browserActiveSessionsApi } from "./lib/activeSessions";
+import { useActiveSessions } from "./hooks/useActiveSessions";
+import { ActiveSessionsModal } from "./components/groups/ActiveSessionsModal/ActiveSessionsModal";
 import { messagesToLogEntries } from "./lib/protocolReplay";
 import { EMPTY_SETTINGS } from "./utils/serverSettingsDefaults";
 import { resolveOAuthClearIdentity } from "./utils/oauthClearKey";
@@ -1742,6 +1745,8 @@ function App() {
   );
 
   const openClientSettings = useCallback(() => setClientSettingsOpen(true), []);
+  // #2831: every backend session across tabs, so a leaked one can be ended.
+  const activeSessions = useActiveSessions(browserActiveSessionsApi);
   const openConnectionInfo = useCallback(
     () => setConnectionInfoModalOpen(true),
     [],
@@ -1833,6 +1838,7 @@ function App() {
     onActiveTabChange: setActiveTab,
     onToggleTheme,
     onOpenClientSettings: openClientSettings,
+    onOpenActiveSessions: activeSessions.open,
   };
 
   const connectionProps: ConnectionProps = {
@@ -2122,6 +2128,23 @@ function App() {
         emaIdpLoginState={emaIdpLoginState}
         onEmaIdpLogout={logoutEmaIdp}
         secretStorage={secretStorage}
+      />
+      <ActiveSessionsModal
+        opened={activeSessions.opened}
+        sessions={activeSessions.sessions}
+        capturedAt={activeSessions.capturedAt}
+        loading={activeSessions.loading}
+        error={activeSessions.error}
+        terminatingId={activeSessions.terminatingId}
+        currentSessionId={
+          // Read only while the modal shows it, not on every App render.
+          activeSessions.opened
+            ? inspectorClient?.getRemoteBackendSessionId()
+            : undefined
+        }
+        onRefresh={activeSessions.refresh}
+        onTerminate={activeSessions.terminate}
+        onClose={activeSessions.close}
       />
       {initializeResult && activeServer && (
         <ConnectionInfoModal

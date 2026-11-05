@@ -380,6 +380,7 @@ export function InspectorView({
     onActiveTabChange,
     onToggleTheme,
     onOpenClientSettings,
+    onOpenActiveSessions,
   } = shell;
   const {
     activeServer,
@@ -1173,6 +1174,7 @@ export function InspectorView({
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            onOpenActiveSessions={onOpenActiveSessions}
             monitorToggle={monitorToggle}
           />
         ) : (
@@ -1180,6 +1182,7 @@ export function InspectorView({
             connected={false}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            onOpenActiveSessions={onOpenActiveSessions}
             monitorToggle={monitorToggle}
           />
         )}

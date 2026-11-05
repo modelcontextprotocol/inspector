@@ -19,6 +19,9 @@ export interface RemoteTransportFactoryOptions {
 
   /** Optional fetch implementation (for proxy or testing) */
   fetchFn?: typeof fetch;
+
+  /** Server display name, labelling the backend session it opens (#2831). */
+  serverName?: string;
 }
 
 /**
@@ -61,6 +64,7 @@ export function createRemoteTransport(
         onFetchStreamUpdate: transportOptions.onFetchStreamUpdate,
         authProvider: transportOptions.authProvider,
         settings: transportOptions.settings,
+        serverName: options.serverName,
       },
       config,
     );
