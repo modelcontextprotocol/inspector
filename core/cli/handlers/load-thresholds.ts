@@ -155,10 +155,16 @@ function throughputBreach(
   summary: LoadSummary,
   min: number,
 ): Breach | undefined {
-  if (summary.okThroughput >= min) return undefined;
+  // Recomputed from the counts, like the error rate: `okThroughput` is
+  // rounded to two places, so one success over 1001 ms reads as 1/s and
+  // would pass a minimum of 1 that the run did not reach.
+  const exact =
+    summary.elapsedMs > 0 ? (summary.ok * 1000) / summary.elapsedMs : 0;
+  if (exact >= min) return undefined;
   return {
     code: LOAD_THROUGHPUT_BELOW,
-    message: `ok throughput ${summary.okThroughput}/s is below --load-min-throughput ${min}/s`,
+    // Three places, so a near miss does not read as equal to the limit.
+    message: `ok throughput ${Math.round(exact * 1000) / 1000}/s is below --load-min-throughput ${min}/s`,
   };
 }
 

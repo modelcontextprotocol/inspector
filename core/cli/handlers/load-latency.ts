@@ -49,9 +49,15 @@ export function percentile(sorted: number[], p: number): number {
 
 /** The 1-based nearest rank of percentile `p` among `n` values. */
 function nearestRank(n: number, p: number): number {
-  // `(p * n) / 100`, less a hair: 99.9% of 1000 is 999.0000000000001 in
-  // floating point, which would otherwise round up to rank 1000.
-  return Math.min(Math.max(Math.ceil((p * n) / 100 - 1e-9), 1), n);
+  // ceil(p% of n) in exact integer arithmetic. Floating point would put
+  // 99.9% of 1000 at 999.0000000000001, rank 1000; and no fixed epsilon is
+  // right at every count. With `p` in thousandths of a percent, `a` stays an
+  // exact integer for any count a run can reach (below 2^53 / 100000).
+  const a = Math.round(p * 1000) * n;
+  const b = 100_000;
+  const q = Math.floor(a / b);
+  const rank = a - q * b > 0 ? q + 1 : q;
+  return Math.min(Math.max(rank, 1), n);
 }
 
 function round(n: number): number {

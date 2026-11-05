@@ -99,6 +99,31 @@ describe("LatencyRecorder", () => {
     expect(recorder.summarize()).toMatchObject({ p50: 7, p999: 7 });
   });
 
+  it("takes the exact nearest rank at large counts", () => {
+    // 21,000,000 samples: p99.9 is rank 20,979,000 exactly. A float-and-
+    // epsilon rank lands one past it, on the first slow call.
+    const recorder = new LatencyRecorder(0);
+    const fast = 20_979_000;
+    const n = 21_000_000;
+    // Two buckets, filled in bulk rather than by 21M calls to `add`.
+    // Private, hence the double cast: no accessor exists for tests.
+    const internals = recorder as unknown as {
+      buckets: Map<number, number>;
+      count: number;
+      sum: number;
+      min: number;
+      max: number;
+      samples: number[] | undefined;
+    };
+    recorder.add(1);
+    recorder.add(1000);
+    const [fastBucket, slowBucket] = [...internals.buckets.keys()];
+    internals.buckets.set(fastBucket!, fast);
+    internals.buckets.set(slowBucket!, n - fast);
+    internals.count = n;
+    expect(recorder.summarize()!.p999).toBeCloseTo(1, 1);
+  });
+
   it("returns null when nothing was recorded", () => {
     expect(new LatencyRecorder().summarize()).toBeNull();
     expect(summarizeLatency([])).toBeNull();
@@ -204,6 +229,22 @@ describe("the p50 / p95 / throughput gates", () => {
           "no call succeeded, so there is no p95 latency to check against --load-max-p95 5",
       },
     ]);
+  });
+
+  it("judges throughput on the exact rate, not the rounded one", () => {
+    // One success over 1001 ms rounds to 1/s, but is only ~0.999/s.
+    const run = summary({ ok: 1, elapsedMs: 1001, okThroughput: 1 });
+    expect(loadThresholdBreaches(run, { minThroughput: 1 })).toEqual([
+      {
+        code: "load_throughput_below",
+        message: "ok throughput 0.999/s is below --load-min-throughput 1/s",
+      },
+    ]);
+    expect(
+      loadThresholdBreaches(summary({ ok: 0, elapsedMs: 0 }), {
+        minThroughput: 1,
+      }),
+    ).toHaveLength(1);
   });
 
   it("names the first breach in the exit code's envelope", () => {
