@@ -2136,7 +2136,12 @@ function App() {
         loading={activeSessions.loading}
         error={activeSessions.error}
         terminatingId={activeSessions.terminatingId}
-        currentSessionId={inspectorClient?.getRemoteBackendSessionId()}
+        currentSessionId={
+          // Read only while the modal shows it, not on every App render.
+          activeSessions.opened
+            ? inspectorClient?.getRemoteBackendSessionId()
+            : undefined
+        }
         onRefresh={activeSessions.refresh}
         onTerminate={activeSessions.terminate}
         onClose={activeSessions.close}
