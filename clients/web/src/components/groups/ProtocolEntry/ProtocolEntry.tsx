@@ -7,7 +7,6 @@ import {
   Collapse,
   Divider,
   Group,
-  ScrollArea,
   Stack,
   Text,
 } from "@mantine/core";
@@ -26,6 +25,7 @@ import { EditReplayButton } from "../../elements/EditReplayButton/EditReplayButt
 import { EditReplayModal } from "../EditReplayModal/EditReplayModal";
 import { useValueChange } from "../../../hooks/useValueChange";
 import { useOpenedOnce } from "../../../hooks/useOpenedOnce";
+import { useKeepRowMounted } from "../../../hooks/useKeepRowMounted";
 import {
   classifyProtocolSpecError,
   type McpSpecError,
@@ -158,12 +158,16 @@ const TargetText = Text.withProps({
 });
 
 // Compact-header target (e.g. a long resource URI): never wraps, so it scrolls
-// horizontally inside its ScrollArea instead of truncating with an ellipsis
-// (mirrors NetworkEntry's URL).
+// horizontally in place instead of truncating with an ellipsis (mirrors
+// NetworkEntry's URL). It has no focusable child, so the scroller itself is
+// focusable to keep it keyboard-scrollable (WCAG SC 2.1.1).
 const TargetScroll = Text.withProps({
   size: "sm",
   fw: 500,
-  variant: "nowrap",
+  variant: "hscroll",
+  flex: 1,
+  miw: 0,
+  tabIndex: 0,
 });
 
 const DurationText = Text.withProps({
@@ -183,6 +187,16 @@ const SubscriptionId = Text.withProps({
   size: "sm",
   ff: "monospace",
   variant: "nowrap",
+});
+
+// The id in the compact header, where it scrolls in place like the target.
+const SubscriptionIdScroll = Text.withProps({
+  size: "sm",
+  ff: "monospace",
+  variant: "hscroll",
+  flex: 1,
+  miw: 0,
+  tabIndex: 0,
 });
 
 const SubscriptionCluster = Group.withProps({
@@ -224,16 +238,6 @@ const RevealLink = Anchor.withProps({
   component: "button",
   type: "button",
   size: "xs",
-});
-
-const TargetScrollArea = ScrollArea.withProps({
-  scrollbarSize: 6,
-  flex: 1,
-  miw: 0,
-  // The target scrolls horizontally but has no focusable child, so make the
-  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
-  // via the `type="scroll"` theme default.
-  viewportProps: { tabIndex: 0 },
 });
 
 // Trailing controls row (replay / pin / expand) in the wide layout.
@@ -397,12 +401,15 @@ function SubscriptionTag({
   id: string;
   scrollable: boolean;
 }) {
-  const idText = <SubscriptionId>{id}</SubscriptionId>;
   return (
     <SubscriptionCluster>
       <SubscriptionLabel>sub</SubscriptionLabel>
       <CopyButton value={id} />
-      {scrollable ? <TargetScrollArea>{idText}</TargetScrollArea> : idText}
+      {scrollable ? (
+        <SubscriptionIdScroll>{id}</SubscriptionIdScroll>
+      ) : (
+        <SubscriptionId>{id}</SubscriptionId>
+      )}
     </SubscriptionCluster>
   );
 }
@@ -439,6 +446,9 @@ export function ProtocolEntry({
   // Likewise the edit-and-replay modal: a closed Mantine `Modal` still costs a
   // full subtree per row, and almost no row is ever replayed (#2928).
   const editorMounted = useOpenedOnce(isEditingReplay);
+  // In a lazy list a row unmounts when scrolled away and remounts from its
+  // props (#2932); state the props cannot restore keeps it mounted instead.
+  useKeepRowMounted(isExpanded !== isListExpanded || isEditingReplay);
 
   const directionBadge = entry.origin && (
     <MessageDirectionBadge
@@ -519,9 +529,7 @@ export function ProtocolEntry({
                 {target && (
                   <TargetGroup>
                     {resourceUri && <CopyButton value={resourceUri} />}
-                    <TargetScrollArea>
-                      <TargetScroll>{target}</TargetScroll>
-                    </TargetScrollArea>
+                    <TargetScroll>{target}</TargetScroll>
                   </TargetGroup>
                 )}
               </GrowingHeaderCluster>

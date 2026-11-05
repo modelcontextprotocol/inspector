@@ -26,6 +26,22 @@ export const ThemeText = Text.extend({
         },
       };
     }
+    // A single line that scrolls sideways in place of wrapping or clipping —
+    // the compact sidebar row's target / URL (#2675). A native scroller rather
+    // than a Mantine `ScrollArea`: the row is mounted per message, and a
+    // `ScrollArea` root keeps its element refs in state, so it re-renders
+    // several times on every mount (#2932). The host is made focusable at the
+    // call site so the overflow is keyboard-scrollable (WCAG SC 2.1.1).
+    if (props.variant === "hscroll") {
+      return {
+        root: {
+          whiteSpace: "nowrap",
+          overflowX: "auto",
+          overflowY: "hidden",
+          scrollbarWidth: "thin",
+        },
+      };
+    }
     // A line of captured server stderr (#1621): preserve the process's own
     // newlines/whitespace (`pre-wrap`) while still wrapping over-long lines
     // inside the narrow monitoring sidebar (`break-word`).

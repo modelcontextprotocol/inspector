@@ -87,6 +87,17 @@ class MemoryStorage implements Storage {
   }
 }
 
+// happy-dom's `IntersectionObserver` is a stub that never reports, so a
+// `LazyRow` would wait forever for its first report and every Protocol and
+// Network row would stay an empty stand-in (#2932). Removing it puts those rows
+// on their no-observer path — mount at once — which is the honest model of a
+// DOM with no layout to observe. A test of the lazy path installs its own.
+Object.defineProperty(globalThis, "IntersectionObserver", {
+  configurable: true,
+  writable: true,
+  value: undefined,
+});
+
 Object.defineProperty(window, "localStorage", {
   configurable: true,
   value: new MemoryStorage(),

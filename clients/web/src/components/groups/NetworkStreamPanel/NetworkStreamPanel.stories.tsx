@@ -7,6 +7,7 @@ import {
   expectScrollbarGutterIdleHidden,
 } from "../../../test/scrollAreaStoryAssertions";
 import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
+import { expectRowsMountNearViewport } from "../../../test/lazyRowStoryAssertions";
 
 const meta: Meta<typeof NetworkStreamPanel> = {
   title: "Groups/NetworkStreamPanel",
@@ -93,5 +94,33 @@ export const EmbeddedLongUrls: Story = {
   decorators: [narrowSidebarDecorator],
   play: async ({ canvasElement }) => {
     await expectNoHorizontalOverflow(canvasElement);
+  },
+};
+
+// A long log, as a load test leaves it (#2932): only the rows near the
+// viewport are mounted, and scrolling to the end mounts the oldest request.
+const longLog: FetchRequestEntry[] = Array.from(
+  { length: 300 },
+  (_, index) => ({
+    id: `load-${index}`,
+    timestamp: new Date(Date.UTC(2026, 2, 17, 10, 0, 0, index)),
+    method: "POST",
+    url: `https://example.com/mcp/${index}`,
+    requestHeaders: { "content-type": "application/json" },
+    responseStatus: 200,
+    duration: 3,
+    category: "transport",
+  }),
+);
+
+export const EmbeddedLongLog: Story = {
+  args: { entries: longLog, embedded: true },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    // Newest first, so the first request is the last row.
+    await expectRowsMountNearViewport(
+      canvasElement,
+      "https://example.com/mcp/0",
+    );
   },
 };

@@ -7,6 +7,7 @@ import {
   expectScrollbarGutterIdleHidden,
 } from "../../../test/scrollAreaStoryAssertions";
 import { narrowSidebarDecorator } from "../../../test/narrowSidebarDecorator";
+import { expectRowsMountNearViewport } from "../../../test/lazyRowStoryAssertions";
 
 const meta: Meta<typeof ProtocolListPanel> = {
   title: "Groups/ProtocolListPanel",
@@ -258,5 +259,43 @@ export const EmbeddedLongTargetExpanded: Story = {
   decorators: [narrowSidebarDecorator],
   play: async ({ canvasElement }) => {
     await expectNoHorizontalOverflow(canvasElement);
+  },
+};
+
+// A long log, as a load test leaves it (#2932): only the rows near the
+// viewport are mounted, and scrolling to the end mounts the oldest call.
+const LONG_LOG_LENGTH = 300;
+
+function longLogEntry(index: number): MessageEntry {
+  return {
+    id: `load-${index}`,
+    timestamp: new Date(Date.UTC(2026, 2, 17, 10, 0, 0, index)),
+    direction: "request",
+    origin: "client",
+    message: {
+      jsonrpc: "2.0",
+      id: index,
+      method: "tools/call",
+      params: { name: `echo-${index}`, arguments: { message: "hello" } },
+    },
+    response: {
+      jsonrpc: "2.0",
+      id: index,
+      result: { content: [{ type: "text", text: "hello" }] },
+    },
+    duration: 3,
+  };
+}
+
+const longLog = Array.from({ length: LONG_LOG_LENGTH }, (_, index) =>
+  longLogEntry(index),
+);
+
+export const EmbeddedLongLog: Story = {
+  args: { entries: longLog, embedded: true },
+  decorators: [narrowSidebarDecorator],
+  play: async ({ canvasElement }) => {
+    // Newest first, so the first call is the last row.
+    await expectRowsMountNearViewport(canvasElement, "echo-0");
   },
 };
