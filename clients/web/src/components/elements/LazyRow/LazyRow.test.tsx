@@ -96,12 +96,12 @@ describe("LazyRow", () => {
     );
     expect(screen.queryByText("content")).not.toBeInTheDocument();
     expect(row()).toHaveAttribute("data-lazy-row", "placeholder");
-    expect(row()).toHaveAttribute("aria-hidden", "true");
+    expect(row()).toHaveAttribute("tabindex", "0");
     expect(row().style.height).toBe(heightOf(123));
 
     report({ near: true, height: 123 });
     expect(screen.getByText("content")).toBeInTheDocument();
-    expect(row()).not.toHaveAttribute("aria-hidden");
+    expect(row()).not.toHaveAttribute("tabindex");
   });
 
   it("mounts before the first paint when the first render finds it near", () => {
@@ -143,6 +143,74 @@ describe("LazyRow", () => {
     report({ near: false, height: 140 });
     expect(screen.queryByText("content")).not.toBeInTheDocument();
     expect(row().style.height).toBe(heightOf(140));
+  });
+
+  it("ignores a zero height, as from a row in a collapsed section", () => {
+    const { registry, report } = fakeRegistry(true);
+    renderWithMantine(
+      inRegion(
+        registry,
+        <LazyRow estimatedHeight={100}>
+          <span>content</span>
+        </LazyRow>,
+      ),
+    );
+    report({ near: false, height: 140 });
+    report({ near: true, height: 140 });
+    report({ near: false, height: 0 });
+    expect(row().style.height).toBe(heightOf(140));
+  });
+
+  it("mounts a stand-in Tab lands on and moves into its first control", () => {
+    const { registry } = fakeRegistry(false);
+    renderWithMantine(
+      inRegion(
+        registry,
+        <>
+          <button type="button">before</button>
+          <LazyRow estimatedHeight={100}>
+            <button type="button">first</button>
+            <button type="button">last</button>
+          </LazyRow>
+        </>,
+      ),
+    );
+    act(() => screen.getByText("before").focus());
+    act(() => row().focus());
+    expect(screen.getByText("first")).toHaveFocus();
+  });
+
+  it("moves into the last control when Shift+Tab lands on a stand-in", () => {
+    const { registry } = fakeRegistry(false);
+    renderWithMantine(
+      inRegion(
+        registry,
+        <>
+          <LazyRow estimatedHeight={100}>
+            <button type="button">first</button>
+            <button type="button">last</button>
+          </LazyRow>
+          <button type="button">after</button>
+        </>,
+      ),
+    );
+    act(() => screen.getByText("after").focus());
+    act(() => row().focus());
+    expect(screen.getByText("last")).toHaveFocus();
+  });
+
+  it("treats focus from nowhere as forward, and tolerates a row with no controls", () => {
+    const { registry } = fakeRegistry(false);
+    renderWithMantine(
+      inRegion(
+        registry,
+        <LazyRow estimatedHeight={100}>
+          <span>content</span>
+        </LazyRow>,
+      ),
+    );
+    act(() => row().focus());
+    expect(screen.getByText("content")).toBeInTheDocument();
   });
 
   it("drops a measured height when the estimate changes shape", () => {

@@ -31,6 +31,22 @@ export interface LazyRowProps {
   forceMount?: boolean;
 }
 
+// What a Tab can land on inside a row.
+const TABBABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+// Whether focus reached a stand-in moving forward (Tab) rather than back
+// (Shift+Tab): forward when it came from something earlier in the document,
+// or from nowhere.
+function isFocusArrivingForward(event: FocusEvent<HTMLDivElement>): boolean {
+  const from = event.relatedTarget;
+  if (!(from instanceof Node)) return true;
+  return Boolean(
+    from.compareDocumentPosition(event.currentTarget) &
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  );
+}
+
 // Whether a blur moves focus out of the row altogether, rather than between
 // two controls inside it.
 function isFocusLeaving(event: FocusEvent<HTMLDivElement>): boolean {
@@ -85,8 +101,9 @@ export function LazyRow({
   // may have changed size since the observer last reported (a response
   // landing in an expanded body), and its stand-in must match what it was.
   const captureHeight = useCallback(() => {
-    const element = rootRef.current;
-    if (element) setMeasuredHeight(element.getBoundingClientRect().height);
+    const height = rootRef.current?.getBoundingClientRect().height ?? 0;
+    // Zero is a row in a collapsed section, not its size (see below).
+    if (height > 0) setMeasuredHeight(height);
   }, []);
 
   const hold = useCallback(() => {
@@ -116,11 +133,23 @@ export function LazyRow({
     if (!registry || !element) return;
     return registry.observe(element, (report: LazyMountReport) => {
       setNear(report.near);
-      if (!report.near) setMeasuredHeight(report.height);
+      // A zero height is a row inside a collapsed section, not the row's own
+      // size; keep the last real measurement (or the estimate) instead.
+      if (!report.near && report.height > 0) setMeasuredHeight(report.height);
     });
   }, [registry]);
 
-  const handleFocus = () => setFocused(true);
+  // Keyboard reach: a stand-in is a tab stop, so Tab and Shift+Tab can move
+  // past a row too tall to leave its neighbours mounted. Focus landing on one
+  // mounts the row and moves on into it — to its first control going
+  // forward, its last going back.
+  const pendingFocus = useRef<"first" | "last" | null>(null);
+  const handleFocus = (event: FocusEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) {
+      pendingFocus.current = isFocusArrivingForward(event) ? "first" : "last";
+    }
+    setFocused(true);
+  };
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
     if (!isFocusLeaving(event)) return;
     captureHeight();
@@ -129,13 +158,25 @@ export function LazyRow({
 
   const mounted = near || forceMount || holds > 0 || focused;
 
+  useLayoutEffect(() => {
+    const target = pendingFocus.current;
+    const element = rootRef.current;
+    if (!mounted || !target || !element) return;
+    pendingFocus.current = null;
+    const controls = element.querySelectorAll<HTMLElement>(TABBABLE);
+    const next =
+      target === "first" ? controls[0] : controls[controls.length - 1];
+    next?.focus();
+  }, [mounted]);
+
   // A bare `Box`: the only props are per-instance (the ref, a height that is
-  // measured, the mount state), so there is nothing static to extract.
+  // measured, the mount state), so there is nothing static to extract. The
+  // stand-in is focusable (see `handleFocus`), so it is not `aria-hidden`.
   return (
     <Box
       ref={rootRef}
       h={mounted ? undefined : (measuredHeight ?? estimatedHeight)}
-      aria-hidden={mounted ? undefined : true}
+      tabIndex={mounted ? undefined : 0}
       data-lazy-row={mounted ? "mounted" : "placeholder"}
       onFocus={handleFocus}
       onBlur={handleBlur}

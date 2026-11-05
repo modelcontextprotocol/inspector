@@ -16,6 +16,7 @@ import {
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
 import { LazyRow } from "../../elements/LazyRow/LazyRow";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
+import { useLazyMountRegistry } from "../../../hooks/useLazyMountRegistry";
 import { useLatestCallback } from "../../../hooks/useLatestCallback";
 
 /**
@@ -154,6 +155,9 @@ export function NetworkStreamPanel({
   onRevealComplete,
 }: NetworkStreamPanelProps) {
   const viewportRef = useScrollMemory("network-stream");
+  // Declared after the scroll memory, so the rows' first-paint checks run
+  // against the restored scroll offset (#2932).
+  const lazyMount = useLazyMountRegistry(viewportRef);
   // The parent's callback is a new function each render; a stable stand-in
   // keeps it from defeating the row memo (#2928).
   const revealComplete = useLatestCallback(() => {
@@ -204,6 +208,7 @@ export function NetworkStreamPanel({
         <EmbeddableScrollArea
           embedded={embedded}
           viewportRef={viewportRef}
+          lazyMount={lazyMount}
           constrainContentWidth
         >
           <Stack gap="md">

@@ -29,6 +29,7 @@ import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/Embedd
 import { LazyRow } from "../../elements/LazyRow/LazyRow";
 import { extractMethod, groupProtocolEntries } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
+import { useLazyMountRegistry } from "../../../hooks/useLazyMountRegistry";
 import { useLatestCallback } from "../../../hooks/useLatestCallback";
 
 // h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
@@ -346,6 +347,9 @@ export function ProtocolListPanel({
   correlatedStatusById,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
+  // Declared after the scroll memory, so the rows' first-paint checks run
+  // against the restored scroll offset (#2932).
+  const lazyMount = useLazyMountRegistry(viewportRef);
   // Stable stand-ins for the parent's handlers, which are new functions on
   // every render — passed raw they would defeat the row memo (#2928).
   const replayEntry = useLatestCallback(onReplay);
@@ -476,7 +480,11 @@ export function ProtocolListPanel({
           <EmptyState>No request history</EmptyState>
         </EmptyCenter>
       ) : (
-        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
+        <EmbeddableScrollArea
+          embedded={embedded}
+          viewportRef={viewportRef}
+          lazyMount={lazyMount}
+        >
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
               <CollapsibleSection
