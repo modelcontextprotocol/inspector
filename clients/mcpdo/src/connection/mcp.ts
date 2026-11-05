@@ -1488,7 +1488,7 @@ function registerRpcCommands(program: CommandType): void {
           )
           .option(
             "--load-progress <sec>",
-            "With --load: print a progress line on stderr this often (default 5; --quiet turns it off).",
+            "With --load: print a progress line on stderr this often (default 5). Shown with --format text only; --format json prints none.",
             positiveNumberParser("--load-progress"),
           )
           .option(

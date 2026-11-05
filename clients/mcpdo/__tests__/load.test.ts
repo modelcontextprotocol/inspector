@@ -413,6 +413,15 @@ describe("resolveLoadFlags with #2838 items 1–3", () => {
   });
 });
 
+describe("tools/call --help (#2838)", () => {
+  it("describes --load-progress without a --quiet mcpdo does not have", async () => {
+    const result = await runMcp(["tools/call", "--help"]);
+    const help = result.stdout.replace(/\s+/g, " ");
+    expect(help).toContain("Shown with --format text only");
+    expect(help).not.toContain("--quiet");
+  });
+});
+
 describe("resolveLoadFlags with stages (#2841)", () => {
   it("plans the stages and carries the thresholds for a stop on breach", () => {
     expect(
