@@ -71,8 +71,11 @@ export async function terminateSessionBestEffort(
   });
   // Held and settled on both paths: on a timeout the DELETE is still pending
   // and rejects once the caller's close() aborts it, so the `catch` here is
-  // what keeps that rejection from going unhandled.
-  const terminated = transport.terminateSession().then(
+  // what keeps that rejection from going unhandled. Invoked inside the
+  // executor so a transport that throws synchronously takes the same path.
+  const terminated = new Promise<void>((resolve) =>
+    resolve(transport.terminateSession()),
+  ).then(
     () => true,
     () => false,
   );

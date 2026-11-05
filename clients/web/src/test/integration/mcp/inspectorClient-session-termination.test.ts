@@ -31,6 +31,11 @@ import {
 } from "@modelcontextprotocol/inspector-test-server";
 import { closeHarnessServer } from "./remote/harnessTeardown.js";
 
+/** Detach grace for the reap test; see the comment at its use. */
+const ATTACHED_GRACE_MS = 3_000;
+/** Bound on waiting for the reap's DELETE; inside the 30s test budget. */
+const REAP_WAIT_MS = 15_000;
+
 const CUSTOM_HEADER = "x-inspector-test";
 const CUSTOM_VALUE = "session-termination";
 
@@ -164,7 +169,9 @@ describe("disconnect() terminates the Streamable HTTP session (#2924)", () => {
 
   it("remote (web): the detach-grace reap of a closed tab sends the DELETE", async () => {
     const s = await startTestServer();
-    const baseUrl = await startBackend(50);
+    // The grace also bounds connect → events attach, so it is sized for a
+    // loaded machine (as in remote/session-detach-reap.test.ts), not tight.
+    const baseUrl = await startBackend(ATTACHED_GRACE_MS);
     client = new InspectorClient(
       { type: "streamable-http", url: s.url },
       { environment: { transport: createRemoteTransport({ baseUrl }) } },
@@ -187,7 +194,7 @@ describe("disconnect() terminates the Streamable HTTP session (#2924)", () => {
 
     await expect
       .poll(() => s.getSessionTerminations().map((t) => t.sessionId), {
-        timeout: 10_000,
+        timeout: REAP_WAIT_MS,
       })
       .toEqual([sessionId]);
     expect(s.getActiveSessionIds()).toEqual([]);

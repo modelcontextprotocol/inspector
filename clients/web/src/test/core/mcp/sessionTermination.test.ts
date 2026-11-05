@@ -48,6 +48,16 @@ describe("terminateSessionBestEffort", () => {
     expect(await terminateSessionBestEffort(t)).toBe(false);
   });
 
+  it("resolves false, without rejecting, when terminateSession throws synchronously", async () => {
+    const t = {
+      sessionId: "abc",
+      terminateSession: (): Promise<void> => {
+        throw new Error("sync failure");
+      },
+    };
+    expect(await terminateSessionBestEffort(t)).toBe(false);
+  });
+
   it("resolves false once the timeout elapses on a DELETE that never answers", async () => {
     vi.useFakeTimers();
     let rejectPending: (e: Error) => void = () => {};
