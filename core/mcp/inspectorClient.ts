@@ -279,6 +279,10 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { routeOAuthRequests } from "../auth/routeOAuthRequests.js";
+import {
+  withFetchRefusalReporting,
+  type FetchRefusal,
+} from "../auth/fetchRefusal.js";
 import { withRfc8414OidcCompat } from "../auth/oidcDiscoveryCompat.js";
 import {
   DEFAULT_OAUTH_REQUEST_TIMEOUT_MS,
@@ -519,6 +523,12 @@ function dropInvalidReservedMeta(
 const MODERN_RECONNECT_BASE_MS = 500;
 const MODERN_RECONNECT_MAX_MS = 15_000;
 const MODERN_RECONNECT_MAX_ATTEMPTS = 8;
+
+/**
+ * How many distinct refusals {@link InspectorClient.getFetchRefusals} keeps.
+ * Bounded because the list lives as long as the client; the oldest go first.
+ */
+export const MAX_FETCH_REFUSALS = 20;
 
 export class InspectorClient extends InspectorClientEventTarget {
   /**
@@ -790,6 +800,15 @@ export class InspectorClient extends InspectorClientEventTarget {
   private transportClientFactory: CreateTransport;
   private fetchFn?: typeof fetch;
   private effectiveAuthFetch: typeof fetch;
+  /**
+   * Destination-guard refusals seen on this client's fetch chains (#2846),
+   * oldest first, one entry per distinct URL and reason, at most
+   * {@link MAX_FETCH_REFUSALS}. Kept for the client's lifetime rather than
+   * reset per connect: a connect that fails on a 401, an authorization flow,
+   * then a reconnect are one story, and the refusal that bent it is usually in
+   * the middle.
+   */
+  private fetchRefusals: FetchRefusal[] = [];
   // Session ID (for OAuth state and saveSession event; persistence is in FetchRequestLogState)
   private sessionId?: string;
   private transportConfig: MCPServerConfig;
@@ -888,8 +907,22 @@ export class InspectorClient extends InspectorClientEventTarget {
     // MCP endpoint (`routeOAuthRequests`), which is exactly the
     // transport-internal discovery described above. Absent, both chains share
     // the one base as before.
-    const transportBase = this.fetchFn ?? fetch;
-    const oauthBase = options.environment.oauthFetch;
+    //
+    // #2846: both bases report a destination-guard refusal before anything
+    // above them can swallow it — SDK discovery treats one as just another
+    // failed candidate and falls back. Innermost, so every chain built on top
+    // is covered, and each request passes exactly one of the two, so nothing
+    // is reported twice. In the browser the refusal arrives through the
+    // transport base, rebuilt by `createRemoteFetch`.
+    const reportRefusal = (refusal: FetchRefusal) =>
+      this.recordFetchRefusal(refusal);
+    const transportBase = withFetchRefusalReporting(
+      this.fetchFn ?? fetch,
+      reportRefusal,
+    );
+    const oauthBase =
+      options.environment.oauthFetch &&
+      withFetchRefusalReporting(options.environment.oauthFetch, reportRefusal);
     // Legacy SSE negotiates its message endpoint inside the stream, so its path
     // is unknowable here and the exemption has to widen to the origin.
     // Streamable HTTP sends everything to the configured URL, so the path rule
@@ -2439,6 +2472,26 @@ export class InspectorClient extends InspectorClientEventTarget {
    * than exposing the field so the connected-status gate lives in one place
    * and hooks, fakes and tests depend on the protocol, not the class.
    */
+  /**
+   * Destination-guard refusals seen on this client's fetch chains (#2846) —
+   * including those OAuth discovery recovered from by trying another URL.
+   * A copy; listen for `fetchRefused` to hear about new ones.
+   */
+  getFetchRefusals(): FetchRefusal[] {
+    return [...this.fetchRefusals];
+  }
+
+  private recordFetchRefusal(refusal: FetchRefusal): void {
+    const seen = this.fetchRefusals.some(
+      (r) => r.url === refusal.url && r.reason === refusal.reason,
+    );
+    if (seen) return;
+    this.fetchRefusals = [...this.fetchRefusals, refusal].slice(
+      -MAX_FETCH_REFUSALS,
+    );
+    this.dispatchTypedEvent("fetchRefused", refusal);
+  }
+
   getAppRendererClient(): AppRendererClient | null {
     if (!this.client || this.status !== "connected") return null;
     return this.client;

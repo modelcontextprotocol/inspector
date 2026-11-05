@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "./helpers/renderTui";
 import type { OAuthConnectionState } from "@inspector/core/auth/types.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
+import type { FetchRefusal } from "@inspector/core/auth/fetchRefusal.js";
 
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
@@ -42,26 +44,42 @@ const sampleOAuthState: OAuthConnectionState = {
   configuredScope: "read write",
 };
 
-function makeClient(oauthState?: OAuthConnectionState) {
+function makeClient(
+  oauthState?: OAuthConnectionState,
+  initialRefusals: FetchRefusal[] = [],
+) {
   const listeners = new Map<string, Set<() => void>>();
   const getOAuthState = vi.fn(async () => oauthState);
+  // The real event target underneath, so `useStoreSnapshot` sees genuine
+  // per-event revisions for the `fetchRefused` subscription (#2846).
+  const target = new InspectorClientEventTarget();
+  let refusals = initialRefusals;
   const client = {
     getOAuthState,
+    getFetchRefusals: () => [...refusals],
+    getEventRevision: (event: "fetchRefused") => target.getEventRevision(event),
     addEventListener: (event: string, fn: () => void) => {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event)!.add(fn);
+      target.addEventListener(event, fn);
     },
     removeEventListener: (event: string, fn: () => void) => {
       listeners.get(event)?.delete(fn);
+      target.removeEventListener(event, fn);
     },
   };
   const fire = (event: string) => {
     listeners.get(event)?.forEach((fn) => fn());
   };
+  const refuse = (refusal: FetchRefusal) => {
+    refusals = [...refusals, refusal];
+    target.dispatchTypedEvent("fetchRefused", refusal);
+  };
   return {
     client: client as unknown as InspectorClient,
     getOAuthState,
     fire,
+    refuse,
     listeners,
   };
 }
@@ -328,6 +346,51 @@ describe("AuthTab", () => {
       />,
     );
     expect(lastFrame() ?? "").toContain("Stored OAuth state cleared.");
+  });
+
+  // #2846: a refusal discovery recovered from is otherwise invisible.
+  it("lists destination-guard refusals, including ones that arrive later", async () => {
+    const first: FetchRefusal = {
+      url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+      reason: "Refusing to fetch from a link-local or metadata address",
+    };
+    const { client, refuse } = makeClient(undefined, [first]);
+    const { lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        width={200}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+      />,
+    );
+    await tick();
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("Refused requests");
+    expect(frame).toContain(
+      "Refused to fetch http://169.254.169.254/.well-known/oauth-authorization-server: Refusing to fetch from a link-local or metadata address",
+    );
+
+    refuse({ url: "http://169.254.169.254/token", reason: "Refusing again" });
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "Refused to fetch http://169.254.169.254/token: Refusing again",
+    );
+  });
+
+  it("shows no refusals section when nothing was refused", async () => {
+    const { client } = makeClient(sampleOAuthState);
+    const { lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").not.toContain("Refused requests");
   });
 
   it("renders OAuth details from getOAuthState", async () => {
@@ -699,9 +762,11 @@ describe("AuthTab", () => {
       });
       const client = {
         getOAuthState: vi.fn(() => pending),
+        getFetchRefusals: () => [],
+        getEventRevision: () => 0,
         addEventListener: () => {},
         removeEventListener: () => {},
-        // Double cast: a partial test double covering only the three members
+        // Double cast: a partial test double covering only the members
         // AuthTab calls, same as makeClient above; InspectorClient is a class
         // with private state, so no structural single cast can reach it.
       } as unknown as InspectorClient;

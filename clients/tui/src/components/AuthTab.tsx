@@ -23,6 +23,16 @@ import {
   stepUpModalTitle,
 } from "../utils/tuiOAuth.js";
 import { errorMessage } from "../utils/errorText.js";
+import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
+import {
+  formatFetchRefusal,
+  type FetchRefusal,
+} from "@inspector/core/auth/fetchRefusal.js";
+
+/** Stable empty list for the no-client case — see `useStoreSnapshot`. */
+const NO_REFUSALS: FetchRefusal[] = [];
+const readFetchRefusals = (client: InspectorClient): FetchRefusal[] =>
+  client.getFetchRefusals();
 
 interface AuthTabProps {
   serverName: string | null;
@@ -191,6 +201,16 @@ export function AuthTab({
     };
   }, [inspectorClient, refreshOAuthState]);
 
+  // Destination-guard refusals on this client's OAuth traffic (#2846). Shown
+  // even when discovery recovered by trying another URL: that is exactly when
+  // nothing else on screen explains why the flow went where it did.
+  const fetchRefusals = useStoreSnapshot(
+    inspectorClient,
+    "fetchRefused",
+    readFetchRefusals,
+    NO_REFUSALS,
+  );
+
   const accessToken = oauthState?.tokens?.access_token;
   // Y / W copy or save the full access token — the row below shows only a
   // prefix, and terminal mouse-selection cannot reach the rest (#2421).
@@ -330,6 +350,19 @@ export function AuthTab({
             <Text color={oauthMessageTone === "warning" ? "yellow" : "cyan"}>
               {oauthMessage}
             </Text>
+          )}
+
+          {fetchRefusals.length > 0 && (
+            <Box marginTop={1} flexDirection="column" gap={0}>
+              <Text bold color="yellow">
+                Refused requests
+              </Text>
+              {fetchRefusals.map((refusal) => (
+                <Text key={`${refusal.url} ${refusal.reason}`} color="yellow">
+                  {formatFetchRefusal(refusal)}
+                </Text>
+              ))}
+            </Box>
           )}
 
           {pendingStepUp ? (

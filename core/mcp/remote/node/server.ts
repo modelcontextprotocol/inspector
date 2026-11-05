@@ -34,6 +34,10 @@ import {
   normalizeFetchHeaders,
 } from "../../node/fetchGuard.js";
 import { OAUTH_TIMEOUT_WIRE_CODE } from "../../../auth/requestTimeout.js";
+import {
+  FETCH_TARGET_REFUSED_WIRE_CODE,
+  type FetchTargetRefusedWire,
+} from "../../../auth/fetchRefusal.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
 import type {
@@ -1553,8 +1557,19 @@ export function createRemoteApp(
       }
       // A refused destination is the caller's request being declined, not a
       // fault in the route, so 403 — the status v1's `/fetch` returns for it.
+      // Stamped, like the deadline above, so the browser can rebuild the
+      // typed `FetchTargetError` and report the refusal by the URL that was
+      // actually refused — a redirect hop, possibly — rather than as an opaque
+      // "Remote fetch failed (403)" (#2846).
       const refused = findFetchTargetError(err);
-      if (refused) return c.json({ error: refused.message }, 403);
+      if (refused) {
+        const body: FetchTargetRefusedWire = {
+          error: refused.message,
+          code: FETCH_TARGET_REFUSED_WIRE_CODE,
+          url: redactUrlQuery(refused.url ?? url),
+        };
+        return c.json(body, 403);
+      }
       return c.json({ error: msg }, 500);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
