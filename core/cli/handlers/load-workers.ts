@@ -306,26 +306,31 @@ function round2(n: number): number {
 
 /**
  * The merged run's calls started per second: every start over one window
- * covering them all. That window ends at the run grid's first slot after
- * the run's last start — what one process would have reported — but never
- * past the longest worker's own window, which a duration or an early stop
- * already bounds. Adding the workers' own rates instead would divide each
- * by a different window.
+ * covering them all, as one process would have measured it. That is the
+ * longest worker's own window — a duration or an early stop bounds each the
+ * same way — except when `--load-requests` ran out: then the run stopped
+ * starting at the run grid's first slot after its last start, as one
+ * process's request-capped window does. Adding the workers' own rates
+ * instead would divide each by a different window.
  */
 function mergedAchievedRate(
-  results: { raw: LoadRawStats }[],
-  rate: number,
+  results: { summary: LoadSummary; raw: LoadRawStats }[],
+  options: LoadOptions,
 ): number {
   const windows = results.flatMap((r) => (r.raw.rate ? [r.raw.rate] : []));
   const started = sum(windows.map((w) => w.started));
   if (started === 0) return 0;
-  const interval = 1000 / rate;
-  const lastStart = Math.max(...windows.map((w) => w.lastStartMs));
-  const afterLast = (Math.floor(lastStart / interval + 1e-9) + 1) * interval;
-  const windowMs = Math.min(
-    afterLast,
-    Math.max(...windows.map((w) => w.windowMs)),
-  );
+  let windowMs = Math.max(...windows.map((w) => w.windowMs));
+  const exhausted =
+    options.requests !== undefined &&
+    started >= options.requests &&
+    results.every((r) => r.summary.stoppedEarly === undefined);
+  if (exhausted) {
+    const interval = 1000 / options.rate!;
+    const lastStart = Math.max(...windows.map((w) => w.lastStartMs));
+    const afterLast = (Math.floor(lastStart / interval + 1e-9) + 1) * interval;
+    windowMs = Math.min(windowMs, afterLast);
+  }
   return windowMs > 0 ? round2((started * 1000) / windowMs) : 0;
 }
 
@@ -380,7 +385,7 @@ export function mergeLoadWorkerResults(
       rate: options.rate,
       plannedStarts: sum(summaries.map((s) => s.plannedStarts ?? 0)),
       droppedSlots: sum(summaries.map((s) => s.droppedSlots ?? 0)),
-      achievedRate: mergedAchievedRate(results, options.rate!),
+      achievedRate: mergedAchievedRate(results, options),
     }),
     requests: totals.requests,
     ok: totals.ok,

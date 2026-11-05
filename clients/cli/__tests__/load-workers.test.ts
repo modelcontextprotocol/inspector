@@ -298,6 +298,36 @@ describe("sharding", () => {
     expect(mergeLoadWorkerResults(results, options).achievedRate).toBe(0.67);
   });
 
+  it("keeps a saturated duration-bound run's whole window", async () => {
+    // 2 s calls: each worker starts one (at 0 and 0.25 s) and is busy for
+    // the rest of the 1 s window.
+    const options: LoadOptions = { concurrency: 2, durationMs: 1000, rate: 4 };
+    const results = [];
+    for (const i of [0, 1]) {
+      const clock = fakeClock();
+      let raw: LoadRawStats | undefined;
+      const summary = await runLoad(
+        async () => {
+          await clock.sleep(2000);
+          return "ok";
+        },
+        shardLoadOptions(options, i, 2),
+        clock,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          raw: (r) => {
+            raw = r;
+          },
+        },
+      );
+      results.push({ summary, raw: raw! });
+    }
+    expect(mergeLoadWorkerResults(results, options).achievedRate).toBe(2);
+  });
+
   it("reports a request-capped run's rate over one window too", async () => {
     // Each worker's own window ends at 1, 1.25, 1.5 and 1.75 s; the run's
     // schedule (0, 0.25, 0.5, 0.75 s) ends at 1 s.
