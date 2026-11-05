@@ -261,6 +261,13 @@ jobs:
   # process-group signals, mcpdo's Unix-socket daemon) are skipped on win32 BY
   # NAME at the test site, each with its reason; everything else runs.
   #
+  # Coverage thresholds: web's per-file gate holds on Windows and is enforced
+  # here as it is everywhere. mcpdo's is NOT — its daemon suites skip on win32,
+  # which leaves the daemon modules below 90 for a reason that is about the
+  # skip, not the code — so `clients/mcpdo/vitest.config.ts` drops the
+  # thresholds on win32 and `coverage:mcpdo` here is a test verdict only. The
+  # Linux `coverage` job above stays the authoritative per-file gate.
+  #
   # Ordinary job: no credentials, so actions stay on moving major tags (#2484).
   windows:
     runs-on: windows-latest
