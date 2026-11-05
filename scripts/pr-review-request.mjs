@@ -11,6 +11,7 @@
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { OWNER, REPO, ghGraphql, requirePositiveInt } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 /**
  * The `copilot-pull-request-reviewer` bot's node id — last verified
@@ -58,6 +59,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

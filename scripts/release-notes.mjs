@@ -39,6 +39,7 @@
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { versionFrom } from "./release-tag.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 export const REPO = "modelcontextprotocol/inspector";
 const [OWNER, NAME] = REPO.split("/");
@@ -528,6 +529,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   return notes;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

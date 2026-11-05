@@ -15,6 +15,7 @@ import { readFileSync } from "node:fs";
 import { basename, extname } from "node:path";
 import { parseArgs } from "node:util";
 import { REPO_SLUG, gh, ghJson } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 const CONTENT_TYPES = {
   ".png": "image/png",
@@ -90,6 +91,6 @@ export async function main(
   console.log(hosted);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   await main();
 }

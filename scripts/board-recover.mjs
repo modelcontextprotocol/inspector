@@ -37,6 +37,7 @@ import {
   projectId as resolveProjectId,
   requireSupportedBoard,
 } from "./lib/board.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 const EDIT_PACING_MS = 400;
 
@@ -341,6 +342,6 @@ export async function main(
   console.log(`reapplied: ${lostIds.length} cards → option ${parsed.optionId}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   await main();
 }

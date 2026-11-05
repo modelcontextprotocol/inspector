@@ -28,6 +28,7 @@ import {
   requireSupportedBoard,
 } from "./lib/board.mjs";
 import { requirePositiveInt } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 export function parseSnapshotArgs(argv) {
   const { values } = parseArgs({
@@ -72,6 +73,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   console.log(`snapshot: ${path} (${dump.totalCount} items)`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

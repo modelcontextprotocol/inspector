@@ -53,6 +53,7 @@
 import { spawnSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { isMainModule } from "./lib/main-module.mjs";
 
 export const ISSUE_MARKER = "<!-- dependency-refresh:monthly-sweep -->";
 
@@ -707,6 +708,6 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
   console.log(`dependency-refresh: filed ${create.stdout.trim()}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }
