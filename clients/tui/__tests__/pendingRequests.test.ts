@@ -166,7 +166,45 @@ describe("elicitationContentFromForm", () => {
     required: ["name"],
   };
 
-  it("accepts with the filled fields, wrapping a single multi-select value", () => {
+  it("accepts a multi-select's chosen values as the array (#2904)", () => {
+    expect(
+      elicitationContentFromForm(schema, { name: "Ada", tags: ["0", "1"] }),
+    ).toEqual({
+      result: { action: "accept", content: { name: "Ada", tags: ["a", "b"] } },
+    });
+  });
+
+  it("reports a multi-select outside its minItems / maxItems (#2904)", () => {
+    const bounded: Schema = {
+      type: "object",
+      properties: {
+        tags: {
+          type: "array",
+          items: {
+            anyOf: [
+              { const: "a", title: "A" },
+              { const: "b", title: "B" },
+              { const: "c", title: "C" },
+            ],
+          },
+          minItems: 2,
+          maxItems: 2,
+        },
+      },
+      required: ["tags"],
+    };
+    expect(elicitationContentFromForm(bounded, { tags: ["0"] })).toEqual({
+      invalid: ["tags: choose at least 2"],
+    });
+    expect(
+      elicitationContentFromForm(bounded, { tags: ["0", "1", "2"] }),
+    ).toEqual({ invalid: ["tags: choose at most 2"] });
+    expect(elicitationContentFromForm(bounded, { tags: ["0", "2"] })).toEqual({
+      result: { action: "accept", content: { tags: ["a", "c"] } },
+    });
+  });
+
+  it("accepts with the filled fields, wrapping a bare multi-select string", () => {
     expect(
       elicitationContentFromForm(schema, {
         name: "Ada",

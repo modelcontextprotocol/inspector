@@ -170,6 +170,73 @@ describe("ToolTestModal", () => {
     api.unmount();
   });
 
+  it("refuses a multi-select argument outside its bounds (#2904)", async () => {
+    const callTool = vi.fn(async () => ({
+      success: true,
+      result: { content: [] },
+    }));
+    const tool = makeTool({
+      inputSchema: {
+        type: "object",
+        properties: {
+          tags: {
+            type: "array",
+            items: { type: "string", enum: ["a", "b", "c"] },
+            minItems: 2,
+          },
+          pick: {
+            type: "array",
+            items: { type: "integer", enum: [1, 2] },
+            maxItems: 1,
+          },
+        },
+      },
+    });
+    for (const submitted of [
+      { tags: ["0"] },
+      { tags: ["0"], pick: ["0", "1"] },
+    ]) {
+      const api = render(
+        <ToolTestModal
+          tool={tool}
+          inspectorClient={fakeClient(callTool)}
+          width={80}
+          height={24}
+          onClose={vi.fn()}
+        />,
+      );
+      await tick();
+      setSubmitValue(submitted);
+      api.stdin.write("\r");
+      await tick();
+      await tick();
+      api.unmount();
+    }
+    expect(callTool).not.toHaveBeenCalled();
+
+    // Inside the bounds the call goes out, each option id (its enum index)
+    // restored to the schema's own member, integers included.
+    const api = render(
+      <ToolTestModal
+        tool={tool}
+        inspectorClient={fakeClient(callTool)}
+        width={80}
+        height={24}
+        onClose={vi.fn()}
+      />,
+    );
+    await tick();
+    setSubmitValue({ tags: ["0", "1"], pick: ["1"] });
+    api.stdin.write("\r");
+    await tick();
+    await tick();
+    expect(callTool).toHaveBeenCalledWith(tool, {
+      tags: ["a", "b"],
+      pick: [2],
+    });
+    api.unmount();
+  });
+
   it("names every missing required argument (#2123)", async () => {
     const callTool = vi.fn();
     const tool = makeTool({

@@ -257,6 +257,46 @@ describe("PendingRequestModal", () => {
       expect(elicitation.respond).not.toHaveBeenCalled();
     });
 
+    it("holds a multi-select answer outside its bounds, then accepts one inside (#2904)", async () => {
+      const elicitation = entry("e1", {
+        ...formParams,
+        requestedSchema: {
+          type: "object",
+          properties: {
+            tags: {
+              type: "array",
+              items: { type: "string", enum: ["a", "b", "c"] },
+              minItems: 2,
+            },
+            pick: {
+              type: "array",
+              items: { type: "string", enum: ["x", "y"] },
+              maxItems: 1,
+            },
+          },
+          required: ["tags"],
+        },
+      });
+      const { stdin } = mount({ elicitations: [elicitation] });
+      await tick();
+      // One field out of bounds, then both — the singular and plural message.
+      // A multi-select submits option ids, which are enum indices.
+      setSubmitValue({ tags: ["0"] });
+      stdin.write("\r");
+      await tick();
+      setSubmitValue({ tags: ["0"], pick: ["0", "1"] });
+      stdin.write("\r");
+      await tick();
+      expect(elicitation.respond).not.toHaveBeenCalled();
+      setSubmitValue({ tags: ["0", "2"] });
+      stdin.write("\r");
+      await tick();
+      expect(elicitation.respond).toHaveBeenCalledWith({
+        action: "accept",
+        content: { tags: ["a", "c"] },
+      });
+    });
+
     it("declines after Esc then d", async () => {
       const elicitation = entry("e1", formParams);
       const { stdin } = mount({ elicitations: [elicitation] });

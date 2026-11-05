@@ -9,7 +9,9 @@ import {
   decodeFormValues,
   missingRequiredFields,
   schemaToForm,
+  selectionCountErrors,
 } from "../utils/schemaToForm.js";
+import { FORM_FIELD_MANAGERS } from "./MultiSelectField.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { inlineLocalRefs } from "@inspector/core/json/localRefs.js";
 import { redactErrorText, redactedJson } from "../utils/errorText.js";
@@ -293,6 +295,20 @@ export function ToolTestModal({
       return;
     }
 
+    // A multi-select's `minItems` / `maxItems` are invisible to ink-form's
+    // own gate, which only knows "empty or not" (#2904).
+    const outOfBounds = selectionCountErrors(inputSchema, values, rawValues);
+    if (outOfBounds.length > 0) {
+      setResult({
+        input: values,
+        output: null,
+        error: `Invalid argument${outOfBounds.length > 1 ? "s" : ""}: ${outOfBounds.join("; ")}`,
+        duration: 0,
+      });
+      setState("results");
+      return;
+    }
+
     setState("loading");
     const startTime = Date.now();
 
@@ -395,6 +411,7 @@ export function ToolTestModal({
             <Box flexGrow={1} width="100%">
               <Form
                 form={untitledForm(formStructure)}
+                customManagers={FORM_FIELD_MANAGERS}
                 onSubmit={(value: object) =>
                   void handleFormSubmit(value as Record<string, JsonValue>)
                 }
