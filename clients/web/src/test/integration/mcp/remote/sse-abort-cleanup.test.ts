@@ -192,6 +192,27 @@ describe("primeAndHoldSseStream (#1999)", () => {
     expect(s.closes).toBe(1);
   });
 
+  it("a client abort during the end's flush still releases the handler", async () => {
+    const s = controllableStream();
+    const ender = new AbortController();
+    let cleanups = 0;
+    // A flush that never settles: the peer is gone, nothing will finish it.
+    const held = primeAndHoldSseStream(
+      s.stream,
+      () => {
+        cleanups += 1;
+      },
+      { signal: ender.signal, flush: () => new Promise<void>(() => {}) },
+    );
+    s.finishWrite();
+
+    ender.abort();
+    s.abort();
+    await withinTick(held);
+    expect(cleanups).toBe(1);
+    expect(s.closes).toBe(1);
+  });
+
   it("ends at once for a signal already aborted, and survives a failed flush", async () => {
     const s = controllableStream();
     const ender = new AbortController();

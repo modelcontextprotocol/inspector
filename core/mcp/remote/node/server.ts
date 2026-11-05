@@ -206,28 +206,35 @@ export async function primeAndHoldSseStream(
     return true;
   };
   const released = new Promise<void>((resolve) => {
+    // Closing the stream and releasing the handler is its own exactly-once
+    // step, separate from `cleanup`: a client abort that arrives while a
+    // server-side end is still flushing has already lost the cleanup race,
+    // but must still release the handler rather than leave it waiting on a
+    // write to a peer that is gone.
+    let closed = false;
+    const release = (): void => {
+      if (closed) return;
+      closed = true;
+      closeAbortedStream(stream);
+      resolve();
+    };
     // Set below when there is an end signal to stop listening to.
     let detachEnd = (): void => {};
     stream.onAbort(() => {
-      if (!finish()) return;
       // The session outlives this stream, so its end signal must not keep
       // the finished stream's listener (and closures) alive across reattaches.
-      detachEnd();
-      closeAbortedStream(stream);
-      resolve();
+      if (finish()) detachEnd();
+      release();
     });
     if (!end) return;
     const { signal, flush } = end;
     const onEnd = (): void => {
       if (!finish()) return;
-      // An abort listener cannot await; `flush` is settled by the `catch`
-      // and the close discards its own rejection (`closeAbortedStream`).
+      // An abort listener cannot await; `flush` is settled by the `catch`,
+      // and `release` discards the close's own rejection.
       void flush()
         .catch(() => {})
-        .then(() => {
-          closeAbortedStream(stream);
-          resolve();
-        });
+        .then(release);
     };
     detachEnd = () => signal.removeEventListener("abort", onEnd);
     if (signal.aborted) onEnd();
