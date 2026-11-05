@@ -168,7 +168,7 @@ describe("elicitationContentFromForm", () => {
 
   it("accepts a multi-select's chosen values as the array (#2904)", () => {
     expect(
-      elicitationContentFromForm(schema, { name: "Ada", tags: ["a", "b"] }),
+      elicitationContentFromForm(schema, { name: "Ada", tags: ["0", "1"] }),
     ).toEqual({
       result: { action: "accept", content: { name: "Ada", tags: ["a", "b"] } },
     });
@@ -193,13 +193,13 @@ describe("elicitationContentFromForm", () => {
       },
       required: ["tags"],
     };
-    expect(elicitationContentFromForm(bounded, { tags: ["a"] })).toEqual({
+    expect(elicitationContentFromForm(bounded, { tags: ["0"] })).toEqual({
       invalid: ["tags: choose at least 2"],
     });
     expect(
-      elicitationContentFromForm(bounded, { tags: ["a", "b", "c"] }),
+      elicitationContentFromForm(bounded, { tags: ["0", "1", "2"] }),
     ).toEqual({ invalid: ["tags: choose at most 2"] });
-    expect(elicitationContentFromForm(bounded, { tags: ["a", "c"] })).toEqual({
+    expect(elicitationContentFromForm(bounded, { tags: ["0", "2"] })).toEqual({
       result: { action: "accept", content: { tags: ["a", "c"] } },
     });
   });

@@ -193,8 +193,8 @@ describe("ToolTestModal", () => {
       },
     });
     for (const submitted of [
-      { tags: ["a"] },
-      { tags: ["a"], pick: ["1", "2"] },
+      { tags: ["0"] },
+      { tags: ["0"], pick: ["0", "1"] },
     ]) {
       const api = render(
         <ToolTestModal
@@ -214,7 +214,8 @@ describe("ToolTestModal", () => {
     }
     expect(callTool).not.toHaveBeenCalled();
 
-    // Inside the bounds the call goes out, with the integer choices restored.
+    // Inside the bounds the call goes out, each option id (its enum index)
+    // restored to the schema's own member, integers included.
     const api = render(
       <ToolTestModal
         tool={tool}
@@ -225,7 +226,7 @@ describe("ToolTestModal", () => {
       />,
     );
     await tick();
-    setSubmitValue({ tags: ["a", "b"], pick: ["2"] });
+    setSubmitValue({ tags: ["0", "1"], pick: ["1"] });
     api.stdin.write("\r");
     await tick();
     await tick();

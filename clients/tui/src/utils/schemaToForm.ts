@@ -57,6 +57,43 @@ function toSelectOptions(
 }
 
 /**
+ * Multi-select options for an array's `items.enum`, identified by **index**.
+ *
+ * A single select can use `String(member)` as its value because only string
+ * enums reach it; a multi-select takes any enum, where `String()` is not an
+ * identity — `[1, "1"]` would share one id and `null` would come back as
+ * `"null"`. The index is unique, and {@link memberForChoiceId} maps it back to
+ * the exact member. Labels still use `enumNames` when length-matched.
+ */
+function choiceOptions(
+  members: unknown[],
+  names: string[] | undefined,
+): { label: string; value: string }[] {
+  return toSelectOptions(members, names).map((option, index) => ({
+    label: option.label,
+    value: String(index),
+  }));
+}
+
+/** The option ids of the enum members a default lists; unknown ones dropped. */
+function choiceIds(members: unknown[], chosen: unknown[]): string[] {
+  return chosen
+    .map((value) => members.findIndex((member) => Object.is(member, value)))
+    .filter((index) => index >= 0)
+    .map(String);
+}
+
+/**
+ * The enum member an option id names. An id that names no member — only a
+ * value the form was not built to produce — is passed through unchanged, so
+ * the server rather than the form is the one to reject it.
+ */
+function memberForChoiceId(members: unknown[], id: unknown): unknown {
+  const index = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : -1;
+  return index >= 0 && index < members.length ? members[index] : id;
+}
+
+/**
  * Minimal JSON Schema object shape (properties + required). Property values are
  * `unknown` so the SDK's broadly-typed `Tool["inputSchema"]` (whose `properties`
  * values are the recursive JSON type) is assignable here; each value is narrowed
@@ -406,11 +443,12 @@ function applyConstants<T>(
 }
 
 /**
- * Turn each multi-select's chosen option strings back into the schema's own
- * enum members (#2904), and drop an empty selection on an optional field.
+ * Turn each multi-select's chosen option ids back into the schema's own enum
+ * members (#2904), and drop an empty selection on an optional field.
  *
- * The options are stringified for the form, so `enum: [1, 2]` comes back as
- * `["1"]`; the member whose `String()` matches is what the schema admits. An
+ * An option's id is its member's index (see {@link choiceOptions}), so the
+ * member is recovered exactly — `null` stays `null`, and `1` and `"1"` stay
+ * distinct — rather than by matching a stringified value. An
  * optional field the user opened and cleared is treated as unanswered, since
  * ink-form has no way to unset a field once saved and `[]` may violate its
  * `minItems`. A required one keeps its `[]` for the bounds check to report.
@@ -439,9 +477,7 @@ function restoreChoices<T>(
       const members = property.items?.enum ?? [];
       return [
         name,
-        chosen.map(
-          (each) => members.find((member) => String(member) === each) ?? each,
-        ) as T,
+        chosen.map((each) => memberForChoiceId(members, each)) as T,
       ];
     }),
   );
@@ -534,7 +570,7 @@ function buildFields(
       const multi: FormFieldMultiSelect = {
         type: MULTISELECT_FIELD_TYPE,
         ...baseField,
-        options: toSelectOptions(property.items.enum, property.items.enumNames),
+        options: choiceOptions(property.items.enum, property.items.enumNames),
         ...(typeof property.minItems === "number" && {
           minItems: property.minItems,
         }),
@@ -544,7 +580,7 @@ function buildFields(
         // Only an array default can seed a selection; anything else would
         // hand the renderer a value it cannot show.
         ...(Array.isArray(property.default) && {
-          initialValue: property.default.map(String),
+          initialValue: choiceIds(property.items.enum, property.default),
         }),
       };
       fields.push(multi);

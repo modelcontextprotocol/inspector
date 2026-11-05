@@ -161,7 +161,9 @@ describe("multi-select in a real ink-form Form (#2904)", () => {
     // Move to Submit and press it.
     await press(stdin, "\t");
     await press(stdin, "\r");
-    expect(onSubmit).toHaveBeenCalledWith({ tags: ["a", "c"] });
+    // The form holds option ids (enum indices); `decodeFormValues` maps them
+    // back to the members.
+    expect(onSubmit).toHaveBeenCalledWith({ tags: ["0", "2"] });
     unmount();
   });
 });

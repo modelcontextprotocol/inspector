@@ -96,9 +96,10 @@ describe("schemaToForm", () => {
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
       type: "multiselect",
+      // Identified by enum index, which stays unique where String() would not.
       options: [
-        { label: "a", value: "a" },
-        { label: "b", value: "b" },
+        { label: "a", value: "0" },
+        { label: "b", value: "1" },
       ],
     });
   });
@@ -119,8 +120,8 @@ describe("schemaToForm", () => {
     expect(form.sections[0]!.fields[0]).toMatchObject({
       type: "multiselect",
       options: [
-        { label: "a", value: "a" },
-        { label: "b", value: "b" },
+        { label: "a", value: "0" },
+        { label: "b", value: "1" },
       ],
     });
   });
@@ -185,8 +186,8 @@ describe("schemaToForm", () => {
     expect(form.sections[0]!.fields[0]).toMatchObject({
       type: "multiselect",
       options: [
-        { label: "Cats", value: "pet-1" },
-        { label: "Dogs", value: "pet-2" },
+        { label: "Cats", value: "0" },
+        { label: "Dogs", value: "1" },
       ],
     });
   });
@@ -205,8 +206,8 @@ describe("schemaToForm", () => {
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
       options: [
-        { label: "pet-1", value: "pet-1" },
-        { label: "pet-2", value: "pet-2" },
+        { label: "pet-1", value: "0" },
+        { label: "pet-2", value: "1" },
       ],
     });
   });
@@ -220,7 +221,7 @@ describe("schemaToForm", () => {
             items: { enum: [1, 2, 3] },
             minItems: 1,
             maxItems: 2,
-            default: [1, 3],
+            default: [1, 3, 9],
           },
           loose: {
             type: "array",
@@ -239,13 +240,14 @@ describe("schemaToForm", () => {
       label: "tags",
       required: true,
       options: [
-        { label: "1", value: "1" },
-        { label: "2", value: "2" },
-        { label: "3", value: "3" },
+        { label: "1", value: "0" },
+        { label: "2", value: "1" },
+        { label: "3", value: "2" },
       ],
       minItems: 1,
       maxItems: 2,
-      initialValue: ["1", "3"],
+      // A default member the enum does not list cannot be shown, so is dropped.
+      initialValue: ["0", "2"],
     });
     // A non-array default cannot seed a selection, and no bounds means none.
     expect(loose).toEqual({
@@ -253,7 +255,7 @@ describe("schemaToForm", () => {
       name: "loose",
       label: "loose",
       required: false,
-      options: [{ label: "a", value: "a" }],
+      options: [{ label: "a", value: "0" }],
     });
   });
 
@@ -338,8 +340,8 @@ describe("schemaToForm", () => {
       expect(form.sections[0]!.fields[0]).toMatchObject({
         type: "multiselect",
         options: [
-          { label: "a", value: "a" },
-          { label: "b", value: "b" },
+          { label: "a", value: "0" },
+          { label: "b", value: "1" },
         ],
       });
     });
@@ -1047,14 +1049,35 @@ describe("multi-select decoding (#2904)", () => {
     required: ["must"],
   };
 
-  it("restores the schema's typed members and keeps unknown strings", () => {
+  it("restores the schema's members from option ids, passing others through", () => {
     expect(
       decodeFormValues(schema, {
-        counts: ["1", "3", "9"],
-        tags: ["b"],
+        counts: ["0", "2", "9", "x"],
+        tags: ["1"],
         note: "hi",
       }),
-    ).toEqual({ counts: [1, 3, "9"], tags: ["b"], note: "hi" });
+    ).toEqual({ counts: [1, 3, "9", "x"], tags: ["b"], note: "hi" });
+  });
+
+  it("keeps null and look-alike members distinct (#2904 review)", () => {
+    const tricky = {
+      properties: {
+        v: { type: "array", items: { enum: [null, 1, "1"] }, default: ["1"] },
+      },
+    };
+    const [field] = schemaToForm(tricky, "tricky").sections[0]!.fields;
+    expect(field).toMatchObject({
+      options: [
+        { label: "null", value: "0" },
+        { label: "1", value: "1" },
+        { label: "1", value: "2" },
+      ],
+      initialValue: ["2"],
+    });
+    expect(decodeFormValues(tricky, { v: ["0", "2"] })).toEqual({
+      v: [null, "1"],
+    });
+    expect(selectionCountErrors(tricky, { v: [null, "1"] })).toEqual([]);
   });
 
   it("drops an emptied optional selection but keeps a required one", () => {
@@ -1076,7 +1099,7 @@ describe("multi-select decoding (#2904)", () => {
     };
     const decoded = decodeFormValues(
       protoSchema,
-      JSON.parse('{"__proto__": ["1"]}'),
+      JSON.parse('{"__proto__": ["0"]}'),
     );
     expect(Object.hasOwn(decoded, "__proto__")).toBe(true);
     expect(JSON.stringify(decoded)).toBe('{"__proto__":[1]}');
@@ -1101,11 +1124,11 @@ describe("multi-select decoding (#2904)", () => {
         },
       ],
     };
-    const raw = { __variant: "0", __b0__ids: ["8"] };
+    const raw = { __variant: "0", __b0__ids: ["1"] };
     const decoded = decodeFormValues(union, raw);
     expect(decoded).toEqual({ kind: "a", ids: [8] });
     expect(selectionCountErrors(union, decoded, raw)).toEqual([]);
-    const tooMany = { __variant: "0", __b0__ids: ["7", "8"] };
+    const tooMany = { __variant: "0", __b0__ids: ["0", "1"] };
     expect(
       selectionCountErrors(union, decodeFormValues(union, tooMany), tooMany),
     ).toEqual(["ids: choose at most 1"]);

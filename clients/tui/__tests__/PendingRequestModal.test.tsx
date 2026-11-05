@@ -280,14 +280,15 @@ describe("PendingRequestModal", () => {
       const { stdin } = mount({ elicitations: [elicitation] });
       await tick();
       // One field out of bounds, then both — the singular and plural message.
-      setSubmitValue({ tags: ["a"] });
+      // A multi-select submits option ids, which are enum indices.
+      setSubmitValue({ tags: ["0"] });
       stdin.write("\r");
       await tick();
-      setSubmitValue({ tags: ["a"], pick: ["x", "y"] });
+      setSubmitValue({ tags: ["0"], pick: ["0", "1"] });
       stdin.write("\r");
       await tick();
       expect(elicitation.respond).not.toHaveBeenCalled();
-      setSubmitValue({ tags: ["a", "c"] });
+      setSubmitValue({ tags: ["0", "2"] });
       stdin.write("\r");
       await tick();
       expect(elicitation.respond).toHaveBeenCalledWith({
