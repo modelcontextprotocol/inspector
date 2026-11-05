@@ -270,9 +270,12 @@ describe("--load-interval / --load-warmup / --load-progress (CLI)", () => {
     ]);
     expectCliSuccess(result);
     const summary = expectValidJson(result) as LoadSummary;
-    // Two 0.2 s intervals, plus one more when a call drains past the window.
+    // At least the two 0.2 s intervals; a call that drains past the window
+    // adds more, by how long it took, so only conservation is exact here.
     expect(summary.intervals!.length).toBeGreaterThanOrEqual(2);
-    expect(summary.intervals!.length).toBeLessThanOrEqual(3);
+    expect(summary.intervals!.reduce((n, r) => n + r.requests, 0)).toBe(
+      summary.requests,
+    );
     expect(summary.warmup?.durationMs).toBe(200);
     expect(summary.warmup!.requests).toBeGreaterThan(0);
     expect(result.stderr).toMatch(/\[load warm-up \d+\.\ds\] \d+ calls/);

@@ -10,6 +10,7 @@ import type * as net from "node:net";
 import {
   acceptDaemonConnection,
   MAX_REQUEST_LINE_BYTES,
+  MAX_STREAM_BUFFER_BYTES,
   type ElicitationChannel,
 } from "../src/daemon/ipc-glue.js";
 import type {
@@ -206,6 +207,23 @@ describe("acceptDaemonConnection notify (#2838)", () => {
     const progressAt = socket.all.indexOf('"load-progress"');
     expect(progressAt).toBeGreaterThanOrEqual(0);
     expect(progressAt).toBeLessThan(socket.all.indexOf('"ok":true'));
+  });
+
+  it("drops a frame while the caller is not reading", async () => {
+    let channel: ElicitationChannel | undefined;
+    const socket = accept(async (request, elicitation) => {
+      channel = elicitation;
+      return { response: { id: request.id, ok: true, result: {} } };
+    });
+    socket.pushLine(REQUEST);
+    await until(() => socket.all.includes('"ok":true'));
+    // A caller that stopped reading: the write buffer is at its cap.
+    Object.defineProperty(socket, "writableLength", {
+      get: () => MAX_STREAM_BUFFER_BYTES,
+    });
+    const before = socket.all;
+    channel!.notify!(frame("backlogged"));
+    expect(socket.all).toBe(before);
   });
 
   it("drops a frame once the socket is gone", async () => {

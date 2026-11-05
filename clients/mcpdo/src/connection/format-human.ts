@@ -1110,6 +1110,10 @@ export function formatLoadSummaryHuman(
     lines.push(`  ${style.bold("Stages:")}`);
     for (const stage of summary.stages) {
       lines.push(formatLoadStage(stage, style));
+      // `--load-interval` puts a stepped run's buckets on each stage (#2838).
+      for (const row of stage.intervals ?? []) {
+        lines.push(`  ${formatLoadInterval(row)}`);
+      }
     }
   }
   // `--load-scenario` (#2839): each step's share, under the totals above.

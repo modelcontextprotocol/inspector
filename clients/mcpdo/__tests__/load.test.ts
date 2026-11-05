@@ -512,6 +512,34 @@ describe("formatLoadSummaryHuman with a warm-up and intervals (#2838)", () => {
     );
   });
 
+  it("renders a stepped run's intervals under each stage", () => {
+    const row = {
+      ...SUMMARY,
+      startMs: 0,
+      endMs: 1000,
+      requests: 5,
+      throughput: 5,
+    };
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        stages: [
+          {
+            ...SUMMARY,
+            stage: 1,
+            stepBy: "concurrency",
+            level: 10,
+            intervals: [row],
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      "    1. concurrency 10: 30 requests (18/s ok), 10.00% errors; p50 2 / p99 5 ms\n      0–1s: 5 calls (5/s), 3 failed; p50 2 / p99 5 ms",
+    );
+  });
+
   it("marks a warm-up that stopped the run", () => {
     const text = formatLoadSummaryHuman(
       {

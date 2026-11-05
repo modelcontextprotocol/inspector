@@ -114,6 +114,10 @@ class ConnectionElicitationChannel implements ElicitationChannel {
 
   notify(frame: LoadProgressFrame): void {
     if (this.socket.destroyed) return;
+    // Advisory, so a client that stops reading loses frames rather than
+    // growing the daemon's write buffer without bound (the same cap the
+    // stream path applies, below).
+    if (this.socket.writableLength >= MAX_STREAM_BUFFER_BYTES) return;
     this.socket.write(JSON.stringify(frame) + "\n");
   }
 
