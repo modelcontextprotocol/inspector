@@ -931,6 +931,87 @@ function isOptionToken(arg: string): boolean {
   return arg.length > 1 && arg.startsWith("-");
 }
 
+/**
+ * An HTTP(S) URL or a Windows drive path (`C:\…`, `C:/…`): the two target
+ * shapes that contain a colon. Neither is a `--header` value, so a token of
+ * this shape is where a header list ends and the target begins. Deliberately
+ * narrow — `X-Path:/mcp` is a valid header (`parseHeaderPair` takes the value
+ * straight after the colon) and must stay one.
+ */
+const URL_OR_DRIVE = /^(?:https?:\/\/|[A-Za-z]:[\\/])/i;
+
+function isKeyValueToken(arg: string): boolean {
+  return arg.includes("=");
+}
+
+function isHeaderToken(arg: string): boolean {
+  return arg.includes(":") && !URL_OR_DRIVE.test(arg);
+}
+
+/**
+ * The CLI's variadic options, each with the shape its values take. Commander
+ * would otherwise hand a variadic option every following non-dash token, so an
+ * ad-hoc target placed straight after one (`--tool-arg a=1 node server.js`)
+ * was swallowed as more values and failed with "Invalid parameter format:
+ * node" (#2860).
+ */
+const VARIADIC_VALUE_SHAPES: ReadonlyMap<string, (arg: string) => boolean> =
+  new Map([
+    ["--tool-arg", isKeyValueToken],
+    ["--prompt-args", isKeyValueToken],
+    ["--metadata", isKeyValueToken],
+    ["--tool-metadata", isKeyValueToken],
+    ["--header", isHeaderToken],
+  ]);
+
+/**
+ * Bound each variadic option to the run of tokens that look like its values
+ * (#2860). The first value is always the option's, exactly as before — so
+ * `--tool-arg node` still reports the malformed pair — and each further token
+ * stays with it only while it has the value's shape (`key=value`, or
+ * `Name: value` for `--header`). The first token that does not is left where
+ * it is, for Commander to read as the target.
+ *
+ * Every kept value is rewritten to the `--flag=value` form, which Commander
+ * reads as one complete value and never continues past; that is what stops the
+ * swallowing. No invocation that parsed before changes meaning: a token
+ * without the value's shape could only ever fail as a malformed value.
+ *
+ * `takesValue` holds every flag spelling whose option requires an argument.
+ * Commander gives such an option the next token unconditionally, so that token
+ * is copied through untouched: `--client-secret --header` passes the literal
+ * secret `--header`, never a variadic flag.
+ */
+function boundVariadicOptions(
+  args: readonly string[],
+  takesValue: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i]!;
+    const isValue = VARIADIC_VALUE_SHAPES.get(arg);
+    const first = args[i + 1];
+    if (!isValue && takesValue.has(arg) && first !== undefined) {
+      out.push(arg, first);
+      i += 2;
+      continue;
+    }
+    if (!isValue || first === undefined) {
+      out.push(arg);
+      i += 1;
+      continue;
+    }
+    out.push(`${arg}=${first}`);
+    i += 2;
+    while (i < args.length && !isOptionToken(args[i]!) && isValue(args[i]!)) {
+      out.push(`${arg}=${args[i]!}`);
+      i += 1;
+    }
+  }
+  return out;
+}
+
 async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const program = new Command();
   // On a parse/usage ERROR (exitCode !== 0), throw the CommanderError instead
@@ -1005,7 +1086,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const preArgs: string[] = [
     rawArgs[0] ?? "node",
     rawArgs[1] ?? "inspector-cli",
-    ...optionArgs,
   ];
 
   program
@@ -1285,7 +1365,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .addOption(new Option("--cli").hideHelp());
 
   registerCompletionOption(program);
-  program.parse(preArgs);
+  // Bound the variadic options only now, once every option is registered:
+  // which flags take a required value is read off the program itself.
+  const takesValue = new Set(
+    program.options
+      .filter((option) => option.required)
+      .flatMap((option) => [option.long, option.short])
+      .filter((flag): flag is string => flag !== undefined),
+  );
+  program.parse([...preArgs, ...boundVariadicOptions(optionArgs, takesValue)]);
   // `--completion <shell>` (#2434): print the script and exit, no connect.
   if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
 
