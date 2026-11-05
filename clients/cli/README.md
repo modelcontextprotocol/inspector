@@ -402,7 +402,8 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   each kind are kept exactly, so a short run's percentiles are exact, and
   past that they fold into a log-bucketed histogram whose percentiles are
   within 1% of the exact value. `min`, `max` and `mean` are always exact.
-  Latencies are given to two decimal places, or four below a millisecond.
+  Latencies are given to two decimal places, or to four significant figures
+  below a millisecond.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
   A run that reaches its `--load-duration` is measured to the end of that

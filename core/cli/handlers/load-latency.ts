@@ -61,13 +61,19 @@ function nearestRank(n: number, p: number): number {
 }
 
 /**
- * Two places, or four below a millisecond. A flat two places is up to 5%
- * off at 0.1 ms, more than the histogram's own 1% — enough for a reported
- * p50 of 0.10 to pass `--load-max-p50 0.101` on a true 0.1048. Four places
- * keeps a sub-millisecond figure within 0.1%.
+ * Two decimal places from a millisecond up, and four significant figures
+ * below it. Any fixed number of places loses the histogram's 1% at some
+ * sub-millisecond magnitude: two places put a true 0.1048 at 0.10 (5% low),
+ * four put 0.00204 at 0.002 (2% low), and either lets a percentile gate pass
+ * a run above its limit. Four significant figures is within 0.05% anywhere.
  */
 function round(n: number): number {
-  const scale = Math.abs(n) < 1 ? 10_000 : 100;
+  const magnitude = Math.abs(n);
+  const places =
+    magnitude >= 1 || magnitude === 0
+      ? 2
+      : 3 - Math.floor(Math.log10(magnitude));
+  const scale = 10 ** places;
   return Math.round(n * scale) / scale;
 }
 

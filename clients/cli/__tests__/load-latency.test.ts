@@ -139,6 +139,19 @@ describe("LatencyRecorder", () => {
       min: 0.1235,
       max: 2.35,
     });
+    expect(summarizeLatency([0.0012345])!.min).toBe(0.001235);
+  });
+
+  it("stays within 1% at every sub-millisecond magnitude", () => {
+    const recorder = new LatencyRecorder(10_000);
+    recorder.add(0.001);
+    for (let i = 0; i < 9_999; i++) recorder.add(0.00204);
+    recorder.add(1);
+    const { p50 } = recorder.summarize()!;
+    expect(Math.abs(p50 - 0.00204) / 0.00204).toBeLessThanOrEqual(
+      LATENCY_BUCKET_GROWTH - 1,
+    );
+    expect(p50).toBeGreaterThan(0.00202);
   });
 
   it("returns null when nothing was recorded", () => {
