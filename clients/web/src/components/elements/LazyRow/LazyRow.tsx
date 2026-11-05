@@ -81,10 +81,21 @@ export function LazyRow({
   // so a height measured in the old shape no longer holds the row's place.
   useValueChange(estimatedHeight, () => setMeasuredHeight(null));
 
+  // The row's current height, taken as it is released: a row held off-screen
+  // may have changed size since the observer last reported (a response
+  // landing in an expanded body), and its stand-in must match what it was.
+  const captureHeight = useCallback(() => {
+    const element = rootRef.current;
+    if (element) setMeasuredHeight(element.getBoundingClientRect().height);
+  }, []);
+
   const hold = useCallback(() => {
     setHolds((count) => count + 1);
-    return () => setHolds((count) => count - 1);
-  }, []);
+    return () => {
+      captureHeight();
+      setHolds((count) => count - 1);
+    };
+  }, [captureHeight]);
 
   // On the list's first render, a row in view mounts before the first paint
   // rather than showing its stand-in for a frame (see `checkOnFirstLayout`).
@@ -111,7 +122,9 @@ export function LazyRow({
 
   const handleFocus = () => setFocused(true);
   const handleBlur = (event: FocusEvent<HTMLDivElement>) => {
-    if (isFocusLeaving(event)) setFocused(false);
+    if (!isFocusLeaving(event)) return;
+    captureHeight();
+    setFocused(false);
   };
 
   const mounted = near || forceMount || holds > 0 || focused;

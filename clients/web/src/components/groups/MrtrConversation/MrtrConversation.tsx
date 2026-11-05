@@ -16,6 +16,7 @@ import { ExpandToggle } from "../../elements/ExpandToggle/ExpandToggle";
 import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { extractMethod, extractResultType } from "../protocolUtils.js";
 import { useValueChange } from "../../../hooks/useValueChange";
+import { useKeepRowMounted } from "../../../hooks/useKeepRowMounted";
 
 export interface MrtrConversationProps {
   /** The opaque MRTR token that links this conversation's rounds. */
@@ -144,6 +145,9 @@ export function MrtrConversation({
   // The list-level Expand/Collapse toggle is authoritative: any per-entry
   // override is discarded whenever the parent changes `isListExpanded`.
   useValueChange(isListExpanded, setIsExpanded);
+  // In a lazy list the conversation unmounts when scrolled away (#2932); an
+  // expansion its props cannot restore keeps its row mounted instead.
+  useKeepRowMounted(isExpanded !== isListExpanded);
 
   // Always read the conversation chronologically (original → retries → final),
   // regardless of the list's newest-first/oldest-first sort.

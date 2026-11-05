@@ -191,6 +191,41 @@ describe("LazyRow", () => {
     expect(screen.queryByText("content")).not.toBeInTheDocument();
   });
 
+  it("takes the row's current height as a hold or focus releases it", () => {
+    const { registry, report } = fakeRegistry(true);
+    const { rerender } = renderWithMantine(
+      inRegion(
+        registry,
+        <>
+          <LazyRow estimatedHeight={100}>
+            <Keeper keep />
+          </LazyRow>
+          <button type="button">outside</button>
+        </>,
+      ),
+    );
+    act(() => screen.getByText("content").focus());
+    report({ near: false, height: 100 });
+    // The row grew while held off-screen; the observer did not say so.
+    row().getBoundingClientRect = () => new DOMRect(0, 0, 100, 260);
+    rerender(
+      inRegion(
+        registry,
+        <>
+          <LazyRow estimatedHeight={100}>
+            <Keeper keep={false} />
+          </LazyRow>
+          <button type="button">outside</button>
+        </>,
+      ),
+    );
+    expect(screen.getByText("content")).toBeInTheDocument();
+    row().getBoundingClientRect = () => new DOMRect(0, 0, 100, 300);
+    act(() => screen.getByText("outside").focus());
+    expect(screen.queryByText("content")).not.toBeInTheDocument();
+    expect(row().style.height).toBe(heightOf(300));
+  });
+
   it("stays mounted while it holds focus", () => {
     const { registry, report } = fakeRegistry(true);
     renderWithMantine(

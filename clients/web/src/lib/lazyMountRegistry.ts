@@ -87,11 +87,18 @@ export function createLazyMountRegistry(
   const firstChecks = new Map<Element, () => void>();
   let root: Element | null = null;
   let observer: IntersectionObserver | null = null;
+  let rootResize: ResizeObserver | null = null;
+  // The root height the observer's margin was computed from.
+  let marginBasis = 0;
   let reported = false;
 
-  const ensureObserver = (): IntersectionObserver => {
-    if (observer) return observer;
-    observer = new IntersectionObserver(
+  // The margin is in px from the root's HEIGHT: a percentage `rootMargin`
+  // resolves against the root's width on every side, which in a tall, narrow
+  // sidebar would give a fraction of the intended overscan, and would disagree
+  // with the first-layout check below.
+  const createObserver = (height: number): IntersectionObserver => {
+    marginBasis = height;
+    const next = new IntersectionObserver(
       (entries) => {
         reported = true;
         for (const entry of entries) {
@@ -101,14 +108,47 @@ export function createLazyMountRegistry(
           });
         }
       },
-      { root, rootMargin: `${margin * 100}% 0px` },
+      { root, rootMargin: `${Math.round(height * margin)}px 0px` },
     );
+    for (const element of callbacks.keys()) next.observe(element);
+    return next;
+  };
+
+  // Watch the root's height, so the margin can follow it.
+  const watchRoot = () => {
+    if (rootResize || !root || typeof ResizeObserver === "undefined") return;
+    rootResize = new ResizeObserver((entries) => {
+      const entry = entries[entries.length - 1];
+      if (entry) onRootResize(entry.target.getBoundingClientRect().height);
+    });
+    rootResize.observe(root);
+  };
+
+  const ensureObserver = (): IntersectionObserver => {
+    watchRoot();
+    observer ??= createObserver(root?.getBoundingClientRect().height ?? 0);
     return observer;
+  };
+
+  // A root that changes height (a window resize) gets an observer with a
+  // margin to match; its rows are re-observed, and each gets a fresh report.
+  const onRootResize = (height: number) => {
+    if (!observer || height === marginBasis) return;
+    observer.disconnect();
+    observer = createObserver(height);
   };
 
   return {
     setRoot(next) {
+      if (next === root) return;
       root = next;
+      rootResize?.disconnect();
+      rootResize = null;
+      if (!observer) return;
+      // A new root needs an observer of its own.
+      observer.disconnect();
+      observer = null;
+      ensureObserver();
     },
     observe(element, onChange) {
       callbacks.set(element, onChange);
@@ -134,6 +174,8 @@ export function createLazyMountRegistry(
       }
     },
     disconnect() {
+      rootResize?.disconnect();
+      rootResize = null;
       callbacks.clear();
       firstChecks.clear();
       observer?.disconnect();

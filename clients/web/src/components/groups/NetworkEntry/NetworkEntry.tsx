@@ -412,6 +412,9 @@ function BodyPreview({
   // `<BodyPreview>` by both (remounting on swap), so a previously-revealed view
   // never persists across a content (or masking) change.
   const [revealed, setRevealed] = useState(false);
+  // A revealed body would be masked again if its lazy row unmounted on a
+  // scroll away (#2932), so the reveal keeps the row mounted.
+  useKeepRowMounted(revealed);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
 

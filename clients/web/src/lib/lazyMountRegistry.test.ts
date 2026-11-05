@@ -77,18 +77,121 @@ describe("createLazyMountRegistry", () => {
     registry.observe(document.createElement("div"), () => {});
     registry.observe(document.createElement("div"), () => {});
     expect(FakeObserver.instances).toHaveLength(1);
+    // In px from the root's height: a percentage would resolve against its
+    // width.
     expect(FakeObserver.instances[0]!.options).toEqual({
       root,
-      rootMargin: "25% 0px",
+      rootMargin: "100px 0px",
     });
   });
 
   it("defaults to the shared margin", () => {
     const registry = createLazyMountRegistry();
+    registry.setRoot(elementAt(0, 1000));
     registry.observe(document.createElement("div"), () => {});
     expect(FakeObserver.instances[0]!.options.rootMargin).toBe(
-      `${LAZY_MOUNT_MARGIN * 100}% 0px`,
+      `${1000 * LAZY_MOUNT_MARGIN}px 0px`,
     );
+  });
+
+  it("observes against the document with no root", () => {
+    const registry = createLazyMountRegistry();
+    registry.observe(document.createElement("div"), () => {});
+    expect(FakeObserver.instances[0]!.options).toEqual({
+      root: null,
+      rootMargin: "0px 0px",
+    });
+  });
+
+  describe("following the root", () => {
+    class FakeResizeObserver {
+      static instances: FakeResizeObserver[] = [];
+      observed: Element[] = [];
+      disconnected = false;
+      readonly callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+        FakeResizeObserver.instances.push(this);
+      }
+      observe(element: Element) {
+        this.observed.push(element);
+      }
+      unobserve() {}
+      disconnect() {
+        this.disconnected = true;
+      }
+      resize(target: Element) {
+        this.callback([{ target } as ResizeObserverEntry], this);
+      }
+    }
+
+    beforeEach(() => {
+      FakeResizeObserver.instances = [];
+      vi.stubGlobal("ResizeObserver", FakeResizeObserver);
+    });
+
+    it("rebuilds the observer, rows included, when the root's height changes", () => {
+      let height = 400;
+      const root = document.createElement("div");
+      root.getBoundingClientRect = () => rect(0, height);
+      const registry = createLazyMountRegistry(0.25);
+      registry.setRoot(root);
+      const row = document.createElement("div");
+      registry.observe(row, () => {});
+      const watcher = FakeResizeObserver.instances[0]!;
+      expect(watcher.observed).toEqual([root]);
+
+      // The same height changes nothing.
+      watcher.resize(root);
+      expect(FakeObserver.instances).toHaveLength(1);
+
+      height = 800;
+      watcher.resize(root);
+      expect(FakeObserver.instances).toHaveLength(2);
+      expect(FakeObserver.instances[0]!.disconnected).toBe(true);
+      expect(FakeObserver.instances[1]!.options.rootMargin).toBe("200px 0px");
+      expect(FakeObserver.instances[1]!.observed.has(row)).toBe(true);
+    });
+
+    it("ignores a resize before anything is observed, and an empty report", () => {
+      const root = elementAt(0, 400);
+      const registry = createLazyMountRegistry();
+      registry.setRoot(root);
+      expect(FakeResizeObserver.instances).toHaveLength(0);
+      registry.observe(document.createElement("div"), () => {});
+      const watcher = FakeResizeObserver.instances[0]!;
+      watcher.callback([], watcher);
+      registry.disconnect();
+      expect(watcher.disconnected).toBe(true);
+      watcher.resize(root);
+      expect(FakeObserver.instances).toHaveLength(1);
+    });
+
+    it("moves to a new root, and ignores setting the same one", () => {
+      const first = elementAt(0, 400);
+      const second = elementAt(0, 200);
+      const registry = createLazyMountRegistry(0.25);
+      registry.setRoot(first);
+      registry.observe(document.createElement("div"), () => {});
+      registry.setRoot(first);
+      expect(FakeObserver.instances).toHaveLength(1);
+
+      registry.setRoot(second);
+      expect(FakeResizeObserver.instances[0]!.disconnected).toBe(true);
+      expect(FakeObserver.instances).toHaveLength(2);
+      expect(FakeObserver.instances[1]!.options).toEqual({
+        root: second,
+        rootMargin: "50px 0px",
+      });
+      expect(FakeResizeObserver.instances[1]!.observed).toEqual([second]);
+    });
+
+    it("swaps roots before any observer exists without building one", () => {
+      const registry = createLazyMountRegistry();
+      registry.setRoot(elementAt(0, 400));
+      registry.setRoot(null);
+      expect(FakeObserver.instances).toHaveLength(0);
+    });
   });
 
   it("reports each change to the row's own callback", () => {
