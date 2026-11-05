@@ -13,7 +13,7 @@ import {
 import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
 import {
-  runToolLoad,
+  runLoadTest,
   type LoadOptions,
   type LoadStop,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -813,7 +813,7 @@ export class DaemonServer {
     // its own `finally`; this releases what the daemon set up around them.
     const extras: { client: InspectorClient; release: () => void }[] = [];
     try {
-      const summary = await runToolLoad(client, methodArgs, load, {
+      const summary = await runLoadTest(client, methodArgs, load, {
         signal: stop.signal,
         ...(openLoadClient && {
           openConnection: async () => {

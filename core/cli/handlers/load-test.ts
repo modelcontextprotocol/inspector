@@ -1,8 +1,16 @@
 import type { Tool } from "@modelcontextprotocol/client";
-import type { InspectorClient } from "../../mcp/index.js";
+import type { InspectorClient, JsonValue } from "../../mcp/index.js";
+import type { RequestMetadata } from "../../mcp/types.js";
 import { ManagedToolsState } from "../../mcp/state/index.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 import type { MethodArgs } from "./method-types.js";
+import {
+  createWeightedPicker,
+  loadStepTarget,
+  type LoadScenario,
+  type LoadScenarioMethod,
+  type LoadScenarioStep,
+} from "./load-scenario.js";
 
 /**
  * `--load` (#2439): drive one tool with sustained, concurrent `tools/call`
@@ -33,6 +41,12 @@ export type LoadOptions = {
   requests?: number;
   /** Cap on calls started per second, across all workers. */
   rate?: number;
+  /**
+   * `--load-scenario` (#2839): a weighted mix of steps to run in place of one
+   * tool. Each call runs the step the weighted picker names, and the summary
+   * gains a per-step breakdown in `steps`.
+   */
+  scenario?: LoadScenario;
 };
 
 /**
@@ -135,7 +149,40 @@ export type LoadSummary = {
    * run's summary is exactly what it was before #2746.
    */
   connections?: LoadConnectionsSummary;
+  /**
+   * `--load-scenario` only (#2839): the same counts and latencies per step,
+   * in scenario order. The top-level figures are the totals over every step.
+   */
+  steps?: LoadStepSummary[];
 };
+
+/** The outcome counts and latencies of a set of calls: a run, or one step. */
+export type LoadOutcomeSummary = Pick<
+  LoadSummary,
+  | "requests"
+  | "ok"
+  | "toolErrors"
+  | "errors"
+  | "errorRate"
+  | "throughput"
+  | "okThroughput"
+  | "latencyMs"
+  | "errorLatencyMs"
+  | "errorMessages"
+  | "toolErrorMessages"
+>;
+
+/**
+ * One scenario step's share of a run (#2839). `target` is what it calls —
+ * the tool name, resource URI or prompt name. `toolErrors` is always 0 for a
+ * `resources/read` or `prompts/get` step, which have no `isError` result.
+ */
+export type LoadStepSummary = {
+  name: string;
+  method: LoadScenarioMethod;
+  target: string;
+  weight: number;
+} & LoadOutcomeSummary;
 
 /**
  * How the connections of a multi-connection run (#2746) fared. Opening them
@@ -209,6 +256,7 @@ export function resolveLoadOptions(flags: {
   durationSec?: number;
   requests?: number;
   rate?: number;
+  scenario?: LoadScenario;
 }): LoadOptions {
   const durationMs =
     flags.durationSec !== undefined
@@ -228,6 +276,7 @@ export function resolveLoadOptions(flags: {
     ...(durationMs !== undefined && { durationMs }),
     ...(flags.requests !== undefined && { requests: flags.requests }),
     ...(flags.rate !== undefined && { rate: flags.rate }),
+    ...(flags.scenario !== undefined && { scenario: flags.scenario }),
   };
 }
 
@@ -379,6 +428,66 @@ class ErrorTally {
   }
 }
 
+/**
+ * The outcome counts, latencies and message tallies of a set of calls. A run
+ * keeps one for its totals and, with a scenario (#2839), one per step.
+ */
+class OutcomeStats {
+  ok = 0;
+  toolErrors = 0;
+  errors = 0;
+  private readonly okLatencies: number[] = [];
+  private readonly errorLatencies: number[] = [];
+  private readonly tally = new ErrorTally();
+  private readonly toolTally = new ErrorTally();
+
+  /** A call that produced a result, `isError` or not. */
+  addResult(outcome: LoadCallOutcome, latency: number): void {
+    if (outcome === "ok") {
+      this.ok++;
+      this.okLatencies.push(latency);
+      return;
+    }
+    this.toolErrors++;
+    this.errorLatencies.push(latency);
+    this.toolTally.add(
+      typeof outcome === "object" ? outcome.message : NO_TOOL_ERROR_TEXT,
+    );
+  }
+
+  /** A call that threw. */
+  addThrown(message: string, latency: number): void {
+    this.errors++;
+    this.errorLatencies.push(latency);
+    this.tally.add(message);
+  }
+
+  get completed(): number {
+    return this.ok + this.toolErrors + this.errors;
+  }
+
+  summarize(elapsedMs: number): LoadOutcomeSummary {
+    const completed = this.completed;
+    return {
+      requests: completed,
+      ok: this.ok,
+      toolErrors: this.toolErrors,
+      errors: this.errors,
+      // Four places, so a rare failure under heavy load (23 in 41k) still shows.
+      errorRate:
+        completed === 0
+          ? 0
+          : round((this.toolErrors + this.errors) / completed, 4),
+      throughput: elapsedMs > 0 ? round((completed * 1000) / elapsedMs) : 0,
+      okThroughput: elapsedMs > 0 ? round((this.ok * 1000) / elapsedMs) : 0,
+      latencyMs: summarizeLatency(this.okLatencies),
+      errorLatencyMs: summarizeLatency(this.errorLatencies),
+      errorMessages: this.tally.entries(),
+      toolErrorMessages: this.toolTally.entries(),
+    };
+  }
+}
+
 /** Narrow an abort reason to a {@link LoadStop} a caller passed to `abort()`. */
 function isLoadStop(value: unknown): value is LoadStop {
   if (typeof value !== "object" || value === null) return false;
@@ -465,7 +574,10 @@ export function loadRateShortfallWarning(
 /**
  * Run `call` under the given bounds and summarize what happened. Each call is
  * handed the index of the worker making it (0 to `concurrency - 1`), which
- * {@link runLoadAcrossConnections} uses to pin a worker to a connection. Workers pull
+ * {@link runLoadAcrossConnections} uses to pin a worker to a connection, and
+ * the index of the scenario step to run — always 0 without a scenario. Steps
+ * are picked in slot order by {@link createWeightedPicker}, so the mix of
+ * calls *started* follows the weights exactly. Workers pull
  * slots from a shared counter, so `concurrency` is a hard cap on calls in
  * flight and `requests` a hard cap on calls started. With `rate`, starts
  * follow an even `1 / rate` grid rather than a burst each second.
@@ -483,19 +595,20 @@ export function loadRateShortfallWarning(
  * ({@link CIRCUIT_BREAKER_ERRORS}) ends a run the same way on its own.
  */
 export async function runLoad(
-  call: (worker: number) => Promise<LoadCallOutcome>,
+  call: (worker: number, step: number) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
 ): Promise<LoadSummary> {
-  const { concurrency, durationMs, requests, rate } = options;
-  const okLatencies: number[] = [];
-  const errorLatencies: number[] = [];
-  const tally = new ErrorTally();
-  const toolTally = new ErrorTally();
-  let ok = 0;
-  let toolErrors = 0;
-  let errors = 0;
+  const { concurrency, durationMs, requests, rate, scenario } = options;
+  const total = new OutcomeStats();
+  const stepRuns = scenario?.steps.map((step) => ({
+    step,
+    stats: new OutcomeStats(),
+  }));
+  const pickStep = scenario
+    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
+    : () => 0;
   let started = 0;
 
   const start = clock.now();
@@ -569,13 +682,14 @@ export async function runLoad(
   let turnstile: Promise<void> = Promise.resolve();
 
   /**
-   * Wait for a slot and take it, or return false when the run is over. Only
+   * Wait for a slot and take it, returning the step it runs, or `undefined`
+   * when the run is over. Only
    * the worker at the head of the turnstile is ever waiting on the clock, and
    * it claims a slot only once it is awake at that slot's time, re-checking
    * the bounds on every wake. So a timer that fires late — a stalled event
    * loop — starts one call, never a burst of everything that was due.
    */
-  const claimSlot = async (): Promise<boolean> => {
+  const claimSlot = async (): Promise<number | undefined> => {
     const ahead = turnstile;
     let release!: () => void;
     turnstile = new Promise((resolve) => (release = resolve));
@@ -587,12 +701,12 @@ export async function runLoad(
         await yieldToEventLoop();
       }
       for (;;) {
-        if (halt.signal.aborted) return false;
-        if (requests !== undefined && started >= requests) return false;
+        if (halt.signal.aborted) return undefined;
+        if (requests !== undefined && started >= requests) return undefined;
         const now = clock.now();
-        if (now >= deadline) return false;
+        if (now >= deadline) return undefined;
         const scheduled = Math.max(nextStart, now);
-        if (scheduled >= deadline) return false;
+        if (scheduled >= deadline) return undefined;
         if (scheduled <= now) {
           started++;
           // A wake that is merely late — timers always are, by a fraction of
@@ -601,7 +715,9 @@ export async function runLoad(
           // is dropped, and spacing restarts from now: no catch-up burst.
           nextStart =
             now - nextStart < interval ? nextStart + interval : now + interval;
-          return true;
+          // Picked while holding the turnstile, so the order is the slot
+          // order whatever the workers' timing.
+          return pickStep();
         }
         await sleepUnlessAborted(clock, scheduled - now, halt.signal);
       }
@@ -611,7 +727,9 @@ export async function runLoad(
   };
 
   const worker = async (index: number): Promise<void> => {
-    while (await claimSlot()) {
+    for (;;) {
+      const step = await claimSlot();
+      if (step === undefined) return;
       // Another worker's call can abort the run between this worker taking
       // its slot and resuming here. The slot was never used, so it is handed
       // back: `started` feeds the `--load-rate` figures.
@@ -619,26 +737,19 @@ export async function runLoad(
         started--;
         return;
       }
+      const stats = stepRuns?.[step]?.stats;
       const t0 = clock.now();
       try {
-        const outcome = await call(index);
+        const outcome = await call(index, step);
         const latency = clock.now() - t0;
         errorStreak = 0;
-        if (outcome === "ok") {
-          ok++;
-          okLatencies.push(latency);
-        } else {
-          toolErrors++;
-          errorLatencies.push(latency);
-          toolTally.add(
-            typeof outcome === "object" ? outcome.message : NO_TOOL_ERROR_TEXT,
-          );
-        }
+        total.addResult(outcome, latency);
+        stats?.addResult(outcome, latency);
       } catch (err) {
         const now = clock.now();
-        errors++;
-        errorLatencies.push(now - t0);
-        tally.add(err instanceof Error ? err.message : String(err));
+        const message = err instanceof Error ? err.message : String(err);
+        total.addThrown(message, now - t0);
+        stats?.addThrown(message, now - t0);
         noteThrown(now);
       }
     }
@@ -659,7 +770,6 @@ export async function runLoad(
   const elapsedMs = ranFullWindow
     ? Math.max(end - start, durationMs)
     : end - start;
-  const completed = ok + toolErrors + errors;
   /**
    * When the run stopped starting calls, for the `--load-rate` figures: the
    * earliest of the bounds that applied. The duration deadline; for a run the
@@ -676,6 +786,7 @@ export async function runLoad(
        and no stop never ends, so one of the three always applies. */
     return Number.isFinite(windowEnd) ? windowEnd : end;
   };
+  const totals = total.summarize(elapsedMs);
   return {
     concurrency,
     ...(durationMs !== undefined && { durationMs }),
@@ -685,21 +796,39 @@ export async function runLoad(
         started,
         windowMs: startWindowEnd() - start,
       })),
-    requests: completed,
-    ok,
-    toolErrors,
-    errors,
-    // Four places, so a rare failure under heavy load (23 in 41k) still shows.
-    errorRate:
-      completed === 0 ? 0 : round((toolErrors + errors) / completed, 4),
+    // Spelled out rather than spread, to keep the summary's established key
+    // order: `elapsedMs` sits between the counts and the throughputs.
+    requests: totals.requests,
+    ok: totals.ok,
+    toolErrors: totals.toolErrors,
+    errors: totals.errors,
+    errorRate: totals.errorRate,
     elapsedMs: round(elapsedMs),
-    throughput: elapsedMs > 0 ? round((completed * 1000) / elapsedMs) : 0,
-    okThroughput: elapsedMs > 0 ? round((ok * 1000) / elapsedMs) : 0,
-    latencyMs: summarizeLatency(okLatencies),
-    errorLatencyMs: summarizeLatency(errorLatencies),
-    errorMessages: tally.entries(),
-    toolErrorMessages: toolTally.entries(),
+    throughput: totals.throughput,
+    okThroughput: totals.okThroughput,
+    latencyMs: totals.latencyMs,
+    errorLatencyMs: totals.errorLatencyMs,
+    errorMessages: totals.errorMessages,
+    toolErrorMessages: totals.toolErrorMessages,
     ...(stoppedEarly !== undefined && { stoppedEarly }),
+    ...(stepRuns && {
+      steps: stepRuns.map(({ step, stats }) =>
+        stepSummary(step, stats.summarize(elapsedMs)),
+      ),
+    }),
+  };
+}
+
+function stepSummary(
+  step: LoadScenarioStep,
+  outcomes: LoadOutcomeSummary,
+): LoadStepSummary {
+  return {
+    name: step.name,
+    method: step.method,
+    target: loadStepTarget(step),
+    weight: step.weight,
+    ...outcomes,
   };
 }
 
@@ -754,14 +883,14 @@ export type LoadConnection = { disconnect: () => Promise<void> };
 export async function runLoadAcrossConnections<C extends LoadConnection>(
   primary: C,
   openConnection: (() => Promise<C>) | undefined,
-  callOn: (connection: C) => Promise<LoadCallOutcome>,
+  callOn: (connection: C, step: number) => Promise<LoadCallOutcome>,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
 ): Promise<LoadSummary> {
   const requested = options.connections ?? DEFAULT_LOAD_CONNECTIONS;
   if (requested <= 1) {
-    return runLoad(() => callOn(primary), options, clock, signal);
+    return runLoad((_, step) => callOn(primary, step), options, clock, signal);
   }
   if (!openConnection) {
     throw new Error(
@@ -791,7 +920,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
     }
     const pool = [primary, ...extras];
     const summary = await runLoad(
-      (worker) => callOn(pool[worker % pool.length]!),
+      (worker, step) => callOn(pool[worker % pool.length]!, step),
       options,
       clock,
       signal,
@@ -826,43 +955,163 @@ export async function runToolLoad(
   inspectorClient: InspectorClient,
   args: MethodArgs,
   options: LoadOptions,
-  extra: {
-    openConnection?: () => Promise<InspectorClient>;
-    clock?: LoadClock;
-    /** Ends the run early; see {@link runLoad}. */
-    signal?: AbortSignal;
-  } = {},
+  extra: LoadRunExtras = {},
 ): Promise<LoadSummary> {
   if (!args.toolName) {
     throw new Error("--load requires --tool-name.");
   }
+  const [tool] = await findTools(inspectorClient, args, [args.toolName]);
+  const call = toolCaller(tool!, args.toolArg ?? {}, args, args.toolMeta);
+  const summary = await runLoadAcrossConnections(
+    inspectorClient,
+    extra.openConnection,
+    call,
+    options,
+    extra.clock,
+    extra.signal,
+  );
+  return { tool: tool!.name, ...summary };
+}
+
+/** What {@link runToolLoad} and {@link runScenarioLoad} take beyond a client. */
+export type LoadRunExtras = {
+  openConnection?: () => Promise<InspectorClient>;
+  clock?: LoadClock;
+  /** Ends the run early; see {@link runLoad}. */
+  signal?: AbortSignal;
+};
+
+/**
+ * Run a `--load` invocation: {@link runScenarioLoad} when `options` carries a
+ * scenario (#2839), otherwise {@link runToolLoad} on `args.toolName`. The one
+ * entry point both CLIs call.
+ */
+export function runLoadTest(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  options: LoadOptions,
+  extra: LoadRunExtras = {},
+): Promise<LoadSummary> {
+  return options.scenario
+    ? runScenarioLoad(inspectorClient, args, options, options.scenario, extra)
+    : runToolLoad(inspectorClient, args, options, extra);
+}
+
+/**
+ * `--load-scenario` (#2839): load a weighted mix of steps. Every tool a
+ * `tools/call` step names is looked up once, before the clock starts, so a
+ * missing one fails the run outright (exit 5, as with `--tool-name`) rather
+ * than as one step's 100% error rate. A resource or prompt is not checked up
+ * front — a server may serve URIs it does not list — so a bad one shows as
+ * that step's errors. `args.metadata` (`--metadata`) applies to every step,
+ * under each step's own `meta`.
+ */
+export async function runScenarioLoad(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  options: LoadOptions,
+  scenario: LoadScenario,
+  extra: LoadRunExtras = {},
+): Promise<LoadSummary> {
+  const toolNames = scenario.steps.flatMap((s) =>
+    s.method === "tools/call" ? [s.tool] : [],
+  );
+  const tools = new Map(
+    (toolNames.length > 0
+      ? await findTools(inspectorClient, args, toolNames)
+      : []
+    ).map((t) => [t.name, t]),
+  );
+  const callers = scenario.steps.map(
+    (step): ((client: InspectorClient) => Promise<LoadCallOutcome>) => {
+      const metadata = mergeStepMeta(args.metadata, step.meta);
+      switch (step.method) {
+        case "tools/call":
+          // `meta` is the tool-specific `_meta`, as `--tool-metadata` is.
+          return toolCaller(
+            tools.get(step.tool)!,
+            step.args ?? {},
+            args,
+            step.meta,
+          );
+        case "resources/read":
+          return async (client) => {
+            await client.readResource(step.uri, metadata);
+            return "ok";
+          };
+        case "prompts/get":
+          return async (client) => {
+            await client.getPrompt(step.prompt, step.args ?? {}, metadata);
+            return "ok";
+          };
+      }
+    },
+  );
+  return runLoadAcrossConnections(
+    inspectorClient,
+    extra.openConnection,
+    (client, step) => callers[step]!(client),
+    // The engine picks steps from `options.scenario`; set it from the
+    // argument so the two can never disagree.
+    { ...options, scenario },
+    extra.clock,
+    extra.signal,
+  );
+}
+
+/** `--metadata` under a step's own `meta`, or `undefined` when neither is set. */
+function mergeStepMeta(
+  general: RequestMetadata | undefined,
+  step: RequestMetadata | undefined,
+): RequestMetadata | undefined {
+  if (step === undefined) return general;
+  return { ...general, ...step };
+}
+
+/**
+ * Look up each of `names` once, on `inspectorClient` alone, before the clock
+ * starts and before any extra connection opens. A missing tool is exit 5
+ * (`tool_not_found`), as a plain `tools/call` would be.
+ */
+async function findTools(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  names: string[],
+): Promise<Tool[]> {
   const toolsState = new ManagedToolsState(inspectorClient);
-  let found: Tool | undefined;
+  let listed: Tool[];
   try {
     toolsState.setMetadata(args.metadata);
     await toolsState.refresh();
-    found = toolsState.getTools().find((t) => t.name === args.toolName);
+    listed = toolsState.getTools();
   } finally {
     toolsState.destroy();
   }
-  if (!found) {
-    throw new CliExitCodeError(
-      EXIT_CODES.TOOL_ERROR,
-      `Tool '${args.toolName}' not found on server.`,
-      { code: "tool_not_found" },
-    );
-  }
-  const tool = found;
+  return names.map((name) => {
+    const found = listed.find((t) => t.name === name);
+    if (!found) {
+      throw new CliExitCodeError(
+        EXIT_CODES.TOOL_ERROR,
+        `Tool '${name}' not found on server.`,
+        { code: "tool_not_found" },
+      );
+    }
+    return found;
+  });
+}
+
+/** One `tools/call` of `tool`, as a load call. */
+function toolCaller(
+  tool: Tool,
+  toolArgs: Record<string, JsonValue>,
+  args: MethodArgs,
+  toolMeta: RequestMetadata | undefined,
+): (client: InspectorClient) => Promise<LoadCallOutcome> {
   // Same rule as a single `tools/call` (#2649): a tool that requires task
   // support can only be called task-augmented.
   const useTask = tool.execution?.taskSupport === "required";
-  const call = async (client: InspectorClient): Promise<LoadCallOutcome> => {
-    const params = [
-      tool,
-      args.toolArg ?? {},
-      args.metadata,
-      args.toolMeta,
-    ] as const;
+  return async (client) => {
+    const params = [tool, toolArgs, args.metadata, toolMeta] as const;
     const invocation = useTask
       ? await client.callToolStream(...params)
       : await client.callTool(...params);
@@ -877,13 +1126,4 @@ export async function runToolLoad(
       message: toolErrorText(invocation.result.content),
     };
   };
-  const summary = await runLoadAcrossConnections(
-    inspectorClient,
-    extra.openConnection,
-    call,
-    options,
-    extra.clock,
-    extra.signal,
-  );
-  return { tool: tool.name, ...summary };
 }

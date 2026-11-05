@@ -68,9 +68,10 @@ import {
   LOAD_FLAG_CONFLICT,
   loadSummaryWarnings,
   resolveLoadOptions,
-  runToolLoad,
+  runLoadTest,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
   assertNotInterrupted,
   withLoadInterrupt,
@@ -352,8 +353,9 @@ async function callMethod(
       { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
-    // `--load` (#2439): many calls of one tool, then a single summary, in
-    // place of the one result a plain `tools/call` prints.
+    // `--load` (#2439): many calls of one tool — or of a `--load-scenario`
+    // mix (#2839) — then a single summary, in place of the one result a
+    // plain `tools/call` prints.
     if (load) {
       // Ctrl+C / SIGTERM end the run early rather than the process (#2834),
       // so the partial summary below still gets out.
@@ -366,7 +368,7 @@ async function callMethod(
             callbackUrlConfig,
             serverSettings,
             () =>
-              runToolLoad(inspectorClient, args, load, {
+              runLoadTest(inspectorClient, args, load, {
                 openConnection: openLoadConnection,
                 signal,
               }),
@@ -1232,7 +1234,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--load",
-      "Load-test one tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Use with --method tools/call --tool-name <name>. Bounded by --load-duration (default 10s) and/or --load-requests.",
+      "Load-test one tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Use with --method tools/call --tool-name <name>, or --method tools/call --load-scenario <file> for a weighted mix. Bounded by --load-duration (default 10s) and/or --load-requests.",
+    )
+    .option(
+      "--load-scenario <file>",
+      "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces --tool-name, --tool-arg, --tool-args-json and --tool-metadata.",
     )
     .option(
       "--load-concurrency <n>",
@@ -1471,6 +1477,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadDuration?: number;
     loadRequests?: number;
     loadRate?: number;
+    loadScenario?: string;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
   };
@@ -1568,6 +1575,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-duration", options.loadDuration],
     ["--load-requests", options.loadRequests],
     ["--load-rate", options.loadRate],
+    ["--load-scenario", options.loadScenario],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
   ] as const;
@@ -1593,6 +1601,23 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       throw loadFlagConflict(
         "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",
       );
+    }
+    // The scenario names each step's tool and arguments (#2839), so a flag
+    // that names them too would be silently overridden.
+    if (options.loadScenario !== undefined) {
+      const named = [
+        ["--tool-name", options.toolName !== undefined],
+        ["--tool-arg", Object.keys(options.toolArg ?? {}).length > 0],
+        ["--tool-args-json", options.toolArgsJson !== undefined],
+        ["--tool-metadata", Object.keys(options.toolMetadata ?? {}).length > 0],
+      ] as const;
+      for (const [flag, given] of named) {
+        if (given) {
+          throw loadFlagConflict(
+            `--load-scenario cannot be combined with ${flag}; each scenario step names its own tool and arguments.`,
+          );
+        }
+      }
     }
   }
 
@@ -1940,7 +1965,14 @@ function resolveCliLoadOptions(options: {
   loadDuration?: number;
   loadRequests?: number;
   loadRate?: number;
+  loadScenario?: string;
 }): LoadOptions {
+  // Read before anything connects; a bad file is a usage error of its own
+  // (`load_scenario_invalid`), so it is not folded into the conflict below.
+  const scenario =
+    options.loadScenario !== undefined
+      ? readLoadScenarioFile(options.loadScenario)
+      : undefined;
   try {
     return resolveLoadOptions({
       concurrency: options.loadConcurrency,
@@ -1948,6 +1980,7 @@ function resolveCliLoadOptions(options: {
       durationSec: options.loadDuration,
       requests: options.loadRequests,
       rate: options.loadRate,
+      scenario,
     });
   } catch (err) {
     throw loadFlagConflict((err as Error).message);

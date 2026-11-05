@@ -1405,6 +1405,10 @@ function registerRpcCommands(program: CommandType): void {
             "Load-test the tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Bounded by --load-duration (default 10s) and/or --load-requests. Later commands on this connection wait until the run ends.",
           )
           .option(
+            "--load-scenario <file>",
+            "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces the tool name, its arguments and --tool-metadata.",
+          )
+          .option(
             "--load-concurrency <n>",
             "With --load: most calls in flight at once (positive integer; default 10).",
             positiveIntegerParser("--load-concurrency"),
@@ -1454,7 +1458,14 @@ function registerRpcCommands(program: CommandType): void {
               toolArgFlag: (o.toolArg ?? {}) as Record<string, JsonValue>,
               toolArgsJson: o.toolArgsJson as string | undefined,
             });
-            const load = resolveLoadFlags({ ...o, toolName });
+            const load = resolveLoadFlags({
+              ...o,
+              toolName,
+              toolArg,
+              toolMetadata: o.toolMetadata as
+                | Record<string, unknown>
+                | undefined,
+            });
             await runRpc(
               program,
               method,

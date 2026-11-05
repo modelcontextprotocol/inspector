@@ -7,6 +7,7 @@ import {
   resolveLoadOptions,
   type LoadOptions,
 } from "@inspector/core/cli/handlers/load-test.js";
+import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
   resolveLoadThresholds,
   type LoadThresholds,
@@ -33,6 +34,12 @@ export type LoadFlags = {
  * (positive integers, positive numbers, fractions) is done by commander
  * through the engine's own parsers, so the two CLIs reject the same inputs.
  *
+ * `--load-scenario <file>` (#2839) is read HERE, in the front end, so a
+ * relative path means the caller's working directory rather than the
+ * daemon's; the parsed scenario rides `options` to the daemon. It replaces
+ * the tool name, its arguments and its metadata, so naming any of those too
+ * is refused rather than silently overridden.
+ *
  * Returns `undefined` when `--load` is not set: an ordinary `tools/call`.
  */
 export function resolveLoadFlags(flags: {
@@ -42,10 +49,15 @@ export function resolveLoadFlags(flags: {
   loadDuration?: number;
   loadRequests?: number;
   loadRate?: number;
+  loadScenario?: string;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   appInfo?: boolean;
   toolName?: string;
+  /** The resolved tool arguments, from positionals or flags. */
+  toolArg?: Record<string, unknown>;
+  /** `--tool-metadata`. */
+  toolMetadata?: Record<string, unknown>;
 }): LoadFlags | undefined {
   const bounds = [
     ["--load-concurrency", flags.loadConcurrency],
@@ -53,6 +65,7 @@ export function resolveLoadFlags(flags: {
     ["--load-duration", flags.loadDuration],
     ["--load-requests", flags.loadRequests],
     ["--load-rate", flags.loadRate],
+    ["--load-scenario", flags.loadScenario],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
   ] as const;
@@ -67,11 +80,29 @@ export function resolveLoadFlags(flags: {
   if (flags.appInfo === true) {
     throw usage("--load cannot be combined with --app-info.");
   }
-  // Checked here rather than left to the daemon so a missing name fails
-  // before a connection is resolved, with the flag a user can act on.
-  if (!flags.toolName) {
+  if (flags.loadScenario !== undefined) {
+    const named = [
+      ["a tool name", flags.toolName !== undefined],
+      ["tool arguments", Object.keys(flags.toolArg ?? {}).length > 0],
+      ["--tool-metadata", Object.keys(flags.toolMetadata ?? {}).length > 0],
+    ] as const;
+    for (const [what, given] of named) {
+      if (given) {
+        throw usage(
+          `--load-scenario cannot be combined with ${what}; each scenario step names its own tool and arguments.`,
+        );
+      }
+    }
+  } else if (!flags.toolName) {
+    // Checked here rather than left to the daemon so a missing name fails
+    // before a connection is resolved, with the flag a user can act on.
     throw usage("--load requires a tool name.", "missing_tool_name");
   }
+  // A bad file is a usage error of its own (`load_scenario_invalid`).
+  const scenario =
+    flags.loadScenario !== undefined
+      ? readLoadScenarioFile(flags.loadScenario)
+      : undefined;
   let options: LoadOptions;
   try {
     options = resolveLoadOptions({
@@ -80,6 +111,7 @@ export function resolveLoadFlags(flags: {
       durationSec: flags.loadDuration,
       requests: flags.loadRequests,
       rate: flags.loadRate,
+      scenario,
     });
   } catch (err) {
     // `--load-connections` above `--load-concurrency`: the engine's own

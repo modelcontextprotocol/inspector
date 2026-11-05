@@ -161,6 +161,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
+| `--load-scenario <file>`      | With `--load`: run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step breakdown. Replaces `--tool-name`, `--tool-arg`, `--tool-args-json` and `--tool-metadata`. See [Scenarios](#scenarios---load-scenario). |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
@@ -452,6 +453,58 @@ contention that only appear across sessions:
 
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
+
+##### Scenarios (`--load-scenario`)
+
+Real traffic is rarely one tool with fixed arguments. `--load-scenario <file>`
+([#2839](https://github.com/modelcontextprotocol/inspector/issues/2839)) runs a
+weighted mix of steps over the same connection(s) and bounds instead:
+
+```json
+{
+  "steps": [
+    { "name": "search", "method": "tools/call", "tool": "search", "args": { "query": "mcp" }, "weight": 7 },
+    { "method": "resources/read", "uri": "docs://readme", "weight": 2 },
+    { "method": "prompts/get", "prompt": "summarize", "args": { "style": "short" }, "weight": 1 }
+  ]
+}
+```
+
+```bash
+mcp-inspector --cli <server> --method tools/call \
+  --load --load-scenario scenario.json --load-duration 30 --load-concurrency 20
+```
+
+- **The file** is either that object or a bare array of steps. Each step has a
+  `method` (`tools/call`, `resources/read` or `prompts/get`) and what it calls
+  (`tool`, `uri` or `prompt`), plus optional `args` (tools and prompts),
+  `meta` (the request's `_meta`, over any `--metadata`), `weight` (a positive
+  number, default `1`) and `name`. Any other key is an error, so a typo such
+  as `"argument"` fails the run instead of silently sending no arguments.
+  Every problem with the file exits `1` with the envelope `code`
+  `load_scenario_invalid`, before anything connects.
+- **The mix is exact, not random.** Steps are picked in slot order by smooth
+  weighted round-robin, so weights `7:2:1` start exactly 7, 2 and 1 calls in
+  every 10, interleaved rather than in runs, and two runs of the same scenario
+  are comparable. Completion counts can trail the start counts by whatever was
+  in flight when the run ended.
+- **The summary** keeps its totals at the top level — so the thresholds below
+  judge the whole mix — and adds a **`steps`** array in scenario order: each
+  step's `name` (defaulting to `<method> <target>`, numbered `#n` when two
+  unnamed steps share a target), `method`, `target` and `weight`, then the
+  same `requests`, `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
+  `okThroughput`, `latencyMs`, `errorLatencyMs`, `errorMessages` and
+  `toolErrorMessages` as the totals, for that step's calls alone. There is no
+  top-level `tool`. A `resources/read` or `prompts/get` step has no `isError`
+  result, so its `toolErrors` is always `0`.
+- **Tools are checked up front; resources and prompts are not.** Every tool a
+  step names is looked up before the clock starts, so a missing one exits `5`
+  (`tool_not_found`) as with `--tool-name`. A server may serve URIs or
+  prompts it does not list, so a bad one shows as that step's `errors`.
+- `--load-scenario` replaces `--tool-name`, `--tool-arg`, `--tool-args-json`
+  and `--tool-metadata`, so combining it with any of them is refused
+  (`load_flag_conflict`). `--method tools/call` is still required: it selects
+  the load mode.
 
 A load run does not prompt for OAuth step-up: a tool that needs scopes the
 session lacks fails every call, and the challenge shows in `errorMessages`.
