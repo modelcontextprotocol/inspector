@@ -115,22 +115,30 @@ export function probeUrl(env) {
 const LAUNCHER_BIN = "mcp-inspector";
 
 /**
+ * The inits that may stand in front of the launcher as PID 1, each followed by
+ * `--`: the image's own `tini` ENTRYPOINT (#2833), and Docker's `docker-init`
+ * (itself tini), which `docker run --init` puts in front of that.
+ */
+const INITS = new Set(["tini", "docker-init"]);
+
+/**
  * The launch mode in `argv` — PID 1's argv, whether that is the launcher
  * itself (`node /usr/local/bin/mcp-inspector --tui`) or an init that execs it
- * (`docker run --init` gives `/sbin/docker-init -- mcp-inspector --tui`).
+ * (the image's `/usr/bin/tini -- mcp-inspector --tui`, or that behind
+ * `docker run --init`'s `/sbin/docker-init -- tini -- mcp-inspector --tui`).
  * Mirrors `parseLauncherArgv` in `clients/launcher`: only the token right
  * after the bin is a mode flag, and anything else is the default `web`.
  *
- * Only those two shapes count. Matching the bin anywhere in argv would let a
+ * Only those shapes count. Matching the bin anywhere in argv would let a
  * foreign entrypoint that merely mentions it (`sh -c '…' mcp-inspector --tui`)
  * read as TUI and skip the probe, and so would a wrapper that passes it on
  * (`wrapper mcp-inspector --tui`) if the interpreter were not checked. Any
  * other argv returns `undefined`.
  */
 export function launchMode(argv) {
-  const head = basename(argv[0] ?? "");
-  const bin =
-    head === "docker-init" && argv[1] === "--" ? 2 : head === "node" ? 1 : -1;
+  let at = 0;
+  while (INITS.has(basename(argv[at] ?? "")) && argv[at + 1] === "--") at += 2;
+  const bin = at > 0 ? at : basename(argv[0] ?? "") === "node" ? 1 : -1;
   if (bin === -1 || basename(argv[bin] ?? "") !== LAUNCHER_BIN)
     return undefined;
   const flag = argv[bin + 1];
