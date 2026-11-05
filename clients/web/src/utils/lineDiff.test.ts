@@ -8,6 +8,14 @@ describe("canonicalJson", () => {
     );
   });
 
+  it("keeps a `__proto__` key as data", () => {
+    const parsed: unknown = JSON.parse('{"__proto__": {"x": 1}, "a": 2}');
+    expect(canonicalJson(parsed)).toContain('"__proto__"');
+    expect(canonicalJson(parsed)).not.toBe(
+      canonicalJson(JSON.parse('{"__proto__": {"x": 2}, "a": 2}')),
+    );
+  });
+
   it("renders primitives as JSON", () => {
     expect(canonicalJson("x")).toBe('"x"');
   });

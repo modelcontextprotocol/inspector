@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Card, Flex, Stack, Text } from "@mantine/core";
 import type { MalformedListItem } from "@inspector/core/mcp";
 import type {
@@ -208,6 +209,12 @@ export function ToolsScreen({
   // Keyed by protocol name, which is what a call is sent with — so two list
   // rows repeating a name (#2001) share one history.
   const runs = runsForTool(runHistory, selectedTool?.name);
+  // Bumped by Re-run so the schema form remounts from the run's arguments.
+  // `formValues` alone cannot reset a field's local state — a chosen union
+  // branch, a half-typed draft — so without it the form could show one shape
+  // while the re-run sends another. Screen-local is enough: a remount after a
+  // tab switch rebuilds the form from `formValues` anyway.
+  const [rerunCount, setRerunCount] = useState(0);
 
   const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
@@ -230,6 +237,7 @@ export function ToolsScreen({
     // Load the run's arguments into the form as well as sending them, so the
     // form beside the new result shows what was sent.
     onUiChange({ ...ui, formValues: run.args });
+    setRerunCount((count) => count + 1);
     onCallTool(run.toolName, run.args, ui.runAsTask);
   };
 
@@ -313,8 +321,8 @@ export function ToolsScreen({
                     tool={selectedTool}
                     // The row key, not the name — a server may list the same
                     // tool name twice (#1957), and the panel is reused across
-                    // selections.
-                    resetKey={selectedToolKey}
+                    // selections — plus the re-run count (see above).
+                    resetKey={`${selectedToolKey}#${rerunCount}`}
                     formValues={formValues}
                     isExecuting={isExecuting}
                     progress={callState?.progress}

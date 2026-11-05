@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -146,6 +146,18 @@ function runTime(run: ToolRun): string {
   return new Date(run.startedAt).toLocaleTimeString();
 }
 
+// A run's arguments + envelope as key-sorted JSON, memoized per run.
+function RunEnvelope({ run }: { run: ToolRun }) {
+  const text = useMemo(() => canonicalJson(toolRunEnvelope(run)), [run]);
+  return (
+    <ContentViewer
+      block={{ type: "text", text }}
+      mimeType="application/json"
+      copyable
+    />
+  );
+}
+
 function RunEntry({
   run,
   compared,
@@ -197,11 +209,9 @@ function RunEntry({
       </RunStack>
       <Collapse in={expanded}>
         <DetailScroll>
-          <ContentViewer
-            block={{ type: "text", text: canonicalJson(toolRunEnvelope(run)) }}
-            mimeType="application/json"
-            copyable
-          />
+          {/* Built only once expanded: serializing every retained envelope
+              on each render of a collapsed list would be wasted work. */}
+          {expanded && <RunEnvelope run={run} />}
         </DetailScroll>
       </Collapse>
     </RunCard>

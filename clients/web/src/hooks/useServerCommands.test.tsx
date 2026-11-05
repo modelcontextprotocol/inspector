@@ -359,13 +359,16 @@ describe("useResultPanels", () => {
     expect(h.panels().toolCallState).toEqual({ status: "pending" });
 
     await act(async () =>
-      h.panels().recordToolRun({
-        toolName: "echo",
-        args: {},
-        startedAt: 0,
-        durationMs: 1,
-        status: "ok",
-      }),
+      h.panels().recordToolRun(
+        {
+          toolName: "echo",
+          args: {},
+          startedAt: 0,
+          durationMs: 1,
+          status: "ok",
+        },
+        h.panels().getSessionGeneration(),
+      ),
     );
     expect(h.panels().toolRunHistory.echo).toHaveLength(1);
 
@@ -471,6 +474,42 @@ describe("onCallTool", () => {
         durationMs: expect.any(Number),
       }),
     ]);
+  });
+
+  it("records a resolved isError result as a failed run", async () => {
+    const result = { content: [], isError: true };
+    const c = client({
+      callTool: vi.fn().mockResolvedValue({ success: true, result }),
+    });
+    const h = harness({ client: c, tools: [tool("echo")] });
+    await act(async () => h.api().onCallTool("echo", {}));
+    expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
+      status: "error",
+      result,
+    });
+  });
+
+  it("drops a run that settles after its session was cleared", async () => {
+    let settle!: (value: unknown) => void;
+    const c = client({
+      callTool: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            settle = resolve;
+          }),
+      ),
+    });
+    const h = harness({ client: c, tools: [tool("echo")] });
+    let call!: Promise<void>;
+    act(() => {
+      call = h.api().onCallTool("echo", { secret: 1 });
+    });
+    await act(async () => h.panels().clearResultPanels());
+    await act(async () => {
+      settle({ success: true, result: { content: [] } });
+      await call;
+    });
+    expect(h.panels().toolRunHistory).toEqual({});
   });
 
   it("numbers successive runs of a tool, newest first", async () => {
@@ -646,6 +685,7 @@ describe("onCallTool", () => {
     expect(h.panels().toolCallState).toMatchObject({ status: "error" });
     expect(h.panels().toolRunHistory.echo[0]).toMatchObject({
       status: "error",
+      errorCode: -32042,
     });
     const shown = notificationsMock.show.mock.calls.at(-1)?.[0] as {
       title: string;

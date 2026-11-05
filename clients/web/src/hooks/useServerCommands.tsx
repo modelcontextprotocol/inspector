@@ -78,8 +78,17 @@ export interface ResultPanels {
    * (#2830). Session-scoped like the panels: `clearResultPanels` drops it.
    */
   toolRunHistory: ToolRunHistory;
-  /** Records a completed tool call in {@link toolRunHistory}. */
-  recordToolRun: (run: NewToolRun) => void;
+  /**
+   * The current session generation, advanced by `clearResultPanels`. A caller
+   * captures it before sending a call and hands it back to `recordToolRun`.
+   */
+  getSessionGeneration: () => number;
+  /**
+   * Records a completed tool call in {@link toolRunHistory} — unless the
+   * session it was sent in has since been cleared, so a call that settles
+   * after a disconnect cannot leak into the next session's history.
+   */
+  recordToolRun: (run: NewToolRun, generation: number) => void;
   /** Drops every in-flight result panel, and the tool run history. */
   clearResultPanels: () => void;
   /**
@@ -112,8 +121,16 @@ export function useResultPanels(): ResultPanels {
   // Monotonic id source for recorded runs. Advanced only from the event-time
   // callback below, never during render, so a ref is the right home.
   const nextRunIdRef = useRef(0);
+  // Advanced on every session clear; see `recordToolRun`.
+  const sessionGenerationRef = useRef(0);
 
-  const recordToolRun = useCallback((run: NewToolRun) => {
+  const getSessionGeneration = useCallback(
+    () => sessionGenerationRef.current,
+    [],
+  );
+
+  const recordToolRun = useCallback((run: NewToolRun, generation: number) => {
+    if (generation !== sessionGenerationRef.current) return;
     nextRunIdRef.current += 1;
     const id = `tool-run-${nextRunIdRef.current}`;
     setToolRunHistory((prev) => appendToolRun(prev, run, id));
@@ -121,6 +138,7 @@ export function useResultPanels(): ResultPanels {
 
   const clearResultPanels = useCallback(() => {
     setToolCallState(undefined);
+    sessionGenerationRef.current += 1;
     setToolRunHistory(EMPTY_TOOL_RUN_HISTORY);
     setGetPromptState(undefined);
     setReadResourceState(undefined);
@@ -157,6 +175,7 @@ export function useResultPanels(): ResultPanels {
     setGetPromptState,
     setReadResourceState,
     toolRunHistory,
+    getSessionGeneration,
     recordToolRun,
     clearResultPanels,
     setSourceScopedError,
@@ -346,6 +365,7 @@ export function useServerCommands({
     setToolCallState,
     setGetPromptState,
     setReadResourceState,
+    getSessionGeneration,
     recordToolRun,
   } = panels;
 
@@ -389,21 +409,25 @@ export function useServerCommands({
       setToolCallState({ status: "pending" });
       // Timed from just before the send, so the recorded duration covers the
       // round trip the user waited on (#2830).
+      const generation = getSessionGeneration();
       const startedAt = Date.now();
       const sentAt = performance.now();
       const elapsedMs = () => Math.round(performance.now() - sentAt);
       // A call that threw rather than resolved still ran, so it goes in the
       // history too — the run-to-run diff is often exactly "it used to fail".
       const recordRejection = (message: string, code?: number) => {
-        recordToolRun({
-          toolName: name,
-          args,
-          startedAt,
-          durationMs: elapsedMs(),
-          status: "error",
-          error: message,
-          errorCode: code,
-        });
+        recordToolRun(
+          {
+            toolName: name,
+            args,
+            startedAt,
+            durationMs: elapsedMs(),
+            status: "error",
+            error: message,
+            errorCode: code,
+          },
+          generation,
+        );
       };
       try {
         // ToolsScreen types the args as `Record<string, unknown>` (it accepts
@@ -424,19 +448,23 @@ export function useServerCommands({
               args as Record<string, JsonValue>,
             );
         const durationMs = elapsedMs();
-        const status = invocation.success ? "ok" : "error";
         const result = invocation.result ?? undefined;
-        recordToolRun({
-          toolName: name,
-          args,
-          startedAt,
-          durationMs,
-          status,
-          result,
-          error: invocation.error,
-        });
+        recordToolRun(
+          {
+            toolName: name,
+            args,
+            startedAt,
+            durationMs,
+            // `success` means the call resolved; a resolved result can still
+            // carry `isError`, which is a tool failure for the history badge.
+            status: invocation.success && !result?.isError ? "ok" : "error",
+            result,
+            error: invocation.error,
+          },
+          generation,
+        );
         setToolCallState({
-          status,
+          status: invocation.success ? "ok" : "error",
           result,
           error: invocation.error,
           durationMs,
@@ -496,7 +524,7 @@ export function useServerCommands({
             toolName: name,
             details: formatErrorDetails(err),
           };
-          recordRejection(errorMessage(err));
+          recordRejection(errorMessage(err), errorCodeOf(err));
           setToolCallState({ status: "error", error: errorMessage(err) });
           notifications.show({
             autoClose: false,
@@ -527,6 +555,7 @@ export function useServerCommands({
       handleCommandScopedAuthRecovery,
       activeToolCallTaskIdRef,
       setToolCallState,
+      getSessionGeneration,
       recordToolRun,
       setUrlElicitationErrorDetails,
     ],

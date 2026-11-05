@@ -21,11 +21,13 @@ export const MAX_DIFF_CELLS = 4_000_000;
 function sortKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortKeys);
   if (value !== null && typeof value === "object") {
-    const sorted: Record<string, unknown> = {};
-    for (const key of Object.keys(value).sort()) {
-      sorted[key] = sortKeys((value as Record<string, unknown>)[key]);
-    }
-    return sorted;
+    // `Object.fromEntries` defines own properties, so a JSON key named
+    // `__proto__` survives instead of hitting the prototype setter.
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort()
+        .map((key) => [key, sortKeys((value as Record<string, unknown>)[key])]),
+    );
   }
   return value;
 }
