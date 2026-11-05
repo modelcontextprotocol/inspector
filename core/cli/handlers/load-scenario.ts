@@ -295,12 +295,14 @@ function scenarioError(source: string, problem: string): CliExitCodeError {
  * Returns the index of the next step on each call.
  */
 export function createWeightedPicker(weights: readonly number[]): () => number {
-  // Two valid weights of 1e308 sum to Infinity, which would corrupt every
-  // running score, so such weights are scaled down by the largest (only the
-  // ratios matter). Others are left alone: integer weights stay integers, and
-  // the mix stays exact with no floating-point drift.
+  // A running score stays within about twice the weights' sum, so weights
+  // that large (two valid 1e308s, or 1.19e308 and 5.1e307, whose sum is still
+  // finite) would overflow a score to Infinity and skew every later pick.
+  // Those are scaled down by the largest; only the ratios matter. Others are
+  // left alone, so integer weights stay integers and the mix stays exact with
+  // no floating-point drift. The 4x leaves headroom over the 2x bound.
   const sum = weights.reduce((acc, w) => acc + w, 0);
-  const largest = Number.isFinite(sum) ? 1 : Math.max(...weights);
+  const largest = Number.isFinite(sum * 4) ? 1 : Math.max(...weights);
   const scaled = weights.map((w) => w / largest);
   const total = scaled.reduce((sum, w) => sum + w, 0);
   const current = scaled.map(() => 0);

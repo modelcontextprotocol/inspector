@@ -251,6 +251,12 @@ describe("createWeightedPicker", () => {
     expect(picks.filter((p) => p === 0)).toHaveLength(5);
   });
 
+  it("keeps the mix at weights whose sum is finite but whose scores are not", () => {
+    const pick = createWeightedPicker([1.19e308, 5.1e307]);
+    const picks = Array.from({ length: 10 }, pick);
+    expect(picks.filter((p) => p === 0)).toHaveLength(7);
+  });
+
   it("handles fractional weights and a single step", () => {
     const pick = createWeightedPicker([0.5, 1.5]);
     const picks = Array.from({ length: 8 }, pick);
