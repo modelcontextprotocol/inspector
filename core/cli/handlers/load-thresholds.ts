@@ -1,4 +1,4 @@
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 import { positiveNumberParser } from "./load-parsers.js";
 import type { LoadSummary } from "./load-test.js";
 

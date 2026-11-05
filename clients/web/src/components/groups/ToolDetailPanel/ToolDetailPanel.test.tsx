@@ -246,6 +246,48 @@ describe("ToolDetailPanel", () => {
     expect(onExecute).toHaveBeenCalledTimes(1);
   });
 
+  // #2911: the load-test entry point shows only when the host offers it. It
+  // stays enabled with unsendable arguments — a scenario run does not use
+  // them — and reports whether they are sendable instead.
+  it("offers Load test only when given a handler, reporting argument readiness", async () => {
+    const user = userEvent.setup();
+    const onLoadTest = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ToolDetailPanel {...baseProps} tool={simpleTool} formValues={{}} />,
+    );
+    expect(screen.queryByRole("button", { name: "Load test" })).toBeNull();
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{}}
+        onLoadTest={onLoadTest}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(onLoadTest).toHaveBeenLastCalledWith(false);
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{ message: "hi" }}
+        onLoadTest={onLoadTest}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(onLoadTest).toHaveBeenLastCalledWith(true);
+    rerender(
+      <ToolDetailPanel
+        {...baseProps}
+        tool={simpleTool}
+        formValues={{ message: "hi" }}
+        isExecuting
+        onLoadTest={onLoadTest}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Load test" })).toBeDisabled();
+  });
+
   // #2171: the panel opts its form into tool-argument type enforcement, so a
   // raw-JSON draft the client would retype is refused here rather than sent as
   // something other than what the editor showed.

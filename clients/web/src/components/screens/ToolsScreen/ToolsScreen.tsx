@@ -17,6 +17,8 @@ import { ToolResultPanel } from "../../groups/ToolResultPanel/ToolResultPanel";
 import { ToolCallErrorPanel } from "../../groups/ToolResultPanel/ToolCallErrorPanel";
 import { resultHasResourceLinks } from "../../groups/ToolResultPanel/toolResultUtils";
 import { ToolRunHistoryPanel } from "../../groups/ToolRunHistoryPanel/ToolRunHistoryPanel";
+import { LoadTestModal } from "../../groups/LoadTestModal/LoadTestModal";
+import type { RunLoadTest } from "../../../lib/loadTest";
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import { effectiveRunAsTask, findToolByRowKey } from "../../../utils/toolUtils";
 import {
@@ -108,6 +110,12 @@ export interface ToolsScreenProps {
    * Passed through to the result panel so links can inline their contents.
    */
   onReadResource?: (uri: string) => Promise<ReadResourceResult>;
+  /**
+   * Run a load test over the current connection (#2911). When set, the
+   * selected tool's panel offers "Load test", which opens the load panel on
+   * that tool and the form's arguments.
+   */
+  onRunLoadTest?: RunLoadTest;
 }
 
 // Caps the detail/result columns at the screen's available height: full
@@ -202,6 +210,7 @@ export function ToolsScreen({
   onCancelCall,
   onClearResult,
   onReadResource,
+  onRunLoadTest,
 }: ToolsScreenProps) {
   const { selectedToolKey, formValues, search } = ui;
   const selectedTool = findToolByRowKey(tools, selectedToolKey);
@@ -215,6 +224,8 @@ export function ToolsScreen({
   // while the re-run sends another. Screen-local is enough: a remount after a
   // tab switch rebuilds the form from `formValues` anyway.
   const [rerunCount, setRerunCount] = useState(0);
+  // Open, and whether the form's arguments were sendable when it opened.
+  const [loadTest, setLoadTest] = useState<{ argsReady: boolean } | null>(null);
 
   const handleSelectTool = (key: string) => {
     // Seed the form with the tool's schema defaults so default-only fields the
@@ -345,6 +356,11 @@ export function ToolsScreen({
                       onCallTool(selectedTool.name, formValues, runAsTask)
                     }
                     onCancel={() => onCancelCall?.()}
+                    onLoadTest={
+                      onRunLoadTest
+                        ? (argsReady) => setLoadTest({ argsReady })
+                        : undefined
+                    }
                   />
                 </ContentCard>
                 {historyNode}
@@ -361,6 +377,22 @@ export function ToolsScreen({
         <DetailCard flex={1}>
           <EmptyState>Select a tool to view details</EmptyState>
         </DetailCard>
+      )}
+      {onRunLoadTest && (
+        <LoadTestModal
+          opened={loadTest !== null}
+          tool={
+            selectedTool
+              ? {
+                  name: selectedTool.name,
+                  args: formValues,
+                  argsReady: loadTest?.argsReady ?? false,
+                }
+              : undefined
+          }
+          onRun={onRunLoadTest}
+          onClose={() => setLoadTest(null)}
+        />
       )}
     </ScreenLayout>
   );

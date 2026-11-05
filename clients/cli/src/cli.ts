@@ -92,7 +92,10 @@ import {
 import { openLoadSampleFile } from "@inspector/core/cli/handlers/load-samples.js";
 import { styleFromOpts } from "@inspector/core/cli/style.js";
 import { sanitizeDeep } from "@inspector/core/cli/sanitize.js";
-import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
+import {
+  readLoadArgsFile,
+  readLoadScenarioFile,
+} from "@inspector/core/cli/handlers/load-files.js";
 import {
   loadRampParser,
   loadStepByParser,
@@ -101,10 +104,7 @@ import {
   type LoadRamp,
   type LoadStepBy,
 } from "@inspector/core/cli/handlers/load-stages.js";
-import {
-  assertLoadArgsTemplate,
-  readLoadArgsFile,
-} from "@inspector/core/cli/handlers/load-template.js";
+import { assertLoadArgsTemplate } from "@inspector/core/cli/handlers/load-template.js";
 import {
   assertNotInterrupted,
   withLoadInterrupt,

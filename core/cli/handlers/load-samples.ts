@@ -1,5 +1,5 @@
 import { createWriteStream, type WriteStream } from "node:fs";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 import type { LoadSample, LoadSampleSink } from "./load-test.js";
 
 /**

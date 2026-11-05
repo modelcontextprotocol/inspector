@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 import { LOAD_FLAG_CONFLICT, type LoadSummary } from "./load-test.js";
 
 /**

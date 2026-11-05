@@ -65,6 +65,35 @@ function ControlledToolsScreen(props: Partial<ToolsScreenProps>) {
 }
 
 describe("ToolsScreen", () => {
+  it("opens the load panel on the selected tool and its arguments (#2911)", async () => {
+    const user = userEvent.setup();
+    const onRunLoadTest = vi.fn(() => new Promise<never>(() => {}));
+    renderWithMantine(
+      <ControlledToolsScreen
+        onRunLoadTest={onRunLoadTest}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "2:gamma" }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(screen.getByText("Tool: gamma")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(onRunLoadTest).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "gamma" }),
+      expect.anything(),
+    );
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  });
+
+  it("offers no load test without a load engine", () => {
+    renderWithMantine(
+      <ControlledToolsScreen
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Load test" })).toBeNull();
+  });
+
   it("renders the empty selection state", () => {
     renderWithMantine(<ToolsScreen {...baseProps} />);
     expect(

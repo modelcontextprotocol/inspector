@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
 import {
   isSerializableJson,
   type StrictJsonValue,
 } from "../../json/jsonUtils.js";
-import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
+import { CliExitCodeError, EXIT_CODES } from "../exit-codes.js";
 import { checkLoadTemplate } from "./load-template.js";
 
 /**
@@ -251,7 +250,7 @@ export function parseLoadScenario(text: string, source: string): LoadScenario {
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    throw scenarioError(
+    throw loadScenarioError(
       source,
       `not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -259,29 +258,18 @@ export function parseLoadScenario(text: string, source: string): LoadScenario {
   try {
     return validateLoadScenario(parsed);
   } catch (err) {
-    throw scenarioError(source, (err as Error).message);
+    throw loadScenarioError(source, (err as Error).message);
   }
 }
 
 /**
- * Read and validate `--load-scenario <path>`. Every failure — a missing file,
- * bad JSON, an invalid step — is a usage error (exit 1) under
- * {@link LOAD_SCENARIO_INVALID}, raised before anything connects.
+ * A {@link LOAD_SCENARIO_INVALID} usage error (exit 1) naming `source`.
+ * Exported for the file reader in `load-files.ts`.
  */
-export function readLoadScenarioFile(path: string): LoadScenario {
-  let text: string;
-  try {
-    text = readFileSync(path, "utf8");
-  } catch (err) {
-    throw scenarioError(
-      path,
-      `cannot be read: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  return parseLoadScenario(text, path);
-}
-
-function scenarioError(source: string, problem: string): CliExitCodeError {
+export function loadScenarioError(
+  source: string,
+  problem: string,
+): CliExitCodeError {
   return new CliExitCodeError(
     EXIT_CODES.USAGE,
     `--load-scenario ${source}: ${problem}`,

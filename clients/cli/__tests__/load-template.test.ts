@@ -20,9 +20,10 @@ import {
   LOAD_ARGS_INVALID,
   loadArgsTemplate,
   loadTemplateOrConstant,
+  loadUuid,
   parseLoadArgsRows,
-  readLoadArgsFile,
 } from "@inspector/core/cli/handlers/load-template.js";
+import { readLoadArgsFile } from "@inspector/core/cli/handlers/load-files.js";
 import { validateLoadScenario } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
   resolveLoadOptions,
@@ -61,6 +62,19 @@ describe("compileLoadTemplate", () => {
     const two = compileLoadTemplate("{{uuid}} {{uuid}}")!(ctx) as string;
     const [a, b] = two.split(" ");
     expect(a).not.toBe(b);
+  });
+
+  it("builds a v4 uuid from getRandomValues where randomUUID is absent (#2911)", () => {
+    // A browser on a plain-HTTP, non-loopback host has no `randomUUID`.
+    const insecure = {
+      getRandomValues: globalThis.crypto.getRandomValues.bind(
+        globalThis.crypto,
+      ),
+    } as Crypto;
+    const first = loadUuid(insecure);
+    expect(first).toMatch(UUID);
+    expect(loadUuid(insecure)).not.toBe(first);
+    expect(loadUuid()).toMatch(UUID);
   });
 
   it("draws rand from the injected source, inclusive at both ends", () => {
