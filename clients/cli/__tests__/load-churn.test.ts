@@ -226,33 +226,68 @@ describe("runLoadAcrossConnections with churn", () => {
   });
 
   it("churns through a warm-up and through stages", async () => {
+    // Clock-driven: opening is instant and each call takes 2 ms of fake
+    // time, so every session opens inside its window and the counts hold.
+    const clocked =
+      (clock: ReturnType<typeof fakeClock>) =>
+      async (c: FakeConnection): Promise<LoadCallOutcome> => {
+        c.calls++;
+        clock.advance(2);
+        return "ok";
+      };
+    const warmClock = fakeClock();
     const warm = opener();
-    const warmed = await runLoadAcrossConnections(primary, warm.open, callOn, {
-      concurrency: 1,
-      durationMs: 30,
-      warmupMs: 10,
-      churn: { callsPerSession: 1 },
-    });
-    expect(warmed.warmup!.requests).toBeGreaterThan(0);
-    // Warm-up sessions are counted too.
-    expect(warmed.churn!.opened).toBe(
-      warmed.requests + warmed.warmup!.requests,
+    const warmed = await runLoadAcrossConnections(
+      primary,
+      warm.open,
+      clocked(warmClock),
+      {
+        concurrency: 1,
+        durationMs: 30,
+        warmupMs: 10,
+        churn: { callsPerSession: 1 },
+      },
+      warmClock,
     );
+    expect(warmed.warmup!.requests).toBe(5);
+    expect(warmed.requests).toBe(15);
+    // Warm-up sessions are counted too.
+    expect(warmed.churn!.opened).toBe(20);
 
+    const stageClock = fakeClock();
     const staged = opener();
     const stepped = await runLoadAcrossConnections(
       primary,
       staged.open,
-      callOn,
+      clocked(stageClock),
       {
-        concurrency: 2,
-        stages: { by: "concurrency", levels: [1, 2], stageMs: 20 },
+        concurrency: 1,
+        stages: { by: "concurrency", levels: [1, 1], stageMs: 20 },
         churn: { callsPerSession: 1 },
       },
+      stageClock,
     );
-    expect(stepped.stages).toHaveLength(2);
-    expect(stepped.churn!.opened).toBe(stepped.requests);
+    expect(stepped.stages!.map((st) => st.requests)).toEqual([10, 10]);
+    expect(stepped.churn!.opened).toBe(20);
     expect(staged.made.every((c) => c.closed)).toBe(true);
+  });
+
+  it("reports a rate shortfall when sessions fail to open", async () => {
+    const summary = await runLoadAcrossConnections(
+      primary,
+      async (): Promise<FakeConnection> => {
+        throw new Error("refused");
+      },
+      callOn,
+      { concurrency: 1, requests: 3, rate: 10, churn: { callsPerSession: 1 } },
+      fakeClock(),
+    );
+    expect(summary).toMatchObject({
+      requests: 0,
+      achievedRate: 0,
+      droppedSlots: summary.plannedStarts,
+    });
+    expect(summary.plannedStarts).toBeGreaterThan(0);
   });
 
   it("starts no call when the session opens after the window closed", async () => {

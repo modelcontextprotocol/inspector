@@ -551,6 +551,11 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name sear
   Sessions are opened like `--load-connections` extras — stored credentials
   only — so the connection the CLI opens first completes any login, and is
   used only to look up the tool.
+- **`--load-rate` paces slots, and under churn a slot is a session's turn**:
+  the worker takes the slot, connects if it has no session, then calls. The
+  calls therefore follow the handshakes, and a slow or uneven handshake shifts
+  them off the even grid; the rate figures count calls that actually started,
+  so slots lost to failed or late connects show as `droppedSlots`.
 - Warm-up sessions (`--load-warmup`) count in `churn`. A session still open
   when the run ends is closed then.
 

@@ -1068,6 +1068,10 @@ async function runWindow(
   }));
   const pickStep = sink?.pickStep ?? scenarioPicker(scenario);
   let started = 0;
+  // Calls actually started, for the `--load-rate` figures. Equal to `started`
+  // except under `--load-churn` (#2912), where a slot whose session failed to
+  // open, or opened after the deadline, numbered a `seq` but started no call.
+  let callsStarted = 0;
 
   const start = clock.now();
   const deadline = durationMs === undefined ? Infinity : start + durationMs;
@@ -1259,6 +1263,7 @@ async function runWindow(
       // Open loop times a call from its scheduled start, so the wait for a
       // free worker counts in its latency: that is the queueing it exposes.
       const t0 = openLoop ? scheduledAt : clock.now();
+      callsStarted++;
       try {
         const outcome = await call(index, step, seq);
         const done = clock.now();
@@ -1371,7 +1376,7 @@ async function runWindow(
     ...(openLoop === true && { openLoop: true }),
     ...(rate !== undefined &&
       rateFigures(rate, {
-        started,
+        started: callsStarted,
         windowMs: startWindowEnd() - start,
       })),
     // Spelled out rather than spread, to keep the summary's established key
