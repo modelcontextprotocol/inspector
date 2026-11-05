@@ -25,17 +25,28 @@
 // unwatched, and `npm outdated` says nothing about actions — hence the
 // separate release lookup below.
 //
+// The third half is the Dockerfile's base image (#2885). #2833 pinned it by
+// its multi-arch index digest through `ARG NODE_IMAGE=<tag>@sha256:…`, which
+// makes a rebuild reproducible and also makes the image stop receiving the
+// Node patch releases and Debian security fixes that land under that tag. The
+// sweep resolves the tag's CURRENT index digest from the Docker Hub registry
+// and lists the pin when the two differ. No Docker daemon and no credential is
+// involved: an anonymous pull token from `auth.docker.io`, then a `HEAD` on the
+// manifest. Nothing else watches it — the daily alerts sweep skips non-npm
+// ecosystems on purpose, and Dependabot's version updates are off (#2235).
+//
 // Idempotent by design: the issue body starts with a fixed HTML marker
 // (ISSUE_MARKER below), which is how a second run in the same month finds and
 // updates the existing open issue instead of filing a duplicate.
 //
 // `parseOutdated`, `parseActionRefs`, `parseVersionRef`, `isActionStale`,
-// `staleActions`, `highestVersionTag`, `buildIssueBody` and
-// `buildClearedBody` are pure. `main()`
-// shells out to `npm outdated` and `gh`, so it takes its spawn function as a
-// parameter (defaulting to the real one) and `dependency-refresh.test.mjs`
-// drives it with a fake — covering npm failure, create vs. edit, the milestone
-// lookup and both no-op paths. `workflow_dispatch` is a production trigger,
+// `staleActions`, `highestVersionTag`, `parseDockerBaseImage`,
+// `parseDigestHeader`, `buildIssueBody` and `buildClearedBody` are pure.
+// `main()` shells out to `npm outdated`, `gh` and `curl`, so it takes its
+// spawn function as a parameter (defaulting to the real one) and
+// `dependency-refresh.test.mjs` drives it with a fake — covering npm failure,
+// create vs. edit, the milestone lookup, the registry lookup's failures and
+// both no-op paths. `workflow_dispatch` is a production trigger,
 // not a substitute for that (Copilot): the helper-only tests it replaced let a
 // non-zero `npm outdated` exit report a clean sweep.
 
@@ -57,6 +68,23 @@ export const INSTALLS = [
 
 /** Where the `uses:` refs this sweep checks live, relative to the repo root. */
 export const WORKFLOW_DIR = ".github/workflows";
+
+/** The Dockerfile whose digest-pinned base image this sweep checks (#2885). */
+export const DOCKERFILE = "Dockerfile";
+
+/** The build arg that carries the digest-pinned base image (#2833). */
+export const BASE_IMAGE_ARG = "NODE_IMAGE";
+
+/**
+ * The media types a multi-arch INDEX is served as. The pin is the index
+ * digest, so the lookup has to ask for an index: a request that accepts only
+ * a single-platform manifest is answered with one platform's digest, which
+ * never equals the pin and would report the image stale every month.
+ */
+export const INDEX_MEDIA_TYPES = [
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+];
 
 /**
  * Normalize one install's `npm outdated --json` output.
@@ -183,13 +211,85 @@ export function staleActions(refs, latestByAction) {
 }
 
 /**
+ * Find the digest-pinned base image in a Dockerfile.
+ *
+ * Throws rather than returning `null` when the line is missing or carries no
+ * digest: either means the pin #2833 put there is gone or reshaped, and a
+ * sweep that quietly stopped checking it would read as "base image current"
+ * forever. Only an official Docker Hub image is understood (`node:22-slim`,
+ * i.e. `library/node`), since that is the only registry this lookup talks to;
+ * anything else fails loudly for the same reason.
+ *
+ * @param {string} dockerfile raw contents of the Dockerfile
+ * @returns {{image: string, repository: string, tag: string, digest: string}}
+ *   `image` is the human form (`node:22-slim`), `repository` the registry path
+ *   (`library/node`)
+ */
+export function parseDockerBaseImage(dockerfile) {
+  const line = new RegExp(
+    `^\\s*ARG\\s+${BASE_IMAGE_ARG}=(\\S+)\\s*$`,
+    "m",
+  ).exec(dockerfile);
+  if (!line) {
+    throw new Error(
+      `${DOCKERFILE}: no \`ARG ${BASE_IMAGE_ARG}=\` line — the base-image digest pin (#2833) cannot be checked`,
+    );
+  }
+  const ref = line[1].replace(/^["']|["']$/g, "");
+  const match =
+    /^([a-z0-9][a-z0-9._-]*):([\w][\w.-]*)@(sha256:[0-9a-f]{64})$/.exec(ref);
+  if (!match) {
+    throw new Error(
+      `${DOCKERFILE}: \`${BASE_IMAGE_ARG}=${ref}\` is not an official Docker Hub \`<image>:<tag>@sha256:<digest>\` reference`,
+    );
+  }
+  const [, name, tag, digest] = match;
+  return {
+    image: `${name}:${tag}`,
+    repository: `library/${name}`,
+    tag,
+    digest,
+  };
+}
+
+/**
+ * The `Docker-Content-Digest` header out of a raw HTTP header dump, or `null`.
+ * Header names are case-insensitive, and `curl -I` follows redirects into a
+ * dump holding several responses, so only the FINAL response's header counts.
+ *
+ * @param {string} headers raw header text from `curl -I`
+ * @returns {string | null}
+ */
+export function parseDigestHeader(headers) {
+  let digest = null;
+  for (const line of headers.split(/\r?\n/)) {
+    // Each status line starts a new response: a redirect's digest must not
+    // survive into a final response that omits the header (Copilot).
+    if (/^HTTP\//.test(line)) digest = null;
+    const match = /^docker-content-digest:\s*(sha256:[0-9a-f]{64})\s*$/i.exec(
+      line,
+    );
+    if (match) digest = match[1];
+  }
+  return digest;
+}
+
+/** A digest shortened for a table cell: `sha256:` plus the first 12 hex digits. */
+function shortDigest(digest) {
+  return digest.slice(0, "sha256:".length + 12);
+}
+
+/**
  * @param {Array<{label: string, packages: ReturnType<typeof parseOutdated>}>} installs
  * @param {ReturnType<typeof staleActions>} actions
+ * @param {{image: string, pinned: string, current: string} | null} baseImage
+ *   the Dockerfile base image, only when its pinned digest is stale
  * @returns {string | null} the issue body, or `null` when nothing is behind anywhere
  */
-export function buildIssueBody(installs, actions = []) {
+export function buildIssueBody(installs, actions = [], baseImage = null) {
   const withPackages = installs.filter((i) => i.packages.length > 0);
-  if (withPackages.length === 0 && actions.length === 0) return null;
+  if (withPackages.length === 0 && actions.length === 0 && baseImage === null)
+    return null;
 
   const sections = withPackages.map(({ label, packages }) => {
     const rows = packages
@@ -209,9 +309,29 @@ export function buildIssueBody(installs, actions = []) {
     );
   }
 
+  if (baseImage !== null) {
+    sections.push(
+      [
+        "### Docker base image",
+        "",
+        "| Image | Pinned | Current |",
+        "| --- | --- | --- |",
+        `| \`${baseImage.image}\` | \`${shortDigest(baseImage.pinned)}\` | \`${shortDigest(baseImage.current)}\` |`,
+        "",
+        `The \`${DOCKERFILE}\`'s \`ARG ${BASE_IMAGE_ARG}\` pin is behind what \`${baseImage.image}\` points at now, so the image is missing whatever Node patch release or Debian security update moved the tag. Bump it to:`,
+        "",
+        "```",
+        `ARG ${BASE_IMAGE_ARG}=${baseImage.image}@${baseImage.current}`,
+        "```",
+        "",
+        "and keep the Node it carries inside the root `package.json` `engines` range.",
+      ].join("\n"),
+    );
+  }
+
   return [
     ISSUE_MARKER,
-    "Routine dependency refresh — `npm outdated` plus a workflow `uses:` check, run against `v2/main` on a monthly schedule. This sweep replaces Dependabot's version-update PRs (#2229, #2235); its security-update PRs are off too (#2233), and the alerts they used to act on are swept into their own issues daily.",
+    "Routine dependency refresh — `npm outdated`, a workflow `uses:` check and the Dockerfile's base-image digest, run against `v2/main` on a monthly schedule. This sweep replaces Dependabot's version-update PRs (#2229, #2235); its security-update PRs are off too (#2233), and the alerts they used to act on are swept into their own issues daily.",
     "",
     "This is a tracking issue, not a diff: pick what's worth bumping (`wanted` is the safe default; `latest` may cross a major and needs its own judgment call, especially for anything root-declared per [Dependency placement](https://github.com/modelcontextprotocol/inspector/blob/v2/main/AGENTS.md#dependency-placement)) and open a normal PR against `v2/main`.",
     "",
@@ -242,7 +362,7 @@ export function buildIssueBody(installs, actions = []) {
 export function buildClearedBody(isoDate) {
   return [
     ISSUE_MARKER,
-    `Everything this sweep can check is current as of ${isoDate} — no npm package is outdated at the root or in any client, and no version-pinned workflow \`uses:\` ref is behind its action's highest release.`,
+    `Everything this sweep can check is current as of ${isoDate} — no npm package is outdated at the root or in any client, no version-pinned workflow \`uses:\` ref is behind its action's highest release, and the Dockerfile's base-image digest matches what its tag points at.`,
     "",
     "Refs pinned to a commit SHA or a branch are deliberately **not** covered by that statement: neither can be ranked against a release tag, so this sweep says nothing about them either way.",
     "",
@@ -371,6 +491,89 @@ function latestReleaseTag(action, spawn) {
   return highestVersionTag(tags);
 }
 
+/**
+ * The index digest the base image's tag points at right now, from the Docker
+ * Hub registry API — anonymous, so `GITHUB_TOKEN` is all the workflow needs.
+ *
+ * `curl` rather than `fetch` so the lookup goes through the same injected
+ * spawn as every other external call here and `main()` stays synchronous.
+ * The pull token is handed to the second `curl` as a config file on stdin
+ * (`-K -`), never in argv: it is an anonymous, read-only token, but a process
+ * table is still not where a bearer token belongs.
+ *
+ * Every failure throws — a non-zero exit, an unparseable token response, a
+ * response with no digest header. Any of those read as "no digest" would make
+ * a broken lookup indistinguishable from a current pin.
+ *
+ * @param {{repository: string, tag: string}} base from `parseDockerBaseImage`
+ * @returns {string} `sha256:…`
+ * @throws on any lookup failure
+ */
+function currentImageDigest({ repository, tag }, spawn) {
+  const tokenUrl = `https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repository}:pull`;
+  const auth = spawn("curl", ["-fsS", "--max-time", "60", tokenUrl], {
+    encoding: "utf8",
+  });
+  if (auth.error) throw auth.error;
+  if (auth.status !== 0) {
+    throw new Error(
+      `Docker Hub token request for ${repository} failed (exit ${auth.status}): ${(auth.stderr ?? "").trim()}`,
+    );
+  }
+  let token;
+  try {
+    token = JSON.parse(auth.stdout).token;
+  } catch {
+    token = undefined;
+  }
+  if (typeof token !== "string" || token === "") {
+    throw new Error(
+      `Docker Hub token request for ${repository} returned no token`,
+    );
+  }
+
+  const manifestUrl = `https://registry-1.docker.io/v2/${repository}/manifests/${tag}`;
+  const head = spawn(
+    "curl",
+    [
+      "-fsSIL",
+      "--max-time",
+      "60",
+      "-K",
+      "-",
+      "-H",
+      `Accept: ${INDEX_MEDIA_TYPES.join(", ")}`,
+      manifestUrl,
+    ],
+    { encoding: "utf8", input: `header = "Authorization: Bearer ${token}"\n` },
+  );
+  if (head.error) throw head.error;
+  if (head.status !== 0) {
+    throw new Error(
+      `manifest lookup for ${repository}:${tag} failed (exit ${head.status}): ${(head.stderr ?? "").trim()}`,
+    );
+  }
+  const digest = parseDigestHeader(head.stdout ?? "");
+  if (digest === null) {
+    throw new Error(
+      `manifest lookup for ${repository}:${tag} returned no Docker-Content-Digest header`,
+    );
+  }
+  return digest;
+}
+
+/**
+ * The base image when its pinned digest is behind its tag, otherwise `null`.
+ *
+ * @returns {{image: string, pinned: string, current: string} | null}
+ */
+function staleBaseImage(spawn) {
+  const base = parseDockerBaseImage(readFileSync(DOCKERFILE, "utf8"));
+  const current = currentImageDigest(base, spawn);
+  if (current === base.digest) return null;
+  return { image: base.image, pinned: base.digest, current };
+}
+
 function findExistingIssue(repo, spawn) {
   const result = spawn(
     "gh",
@@ -440,16 +643,17 @@ export function main(repo = process.env.GITHUB_REPOSITORY, spawn = spawnSync) {
     ]),
   );
   const actions = staleActions(refs, latestByAction);
+  const baseImage = staleBaseImage(spawn);
 
   // Look the existing issue up BEFORE branching on `body`: the nothing-
   // behind case still has to reach an open issue to clear it.
   const existing = findExistingIssue(repo, spawn);
-  const body = buildIssueBody(installs, actions);
+  const body = buildIssueBody(installs, actions, baseImage);
 
   if (body === null) {
     if (!existing) {
       console.log(
-        "dependency-refresh: nothing outdated, no stale actions — no-op",
+        "dependency-refresh: nothing outdated, no stale actions, base image current — no-op",
       );
       return;
     }

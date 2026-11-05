@@ -6,8 +6,9 @@
 # covers linux/amd64 and linux/arm64 alike. Bumping it is a deliberate edit:
 #   docker buildx imagetools inspect node:22-slim   # the "Digest:" line
 # and keep the Node it carries inside the root package.json `engines` range.
-# No sweep reports a stale digest yet (#2885), so Node and Debian security
-# fixes reach the image only when this line is bumped.
+# The monthly dependency-refresh sweep reports this digest once the tag has
+# moved past it (#2885), so Node and Debian security fixes are flagged — but
+# they still reach the image only when this line is bumped.
 ARG NODE_IMAGE=node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
 
 # ---------------------------------------------------------------------------
