@@ -7,6 +7,7 @@ import {
   type LoadProgress,
   type LoadProgressHook,
   type LoadRawStats,
+  type LoadRunObserver,
   type LoadStop,
   type LoadSummary,
   type LoadWarmupSummary,
@@ -53,6 +54,8 @@ export const LOAD_WORKER_ENTRY_ENV = "MCP_INSPECTOR_LOAD_WORKER_ENTRY";
 /** What a worker sends its parent. */
 export type LoadWorkerMessage =
   | { type: "progress"; progress: LoadProgress }
+  /** The worker's run stopped early; sent as it happens, before draining. */
+  | { type: "stopped"; stop: LoadStop }
   | { type: "result"; summary: LoadSummary; raw: LoadRawStats };
 
 /** What a parent sends a worker. */
@@ -119,6 +122,9 @@ export function workerArgv(args: string[]): string[] {
       continue;
     }
     if (arg.startsWith("--load-workers=")) continue;
+    // The parent logs in again once; a worker replaying `--relogin` would
+    // delete (and revoke) the credentials it is about to need.
+    if (arg === "--relogin" || arg === "--no-revoke") continue;
     out.push(arg);
   }
   return out;
@@ -173,14 +179,24 @@ export async function runLoadWorkers(
   );
   const handles: LoadWorkerHandle[] = [];
   let stopped = false;
-  const stopAll = (stop: LoadStop): void => {
-    if (stopped) return;
-    stopped = true;
+  const send = (stop: LoadStop): void =>
     handles.forEach((h, i) => {
       if (results[i] === undefined) h.send({ type: "stop", stop });
     });
+  const stopAll = (stop: LoadStop): void => {
+    if (stopped) return;
+    stopped = true;
+    send(stop);
   };
-  const onAbort = (): void => stopAll(stopFromAbort(run.signal?.reason));
+  // The parent's own interrupt is not latched behind a worker's stop, and
+  // it is what the merged run reports: an explicit interrupt outranks a
+  // breaker stop, as it does within one run.
+  let interrupted: LoadStop | undefined;
+  const onAbort = (): void => {
+    interrupted = stopFromAbort(run.signal?.reason);
+    stopped = true;
+    send(interrupted);
+  };
 
   for (let index = 0; index < count; index++) {
     const handle = spawn(index);
@@ -188,6 +204,10 @@ export async function runLoadWorkers(
     handle.onMessage((message) => {
       if (message.type === "progress") {
         latest[index] = message.progress;
+        return;
+      }
+      if (message.type === "stopped") {
+        stopAll(message.stop);
         return;
       }
       results[index] = { summary: message.summary, raw: message.raw };
@@ -238,10 +258,14 @@ export async function runLoadWorkers(
       { code: "load_worker_failed" },
     );
   }
-  return mergeLoadWorkerResults(
+  const merged = mergeLoadWorkerResults(
     results.map((r) => r!),
     options,
   );
+  return interrupted !== undefined &&
+    merged.stoppedEarly?.reason !== "interrupted"
+    ? { ...merged, stoppedEarly: interrupted }
+    : merged;
 }
 
 /**
@@ -416,7 +440,7 @@ export async function runAsLoadWorker(
   run: (worker: {
     signal: AbortSignal;
     progress: (progress: LoadProgress) => void;
-    onRaw: (raw: LoadRawStats) => void;
+    observe: LoadRunObserver;
   }) => Promise<LoadSummary>,
 ): Promise<void> {
   const stop = new AbortController();
@@ -431,8 +455,18 @@ export async function runAsLoadWorker(
       progress: (progress) => {
         void port.send({ type: "progress", progress }).catch(() => {});
       },
-      onRaw: (r) => {
-        raw = r;
+      observe: {
+        raw: (r) => {
+          raw = r;
+        },
+        // Told at once, so the parent can stop the other workers while
+        // this one's in-flight calls drain. A stop the parent sent needs
+        // no echo.
+        stop: (s) => {
+          if (!stop.signal.aborted) {
+            void port.send({ type: "stopped", stop: s }).catch(() => {});
+          }
+        },
       },
     });
     // The engine hands over a run's raw stats as its measured window ends,

@@ -923,10 +923,23 @@ export class OutcomeStats {
 }
 
 /** The step picker for a scenario, or step 0 forever without one. */
-function scenarioPicker(scenario: LoadScenario | undefined): () => number {
-  return scenario
-    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
-    : () => 0;
+function scenarioPicker(
+  scenario: LoadScenario | undefined,
+  shard?: { index: number; count: number },
+): () => number {
+  if (!scenario) return () => 0;
+  const pick = createWeightedPicker(scenario.steps.map((s) => s.weight));
+  if (shard === undefined) return pick;
+  // A `--load-workers` process (#2914) takes every `count`-th pick of the one
+  // weighted sequence, from its own `index`, so the processes together run
+  // the mix one picker would — not `count` fresh cycles each skewed to the
+  // heaviest steps.
+  let skip = shard.index;
+  return () => {
+    for (; skip > 0; skip--) pick();
+    skip = shard.count - 1;
+    return pick();
+  };
 }
 
 /** The {@link LoadStop} an abort reason names, or a plain interrupt. */
@@ -1078,7 +1091,7 @@ export function runLoad(
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
   sessions?: LoadSessionHooks,
-  onRaw?: (raw: LoadRawStats) => void,
+  observe?: LoadRunObserver,
 ): Promise<LoadSummary> {
   if (options.stages) {
     return runStages(
@@ -1102,7 +1115,7 @@ export function runLoad(
       progress,
       onSample,
       sessions,
-      onRaw,
+      observe,
     );
   }
   return runWindow(call, options, clock, signal, undefined, false, {
@@ -1110,9 +1123,20 @@ export function runLoad(
     phase: "run",
     ...(onSample && { onSample }),
     ...(sessions && { sessions }),
-    ...(onRaw && { raw: onRaw }),
+    ...(observe && { observe }),
   });
 }
+
+/**
+ * What a `--load-workers` worker process (#2914) watches a run for: the
+ * measured window's mergeable stats as it ends (`raw`), and the moment the
+ * run stops early (`stop`) — reported as it happens, before in-flight calls
+ * drain, so the parent can stop the other workers at once.
+ */
+export type LoadRunObserver = {
+  raw?: (raw: LoadRawStats) => void;
+  stop?: (stop: LoadStop) => void;
+};
 
 /**
  * A call's `{{seq}}` and `{{worker}}` in worker process `index` of `count`
@@ -1156,8 +1180,8 @@ type WindowProgress = {
   seqOffset?: number;
   /** `--load-churn` session hooks (#2912). */
   sessions?: LoadSessionHooks;
-  /** `--load-workers` (#2914): the window's mergeable stats, as it ends. */
-  raw?: (raw: LoadRawStats) => void;
+  /** `--load-workers` (#2914): see {@link LoadRunObserver}. */
+  observe?: LoadRunObserver;
   /**
    * Set to the slots this window numbered, once it ends. Not always its
    * `requests`: a `--load-churn` slot whose session failed to open (#2912)
@@ -1185,7 +1209,7 @@ async function runWithWarmup(
   progress: LoadProgressHook | undefined,
   onSample: LoadSampleSink | undefined,
   sessions: LoadSessionHooks | undefined,
-  onRaw: ((raw: LoadRawStats) => void) | undefined,
+  observe: LoadRunObserver | undefined,
 ): Promise<LoadSummary> {
   const numbered = { slots: 0 };
   const warm = await runWindow(
@@ -1207,6 +1231,8 @@ async function runWithWarmup(
       phase: "warmup",
       numbered,
       ...(sessions && { sessions }),
+      // The stop only: a warm-up's stats are not the run's.
+      ...(observe?.stop && { observe: { stop: observe.stop } }),
     },
   );
   const warmup: LoadWarmupSummary = {
@@ -1240,7 +1266,7 @@ async function runWithWarmup(
       seqOffset: offset,
       ...(onSample && { onSample }),
       ...(sessions && { sessions }),
-      ...(onRaw && { raw: onRaw }),
+      ...(observe && { observe }),
     },
   );
   return { ...summary, warmup };
@@ -1306,7 +1332,7 @@ async function runWindow(
     step,
     stats: new OutcomeStats(),
   }));
-  const pickStep = sink?.pickStep ?? scenarioPicker(scenario);
+  const pickStep = sink?.pickStep ?? scenarioPicker(scenario, options.shard);
   let started = 0;
   // Calls actually started, for the `--load-rate` figures. Equal to `started`
   // except under `--load-churn` (#2912), where a slot whose session failed to
@@ -1349,6 +1375,7 @@ async function runWindow(
     stoppedEarly = stop;
     stoppedAt = clock.now();
     halt.abort();
+    progress?.observe?.stop?.(stop);
   };
   const onAbort = (): void => {
     stopRun(stopFromAbort(signal?.reason));
@@ -1608,7 +1635,7 @@ async function runWindow(
     return Number.isFinite(windowEnd) ? windowEnd : end;
   };
   if (progress?.numbered) progress.numbered.slots = started;
-  progress?.raw?.({
+  progress?.observe?.raw?.({
     total: total.snapshot(),
     ...(stepRuns && { steps: stepRuns.map((r) => r.stats.snapshot()) }),
   });
@@ -1961,7 +1988,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
   progress?: LoadProgressHook,
   onSample?: LoadSampleSink,
   onClosed?: (connection: C) => void,
-  onRaw?: (raw: LoadRawStats) => void,
+  observe?: LoadRunObserver,
 ): Promise<LoadSummary> {
   // `--load-workers` (#2914): each process numbers its own calls and
   // workers, so they are spread to stay unique across the processes.
@@ -1993,7 +2020,7 @@ export async function runLoadAcrossConnections<C extends LoadConnection>(
       progress,
       onSample,
       undefined,
-      onRaw,
+      observe,
     );
   }
   if (!openConnection) {
@@ -2187,7 +2214,7 @@ export async function runToolLoad(
     extra.progress,
     extra.onSample,
     extra.onConnectionClosed,
-    extra.onRaw,
+    extra.observe,
   );
   return { tool: tool!.name, ...summary };
 }
@@ -2209,11 +2236,8 @@ export type LoadRunExtras = {
    * one per session.
    */
   onConnectionClosed?: (connection: InspectorClient) => void;
-  /**
-   * `--load-workers` (#2914): the measured window's mergeable stats, handed
-   * over as it ends so a worker process can send them to its parent.
-   */
-  onRaw?: (raw: LoadRawStats) => void;
+  /** `--load-workers` (#2914): see {@link LoadRunObserver}. */
+  observe?: LoadRunObserver;
 };
 
 /**
@@ -2304,8 +2328,30 @@ export async function runScenarioLoad(
     extra.progress,
     extra.onSample,
     extra.onConnectionClosed,
-    extra.onRaw,
+    extra.observe,
   );
+}
+
+/**
+ * Look up every tool a run will call, and nothing else (#2914). A
+ * `--load-workers` parent runs it under its auth recovery before forking, so
+ * a server that needs a login (or a wider scope) to list its tools gets it
+ * from the one interactive process, and a missing tool fails once, with exit
+ * 5, rather than in every worker.
+ */
+export async function preflightLoadTools(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  options: LoadOptions,
+): Promise<void> {
+  const names = options.scenario
+    ? options.scenario.steps.flatMap((s) =>
+        s.method === "tools/call" ? [s.tool] : [],
+      )
+    : args.toolName !== undefined
+      ? [args.toolName]
+      : [];
+  if (names.length > 0) await findTools(inspectorClient, args, names);
 }
 
 /** `--metadata` under a step's own `meta`, or `undefined` when neither is set. */

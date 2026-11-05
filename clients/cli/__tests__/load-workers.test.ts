@@ -196,16 +196,39 @@ describe("sharding", () => {
     expect(workers.size).toBe(6);
   });
 
-  it("drops --load-workers from the arguments a worker is started with", () => {
+  it("drops --load-workers and the parent's re-login from a worker's arguments", () => {
     expect(
       workerArgv([
         "--cli",
         "--load-workers",
         "4",
+        "--relogin",
+        "--no-revoke",
         "--load",
         "--load-workers=2",
       ]),
     ).toEqual(["--cli", "--load"]);
+  });
+
+  it("gives the processes together the mix one picker would", async () => {
+    const scenario = {
+      steps: [
+        { name: "a", method: "tools/call" as const, tool: "echo", weight: 1 },
+        { name: "b", method: "tools/call" as const, tool: "echo", weight: 1 },
+      ],
+    };
+    const options: LoadOptions = { concurrency: 2, requests: 2, scenario };
+    const steps: number[] = [];
+    for (const i of [0, 1]) {
+      await runLoad(
+        async (_w, step) => {
+          steps.push(step);
+          return "ok";
+        },
+        shardLoadOptions(options, i, 2),
+      );
+    }
+    expect(steps.sort()).toEqual([0, 1]);
   });
 
   it.each([
@@ -255,8 +278,10 @@ async function workerResult(
     undefined,
     undefined,
     undefined,
-    (r) => {
-      raw = r;
+    {
+      raw: (r) => {
+        raw = r;
+      },
     },
   );
   return { summary: { tool: "echo", ...summary }, raw: raw! };
@@ -443,6 +468,47 @@ describe("runLoadWorkers", () => {
     expect((await running).stoppedEarly).toEqual(stop);
   });
 
+  it("relays a worker's stop as it happens, before its result", async () => {
+    const workers = [fakeWorker(), fakeWorker()];
+    const running = runLoadWorkers(2, (i) => workers[i]!.handle, options);
+    const stop = { reason: "consecutive_errors" as const, detail: "gone" };
+    workers[0]!.say({ type: "stopped", stop });
+    expect(workers[0]!.commands).toEqual([{ type: "stop", stop }]);
+    expect(workers[1]!.commands).toEqual([{ type: "stop", stop }]);
+    const results = await Promise.all(
+      [0, 1].map((i) => workerResult(shardLoadOptions(options, i, 2))),
+    );
+    workers.forEach((w, i) => w.say({ type: "result", ...results[i]! }));
+    workers.forEach((w) => w.exit(0));
+    await running;
+  });
+
+  it("reports the parent's interrupt over a worker's earlier stop", async () => {
+    const workers = [fakeWorker(), fakeWorker()];
+    const ac = new AbortController();
+    const running = runLoadWorkers(2, (i) => workers[i]!.handle, options, {
+      signal: ac.signal,
+    });
+    const breaker = { reason: "consecutive_errors" as const, detail: "gone" };
+    workers[0]!.say({ type: "stopped", stop: breaker });
+    ac.abort();
+    // Not latched behind the breaker's stop.
+    expect(workers[1]!.commands.at(-1)).toMatchObject({
+      stop: { reason: "interrupted" },
+    });
+    const results = await Promise.all(
+      [0, 1].map((i) => workerResult(shardLoadOptions(options, i, 2))),
+    );
+    workers[0]!.say({
+      type: "result",
+      summary: { ...results[0]!.summary, stoppedEarly: breaker },
+      raw: results[0]!.raw,
+    });
+    workers[1]!.say({ type: "result", ...results[1]! });
+    workers.forEach((w) => w.exit(0));
+    expect((await running).stoppedEarly?.reason).toBe("interrupted");
+  });
+
   it("forwards an interrupt to every worker", async () => {
     const workers = [fakeWorker(), fakeWorker()];
     const ac = new AbortController();
@@ -525,7 +591,7 @@ describe("runAsLoadWorker", () => {
 
   it("runs, relays progress, and sends its summary with its raw stats", async () => {
     const { port, sent, command, listening } = fakePort();
-    await runAsLoadWorker(port, async ({ signal, progress, onRaw }) => {
+    await runAsLoadWorker(port, async ({ signal, progress, observe }) => {
       progress({
         phase: "run",
         elapsedMs: 1,
@@ -543,8 +609,10 @@ describe("runAsLoadWorker", () => {
         reason: "consecutive_errors",
         detail: "x",
       });
+      // Stopped by the parent: no echo back.
+      observe.stop!({ reason: "consecutive_errors", detail: "x" });
       const r = await workerResult({ concurrency: 1, requests: 1 });
-      onRaw(r.raw);
+      observe.raw!(r.raw);
       return r.summary;
     });
     expect(sent.map((m) => m.type)).toEqual(["progress", "result"]);
@@ -558,7 +626,7 @@ describe("runAsLoadWorker", () => {
       },
       onCommand: () => () => {},
     };
-    await runAsLoadWorker(port, async ({ progress, onRaw }) => {
+    await runAsLoadWorker(port, async ({ progress, observe }) => {
       progress({
         phase: "run",
         elapsedMs: 1,
@@ -569,9 +637,29 @@ describe("runAsLoadWorker", () => {
         latencyMs: null,
       });
       const r = await workerResult({ concurrency: 1, requests: 1 });
-      onRaw(r.raw);
+      observe.raw!(r.raw);
       return r.summary;
     });
+  });
+
+  it("tells the parent at once when its own run stops early", async () => {
+    const { port, sent } = fakePort();
+    await runAsLoadWorker(port, async ({ signal, observe }) =>
+      runLoad(
+        async () => {
+          throw new Error("down");
+        },
+        { concurrency: 1, durationMs: 60_000 },
+        undefined,
+        signal,
+        undefined,
+        undefined,
+        undefined,
+        observe,
+      ),
+    );
+    expect(sent.map((m) => m.type)).toEqual(["stopped", "result"]);
+    expect(sent[0]).toMatchObject({ stop: { reason: "consecutive_errors" } });
   });
 });
 
@@ -704,6 +792,39 @@ describe("--load-workers (CLI)", () => {
       await server.stop();
     }
   }, 40_000);
+
+  it("looks the tool up once, in the parent, before forking", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-workers-missing", "1.0.0"),
+      tools: [],
+    });
+    try {
+      await server.start();
+      const result = await runCli(
+        [
+          server.url,
+          "--cli",
+          "--transport",
+          "http",
+          "--method",
+          "tools/call",
+          "--tool-name",
+          "missing",
+          "--load",
+          "--load-requests",
+          "2",
+          "--load-workers",
+          "2",
+        ],
+        // A worker would fail to start from this entry: none must.
+        { env: { [LOAD_WORKER_ENTRY_ENV]: "/nonexistent/worker.js" } },
+      );
+      expect(result.exitCode).toBe(EXIT_CODES.TOOL_ERROR);
+      expect(result.stderr).toContain("Tool 'missing' not found on server.");
+    } finally {
+      await server.stop();
+    }
+  });
 
   const { command, args } = getTestMcpServerCommand();
   it.each([

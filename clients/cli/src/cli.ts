@@ -81,6 +81,7 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
 import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
+import { preflightLoadTools } from "@inspector/core/cli/handlers/load-test.js";
 import {
   LOAD_WORKER_ENTRY_ENV,
   forkLoadWorker,
@@ -448,6 +449,20 @@ async function callMethod(
       if (shard !== undefined) {
         await runLoadShard(inspectorClient, args, load, shard);
         return;
+      }
+      // A `--load-workers` parent (#2914) looks the tools up itself, under
+      // its auth recovery, before any worker starts: the workers are
+      // stored-auth-only, so a login that listing needs must happen here.
+      if (load.workers !== undefined) {
+        await withCliAuthRecoveryRetry(
+          inspectorClient,
+          serverConfig,
+          redirectUrlProvider,
+          callbackUrlConfig,
+          serverSettings,
+          () => preflightLoadTools(inspectorClient, args, load),
+          { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+        );
       }
       // `--output` (#2838): every measured call as NDJSON. Opened here, after
       // the connect succeeded, and closed whatever the run's outcome.
@@ -2439,7 +2454,7 @@ async function runLoadShard(
           ...(options.progressMs !== undefined && {
             progress: { everyMs: options.progressMs, emit: worker.progress },
           }),
-          onRaw: worker.onRaw,
+          observe: worker.observe,
         }),
       ),
     { quiet: true },
