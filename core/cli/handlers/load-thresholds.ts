@@ -1,5 +1,6 @@
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
-import { positiveNumberParser, type LoadSummary } from "./load-test.js";
+import { positiveNumberParser } from "./load-parsers.js";
+import type { LoadSummary } from "./load-test.js";
 
 /**
  * Opt-in pass/fail thresholds for a `--load` run (#2745), so the exit code
@@ -68,7 +69,9 @@ export function resolveLoadThresholds(flags: {
   };
 }
 
-type Breach = { code: string; message: string };
+/** One threshold a summary failed: its envelope code and why. */
+export type LoadBreach = { code: string; message: string };
+type Breach = LoadBreach;
 
 /**
  * The error rate is recomputed from the counts rather than read from
@@ -129,7 +132,39 @@ export function checkLoadThresholds(
   thresholds: LoadThresholds | undefined,
 ): void {
   if (!thresholds) return;
-  const breaches = [
+  // A stepped run (#2841) is judged stage by stage — each stage is its own
+  // load level, and the totals mix them — and fails on the first stage that
+  // breaches, naming it.
+  const judged =
+    summary.stages !== undefined
+      ? summary.stages.map((stage) => ({
+          where: ` at stage ${stage.stage} (${stage.stepBy} ${stage.level})`,
+          summary: stage,
+        }))
+      : [{ where: "", summary }];
+  for (const { where, summary: judgedSummary } of judged) {
+    const breaches = loadThresholdBreaches(judgedSummary, thresholds);
+    const [first] = breaches;
+    if (!first) continue;
+    throw new CliExitCodeError(
+      EXIT_CODES.LOAD_THRESHOLD_EXCEEDED,
+      `Load threshold exceeded${where}: ${breaches.map((b) => b.message).join("; ")}.`,
+      { code: first.code },
+    );
+  }
+}
+
+/**
+ * Every threshold `summary` fails, in the fixed order error rate, then p99;
+ * empty when all hold. The non-throwing half of {@link checkLoadThresholds},
+ * which the engine uses to stop a stepped run at its first breach (#2841).
+ * Judges `summary`'s own counts only, never its `stages`.
+ */
+export function loadThresholdBreaches(
+  summary: LoadSummary,
+  thresholds: LoadThresholds,
+): LoadBreach[] {
+  return [
     thresholds.maxErrorRate !== undefined
       ? errorRateBreach(summary, thresholds.maxErrorRate)
       : undefined,
@@ -137,11 +172,4 @@ export function checkLoadThresholds(
       ? p99Breach(summary, thresholds.maxP99Ms)
       : undefined,
   ].filter((b): b is Breach => b !== undefined);
-  const [first] = breaches;
-  if (!first) return;
-  throw new CliExitCodeError(
-    EXIT_CODES.LOAD_THRESHOLD_EXCEEDED,
-    `Load threshold exceeded: ${breaches.map((b) => b.message).join("; ")}.`,
-    { code: first.code },
-  );
 }

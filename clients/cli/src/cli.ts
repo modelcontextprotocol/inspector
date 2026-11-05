@@ -78,6 +78,14 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { readLoadScenarioFile } from "@inspector/core/cli/handlers/load-scenario.js";
 import {
+  loadRampParser,
+  loadStepByParser,
+  loadStepsParser,
+  resolveLoadStages,
+  type LoadRamp,
+  type LoadStepBy,
+} from "@inspector/core/cli/handlers/load-stages.js";
+import {
   assertLoadArgsTemplate,
   readLoadArgsFile,
 } from "@inspector/core/cli/handlers/load-template.js";
@@ -1270,6 +1278,30 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "With --load-args-file: pick each call's row at random instead of in turn.",
     )
     .option(
+      "--load-steps <list>",
+      "With --load: run consecutive stages at these levels (comma-separated, e.g. 10,25,50,100), each for --load-step-duration, with one summary row per stage. Levels are concurrency unless --load-step-by rate.",
+      loadStepsParser,
+    )
+    .option(
+      "--load-ramp <from:to:sec>",
+      "With --load: a staircase of stages from <from> to <to> over <sec> seconds, one stage per --load-step-duration, levels spaced evenly (concurrency unless --load-step-by rate).",
+      loadRampParser,
+    )
+    .option(
+      "--load-step-by <what>",
+      "With --load-steps or --load-ramp: what each level sets, concurrency (default) or rate (calls per second over --load-concurrency workers).",
+      loadStepByParser,
+    )
+    .option(
+      "--load-step-duration <sec>",
+      "With --load-steps or --load-ramp: how long each stage runs (default 10).",
+      positiveNumberParser("--load-step-duration"),
+    )
+    .option(
+      "--load-stop-on-breach",
+      "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
+    )
+    .option(
       "--load-concurrency <n>",
       "With --load: most calls in flight at once (positive integer; default 10).",
       positiveIntegerParser("--load-concurrency"),
@@ -1514,6 +1546,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadScenario?: string;
     loadArgsFile?: string;
     loadArgsRandom?: boolean;
+    loadSteps?: number[];
+    loadRamp?: LoadRamp;
+    loadStepBy?: LoadStepBy;
+    loadStepDuration?: number;
+    loadStopOnBreach?: boolean;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
   };
@@ -1614,6 +1651,11 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-scenario", options.loadScenario],
     ["--load-args-file", options.loadArgsFile],
     ["--load-args-random", options.loadArgsRandom],
+    ["--load-steps", options.loadSteps],
+    ["--load-ramp", options.loadRamp],
+    ["--load-step-by", options.loadStepBy],
+    ["--load-step-duration", options.loadStepDuration],
+    ["--load-stop-on-breach", options.loadStopOnBreach],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
   ] as const;
@@ -1994,7 +2036,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     revoke: options.revoke !== false,
     oauthDebug: options.oauthDebug === true,
     ...(options.load && {
-      load: resolveCliLoadOptions(options),
+      load: resolveCliLoadOptions(options, loadThresholds),
     }),
   };
 }
@@ -2015,16 +2057,43 @@ function loadFlagConflict(message: string): CliExitCodeError {
  * above `--load-concurrency`) raised as a {@link loadFlagConflict}. The engine
  * only ever throws an `Error` there.
  */
-function resolveCliLoadOptions(options: {
-  loadConcurrency?: number;
-  loadConnections?: number;
-  loadDuration?: number;
-  loadRequests?: number;
-  loadRate?: number;
-  loadScenario?: string;
-  loadArgsFile?: string;
-  loadArgsRandom?: boolean;
-}): LoadOptions {
+function resolveCliLoadOptions(
+  options: {
+    loadConcurrency?: number;
+    loadConnections?: number;
+    loadDuration?: number;
+    loadRequests?: number;
+    loadRate?: number;
+    loadScenario?: string;
+    loadArgsFile?: string;
+    loadArgsRandom?: boolean;
+    loadSteps?: number[];
+    loadRamp?: LoadRamp;
+    loadStepBy?: LoadStepBy;
+    loadStepDuration?: number;
+    loadStopOnBreach?: boolean;
+  },
+  thresholds: LoadThresholds | undefined,
+): LoadOptions {
+  // Stages (#2841) first: their refusals are flag conflicts, which should not
+  // wait on reading a file.
+  let stages: ReturnType<typeof resolveLoadStages>;
+  try {
+    stages = resolveLoadStages({
+      steps: options.loadSteps,
+      ramp: options.loadRamp,
+      stepBy: options.loadStepBy,
+      stepDurationSec: options.loadStepDuration,
+      stopOnBreach: options.loadStopOnBreach,
+      thresholds,
+      concurrency: options.loadConcurrency,
+      rate: options.loadRate,
+      durationSec: options.loadDuration,
+      requests: options.loadRequests,
+    });
+  } catch (err) {
+    throw loadFlagConflict((err as Error).message);
+  }
   // Read before anything connects; a bad file is a usage error of its own
   // (`load_scenario_invalid`, `load_args_invalid`), so neither is folded into
   // the conflict below.
@@ -2050,6 +2119,7 @@ function resolveCliLoadOptions(options: {
       rate: options.loadRate,
       scenario,
       argRows,
+      stages,
     });
   } catch (err) {
     throw loadFlagConflict((err as Error).message);

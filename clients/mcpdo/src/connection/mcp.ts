@@ -70,6 +70,11 @@ import {
   maxP99Parser,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
 import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
+import {
+  loadRampParser,
+  loadStepByParser,
+  loadStepsParser,
+} from "@inspector/core/cli/handlers/load-stages.js";
 import { authorizeInFrontend } from "./authorize.js";
 import {
   AUTH_HELPER_COMMAND,
@@ -1446,6 +1451,31 @@ function registerRpcCommands(program: CommandType): void {
           .option(
             "--load-args-random",
             "With --load-args-file: pick each call's row at random instead of in turn.",
+          )
+          // Stepped / ramped load (#2841), as in the one-shot CLI.
+          .option(
+            "--load-steps <list>",
+            "With --load: run consecutive stages at these levels (comma-separated, e.g. 10,25,50,100), each for --load-step-duration, with one summary row per stage. Levels are concurrency unless --load-step-by rate.",
+            loadStepsParser,
+          )
+          .option(
+            "--load-ramp <from:to:sec>",
+            "With --load: a staircase of stages from <from> to <to> over <sec> seconds, one stage per --load-step-duration, levels spaced evenly (concurrency unless --load-step-by rate).",
+            loadRampParser,
+          )
+          .option(
+            "--load-step-by <what>",
+            "With --load-steps or --load-ramp: what each level sets, concurrency (default) or rate (calls per second over --load-concurrency workers).",
+            loadStepByParser,
+          )
+          .option(
+            "--load-step-duration <sec>",
+            "With --load-steps or --load-ramp: how long each stage runs (default 10).",
+            positiveNumberParser("--load-step-duration"),
+          )
+          .option(
+            "--load-stop-on-breach",
+            "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
           )
           .option(
             "--load-concurrency <n>",

@@ -8,6 +8,7 @@ import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
 import type {
+  LoadStageSummary,
   LoadStepSummary,
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -1087,6 +1088,14 @@ export function formatLoadSummaryHuman(
       `  ${style.red("Stopped early")} (${summary.stoppedEarly.reason}): ${summary.stoppedEarly.detail}`,
     );
   }
+  // `--load-steps` / `--load-ramp` (#2841): one row per stage, so the knee
+  // reads straight down the column.
+  if (summary.stages !== undefined) {
+    lines.push(`  ${style.bold("Stages:")}`);
+    for (const stage of summary.stages) {
+      lines.push(formatLoadStage(stage, style));
+    }
+  }
   // `--load-scenario` (#2839): each step's share, under the totals above.
   if (summary.steps !== undefined) {
     lines.push(`  ${style.bold("Steps:")}`);
@@ -1110,6 +1119,28 @@ export function formatLoadSummaryHuman(
     }
   }
   return lines.join("\n");
+}
+
+/** One stage's line in {@link formatLoadSummaryHuman} (#2841). */
+function formatLoadStage(stage: LoadStageSummary, style: Style): string {
+  const failed = stage.toolErrors + stage.errors;
+  const rate = `${(stage.errorRate * 100).toFixed(2)}%`;
+  const l = stage.latencyMs;
+  const latency =
+    l === null
+      ? style.dim("no calls succeeded")
+      : `p50 ${l.p50} / p99 ${l.p99} ms`;
+  const level =
+    stage.stepBy === "rate"
+      ? `rate ${stage.level}/s`
+      : `concurrency ${stage.level}`;
+  const achieved =
+    stage.achievedRate !== undefined ? `, ${stage.achievedRate}/s started` : "";
+  const stopped =
+    stage.stoppedEarly !== undefined
+      ? ` ${style.red(`(stopped: ${stage.stoppedEarly.reason})`)}`
+      : "";
+  return `    ${stage.stage}. ${level}: ${stage.requests} requests (${stage.okThroughput}/s ok${achieved}), ${failed > 0 ? style.red(rate) : rate} errors; ${latency}${stopped}`;
 }
 
 /** One scenario step's lines in {@link formatLoadSummaryHuman} (#2839). */
