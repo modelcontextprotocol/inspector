@@ -1240,10 +1240,16 @@ async function runWindow(
     if (requestCapped) {
       // Open loop's arrival cursor can sit well before the starts it caused
       // (three 500 ms calls on a 10/s grid start at 0, 500 and 1000 ms with
-      // the cursor at 300), so its window runs one slot past the last
-      // actual start instead.
+      // the cursor at 300), so its window runs to the first grid slot after
+      // the last actual start instead. Snapped to the grid, not `+ interval`
+      // from it: a start a hair late (200.1 ms) must not stretch the window
+      // to 300.1 and count a slot nobody missed.
       const after = openLoop
-        ? Math.max(nextStart, lastStartAt + interval)
+        ? Math.max(
+            nextStart,
+            start +
+              (Math.floor((lastStartAt - start) / interval) + 1) * interval,
+          )
         : nextStart;
       windowEnd = Math.min(windowEnd, after);
     }
