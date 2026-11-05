@@ -164,6 +164,11 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load-scenario <file>`      | With `--load`: run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step breakdown. Replaces `--tool-name`, `--tool-arg`, `--tool-args-json` and `--tool-metadata`. See [Scenarios](#scenarios---load-scenario). |
 | `--load-args-file <file>`    | With `--load`: an NDJSON file of argument objects, one per line; each call merges the next row over `--tool-arg` (the row wins on a key), cycling. Not with `--load-scenario`. See [Varying the arguments](#varying-the-arguments---load-args-file-placeholders). |
 | `--load-args-random`          | With `--load-args-file`: pick each call's row at random instead of in turn. |
+| `--load-steps <list>`         | With `--load`: run consecutive stages at these levels (`10,25,50,100`), one summary row per stage. See [Stepped and ramped load](#stepped-and-ramped-load---load-steps---load-ramp). |
+| `--load-ramp <from:to:sec>`   | With `--load`: a staircase of stages from `from` to `to` over `sec` seconds, one stage per `--load-step-duration`. |
+| `--load-step-by <what>`       | With `--load-steps` / `--load-ramp`: what a level sets, `concurrency` (default) or `rate`. |
+| `--load-step-duration <sec>`  | With `--load-steps` / `--load-ramp`: each stage's length (default `10`). |
+| `--load-stop-on-breach`       | With `--load-steps` / `--load-ramp` and a `--load-max-*` threshold: stop after the first stage that breaches it. |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
@@ -621,6 +626,59 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   failures. A run in which no call succeeded has no p99 to compare, and fails
   rather than passing a latency check it never measured.
 - With no threshold set, nothing changes: a completed run exits `0`.
+- A stepped run (below) is judged **stage by stage**, and the message names
+  the first stage that breached.
+
+##### Stepped and ramped load (`--load-steps`, `--load-ramp`)
+
+One concurrency or rate shows how a server behaves at one load level. To find
+where latency or errors start climbing — the knee — run consecutive
+**stages** at rising levels in one run, with one summary row per stage
+([#2841](https://github.com/modelcontextprotocol/inspector/issues/2841)):
+
+```bash
+# concurrency 10, 25, 50, then 100, 30 seconds each
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-steps 10,25,50,100 --load-step-duration 30
+
+# rate from 50/s to 500/s over two minutes in 10 s stairs, over 200 workers,
+# stopping at the first stage whose p99 tops 250 ms
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-ramp 50:500:120 --load-step-duration 10 \
+  --load-step-by rate --load-concurrency 200 --load-max-p99 250 --load-stop-on-breach
+```
+
+- **`--load-steps <list>`** runs one stage per level. **`--load-ramp
+  <from>:<to>:<sec>`** is a staircase: `sec / --load-step-duration` stages
+  (rounded, at least one), each `sec / stages` long, with levels spaced
+  evenly from `from` to `to`, both included. It is stairs rather than a
+  continuous ramp so that every level runs long enough to measure and gets a
+  row of its own.
+- **`--load-step-by`** says what a level is. `concurrency` (the default) is
+  calls in flight. A ramp rounds it to whole workers, and `--load-steps`
+  must be whole numbers; `--load-concurrency` is refused, since the stages
+  set it. `rate` is calls started per second over a fixed pool of
+  `--load-concurrency` workers; `--load-rate` is refused. A `--load-rate` set
+  while stepping concurrency applies to every stage.
+- **Each stage runs for `--load-step-duration`** (default `10`), so
+  `--load-duration` and `--load-requests` are refused. The connections
+  (`--load-connections`, which may not exceed the smallest concurrency stage)
+  are opened once and serve every stage.
+- **The summary** keeps its totals at the top level, over every stage, with
+  `elapsedMs` the sum of the stages' and `durationMs` the planned total, and
+  adds **`stages`**: one full summary per stage that ran, in order, each
+  carrying `stage` (from `1`), `stepBy` and `level` before the usual fields —
+  including its own `--load-rate` figures, which the totals leave out, and
+  its own `steps` for a scenario. `{{seq}}` keeps counting across stages.
+- **Any early stop ends the run**: Ctrl+C, a lost connection, or the circuit
+  breaker. With **`--load-stop-on-breach`** (which needs a `--load-max-*`
+  threshold) so does the first stage that breaches, with
+  `"stoppedEarly": { "reason": "threshold_breached", "detail": "stage 3
+  (concurrency 50) breached a threshold: …" }`. The thresholds then fail the
+  run with exit `10`, naming that stage. Without the flag every stage runs,
+  and the run still exits `10` if any stage breached.
+- A stage that falls short of its `--load-rate` prints its own warning,
+  prefixed `Stage N:`.
 
 #### Schema portability (`--strict`)
 

@@ -14,6 +14,11 @@ import {
   readLoadArgsFile,
 } from "@inspector/core/cli/handlers/load-template.js";
 import { LOAD_SCENARIO_INVALID } from "@inspector/core/cli/handlers/load-scenario.js";
+import {
+  resolveLoadStages,
+  type LoadRamp,
+  type LoadStepBy,
+} from "@inspector/core/cli/handlers/load-stages.js";
 import { MAX_REQUEST_LINE_BYTES } from "../daemon/ipc-glue.js";
 import {
   resolveLoadThresholds,
@@ -59,6 +64,11 @@ export function resolveLoadFlags(flags: {
   loadScenario?: string;
   loadArgsFile?: string;
   loadArgsRandom?: boolean;
+  loadSteps?: number[];
+  loadRamp?: LoadRamp;
+  loadStepBy?: LoadStepBy;
+  loadStepDuration?: number;
+  loadStopOnBreach?: boolean;
   loadMaxErrorRate?: number;
   loadMaxP99?: number;
   appInfo?: boolean;
@@ -77,6 +87,11 @@ export function resolveLoadFlags(flags: {
     ["--load-scenario", flags.loadScenario],
     ["--load-args-file", flags.loadArgsFile],
     ["--load-args-random", flags.loadArgsRandom],
+    ["--load-steps", flags.loadSteps],
+    ["--load-ramp", flags.loadRamp],
+    ["--load-step-by", flags.loadStepBy],
+    ["--load-step-duration", flags.loadStepDuration],
+    ["--load-stop-on-breach", flags.loadStopOnBreach],
     ["--load-max-error-rate", flags.loadMaxErrorRate],
     ["--load-max-p99", flags.loadMaxP99],
   ] as const;
@@ -135,8 +150,26 @@ export function resolveLoadFlags(flags: {
               : ("sequential" as const),
         }
       : undefined;
+  const thresholds = resolveLoadThresholds({
+    maxErrorRate: flags.loadMaxErrorRate,
+    maxP99Ms: flags.loadMaxP99,
+  });
   let options: LoadOptions;
   try {
+    // Stages (#2841): `--load-stop-on-breach` needs the thresholds in the
+    // daemon, where the stages run, so they ride inside the stages.
+    const stages = resolveLoadStages({
+      steps: flags.loadSteps,
+      ramp: flags.loadRamp,
+      stepBy: flags.loadStepBy,
+      stepDurationSec: flags.loadStepDuration,
+      stopOnBreach: flags.loadStopOnBreach,
+      thresholds,
+      concurrency: flags.loadConcurrency,
+      rate: flags.loadRate,
+      durationSec: flags.loadDuration,
+      requests: flags.loadRequests,
+    });
     options = resolveLoadOptions({
       concurrency: flags.loadConcurrency,
       connections: flags.loadConnections,
@@ -145,17 +178,14 @@ export function resolveLoadFlags(flags: {
       rate: flags.loadRate,
       scenario,
       argRows,
+      stages,
     });
   } catch (err) {
-    // `--load-connections` above `--load-concurrency`: the engine's own
-    // message, as a usage error rather than a generic failure. It only ever
-    // throws an `Error`.
+    // A stage conflict, or `--load-connections` above the workers: the
+    // engine's own message, as a usage error rather than a generic failure.
+    // Both only ever throw an `Error`.
     throw usage((err as Error).message);
   }
-  const thresholds = resolveLoadThresholds({
-    maxErrorRate: flags.loadMaxErrorRate,
-    maxP99Ms: flags.loadMaxP99,
-  });
   assertFitsOneRequest(options);
   return { options, ...(thresholds && { thresholds }) };
 }

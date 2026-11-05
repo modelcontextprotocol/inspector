@@ -270,6 +270,7 @@ mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 
 | `--load-scenario <file>` | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it. |
 | `--load-args-file <file>` | NDJSON argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Not with `--load-scenario`. |
 | `--load-args-random`     | With `--load-args-file`: pick each call's row at random. |
+| `--load-steps <list>` / `--load-ramp <from:to:sec>` | Run consecutive stages at rising concurrency (or rate, with `--load-step-by rate`), each `--load-step-duration` seconds (default `10`), with one row per stage; `--load-stop-on-breach` ends the run at the first stage breaching a threshold. |
 | `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
 | `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
 
@@ -291,6 +292,12 @@ use the [one-shot CLI's file format](../cli/README.md#scenarios---load-scenario)
 `mcpdo` process, so a relative path is relative to your working directory, not
 the daemon's; the parsed steps travel to the daemon with the run. The text
 summary lists each step under the totals.
+
+**Stepped and ramped load** ([#2841](https://github.com/modelcontextprotocol/inspector/issues/2841))
+works exactly as in the
+[one-shot CLI](../cli/README.md#stepped-and-ramped-load---load-steps---load-ramp).
+The stages run in the daemon as one command, so the connection is busy for
+the whole staircase. The text summary lists one line per stage.
 
 **Varying arguments** ([#2840](https://github.com/modelcontextprotocol/inspector/issues/2840)):
 `{{seq}}`, `{{worker}}`, `{{uuid}}` and `{{rand:<min>-<max>}}` in argument

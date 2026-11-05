@@ -185,6 +185,12 @@ more).
   argument values (`id:=user-{{seq}}`, `{{uuid}}`, `{{rand:1-50}}`,
   `{{worker}}`) or `--load-args-file rows.ndjson` (one argument object per
   line, cycled; `--load-args-random` to shuffle).
+- To find a server's knee, step the load: `--load-steps 10,25,50` or
+  `--load-ramp 10:100:60` (concurrency; `--load-step-by rate` for rate), each
+  stage `--load-step-duration` seconds. Read `stages[]` top to bottom for
+  where `latencyMs.p99` or `errorRate` jumps. `--load-stop-on-breach` with a
+  `--load-max-*` threshold stops at the first breaching stage.
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
-  `consecutive_errors` (the server stopped answering), `connection_lost`, or
+  `consecutive_errors` (the server stopped answering), `connection_lost`,
+  `threshold_breached` (a stepped run's `--load-stop-on-breach`), or
   `interrupted`. The counts cover only what completed.

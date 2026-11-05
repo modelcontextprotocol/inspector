@@ -338,6 +338,100 @@ describe("resolveLoadFlags with varying arguments (#2840)", () => {
   });
 });
 
+describe("resolveLoadFlags with stages (#2841)", () => {
+  it("plans the stages and carries the thresholds for a stop on breach", () => {
+    expect(
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadSteps: [1, 4],
+        loadStepDuration: 2,
+        loadStopOnBreach: true,
+        loadMaxP99: 50,
+      }),
+    ).toEqual({
+      options: {
+        concurrency: 4,
+        stages: {
+          by: "concurrency",
+          levels: [1, 4],
+          stageMs: 2000,
+          stopOnBreach: { maxP99Ms: 50 },
+        },
+      },
+      thresholds: { maxP99Ms: 50 },
+    });
+  });
+
+  it("refuses a stage conflict as a usage error", () => {
+    expect(() =>
+      resolveLoadFlags({
+        load: true,
+        toolName: "echo",
+        loadRamp: { from: 1, to: 4, durationSec: 4 },
+        loadConcurrency: 2,
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        exitCode: EXIT_CODES.USAGE,
+        message: expect.stringContaining(
+          "--load-ramp sets the concurrency of each stage",
+        ),
+        envelope: expect.objectContaining({ code: "load_flag_conflict" }),
+      }),
+    );
+  });
+
+  it.each([
+    [{ loadSteps: [1] }, "--load-steps requires --load."],
+    [
+      { loadRamp: { from: 1, to: 2, durationSec: 1 } },
+      "--load-ramp requires --load.",
+    ],
+    [{ loadStepBy: "rate" as const }, "--load-step-by requires --load."],
+    [{ loadStepDuration: 1 }, "--load-step-duration requires --load."],
+    [{ loadStopOnBreach: true }, "--load-stop-on-breach requires --load."],
+  ])("requires --load for %j", (flags, message) => {
+    expect(() => resolveLoadFlags({ toolName: "echo", ...flags })).toThrow(
+      message,
+    );
+  });
+});
+
+describe("formatLoadSummaryHuman with stages (#2841)", () => {
+  it("renders one line per stage", () => {
+    const stage = (n: number, extra: Partial<LoadSummary>) => ({
+      ...SUMMARY,
+      stage: n,
+      stepBy: "concurrency" as const,
+      level: n * 10,
+      ...extra,
+    });
+    const text = formatLoadSummaryHuman(
+      {
+        ...SUMMARY,
+        stages: [
+          stage(1, { errorRate: 0, toolErrors: 0, errors: 0 }),
+          {
+            ...stage(2, { latencyMs: null }),
+            stepBy: "rate",
+            achievedRate: 19.5,
+            stoppedEarly: { reason: "threshold_breached", detail: "x" },
+          },
+        ],
+      },
+      PLAIN,
+    );
+    expect(text).toContain(
+      [
+        "  Stages:",
+        "    1. concurrency 10: 30 requests (18/s ok), 0.00% errors; p50 2 / p99 5 ms",
+        "    2. rate 20/s: 30 requests (18/s ok, 19.5/s started), 10.00% errors; no calls succeeded (stopped: threshold_breached)",
+      ].join("\n"),
+    );
+  });
+});
+
 describe("formatLoadSummaryHuman", () => {
   it("renders bounds, outcomes, latency and top errors", () => {
     const text = formatLoadSummaryHuman(SUMMARY, PLAIN);
@@ -763,6 +857,33 @@ describe.skipIf(unixDaemonOnly)(
       expect(summary.requests).toBe(4);
       expect(summary.ok).toBe(2);
       expect(summary.toolErrors + summary.errors).toBe(2);
+    });
+
+    it("runs --load-steps over a live connection (#2841)", async () => {
+      const e = env();
+      await connectStdio(e);
+      const result = await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "message:=hi",
+          "--load",
+          "--load-steps",
+          "1,2",
+          "--load-step-duration",
+          "0.2",
+          "--format",
+          "json",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      );
+      expectCliSuccess(result);
+      const summary = JSON.parse(result.stdout) as LoadSummary;
+      expect(summary.stages!.map((s) => [s.stage, s.level])).toEqual([
+        [1, 1],
+        [2, 2],
+      ]);
+      expect(summary.requests).toBeGreaterThan(0);
     });
 
     async function connectStdio(e: Record<string, string>): Promise<void> {

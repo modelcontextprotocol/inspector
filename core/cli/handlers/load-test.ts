@@ -19,6 +19,8 @@ import {
   type LoadCallContext,
   type LoadTemplate,
 } from "./load-template.js";
+import type { LoadStages, LoadStepBy } from "./load-stages.js";
+import { loadThresholdBreaches } from "./load-thresholds.js";
 
 /**
  * `--load` (#2439): drive one tool with sustained, concurrent `tools/call`
@@ -60,6 +62,13 @@ export type LoadOptions = {
    * arguments, one per call, in turn or at random. Single-tool runs only.
    */
   argRows?: LoadArgRows;
+  /**
+   * `--load-steps` / `--load-ramp` (#2841): run consecutive stages, each at
+   * its own concurrency or rate for `stageMs`, in place of one window. With
+   * stages, `durationMs` and `requests` are unset and `concurrency` is the
+   * highest concurrency level (or the worker pool, when stepping the rate).
+   */
+  stages?: LoadStages;
 };
 
 /**
@@ -84,7 +93,8 @@ export type LoadToolError = { outcome: "tool_error"; message: string };
 export type LoadStopReason =
   | "interrupted"
   | "connection_lost"
-  | "consecutive_errors";
+  | "consecutive_errors"
+  | "threshold_breached";
 
 /** An early stop, as reported in {@link LoadSummary.stoppedEarly}. */
 export type LoadStop = { reason: LoadStopReason; detail: string };
@@ -167,7 +177,23 @@ export type LoadSummary = {
    * in scenario order. The top-level figures are the totals over every step.
    */
   steps?: LoadStepSummary[];
+  /**
+   * `--load-steps` / `--load-ramp` only (#2841): one full summary per stage
+   * that ran, in order. The top-level counts and latencies are the totals
+   * over every stage, `elapsedMs` the sum of theirs; the `--load-rate`
+   * figures appear per stage only.
+   */
+  stages?: LoadStageSummary[];
 };
+
+/** One stage of a stepped run (#2841): its position, its level, its run. */
+export type LoadStageSummary = {
+  /** 1-based position in the run. */
+  stage: number;
+  stepBy: LoadStepBy;
+  /** The stage's concurrency or rate, per `stepBy`. */
+  level: number;
+} & LoadSummary;
 
 /** The outcome counts and latencies of a set of calls: a run, or one step. */
 export type LoadOutcomeSummary = Pick<
@@ -226,32 +252,9 @@ export const DEFAULT_LOAD_CONNECTIONS = 1;
 /** Applied only when neither a duration nor a request count is given. */
 export const DEFAULT_LOAD_DURATION_MS = 10_000;
 
-/**
- * Commander-style parser for a positive integer flag (`--load-concurrency`,
- * `--load-requests`). Plain decimal digits only, so `1.5`, `1e3` and `0x10`
- * are refused rather than coerced.
- */
-export function positiveIntegerParser(flag: string): (value: string) => number {
-  return (value: string): number => {
-    const trimmed = value.trim();
-    const n = /^\d+$/.test(trimmed) ? Number(trimmed) : NaN;
-    if (!Number.isSafeInteger(n) || n <= 0) {
-      throw new Error(`${flag} must be a positive integer.`);
-    }
-    return n;
-  };
-}
-
-/** Commander-style parser for a positive, finite number flag. */
-export function positiveNumberParser(flag: string): (value: string) => number {
-  return (value: string): number => {
-    const n = value.trim() === "" ? NaN : Number(value);
-    if (!Number.isFinite(n) || n <= 0) {
-      throw new Error(`${flag} must be a positive number.`);
-    }
-    return n;
-  };
-}
+// The flag parsers live in `load-parsers.ts` so `load-thresholds.ts` can use
+// them without importing this module (which imports it back, #2841).
+export { positiveIntegerParser, positiveNumberParser } from "./load-parsers.js";
 
 /**
  * Turn the raw flag values into {@link LoadOptions}, applying the defaults:
@@ -271,17 +274,29 @@ export function resolveLoadOptions(flags: {
   rate?: number;
   scenario?: LoadScenario;
   argRows?: LoadArgRows;
+  /** From `resolveLoadStages`, which has already refused the conflicts. */
+  stages?: LoadStages;
 }): LoadOptions {
+  const { stages } = flags;
   const durationMs =
     flags.durationSec !== undefined
       ? flags.durationSec * 1000
-      : flags.requests === undefined
+      : flags.requests === undefined && stages === undefined
         ? DEFAULT_LOAD_DURATION_MS
         : undefined;
-  const concurrency = flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY;
-  if (flags.connections !== undefined && flags.connections > concurrency) {
+  const steppedConcurrency = stages?.by === "concurrency";
+  const concurrency = steppedConcurrency
+    ? Math.max(...stages.levels)
+    : (flags.concurrency ?? DEFAULT_LOAD_CONCURRENCY);
+  // Stepping concurrency, the smallest stage is the one with fewest workers.
+  const fewestWorkers = steppedConcurrency
+    ? Math.min(...stages.levels)
+    : concurrency;
+  if (flags.connections !== undefined && flags.connections > fewestWorkers) {
     throw new Error(
-      `--load-connections (${flags.connections}) cannot exceed --load-concurrency (${concurrency}); every connection needs at least one worker.`,
+      steppedConcurrency
+        ? `--load-connections (${flags.connections}) cannot exceed the smallest concurrency stage (${fewestWorkers}); every connection needs at least one worker.`
+        : `--load-connections (${flags.connections}) cannot exceed --load-concurrency (${concurrency}); every connection needs at least one worker.`,
     );
   }
   return {
@@ -292,6 +307,7 @@ export function resolveLoadOptions(flags: {
     ...(flags.rate !== undefined && { rate: flags.rate }),
     ...(flags.scenario !== undefined && { scenario: flags.scenario }),
     ...(flags.argRows !== undefined && { argRows: flags.argRows }),
+    ...(stages !== undefined && { stages }),
   };
 }
 
@@ -503,6 +519,20 @@ class OutcomeStats {
   }
 }
 
+/** The step picker for a scenario, or step 0 forever without one. */
+function scenarioPicker(scenario: LoadScenario | undefined): () => number {
+  return scenario
+    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
+    : () => 0;
+}
+
+/** The {@link LoadStop} an abort reason names, or a plain interrupt. */
+function stopFromAbort(reason: unknown): LoadStop {
+  return isLoadStop(reason)
+    ? reason
+    : { reason: "interrupted", detail: "the run was interrupted" };
+}
+
 /** Narrow an abort reason to a {@link LoadStop} a caller passed to `abort()`. */
 function isLoadStop(value: unknown): value is LoadStop {
   if (typeof value !== "object" || value === null) return false;
@@ -510,7 +540,8 @@ function isLoadStop(value: unknown): value is LoadStop {
   return (
     (reason === "interrupted" ||
       reason === "connection_lost" ||
-      reason === "consecutive_errors") &&
+      reason === "consecutive_errors" ||
+      reason === "threshold_breached") &&
     typeof detail === "string"
   );
 }
@@ -557,6 +588,11 @@ export function loadSummaryWarnings(summary: LoadSummary): string[] {
   }
   const shortfall = loadRateShortfallWarning(summary);
   if (shortfall !== undefined) warnings.push(shortfall);
+  // A stepped run (#2841) carries its rate figures per stage.
+  for (const stage of summary.stages ?? []) {
+    const missed = loadRateShortfallWarning(stage);
+    if (missed !== undefined) warnings.push(`Stage ${stage.stage}: ${missed}`);
+  }
   return warnings;
 }
 
@@ -609,11 +645,61 @@ export function loadRateShortfallWarning(
  * it; any other reason reports `interrupted`. The circuit breaker
  * ({@link CIRCUIT_BREAKER_ERRORS}) ends a run the same way on its own.
  */
-export async function runLoad(
-  call: (worker: number, step: number, seq: number) => Promise<LoadCallOutcome>,
+export function runLoad(
+  call: LoadCall,
   options: LoadOptions,
   clock: LoadClock = realClock,
   signal?: AbortSignal,
+): Promise<LoadSummary> {
+  return options.stages
+    ? runStages(call, options, options.stages, clock, signal)
+    : runWindow(call, options, clock, signal);
+}
+
+/** One load call: the worker making it, its scenario step, its `seq`. */
+export type LoadCall = (
+  worker: number,
+  step: number,
+  seq: number,
+) => Promise<LoadCallOutcome>;
+
+/**
+ * Accumulators a stepped run shares across its stages, so the totals cover
+ * every call without re-reading each stage's latencies.
+ */
+type LoadSink = {
+  total: OutcomeStats;
+  steps?: OutcomeStats[];
+  /**
+   * The circuit breaker's streak, shared so a run of failures spanning a
+   * stage boundary still trips it: short stages would otherwise each start
+   * a fresh streak and never reach the limit.
+   */
+  breaker: BreakerState;
+  /**
+   * The scenario's step picker, shared for the same reason: a fresh picker
+   * per stage restarts the weighted cycle, so a short stage could keep
+   * picking the heaviest step and never reach a light one.
+   */
+  pickStep?: () => number;
+};
+
+/** The current streak of thrown calls, and when its first one completed. */
+type BreakerState = { streak: number; since: number };
+
+/** One window of load: the whole of an ordinary run, or one stage. */
+async function runWindow(
+  call: LoadCall,
+  options: LoadOptions,
+  clock: LoadClock,
+  signal: AbortSignal | undefined,
+  sink?: LoadSink,
+  /**
+   * Wait out the rest of `durationMs` after the last call settles (#2841).
+   * A stage that is not the last sets it, so the next stage cannot start
+   * early; an abort during the wait is recorded here like any other.
+   */
+  holdToDeadline = false,
 ): Promise<LoadSummary> {
   const { concurrency, durationMs, requests, rate, scenario } = options;
   const total = new OutcomeStats();
@@ -621,9 +707,7 @@ export async function runLoad(
     step,
     stats: new OutcomeStats(),
   }));
-  const pickStep = scenario
-    ? createWeightedPicker(scenario.steps.map((s) => s.weight))
-    : () => 0;
+  const pickStep = sink?.pickStep ?? scenarioPicker(scenario);
   let started = 0;
 
   const start = clock.now();
@@ -650,41 +734,40 @@ export async function runLoad(
     halt.abort();
   };
   const onAbort = (): void => {
-    const reason: unknown = signal?.reason;
-    stopRun(
-      isLoadStop(reason)
-        ? reason
-        : { reason: "interrupted", detail: "the run was interrupted" },
-    );
+    stopRun(stopFromAbort(signal?.reason));
   };
   if (signal?.aborted) onAbort();
   else signal?.addEventListener("abort", onAbort, { once: true });
 
   // Circuit breaker state (#2835): the current streak of thrown calls, and
   // when the first of them completed.
-  let errorStreak = 0;
-  let streakSince = 0;
+  const breaker: BreakerState = sink?.breaker ?? { streak: 0, since: 0 };
   const noteThrown = (now: number): void => {
-    if (errorStreak++ === 0) streakSince = now;
-    const window = now - streakSince;
+    if (breaker.streak++ === 0) breaker.since = now;
+    const window = now - breaker.since;
     // Only while another call could still start: once the bounds have
     // ended starts, the failures are in-flight calls draining, and calling
     // that an early stop would misreport a run that ran to its bounds.
+    // A stage with a later stage after it (`holdToDeadline`) always counts
+    // as able to start more: its own last start may be behind it, but the
+    // run is not over, so single-call stages could otherwise fail forever
+    // without the breaker ever tripping.
     const canStart =
-      (requests === undefined || started < requests) &&
-      now < deadline &&
-      nextStart < deadline;
+      holdToDeadline ||
+      ((requests === undefined || started < requests) &&
+        now < deadline &&
+        nextStart < deadline);
     if (
       canStart &&
-      (errorStreak >= CIRCUIT_BREAKER_ERRORS ||
-        (errorStreak >= CIRCUIT_BREAKER_MIN_ERRORS &&
+      (breaker.streak >= CIRCUIT_BREAKER_ERRORS ||
+        (breaker.streak >= CIRCUIT_BREAKER_MIN_ERRORS &&
           window >= CIRCUIT_BREAKER_WINDOW_MS))
     ) {
       stopRun({
         reason: "consecutive_errors",
         // No server text here: it reaches stderr as a warning, and the
         // messages themselves are already tallied in `errorMessages`.
-        detail: `${errorStreak} calls in a row threw over ${round(window)}ms; the server looks unavailable`,
+        detail: `${breaker.streak} calls in a row threw over ${round(window)}ms; the server looks unavailable`,
       });
     }
   };
@@ -760,14 +843,18 @@ export async function runLoad(
       try {
         const outcome = await call(index, step, seq);
         const latency = clock.now() - t0;
-        errorStreak = 0;
+        breaker.streak = 0;
         total.addResult(outcome, latency);
         stats?.addResult(outcome, latency);
+        sink?.total.addResult(outcome, latency);
+        sink?.steps?.[step]?.addResult(outcome, latency);
       } catch (err) {
         const now = clock.now();
         const message = err instanceof Error ? err.message : String(err);
         total.addThrown(message, now - t0);
         stats?.addThrown(message, now - t0);
+        sink?.total.addThrown(message, now - t0);
+        sink?.steps?.[step]?.addThrown(message, now - t0);
         noteThrown(now);
       }
     }
@@ -775,6 +862,15 @@ export async function runLoad(
 
   try {
     await Promise.all(Array.from({ length: concurrency }, (_, i) => worker(i)));
+    // A rate-limited window ends when its last start is due, which can be
+    // well before its deadline. Waiting with `onAbort` still listening means
+    // an interrupt here sets `stoppedEarly` and `stoppedAt`, so the window
+    // reports the time that actually passed, not the padded window.
+    if (holdToDeadline && !halt.signal.aborted && durationMs !== undefined) {
+      const remaining = deadline - clock.now();
+      if (remaining > 0)
+        await sleepUnlessAborted(clock, remaining, halt.signal);
+    }
   } finally {
     signal?.removeEventListener("abort", onAbort);
   }
@@ -834,6 +930,101 @@ export async function runLoad(
         stepSummary(step, stats.summarize(elapsedMs)),
       ),
     }),
+  };
+}
+
+/**
+ * `--load-steps` / `--load-ramp` (#2841): run each stage as its own window,
+ * one after another, and summarize every stage plus the totals.
+ *
+ * - **`seq` keeps counting across stages**, so `{{seq}}` (#2840) stays unique
+ *   for the whole run. Each window's started calls have all completed when it
+ *   resolves, so its `requests` is exactly how many numbers it used.
+ * - **Any early stop ends the run**: an interrupt, a lost connection, or the
+ *   circuit breaker. With `stopOnBreach`, so does the first stage breaching a
+ *   threshold, recorded as `stoppedEarly.reason: "threshold_breached"`.
+ * - Connections (#2746) are opened once, by the caller, and serve every stage.
+ */
+async function runStages(
+  call: LoadCall,
+  options: LoadOptions,
+  stages: LoadStages,
+  clock: LoadClock,
+  signal: AbortSignal | undefined,
+): Promise<LoadSummary> {
+  const { scenario } = options;
+  const sink: LoadSink = {
+    total: new OutcomeStats(),
+    breaker: { streak: 0, since: 0 },
+    pickStep: scenarioPicker(scenario),
+    ...(scenario && { steps: scenario.steps.map(() => new OutcomeStats()) }),
+  };
+  const rows: LoadStageSummary[] = [];
+  let used = 0;
+  let elapsedMs = 0;
+  let stoppedEarly: LoadStop | undefined;
+  for (const [i, level] of stages.levels.entries()) {
+    const stageOptions: LoadOptions = {
+      concurrency: stages.by === "concurrency" ? level : options.concurrency,
+      durationMs: stages.stageMs,
+      ...(stages.by === "rate"
+        ? { rate: level }
+        : options.rate !== undefined && { rate: options.rate }),
+      ...(scenario && { scenario }),
+    };
+    const offset = used;
+    const summary = await runWindow(
+      (worker, step, seq) => call(worker, step, seq + offset),
+      stageOptions,
+      clock,
+      signal,
+      sink,
+      // Every stage but the last holds to its deadline, so the next one
+      // neither starts early nor bursts at the boundary.
+      i < stages.levels.length - 1,
+    );
+    used += summary.requests;
+    elapsedMs += summary.elapsedMs;
+    rows.push({ stage: i + 1, stepBy: stages.by, level, ...summary });
+    if (summary.stoppedEarly) {
+      stoppedEarly = summary.stoppedEarly;
+      break;
+    }
+    const breaches = stages.stopOnBreach
+      ? loadThresholdBreaches(summary, stages.stopOnBreach)
+      : [];
+    if (breaches.length > 0) {
+      stoppedEarly = {
+        reason: "threshold_breached",
+        detail: `stage ${i + 1} (${stages.by} ${level}) breached a threshold: ${breaches.map((b) => b.message).join("; ")}`,
+      };
+      break;
+    }
+  }
+  const totals = sink.total.summarize(elapsedMs);
+  return {
+    concurrency: options.concurrency,
+    durationMs: stages.stageMs * stages.levels.length,
+    requests: totals.requests,
+    ok: totals.ok,
+    toolErrors: totals.toolErrors,
+    errors: totals.errors,
+    errorRate: totals.errorRate,
+    elapsedMs: round(elapsedMs),
+    throughput: totals.throughput,
+    okThroughput: totals.okThroughput,
+    latencyMs: totals.latencyMs,
+    errorLatencyMs: totals.errorLatencyMs,
+    errorMessages: totals.errorMessages,
+    toolErrorMessages: totals.toolErrorMessages,
+    ...(stoppedEarly !== undefined && { stoppedEarly }),
+    // `sink.steps` exists exactly when there is a scenario.
+    ...(scenario && {
+      steps: scenario.steps.map((step, i) =>
+        stepSummary(step, sink.steps![i]!.summarize(elapsedMs)),
+      ),
+    }),
+    stages: rows,
   };
 }
 
