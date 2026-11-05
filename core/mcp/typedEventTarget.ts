@@ -43,11 +43,13 @@ export class TypedEventTarget<EventMap extends object> extends EventTarget {
    * snapshot is cached against. That distinction is load-bearing rather than
    * an optimization: these stores hand out a defensive copy, so comparing
    * contents is the only alternative, and a contents comparison cannot see an
-   * in-place mutation of an entry the list already holds. `MessageLogState`
-   * does exactly that when a response is folded into its request entry
-   * (filling in `response`/`duration`), and it dispatches — so the counter
-   * moves and the fold reaches the UI, where a shallow compare would report
-   * "unchanged" and never re-render it.
+   * in-place mutation of an entry the list already holds. A store is free to
+   * update an entry that way and dispatch — `MessageLogState` folded each
+   * response into its request entry like that until #2928, when it moved to
+   * replacing the entry with a copy — and the counter still moves, so the
+   * change reaches the UI where a shallow compare would report "unchanged"
+   * and never re-render it. The snapshot cache must not depend on which way a
+   * store happens to update.
    */
   getEventRevision(type: keyof EventMap & string): number {
     return this.eventRevisions.get(type) ?? 0;

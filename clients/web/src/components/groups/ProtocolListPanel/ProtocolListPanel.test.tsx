@@ -547,4 +547,47 @@ describe("ProtocolListPanel", () => {
     );
     expect(onRevealInNetwork).toHaveBeenCalledWith("err-1");
   });
+
+  // #2928: rows are memoized, and the parent's handlers reach them through
+  // stable stand-ins — so a row the memo skipped must still call the handler
+  // the parent rendered last, not the one it was first rendered with.
+  it("calls the latest onReplay after the parent passes a new one", async () => {
+    const user = userEvent.setup();
+    const first = vi.fn();
+    const latest = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ProtocolListPanel
+        {...baseProps}
+        entries={[sampleEntries[0]]}
+        onReplay={first}
+      />,
+    );
+    rerender(
+      <ProtocolListPanel
+        {...baseProps}
+        entries={[sampleEntries[0]]}
+        onReplay={latest}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Replay" }));
+    expect(latest).toHaveBeenCalledWith("req-1", undefined);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it("re-renders a row when the log replaces its entry with the answered one", () => {
+    const pending: MessageEntry = {
+      ...sampleEntries[0],
+      response: undefined,
+      duration: undefined,
+    };
+    const { rerender } = renderWithMantine(
+      <ProtocolListPanel {...baseProps} entries={[pending]} />,
+    );
+    expect(screen.getByText("Pending")).toBeInTheDocument();
+
+    rerender(<ProtocolListPanel {...baseProps} entries={[sampleEntries[0]]} />);
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.getByText("OK")).toBeInTheDocument();
+  });
 });

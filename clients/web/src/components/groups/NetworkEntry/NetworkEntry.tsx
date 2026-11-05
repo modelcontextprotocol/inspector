@@ -28,6 +28,7 @@ import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 import { useValueChange } from "../../../hooks/useValueChange";
+import { useOpenedOnce } from "../../../hooks/useOpenedOnce";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
@@ -529,6 +530,9 @@ export function NetworkEntry({
   useValueChange(revealed, (nextRevealed) => {
     if (nextRevealed) setIsExpanded(true);
   });
+  // The body (headers tables, body previews) mounts on first expand, not with
+  // the row — see `useOpenedOnce` (#2928).
+  const bodyMounted = useOpenedOnce(isExpanded);
 
   // "Reveal in Network" one-shot, part 2: scroll the entry into view, then
   // clear the signal. The scroll runs in a rAF so it lands after
@@ -631,63 +635,66 @@ export function NetworkEntry({
         )}
 
         <Collapse in={isExpanded}>
-          <Stack gap="sm">
-            <Divider />
-            {aborted && (
-              <CancellationAlert>
-                <Text size="xs">
-                  Cancellation appears as a connection abort — the modern
-                  transport aborts the request stream instead of sending a{" "}
-                  <MonoSpan>notifications/cancelled</MonoSpan> frame (SEP-2575).
-                </Text>
-              </CancellationAlert>
-            )}
-            <Stack gap="xs">
-              <SectionLabel>Request Headers</SectionLabel>
-              <HeadersTable
-                headers={entry.requestHeaders}
-                consistency={headerConsistency}
-              />
-            </Stack>
-            {entry.requestBody && (
+          {bodyMounted && (
+            <Stack gap="sm">
+              <Divider />
+              {aborted && (
+                <CancellationAlert>
+                  <Text size="xs">
+                    Cancellation appears as a connection abort — the modern
+                    transport aborts the request stream instead of sending a{" "}
+                    <MonoSpan>notifications/cancelled</MonoSpan> frame
+                    (SEP-2575).
+                  </Text>
+                </CancellationAlert>
+              )}
               <Stack gap="xs">
-                <SectionLabel>Request Body</SectionLabel>
-                <BodyPreview
-                  key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
-                  body={entry.requestBody}
-                  contentType={entry.requestHeaders["content-type"]}
-                  label="Request body"
+                <SectionLabel>Request Headers</SectionLabel>
+                <HeadersTable
+                  headers={entry.requestHeaders}
+                  consistency={headerConsistency}
                 />
               </Stack>
-            )}
-            {entry.responseHeaders && (
-              <Stack gap="xs">
-                <SectionLabel>Response Headers</SectionLabel>
-                <HeadersTable headers={entry.responseHeaders} />
-              </Stack>
-            )}
-            {entry.responseStatus !== undefined && (
-              <Stack gap="xs">
-                <SectionLabel>Response Body</SectionLabel>
-                {entry.responseBody ? (
+              {entry.requestBody && (
+                <Stack gap="xs">
+                  <SectionLabel>Request Body</SectionLabel>
                   <BodyPreview
-                    key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
-                    body={entry.responseBody}
-                    contentType={entry.responseHeaders?.["content-type"]}
-                    label="Response body"
+                    key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
+                    body={entry.requestBody}
+                    contentType={entry.requestHeaders["content-type"]}
+                    label="Request body"
                   />
-                ) : (
-                  <DimmedNote>{uncapturedBodyNote(entry)}</DimmedNote>
-                )}
-              </Stack>
-            )}
-            {entry.error && (
-              <Stack gap="xs">
-                <SectionLabel c="red">Error</SectionLabel>
-                <ErrorText>{entry.error}</ErrorText>
-              </Stack>
-            )}
-          </Stack>
+                </Stack>
+              )}
+              {entry.responseHeaders && (
+                <Stack gap="xs">
+                  <SectionLabel>Response Headers</SectionLabel>
+                  <HeadersTable headers={entry.responseHeaders} />
+                </Stack>
+              )}
+              {entry.responseStatus !== undefined && (
+                <Stack gap="xs">
+                  <SectionLabel>Response Body</SectionLabel>
+                  {entry.responseBody ? (
+                    <BodyPreview
+                      key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
+                      body={entry.responseBody}
+                      contentType={entry.responseHeaders?.["content-type"]}
+                      label="Response body"
+                    />
+                  ) : (
+                    <DimmedNote>{uncapturedBodyNote(entry)}</DimmedNote>
+                  )}
+                </Stack>
+              )}
+              {entry.error && (
+                <Stack gap="xs">
+                  <SectionLabel c="red">Error</SectionLabel>
+                  <ErrorText>{entry.error}</ErrorText>
+                </Stack>
+              )}
+            </Stack>
+          )}
         </Collapse>
       </Stack>
     </EntryContainer>

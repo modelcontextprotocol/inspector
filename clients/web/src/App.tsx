@@ -33,6 +33,7 @@ import {
 import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
+import { animationFrameScheduler } from "@inspector/core/react/notifyScheduler.js";
 import {
   ServerListReloadError,
   useServers,
@@ -404,7 +405,9 @@ function App() {
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
-  // are null, the hooks degrade to empty results.
+  // are null, the hooks degrade to empty results. Connection diagnostics
+  // re-dispatch on every request and response, so they are coalesced to the
+  // animation frame like the logs, or each call rendered the page twice (#2928).
   const {
     status: connectionStatus,
     capabilities,
@@ -418,7 +421,7 @@ function App() {
     malformedListItems,
     connectionDiagnostics,
     lastError,
-  } = useInspectorClient(inspectorClient);
+  } = useInspectorClient(inspectorClient, animationFrameScheduler);
   // What every settings write that landed on disk actually wrote, so a later
   // failed write can be rolled back to that rather than to a `servers` entry
   // frozen at the last successful list read (#2089).

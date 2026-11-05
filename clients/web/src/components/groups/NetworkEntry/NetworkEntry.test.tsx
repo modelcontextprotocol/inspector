@@ -55,6 +55,21 @@ describe("NetworkEntry", () => {
     expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
   });
 
+  // #2928: the detail body mounts on first expand rather than with the row.
+  it("mounts the detail body on first expand and keeps it after collapsing", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(
+      <NetworkEntry entry={baseEntry} isListExpanded={false} />,
+    );
+    expect(screen.queryByText("Request Headers")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Request Headers")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.getByText("Request Headers")).toBeInTheDocument();
+  });
+
   it("shows body / header detail when expanded", async () => {
     const user = userEvent.setup();
     renderWithMantine(

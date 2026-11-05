@@ -61,6 +61,24 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
       this.dispatchTypedEvent("messagesChange", this.getMessages());
     };
 
+    // Entries are never mutated once they are in the list: an update replaces
+    // the entry with a copy (#2928). A renderer can then tell a changed row
+    // from an unchanged one by identity alone, which is what lets the
+    // Protocol list skip re-rendering every row it already shows each time a
+    // message arrives. Searched newest-first: the entry being updated is, by
+    // construction, a recent one. Returns the copy, or `undefined` when the
+    // entry has already been evicted from the list.
+    const replaceEntry = (
+      entry: MessageEntry,
+      changes: Partial<MessageEntry>,
+    ): MessageEntry | undefined => {
+      const index = this.messages.lastIndexOf(entry);
+      if (index < 0) return undefined;
+      const updated: MessageEntry = { ...entry, ...changes };
+      this.messages[index] = updated;
+      return updated;
+    };
+
     const onMessage = (
       event: TypedEventGeneric<InspectorClientEventMap, "message">,
     ): void => {
@@ -87,10 +105,15 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
             : undefined;
         if (requestEntry) {
           this.pendingRequestEntries.delete(messageId!);
-          requestEntry.response = entry.message as MessageEntry["response"];
-          requestEntry.duration =
-            entry.timestamp.getTime() - requestEntry.timestamp.getTime();
-          this.dispatchTypedEvent("message", requestEntry);
+          const updated = replaceEntry(requestEntry, {
+            response: entry.message as MessageEntry["response"],
+            duration:
+              entry.timestamp.getTime() - requestEntry.timestamp.getTime(),
+          });
+          // The request was evicted while pending: its response has no row
+          // to fold into, and is not worth one of its own.
+          if (!updated) return;
+          this.dispatchTypedEvent("message", updated);
           this.dispatchTypedEvent("messagesChange", this.getMessages());
           return;
         }
@@ -116,8 +139,9 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
         // A request entry with no response yet isn't the one being rejected —
         // keep looking for the standalone response frame.
         if (entry.direction === "request" && !entry.response) continue;
-        entry.clientError = reason;
-        this.dispatchTypedEvent("message", entry);
+        const updated: MessageEntry = { ...entry, clientError: reason };
+        this.messages[i] = updated;
+        this.dispatchTypedEvent("message", updated);
         this.dispatchTypedEvent("messagesChange", this.getMessages());
         return;
       }
@@ -135,9 +159,12 @@ export class MessageLogState extends TypedEventTarget<MessageLogStateEventMap> {
       const requestEntry = this.pendingRequestEntries.get(id);
       if (!requestEntry) return;
       this.pendingRequestEntries.delete(id);
-      requestEntry.clientError = reason;
-      requestEntry.duration = Date.now() - requestEntry.timestamp.getTime();
-      this.dispatchTypedEvent("message", requestEntry);
+      const updated = replaceEntry(requestEntry, {
+        clientError: reason,
+        duration: Date.now() - requestEntry.timestamp.getTime(),
+      });
+      if (!updated) return;
+      this.dispatchTypedEvent("message", updated);
       this.dispatchTypedEvent("messagesChange", this.getMessages());
     };
 

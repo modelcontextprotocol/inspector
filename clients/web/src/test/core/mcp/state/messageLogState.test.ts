@@ -68,6 +68,37 @@ describe("MessageLogState", () => {
     expect(merged[0]!.duration).toBe(100);
   });
 
+  // Entries are replaced, never mutated, so a renderer can memoize a row on
+  // entry identity (#2928).
+  it("folds a response into a copy of the request entry, leaving the original untouched", () => {
+    client.dispatchTypedEvent("message", requestEntry(1));
+    const [original] = state.getMessages();
+
+    client.dispatchTypedEvent("message", responseEntry(1));
+    const [folded] = state.getMessages();
+
+    expect(folded).not.toBe(original);
+    expect(folded?.response).toBeDefined();
+    expect(original?.response).toBeUndefined();
+    expect(original?.duration).toBeUndefined();
+  });
+
+  it("drops a response whose request was evicted while it was pending", () => {
+    const capped = new MessageLogState(client, { maxMessages: 1 });
+    client.dispatchTypedEvent("message", requestEntry(1));
+    client.dispatchTypedEvent("message", requestEntry(2));
+    let fired = 0;
+    capped.addEventListener("messagesChange", () => {
+      fired++;
+    });
+
+    client.dispatchTypedEvent("message", responseEntry(1));
+
+    expect(fired).toBe(0);
+    expect(capped.getMessages().map((m) => m.id)).toEqual(["req-2"]);
+    capped.destroy();
+  });
+
   it("appends an unmatched response when no pending request exists", () => {
     client.dispatchTypedEvent("message", responseEntry(99));
     expect(state.getMessages()).toHaveLength(1);
@@ -254,6 +285,17 @@ describe("MessageLogState", () => {
       expect(seen).toHaveLength(1);
     });
 
+    it("replaces the annotated entry rather than mutating it", () => {
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", responseEntry(1));
+      const [before] = state.getMessages();
+
+      client.dispatchTypedEvent("responseRejected", { id: 1, reason: REASON });
+
+      expect(state.getMessages()[0]).not.toBe(before);
+      expect(before?.clientError).toBeUndefined();
+    });
+
     it("annotates a standalone response entry with no matching request", () => {
       client.dispatchTypedEvent("message", responseEntry(7));
       client.dispatchTypedEvent("responseRejected", { id: 7, reason: REASON });
@@ -342,6 +384,22 @@ describe("MessageLogState", () => {
 
       expect(fired).toBe(0);
       expect(state.getMessages()[0]?.clientError).toBeUndefined();
+    });
+
+    it("ignores a failure for a request evicted while it was pending", () => {
+      const capped = new MessageLogState(client, { maxMessages: 1 });
+      client.dispatchTypedEvent("message", requestEntry(1));
+      client.dispatchTypedEvent("message", requestEntry(2));
+      let fired = 0;
+      capped.addEventListener("messagesChange", () => {
+        fired++;
+      });
+
+      client.dispatchTypedEvent("requestFailed", { id: 1, reason: REASON });
+
+      expect(fired).toBe(0);
+      expect(capped.getMessages()[0]?.clientError).toBeUndefined();
+      capped.destroy();
     });
 
     it("stops listening once destroyed", () => {

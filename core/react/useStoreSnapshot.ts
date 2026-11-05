@@ -1,4 +1,5 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
+import { coalesce, type NotifyScheduler } from "./notifyScheduler.js";
 
 /**
  * The slice of a state store `useStoreSnapshot` needs, declared structurally
@@ -76,13 +77,33 @@ export interface SnapshotStore<E extends string> {
  * @param store       the state store, or `null` when no server is active
  * @param event       the store event that signals this value changed
  * @param read        reads the value out of a non-null store
+ * ## Coalescing (#2928)
+ *
+ * By default every dispatch notifies React, which renders synchronously. Pass
+ * a `schedule` (see `notifyScheduler.ts`) to collapse a burst of dispatches
+ * into one render — the log hooks do, because a log dispatches once per entry
+ * and its subscriber can be a whole page. Only the notification is deferred:
+ * `getSnapshot` still reads the live store, so the render that follows sees
+ * every entry. Like `read`, `schedule` must be referentially stable (module
+ * scope); a new one per render would resubscribe every render.
+ *
+ * @param store       the state store, or `null` when no server is active
+ * @param event       the store event that signals this value changed
+ * @param read        reads the value out of a non-null store
  * @param whenAbsent  the value to report while `store` is `null`
+ * @param schedule    optional; coalesces notifications instead of sending each
  */
 export function useStoreSnapshot<
   E extends string,
   S extends SnapshotStore<E>,
   V,
->(store: S | null, event: E, read: (store: S) => V, whenAbsent: V): V {
+>(
+  store: S | null,
+  event: E,
+  read: (store: S) => V,
+  whenAbsent: V,
+  schedule?: NotifyScheduler,
+): V {
   // One cache cell per hook instance. Written from `getSnapshot`, which React
   // calls during render — that is the documented shape for a cached
   // `getSnapshot`, and it is safe here because the cell is a pure memo of
@@ -99,12 +120,20 @@ export function useStoreSnapshot<
   const subscribe = useCallback(
     (onStoreChange: () => void) => {
       if (!store) return () => {};
-      store.addEventListener(event, onStoreChange);
+      if (!schedule) {
+        store.addEventListener(event, onStoreChange);
+        return () => {
+          store.removeEventListener(event, onStoreChange);
+        };
+      }
+      const { notify, cancel } = coalesce(onStoreChange, schedule);
+      store.addEventListener(event, notify);
       return () => {
-        store.removeEventListener(event, onStoreChange);
+        store.removeEventListener(event, notify);
+        cancel();
       };
     },
-    [store, event],
+    [store, event, schedule],
   );
 
   const getSnapshot = useCallback((): V => {
