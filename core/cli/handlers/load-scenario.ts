@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
-import type { StrictJsonValue } from "../../json/jsonUtils.js";
+import {
+  isSerializableJson,
+  type StrictJsonValue,
+} from "../../json/jsonUtils.js";
 import { CliExitCodeError, EXIT_CODES } from "../error-handler.js";
 
 /**
@@ -99,7 +102,14 @@ function optionalObject(
   if (!isObject(value)) {
     throw invalid(`${where}: "${key}" must be a JSON object.`);
   }
-  // Parsed from JSON text, so every value is already a strict JSON value.
+  // `JSON.parse` turns an overflowing number (`1e400`) into `Infinity`, which
+  // the next `JSON.stringify` — mcpdo's hand-off to its daemon — would send
+  // as `null`, quietly changing the request under test.
+  if (!isSerializableJson(value)) {
+    throw invalid(
+      `${where}: "${key}" holds a number JSON cannot represent (overflowing to Infinity).`,
+    );
+  }
   return value as LoadScenarioObject;
 }
 
@@ -125,7 +135,8 @@ function validateStep(raw: unknown, index: number): LoadScenarioStep {
   if (typeof target !== "string" || target.trim() === "") {
     throw invalid(`${where}: ${method} needs a non-empty "${targetKey}".`);
   }
-  const weight = raw.weight ?? 1;
+  // Defaulted only when absent: an explicit `null` is a malformed weight.
+  const weight = raw.weight === undefined ? 1 : raw.weight;
   if (typeof weight !== "number" || !Number.isFinite(weight) || weight <= 0) {
     throw invalid(`${where}: "weight" must be a positive number.`);
   }

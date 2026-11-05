@@ -146,6 +146,10 @@ describe("validateLoadScenario", () => {
       'step 1: "weight" must be a positive number.',
     ],
     [
+      [{ method: "tools/call", tool: "e", weight: null }],
+      'step 1: "weight" must be a positive number.',
+    ],
+    [
       [{ method: "tools/call", tool: "e", weight: "2" }],
       'step 1: "weight" must be a positive number.',
     ],
@@ -206,6 +210,15 @@ describe("parseLoadScenario / readLoadScenarioFile", () => {
     expect(usageError(() => parseLoadScenario("[]", "s.json")).message).toBe(
       "--load-scenario s.json: a scenario needs at least one step.",
     );
+  });
+
+  it("refuses args or meta holding a number that overflows to Infinity", () => {
+    for (const key of ["args", "meta"]) {
+      const text = `[{"method":"tools/call","tool":"e","${key}":{"n":[1e400]}}]`;
+      expect(usageError(() => parseLoadScenario(text, "s.json")).message).toBe(
+        `--load-scenario s.json: step 1: "${key}" holds a number JSON cannot represent (overflowing to Infinity).`,
+      );
+    }
   });
 
   it("reads a file, and reports one it cannot read", () => {
