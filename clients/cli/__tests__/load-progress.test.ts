@@ -137,6 +137,32 @@ describe("--load-interval (engine)", () => {
     expect(rows[2]!.latencyMs?.max).toBe(120);
   });
 
+  it("gives a sliver of a final bucket its real rate", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      async () => {
+        await clock.sleep(1000.001);
+        return "ok";
+      },
+      { concurrency: 1, requests: 1, intervalMs: 1000 },
+      clock,
+    );
+    const last = summary.intervals!.at(-1)!;
+    expect(last).toMatchObject({ startMs: 1000, requests: 1 });
+    expect(last.throughput).toBeGreaterThan(0);
+  });
+
+  it("builds no time series for the warm-up", async () => {
+    const clock = fakeClock();
+    const summary = await runLoad(
+      timedCall(clock, 10),
+      { concurrency: 1, durationMs: 100, warmupMs: 100, intervalMs: 50 },
+      clock,
+    );
+    // Only the measured window's two buckets, none for the warm-up.
+    expect(summary.intervals).toHaveLength(2);
+  });
+
   it("carries a time series per stage", async () => {
     const clock = fakeClock();
     const summary = await runLoad(

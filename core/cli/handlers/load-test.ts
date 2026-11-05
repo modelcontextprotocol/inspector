@@ -807,7 +807,14 @@ async function runWithWarmup(
 ): Promise<LoadSummary> {
   const warm = await runWindow(
     call,
-    { ...options, durationMs: warmupMs, requests: undefined },
+    // No time series either: the warm-up's buckets would be built only to be
+    // thrown away, at a cost that grows with the warm-up's length.
+    {
+      ...options,
+      durationMs: warmupMs,
+      requests: undefined,
+      intervalMs: undefined,
+    },
     clock,
     signal,
     undefined,
@@ -1189,9 +1196,12 @@ class IntervalSeries {
     );
     return Array.from({ length: count }, (_, i) => {
       const startMs = i * this.intervalMs;
+      // Unrounded for the rates: a call at 1000.001 ms in a 1000 ms series
+      // opens a bucket that rounding would shrink to nothing, zeroing its
+      // throughput. Only the reported offsets are rounded.
       const endMs = Math.max(
         startMs,
-        Math.min(startMs + this.intervalMs, round(elapsedMs)),
+        Math.min(startMs + this.intervalMs, elapsedMs),
       );
       const bucket = this.buckets[i] ?? new OutcomeStats(0);
       return {
