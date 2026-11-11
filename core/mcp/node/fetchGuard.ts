@@ -10,9 +10,11 @@
  *
  *  - **Scheme:** `http:` and `https:` only, on every hop.
  *  - **Destinations:** link-local and metadata addresses only —
- *    `169.254.0.0/16`, its IPv4-mapped IPv6 forms, `fe80::/10` and
- *    `fd00:ec2::254`. Loopback and RFC 1918 stay reachable on purpose: local
- *    and LAN MCP servers and authorization servers are legitimate targets.
+ *    `169.254.0.0/16`, the cloud metadata services that sit outside it
+ *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped IPv6 forms of all of
+ *    those, `fe80::/10` and `fd00:ec2::254` ({@link isBlockedAddress}).
+ *    Loopback, RFC 1918 and CGNAT space stay reachable on purpose: local and
+ *    LAN MCP servers and authorization servers are legitimate targets.
  *  - **Redirects:** followed here, with `redirect: "manual"`, so each hop is
  *    re-validated. The per-hop rewrite the fetch library used to do moves here
  *    with it ({@link nextRedirectRequest}).
@@ -104,13 +106,35 @@ const resolveWithSystemDns: ResolveHost = async (hostname) =>
 // ---------------------------------------------------------------------------
 
 /**
+ * Cloud instance-metadata services reachable at a fixed IPv4 address outside
+ * `169.254.0.0/16`. Matched exactly, against the dotted-quad form `isIP`
+ * accepts (which has no leading zeros, so each address has one spelling).
+ *
+ *  - `100.100.100.200`: Alibaba Cloud ECS metadata service
+ *  - `192.0.0.192`: Oracle Cloud Infrastructure Classic metadata service
+ */
+const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
+  "100.100.100.200",
+  "192.0.0.192",
+]);
+
+/**
  * Whether `ip` is a link-local or cloud-metadata address that a guarded fetch
  * must never reach.
  *
- *  - `169.254.0.0/16` (IPv4 link-local; includes the `169.254.169.254` IMDS)
- *  - `::ffff:169.254.x.x` in both its dotted and hex serializations
+ *  - `169.254.0.0/16` (IPv4 link-local; includes the `169.254.169.254`
+ *    metadata service of AWS, GCP, Azure, Oracle Cloud and most others)
+ *  - {@link METADATA_IPV4_ADDRESSES}: the metadata services that live at a
+ *    fixed address *outside* link-local, so the range above misses them
+ *  - `::ffff:` IPv4-mapped forms of every IPv4 address above, in both the
+ *    dotted and the hex serialization
  *  - `fe80::/10` (IPv6 link-local)
  *  - `fd00:ec2::254` (the AWS IPv6 IMDS)
+ *
+ * The out-of-range metadata addresses are blocked exactly, never by their
+ * enclosing range: `100.100.100.200` sits in `100.64.0.0/10`, the CGNAT block
+ * Tailscale also uses (its MagicDNS resolver is `100.100.100.100`), and a
+ * tailnet MCP or authorization server is as legitimate a target as a LAN one.
  *
  * Anything that is not an IP address returns `false`; names are resolved
  * before they are checked.
@@ -119,7 +143,7 @@ export function isBlockedAddress(ip: string): boolean {
   const kind = isIP(ip);
   if (kind === 4) {
     const [a, b] = ip.split(".").map(Number);
-    return a === 169 && b === 254;
+    return (a === 169 && b === 254) || METADATA_IPV4_ADDRESSES.has(ip);
   }
   if (kind !== 6) return false;
 

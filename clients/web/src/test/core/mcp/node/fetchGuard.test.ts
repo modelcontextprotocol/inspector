@@ -35,6 +35,14 @@ describe("isBlockedAddress", () => {
     "fe80::1",
     "FEBF::1",
     "fd00:ec2::254",
+    // Cloud metadata services outside 169.254.0.0/16, and their mapped forms.
+    "100.100.100.200",
+    "::ffff:100.100.100.200",
+    "::ffff:6464:64c8",
+    "::FFFF:6464:64C8",
+    "192.0.0.192",
+    "::ffff:192.0.0.192",
+    "::ffff:c000:c0",
   ])("blocks %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(true);
   });
@@ -52,6 +60,14 @@ describe("isBlockedAddress", () => {
     "fec0::1",
     "fd00:ec2::253",
     "example.com",
+    // CGNAT / Tailscale space stays reachable; only the exact metadata
+    // addresses inside it are blocked.
+    "100.100.100.100",
+    "100.100.100.201",
+    "100.64.0.1",
+    "::ffff:100.100.100.100",
+    "::ffff:6464:6464",
+    "192.0.0.193",
   ])("allows %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(false);
   });
@@ -215,6 +231,24 @@ describe("createPinningLookup", () => {
     expect(result.err?.message).toContain("169.254.169.254");
   });
 
+  it.each(["100.100.100.200", "::ffff:6464:64c8", "192.0.0.192"])(
+    "refuses a name that resolves to the metadata address %s",
+    async (address) => {
+      const result = await runLookup(async () => [address], true);
+      expect(result.err).toBeInstanceOf(FetchTargetError);
+      expect(result.err?.message).toContain(address);
+    },
+  );
+
+  it("passes a name that resolves to a Tailscale address", async () => {
+    const result = await runLookup(async () => ["100.100.100.100"], false);
+    expect(result).toEqual({
+      err: null,
+      address: "100.100.100.100",
+      family: 4,
+    });
+  });
+
   it("refuses an empty answer", async () => {
     const result = await runLookup(async () => [], true);
     expect(result.err).toBeInstanceOf(FetchTargetError);
@@ -342,6 +376,11 @@ describe("guardedFetch hop loop", () => {
     "http://[fe80::1]/",
     "http://[::ffff:169.254.169.254]/",
     "http://2852039166/",
+    "http://100.100.100.200/latest/meta-data/",
+    "http://[::ffff:100.100.100.200]/",
+    "http://[::ffff:6464:64c8]/",
+    "http://1684301000/",
+    "http://192.0.0.192/",
   ])("refuses the IP literal in %s", async (url) => {
     const hopFetch = scripted();
     await expect(guardedFetch(url, init(), { hopFetch })).rejects.toThrow(
@@ -355,6 +394,22 @@ describe("guardedFetch hop loop", () => {
     await guardedFetch("http://127.0.0.1:6274/", init(), { hopFetch });
     await guardedFetch("http://192.168.1.10/", init(), { hopFetch });
     expect(hopFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("allows a CGNAT / Tailscale literal next to a blocked metadata address", async () => {
+    const hopFetch = scripted(new Response("a"));
+    await guardedFetch("http://100.100.100.100/", init(), { hopFetch });
+    expect(hopFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a redirect to an out-of-range metadata address", async () => {
+    const hopFetch = scripted(
+      redirect(302, "http://100.100.100.200/latest/meta-data/"),
+    );
+    await expect(
+      guardedFetch("http://as.example/x", init(), { hopFetch }),
+    ).rejects.toThrow(FetchTargetError);
+    expect(hopFetch).toHaveBeenCalledTimes(1);
   });
 
   it("does not resolve a hostname itself when no proxy is in play", async () => {
@@ -481,6 +536,18 @@ describe("guardedFetch behind a proxy (best-effort hostname check)", () => {
         hopFetch,
         viaProxy,
         resolveHost: async () => ["169.254.169.254"],
+      }),
+    ).rejects.toThrow(FetchTargetError);
+    expect(hopFetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a hostname that resolves locally to an out-of-range metadata address", async () => {
+    const hopFetch = scripted();
+    await expect(
+      guardedFetch("http://metadata.test/", init(), {
+        hopFetch,
+        viaProxy,
+        resolveHost: async () => ["100.100.100.200"],
       }),
     ).rejects.toThrow(FetchTargetError);
     expect(hopFetch).not.toHaveBeenCalled();
