@@ -232,3 +232,39 @@ describe("correlatedFetchStatusById", () => {
     expect(correlatedFetchStatusById(messages, fetches).get("msg-1")).toBe(404);
   });
 });
+
+// #2928: every correlation re-scans the whole fetch log on every render, so
+// the body parses are memoized per entry. A cached answer must match a fresh
+// one, and a replaced entry (the log's way of filling in a body) is parsed
+// anew rather than answered from its predecessor's cache.
+describe("per-entry parse cache", () => {
+  it("answers a repeated scan the same as the first", () => {
+    const messages = [requestEntry(1)];
+    const fetches = [transportFetch(1, errorBody(-32601))];
+    const first = enrichProtocolEntries(messages, fetches);
+    const second = enrichProtocolEntries(messages, fetches);
+    expect(second).toEqual(first);
+    expect(revealableMessageIds(messages, fetches)).toEqual(
+      revealableMessageIds(messages, fetches),
+    );
+  });
+
+  it("re-parses an entry the log replaced with its response body", () => {
+    const messages = [requestEntry(1)];
+    const bodiless = transportFetch(1, undefined);
+    expect(enrichProtocolEntries(messages, [bodiless])).toBe(messages);
+
+    const withBody = { ...bodiless, responseBody: errorBody(-32601) };
+    const [out] = enrichProtocolEntries(messages, [withBody]);
+    expect(
+      out.response && "error" in out.response && out.response.error.code,
+    ).toBe(-32601);
+  });
+
+  it("caches a body with no JSON-RPC id as no id", () => {
+    const noId = transportFetch(1, undefined, { requestBody: "not json" });
+    const messages = [requestEntry(1)];
+    expect(revealableMessageIds(messages, [noId]).size).toBe(0);
+    expect(revealableMessageIds(messages, [noId]).size).toBe(0);
+  });
+});

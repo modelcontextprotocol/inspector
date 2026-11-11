@@ -40,13 +40,13 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 | Directory | Owns |
 | --- | --- |
 | `core/mcp/` | `InspectorClient`, transports, state stores, config import, URI templates, subscription/App-elicitation protocol helpers |
-| `core/mcp/node/` | Node stdio transport factory; `proxyFetch.ts` (the shared HTTPS_PROXY/NO_PROXY fetch); `fetchGuard.ts` (the OAuth destination guard every Node client and `/api/fetch` use) |
+| `core/mcp/node/` | Node stdio transport factory; `proxyFetch.ts` (the shared HTTPS_PROXY/NO_PROXY fetch); `fetchGuard.ts` (the OAuth destination guard every Node client and `/api/fetch` use; its browser-safe error and refusal reporting are `core/auth/fetchRefusal.ts`) |
 | `core/mcp/remote/` | Browser HTTP/SSE transport + remote logger/fetch, and (under `node/`) the Hono backend it talks to |
 | `core/mcp/state/` | The stores `core/react/` hooks read |
 | `core/auth/` | OAuth end to end — providers, discovery, storage, endpoint overrides, scopes, revocation, mid-session recovery — split into isomorphic logic plus `browser/`, `node/` and `remote/` backends |
 | `core/auth/node/` | Node OAuth storage + loopback callback server, **and** the `SecretStore` backends (keychain / file / memory) and their selection policy |
 | `core/extension/<name>/` | Host-side adapters for MCP extensions whose protocol an upstream SDK owns. `tasks/` wraps `@modelcontextprotocol/ext-tasks` with what that package leaves to its host: the raw `rawDispatch` channel, progress routing, error identity, and task-view conversions. `skills/` keeps what `@modelcontextprotocol/client/ext/skills` leaves to an inspector: permissive entry schemas (the SDK's refuse a non-conforming entry), the per-check conformance and verification report, and `SKILL.md` frontmatter parsing; constants, limits and the directory-read schema come from the SDK. Imports nothing from `InspectorClient`; host state arrives through narrow interfaces |
-| `core/cli/` | Node-only surface the one-shot CLI and `mcpdo` both run on (#2461): `error-handler` (exit codes, `CliExitCodeError`, the error envelope), the method handlers and their option/format types (`handlers/`), the interactive OAuth connect flow (`cliOAuth`, `cli-oauth-navigation`) and output helpers (`style`, `utils/awaitable-log`). One-shot-only output (`emit-result`, `consume-outcome`, `servers-write`, …) stays in `clients/cli/src` |
+| `core/cli/` | Node-only surface the one-shot CLI and `mcpdo` both run on (#2461): `error-handler` (re-exporting the exit codes, `CliExitCodeError` and the error envelope from the browser-safe `exit-codes`), the method handlers and their option/format types (`handlers/`), the interactive OAuth connect flow (`cliOAuth`, `cli-oauth-navigation`, and the `--oauth-debug` wiring in `oauth-debug`) and output helpers (`style`, `utils/awaitable-log`). One-shot-only output (`emit-result`, `consume-outcome`, `servers-write`, …) stays in `clients/cli/src` |
 | `core/client/` | Install-level client config (`client.json`): browser-safe parse plus Node load/save, remote backend, secrets, runner |
 | `core/json/` | JSON + parameter/argument conversion; the schema normalizations all three form builders share (nullable unions, root composition) and the tool-schema portability lint |
 | `core/react/` | React hooks over the state stores — consumed by both the web and TUI React trees. Every subscription reads its snapshot **during render** via `useSyncExternalStore` (#1955); `useStoreSnapshot.ts` caches the fresh-value-per-read getters |
@@ -58,7 +58,11 @@ an MCP server, the request/response lifecycle, and a set of state stores.
 published on its own. Its tests live in `clients/web/src/test/core/`, and its
 browser-consumed runtime is inside the web coverage gate. **`core/cli/` is the
 exception**: it is Node-only, its tests are `clients/cli/__tests__/`, and it is
-gated by `clients/cli`'s coverage run instead.
+gated by `clients/cli`'s coverage run instead. One part of it is browser-safe
+on purpose: the `--load` engine (`handlers/load-test.ts` and the `load-*`
+modules it imports, plus `exit-codes.ts`) also runs in the web client's load
+panel (#2911), so it imports no `node:` builtin — the file readers live apart in
+`handlers/load-files.ts`. Its coverage still comes from `clients/cli`.
 
 ## `clients/web/server/` — the Node backend
 

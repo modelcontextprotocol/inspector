@@ -7,7 +7,13 @@ import { PLAIN, type Style } from "@inspector/core/cli/style.js";
 import { isSafeLinkTarget } from "./sanitize.js";
 import { parseFormSchema } from "./form-schema.js";
 import type { ElicitationPendingInfo } from "../daemon/protocol.js";
-import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
+// The load summary formatter moved to core (#2838) so the one-shot CLI
+// prints the same text; re-exported for this client's existing callers.
+export { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
+import {
+  accessTokenDetailLines,
+  type AccessTokenSummary,
+} from "@inspector/core/auth/accessTokenClaims.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -521,6 +527,41 @@ export function formatAuthListHuman(
   return lines.join("\n");
 }
 
+/**
+ * Format auth/show (#2845): the stored access token's decoded claims, never the
+ * token itself. Wording is shared with the TUI Auth tab via
+ * `accessTokenDetailLines`.
+ */
+export function formatAuthShowHuman(
+  result: {
+    url: string;
+    hasTokens: boolean;
+    hasRefreshToken: boolean;
+    accessToken?: AccessTokenSummary;
+    shownByName?: string;
+  },
+  nowMs: number,
+  style: Style = PLAIN,
+): string {
+  const title = `${heading(style, "Stored auth")} ${code(style, result.url)}${
+    result.shownByName ? style.dim(` (${result.shownByName})`) : ""
+  }`;
+  if (!result.hasTokens || !result.accessToken) {
+    return [title, style.dim("No stored access token.")].join("\n");
+  }
+  const rows = accessTokenDetailLines(result.accessToken, nowMs);
+  const width = Math.max(...rows.map((r) => r.label.length));
+  return [
+    title,
+    ...rows.map(
+      (r) => `  ${style.dim(`${r.label}:`.padEnd(width + 1))} ${r.value}`,
+    ),
+    `  ${style.dim("Refresh:".padEnd(width + 1))} ${
+      result.hasRefreshToken ? "stored" : "none"
+    }`,
+  ].join("\n");
+}
+
 /** Format auth/ema-status. */
 export function formatEmaStatusHuman(
   status: {
@@ -973,91 +1014,6 @@ export function formatStreamEventHuman(
     return `[${colorLevel(style, level)}]${logger} ${text}`;
   }
   return JSON.stringify(ev, null, 2);
-}
-
-/**
- * `tools/call --load` summary (#2744): the run's shape, its outcome counts,
- * the latency distribution, and the most frequent thrown messages. Every
- * figure is also in `--format json`, which is the form to script against.
- */
-export function formatLoadSummaryHuman(
-  summary: LoadSummary,
-  style: Style = PLAIN,
-): string {
-  const tool =
-    summary.tool !== undefined ? ` ${code(style, summary.tool)}` : "";
-  const bounds = [
-    `concurrency ${summary.concurrency}`,
-    ...(summary.durationMs !== undefined
-      ? [`duration ${summary.durationMs / 1000}s`]
-      : []),
-    ...(summary.requestLimit !== undefined
-      ? [`limit ${summary.requestLimit}`]
-      : []),
-    ...(summary.rate !== undefined ? [`rate ${summary.rate}/s`] : []),
-  ];
-  const failed = summary.toolErrors + summary.errors;
-  const rate = `${(summary.errorRate * 100).toFixed(2)}%`;
-  const lines = [
-    `${heading(style, "Load test")}${tool} ${style.dim(`(${bounds.join(", ")})`)}`,
-    `  Requests:   ${summary.requests} in ${(summary.elapsedMs / 1000).toFixed(2)}s (${summary.throughput}/s, ${summary.okThroughput}/s ok)`,
-    `  Outcomes:   ${style.green(`${summary.ok} ok`)}, ${summary.toolErrors} tool errors, ${summary.errors} errors`,
-    `  Error rate: ${failed > 0 ? style.red(rate) : rate}`,
-  ];
-  // `--load-rate` only (#2837): the planned starts the run missed.
-  if (summary.plannedStarts !== undefined) {
-    const dropped = `${summary.droppedSlots} dropped`;
-    lines.push(
-      `  Rate:       ${summary.achievedRate}/s achieved; ${summary.plannedStarts} planned, ${summary.droppedSlots! > 0 ? style.red(dropped) : dropped}`,
-    );
-  }
-  const l = summary.latencyMs;
-  lines.push(
-    l === null
-      ? `  Latency:    ${style.dim("no calls succeeded")}`
-      : `  Latency:    min ${l.min} / mean ${l.mean} / p50 ${l.p50} / p90 ${l.p90} / p99 ${l.p99} / max ${l.max} ms`,
-  );
-  // Failures are timed apart from successes (#2836).
-  const e = summary.errorLatencyMs;
-  if (e !== null) {
-    lines.push(
-      `  Failed in:  min ${e.min} / mean ${e.mean} / p50 ${e.p50} / p90 ${e.p90} / p99 ${e.p99} / max ${e.max} ms`,
-    );
-  }
-  if (summary.errorMessages.length > 0) {
-    lines.push(`  ${style.bold("Top errors:")}`);
-    for (const { message, count } of summary.errorMessages) {
-      lines.push(`    ${count}× ${message}`);
-    }
-  }
-  if (summary.toolErrorMessages.length > 0) {
-    lines.push(`  ${style.bold("Top tool errors:")}`);
-    for (const { message, count } of summary.toolErrorMessages) {
-      lines.push(`    ${count}× ${message}`);
-    }
-  }
-  if (summary.stoppedEarly !== undefined) {
-    lines.push(
-      `  ${style.red("Stopped early")} (${summary.stoppedEarly.reason}): ${summary.stoppedEarly.detail}`,
-    );
-  }
-  // `--load-connections` above 1 (#2800). Connect failures are not call
-  // errors, so they are listed under this line rather than "Top errors".
-  const c = summary.connections;
-  if (c !== undefined) {
-    const failed = `${c.failed} failed`;
-    const connect =
-      c.connectMs === null
-        ? ""
-        : ` (connect p50 ${c.connectMs.p50} / max ${c.connectMs.max} ms)`;
-    lines.push(
-      `  Sessions:   ${c.opened} of ${c.requested} opened, ${c.failed > 0 ? style.red(failed) : failed}${connect}`,
-    );
-    for (const { message, count } of c.errorMessages) {
-      lines.push(`    ${count}× ${message}`);
-    }
-  }
-  return lines.join("\n");
 }
 
 /**

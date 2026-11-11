@@ -119,6 +119,7 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 - One `InspectorClient` per named connection; auto-spawn on first need; idle exit ~60s after last disconnect **or** after a connection-less spawn with no successful connect; `daemon stop` tears down immediately.
 - Socket/lock mode `0600` (best-effort). Config (incl. secrets) over IPC after listen — not on daemon argv.
+- **The client authenticates the daemon before trusting it.** Every IPC connection opens with `hello { nonce }` (32 random bytes); the daemon answers with HMAC-SHA256 over the nonce keyed by its token (`computeDaemonProof`). The client sends its token and the request only after verifying that proof, and sends nothing at all when it has no token to verify with. The token alone authenticated only the client to the daemon; on Windows the daemon's named pipe lives in a machine-wide namespace, so the endpoint name proves nothing about who answers it. `hello` is the one op the daemon answers without a token, and its answer reveals nothing about the token. A daemon from a release without `hello` fails the check (`daemon_unverified`); end its `mcpdod` process.
 - Errors that are not already `CliExitCodeError` go through `classifyError` (exit-code parity with one-shot).
 
 | Context                    | Path                                                                                                                      |
@@ -130,7 +131,7 @@ Anything else (e.g. `logging/tail`, `resources/subscribe`, `tasks/*`, `roots/*`)
 
 | Mode                 | Trust                                                                                                                                                                                                                                               |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Shared (default)** | Auto-generated token, published to `mcpdod.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path.                          |
+| **Shared (default)** | Auto-generated token, published to `mcpdod.token` (0600) in the daemon dir (0700). Same-UID peer that can read the dir can drive connections (intentional cross-terminal share); there is no unauthenticated request path other than the `hello` proof above. |
 | **Private**          | `eval "$(mcpdo private)"` exports `MCP_INSPECTOR_DAEMON_DIR` + `MCP_INSPECTOR_DAEMON_TOKEN`. Daemon requires the token on every request. OAuth store remains shared unless the user also sets `MCP_STORAGE_DIR`. Daemon starts lazily on first IPC. |
 
 #### Auth (connection)

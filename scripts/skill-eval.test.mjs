@@ -381,6 +381,11 @@ test("runPrompt keeps the run read-only across every turn", () => {
   // `Task` in particular, whose subagent this flag does not reach.
   let denied;
   runPrompt("p", {
+    // The argument LIST is the subject, not its quoting: on win32 each value
+    // is `cmd.exe`-quoted (`"Bash,Write,…"`), which claude-cli.test.mjs pins
+    // on its own. Fixing the platform keeps this assertion the same on every
+    // host (#2748).
+    platform: "linux",
     spawnFn: (_c, args) => {
       denied = args[args.indexOf("--disallowedTools") + 1].split(",");
       const c = new EventEmitter();
@@ -402,6 +407,11 @@ test("runPrompt bounds the run by what it needs, not only by what it forbids", (
   // turns those can reach the network or mutate state.
   let args;
   runPrompt("p", {
+    // The argument LIST is the subject, not its quoting: on win32 each value
+    // is `cmd.exe`-quoted (`"Bash,Write,…"`), which claude-cli.test.mjs pins
+    // on its own. Fixing the platform keeps this assertion the same on every
+    // host (#2748).
+    platform: "linux",
     spawnFn: (_c, a) => {
       args = a;
       const c = new EventEmitter();
@@ -1138,7 +1148,11 @@ test("runPrompt: spawned agent env is minimal plus the caller's overlay", async 
     });
     assert.ok(!("SKILL_EVAL_TEST_SECRET" in seen));
     assert.equal(seen.MCPDO_EVAL_LOG, "/tmp/x");
-    assert.equal(seen.PATH, process.env.PATH);
+    // Looked up case-insensitively: Windows spells it `Path`, and only
+    // `process.env` itself (not the plain copy handed to spawn) folds case
+    // (#2748). The mixed-case test above pins that the spelling survives.
+    const pathKey = Object.keys(seen).find((k) => k.toUpperCase() === "PATH");
+    assert.equal(pathKey && seen[pathKey], process.env.PATH);
   } finally {
     delete process.env.SKILL_EVAL_TEST_SECRET;
   }

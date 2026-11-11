@@ -36,6 +36,14 @@ import {
 } from "@inspector/core/auth/node/secret-store.js";
 import type { SecretStorageInfo } from "@inspector/core/auth/secret-storage-info.js";
 
+// Skipped on win32 by name (#2748), each for a POSIX-only premise:
+// - `isOnMountPoint` answers a Linux-container question
+//   (`/proc/self/mountinfo`, `st_dev` against `/`) and only matters when
+//   `isContainer()` is true; these cases feed it POSIX mount tables.
+// - the descriptor cases assert caveats that sit behind POSIX mode bits; on
+//   Windows the permissions are unverifiable, and that caveat comes first.
+const posixOnly = process.platform === "win32";
+
 const ENV_KEYS = [
   "MCP_INSPECTOR_SECRET_STORE",
   "MCP_INSPECTOR_SECRET_FILE",
@@ -254,16 +262,19 @@ describe("isContainer", () => {
 });
 
 describe("isOnMountPoint", () => {
-  it("is false for an ordinary directory", () => {
+  it.skipIf(posixOnly)("is false for an ordinary directory", () => {
     expect(isOnMountPoint(tmpDir)).toBe(false);
   });
 
-  it("is false for a path that doesn't exist yet, walking to its parent", () => {
-    // The first-run shape: `~/.mcp-inspector` has not been created. Answering
-    // from the nearest existing ancestor is what keeps this from being a
-    // missing-file error at startup.
-    expect(isOnMountPoint(path.join(tmpDir, "nope", "deeper"))).toBe(false);
-  });
+  it.skipIf(posixOnly)(
+    "is false for a path that doesn't exist yet, walking to its parent",
+    () => {
+      // The first-run shape: `~/.mcp-inspector` has not been created. Answering
+      // from the nearest existing ancestor is what keeps this from being a
+      // missing-file error at startup.
+      expect(isOnMountPoint(path.join(tmpDir, "nope", "deeper"))).toBe(false);
+    },
+  );
 
   it("is false when the path itself can't be resolved", () => {
     // A NUL byte makes `path.resolve` throw. Any failure to answer the
@@ -323,7 +334,7 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
   const line = (point: string) =>
     `36 35 0:32 / ${point} rw,relatime - overlay overlay rw`;
 
-  it("follows a symlink into a mounted volume", async () => {
+  it.skipIf(posixOnly)("follows a symlink into a mounted volume", async () => {
     // Round 13: the comparison is a string prefix over a *lexical* path, so
     // `~/.mcp-inspector -> /data/inspector` with `/data` mounted matched no
     // mount point, read as the container's writable layer, and silently
@@ -337,15 +348,18 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
     expect(mod.isOnMountPoint("/home/node/.mcp-inspector")).toBe(true);
   });
 
-  it("still answers lexically when the path cannot be resolved", async () => {
-    // `realpathSync` throwing must not turn a mounted directory into an
-    // unmounted one — the lexical answer is correct whenever no symlink is
-    // involved, which is the overwhelming majority.
-    const mod = await loadWithMounts(line("/data"), ["/data/inspector"], {});
-    // `/data/inspector` exists but resolving it throws in this stub only for
-    // paths outside `existing`; this asserts the ordinary path still works.
-    expect(mod.isOnMountPoint("/data/inspector")).toBe(true);
-  });
+  it.skipIf(posixOnly)(
+    "still answers lexically when the path cannot be resolved",
+    async () => {
+      // `realpathSync` throwing must not turn a mounted directory into an
+      // unmounted one — the lexical answer is correct whenever no symlink is
+      // involved, which is the overwhelming majority.
+      const mod = await loadWithMounts(line("/data"), ["/data/inspector"], {});
+      // `/data/inspector` exists but resolving it throws in this stub only for
+      // paths outside `existing`; this asserts the ordinary path still works.
+      expect(mod.isOnMountPoint("/data/inspector")).toBe(true);
+    },
+  );
 
   it("does not call a tmpfs mount durable", async () => {
     // `docker run --tmpfs /home/node/.mcp-inspector` puts a real entry in
@@ -368,17 +382,20 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
     expect(mod.isOnMountPoint("/data")).toBe(false);
   });
 
-  it("reads the fstype after the optional-fields separator, not by position", async () => {
-    // mountinfo carries a variable number of optional fields before ` - `,
-    // so the type cannot be indexed positionally. This line has two.
-    const mod = await loadWithMounts(
-      "36 35 0:32 / /data rw,relatime shared:1 master:2 - ext4 /dev/sda1 rw",
-      ["/data"],
-    );
-    expect(mod.isOnMountPoint("/data")).toBe(true);
-  });
+  it.skipIf(posixOnly)(
+    "reads the fstype after the optional-fields separator, not by position",
+    async () => {
+      // mountinfo carries a variable number of optional fields before ` - `,
+      // so the type cannot be indexed positionally. This line has two.
+      const mod = await loadWithMounts(
+        "36 35 0:32 / /data rw,relatime shared:1 master:2 - ext4 /dev/sda1 rw",
+        ["/data"],
+      );
+      expect(mod.isOnMountPoint("/data")).toBe(true);
+    },
+  );
 
-  it("sees a directory that IS the mount point", async () => {
+  it.skipIf(posixOnly)("sees a directory that IS the mount point", async () => {
     const mod = await loadWithMounts(
       [line("/"), line("/home/node/.mcp-inspector")].join("\n"),
       ["/home/node/.mcp-inspector"],
@@ -386,7 +403,7 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
     expect(mod.isOnMountPoint("/home/node/.mcp-inspector")).toBe(true);
   });
 
-  it("sees a directory INSIDE a mounted volume", async () => {
+  it.skipIf(posixOnly)("sees a directory INSIDE a mounted volume", async () => {
     // The case a device-boundary test gets wrong: the volume is at
     // /home/node, so .mcp-inspector is an ordinary subdirectory sharing its
     // parent's device. Judging it unmounted demotes a durable setup to
@@ -415,7 +432,7 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
     expect(mod.isOnMountPoint("/home/node-2/.mcp-inspector")).toBe(false);
   });
 
-  it("decodes a space-escaped mount point", async () => {
+  it.skipIf(posixOnly)("decodes a space-escaped mount point", async () => {
     const mod = await loadWithMounts(
       [line("/"), line("/mnt/my\\040volume")].join("\n"),
       ["/mnt/my volume/secrets"],
@@ -423,24 +440,30 @@ describe("isOnMountPoint via /proc/self/mountinfo", () => {
     expect(mod.isOnMountPoint("/mnt/my volume/secrets")).toBe(true);
   });
 
-  it("answers from the nearest existing ancestor, not the missing leaf", async () => {
-    // First run: the secrets directory has not been created inside the
-    // mounted volume yet.
-    const mod = await loadWithMounts(
-      [line("/"), line("/home/node")].join("\n"),
-      ["/home/node"],
-    );
-    expect(mod.isOnMountPoint("/home/node/.mcp-inspector")).toBe(true);
-  });
+  it.skipIf(posixOnly)(
+    "answers from the nearest existing ancestor, not the missing leaf",
+    async () => {
+      // First run: the secrets directory has not been created inside the
+      // mounted volume yet.
+      const mod = await loadWithMounts(
+        [line("/"), line("/home/node")].join("\n"),
+        ["/home/node"],
+      );
+      expect(mod.isOnMountPoint("/home/node/.mcp-inspector")).toBe(true);
+    },
+  );
 
-  it("falls back to the device comparison where mountinfo is unreadable", async () => {
-    // macOS, Windows, or a /proc-less container. The fallback compares
-    // against `/` rather than the immediate parent, so a subdirectory of a
-    // mount is still recognized — but a real path is needed for `stat`, so
-    // this only asserts it does not throw and answers the ordinary case.
-    const mod = await loadWithMounts(null, [tmpDir]);
-    expect(mod.isOnMountPoint(tmpDir)).toBe(false);
-  });
+  it.skipIf(posixOnly)(
+    "falls back to the device comparison where mountinfo is unreadable",
+    async () => {
+      // macOS, Windows, or a /proc-less container. The fallback compares
+      // against `/` rather than the immediate parent, so a subdirectory of a
+      // mount is still recognized — but a real path is needed for `stat`, so
+      // this only asserts it does not throw and answers the ordinary case.
+      const mod = await loadWithMounts(null, [tmpDir]);
+      expect(mod.isOnMountPoint(tmpDir)).toBe(false);
+    },
+  );
 });
 
 describe("warnAboutSecretStorage", () => {
@@ -1392,31 +1415,34 @@ describe("absorbFileSecretsIntoKeyring", () => {
 });
 
 describe("the descriptor refuses to guess an unreadable file's encryption", () => {
-  it("reports encryptionUnknown instead of falling back to the write policy", async () => {
-    // With a passphrase configured, the old fallback claimed "File
-    // (encrypted)" about a file whose envelope had never been parsed — and
-    // which `set` was about to refuse rather than overwrite.
-    const filePath = path.join(tmpDir, "secrets.json");
-    process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
-    process.env.MCP_INSPECTOR_SECRET_STORE = "file";
-    process.env.MCP_INSPECTOR_SECRET_KEY = "hunter2";
-    await fs.writeFile(filePath, "{ not json", "utf-8");
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it.skipIf(posixOnly)(
+    "reports encryptionUnknown instead of falling back to the write policy",
+    async () => {
+      // With a passphrase configured, the old fallback claimed "File
+      // (encrypted)" about a file whose envelope had never been parsed — and
+      // which `set` was about to refuse rather than overwrite.
+      const filePath = path.join(tmpDir, "secrets.json");
+      process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
+      process.env.MCP_INSPECTOR_SECRET_STORE = "file";
+      process.env.MCP_INSPECTOR_SECRET_KEY = "hunter2";
+      await fs.writeFile(filePath, "{ not json", "utf-8");
+      vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const mod = await loadWithProbe(false);
-    const info = await mod.getSecretStorageInfo();
+      const mod = await loadWithProbe(false);
+      const info = await mod.getSecretStorageInfo();
 
-    expect(info.encryptionUnknown).toBe("not valid JSON");
-    // No half-answer left for a consumer to read a default out of.
-    expect(info.plaintext).toBeUndefined();
-    expect(info.pendingEncryption).toBeUndefined();
+      expect(info.encryptionUnknown).toBe("not valid JSON");
+      // No half-answer left for a consumer to read a default out of.
+      expect(info.plaintext).toBeUndefined();
+      expect(info.pendingEncryption).toBeUndefined();
 
-    const { secretStorageLabel, secretStorageCaveat, secretStorageTone } =
-      await import("@inspector/core/auth/secret-storage-info.js");
-    expect(secretStorageLabel(info)).toBe("File (unreadable)");
-    expect(secretStorageTone(info)).toBe("warn");
-    expect(secretStorageCaveat(info)).toMatch(/Saving a secret will fail/);
-  });
+      const { secretStorageLabel, secretStorageCaveat, secretStorageTone } =
+        await import("@inspector/core/auth/secret-storage-info.js");
+      expect(secretStorageLabel(info)).toBe("File (unreadable)");
+      expect(secretStorageTone(info)).toBe("warn");
+      expect(secretStorageCaveat(info)).toMatch(/Saving a secret will fail/);
+    },
+  );
 
   it("still uses the write policy when there is genuinely no file", async () => {
     // The control: `absent` is the one state where reporting the policy is
@@ -1486,101 +1512,107 @@ describe("the descriptor reports a mode it could not verify", () => {
 });
 
 describe("the descriptor reports a mode it could not tighten", () => {
-  it("carries looseMode into the descriptor, and the caveat states the mode", async () => {
-    // Reaching this state at all requires the chmod to *fail*: as the file's
-    // owner you cannot stage it, because `tightenSecretFilePermissions`
-    // repairs a 0644 file to 0600 during selection and the descriptor then
-    // correctly reports owner-only. It is only real for a file owned by
-    // another user or on a read-only mount — hence the mocked chmod, which
-    // is standing in for a privilege we cannot drop inside a test.
-    //
-    // The warning is asserted through the *caveat* path deliberately.
-    // Selection used to warn here too, and that line was removed in round 7
-    // for being encryption-blind and duplicating this one — so asserting the
-    // caveat text is what keeps this test pinned to the surviving mechanism
-    // rather than passing on whichever line happens to mention the mode.
-    const filePath = path.join(tmpDir, "secrets.json");
-    process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
-    process.env.MCP_INSPECTOR_SECRET_STORE = "file";
-    await fs.writeFile(
-      filePath,
-      JSON.stringify({ version: 1, encryption: "none", secrets: {} }),
-      "utf-8",
-    );
-    await fs.chmod(filePath, 0o644);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    vi.resetModules();
-    vi.doMock("node:fs/promises", async () => {
-      const actual =
-        await vi.importActual<typeof import("node:fs/promises")>(
-          "node:fs/promises",
-        );
-      return {
-        ...actual,
-        default: actual,
-        chmod: vi.fn(() =>
-          Promise.reject(new Error("EPERM: operation not permitted")),
-        ),
-      };
-    });
-    vi.doMock("@inspector/core/auth/node/secret-store.js", async () => {
-      const actual = await vi.importActual<
-        typeof import("@inspector/core/auth/node/secret-store.js")
-      >("@inspector/core/auth/node/secret-store.js");
-      return {
-        ...actual,
-        probeKeyringAvailable: vi.fn(async () => ({ available: true })),
-      };
-    });
-    try {
-      const mod =
-        await import("@inspector/core/auth/node/secret-store-selection.js");
-      const info = await mod.getSecretStorageInfo();
-      expect(info.looseMode).toBe(0o644);
-      // The plaintext wording, in full: this file is unencrypted, so a
-      // reader really does get the secrets.
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining(
-          "mode 0644, not 0600, and could not be tightened — anyone who can read it can read the secrets in it",
-        ),
+  it.skipIf(posixOnly)(
+    "carries looseMode into the descriptor, and the caveat states the mode",
+    async () => {
+      // Reaching this state at all requires the chmod to *fail*: as the file's
+      // owner you cannot stage it, because `tightenSecretFilePermissions`
+      // repairs a 0644 file to 0600 during selection and the descriptor then
+      // correctly reports owner-only. It is only real for a file owned by
+      // another user or on a read-only mount — hence the mocked chmod, which
+      // is standing in for a privilege we cannot drop inside a test.
+      //
+      // The warning is asserted through the *caveat* path deliberately.
+      // Selection used to warn here too, and that line was removed in round 7
+      // for being encryption-blind and duplicating this one — so asserting the
+      // caveat text is what keeps this test pinned to the surviving mechanism
+      // rather than passing on whichever line happens to mention the mode.
+      const filePath = path.join(tmpDir, "secrets.json");
+      process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
+      process.env.MCP_INSPECTOR_SECRET_STORE = "file";
+      await fs.writeFile(
+        filePath,
+        JSON.stringify({ version: 1, encryption: "none", secrets: {} }),
+        "utf-8",
       );
-    } finally {
-      vi.doUnmock("node:fs/promises");
-      vi.doUnmock("@inspector/core/auth/node/secret-store.js");
+      await fs.chmod(filePath, 0o644);
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
       vi.resetModules();
-    }
-  });
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises",
+          );
+        return {
+          ...actual,
+          default: actual,
+          chmod: vi.fn(() =>
+            Promise.reject(new Error("EPERM: operation not permitted")),
+          ),
+        };
+      });
+      vi.doMock("@inspector/core/auth/node/secret-store.js", async () => {
+        const actual = await vi.importActual<
+          typeof import("@inspector/core/auth/node/secret-store.js")
+        >("@inspector/core/auth/node/secret-store.js");
+        return {
+          ...actual,
+          probeKeyringAvailable: vi.fn(async () => ({ available: true })),
+        };
+      });
+      try {
+        const mod =
+          await import("@inspector/core/auth/node/secret-store-selection.js");
+        const info = await mod.getSecretStorageInfo();
+        expect(info.looseMode).toBe(0o644);
+        // The plaintext wording, in full: this file is unencrypted, so a
+        // reader really does get the secrets.
+        expect(warn).toHaveBeenCalledWith(
+          expect.stringContaining(
+            "mode 0644, not 0600, and could not be tightened — anyone who can read it can read the secrets in it",
+          ),
+        );
+      } finally {
+        vi.doUnmock("node:fs/promises");
+        vi.doUnmock("@inspector/core/auth/node/secret-store.js");
+        vi.resetModules();
+      }
+    },
+  );
 });
 
 describe("the descriptor reports the file, not the write policy", () => {
-  it("says plaintext while a pre-existing plaintext file is only *going* to be encrypted", async () => {
-    // The transitional state: the passphrase is set, so the next write will
-    // encrypt, but the bytes on disk are still readable. Reporting "File
-    // (encrypted)" here is the one false reassurance this subsystem exists to
-    // avoid.
-    const filePath = path.join(tmpDir, "secrets.json");
-    process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
-    process.env.MCP_INSPECTOR_SECRET_STORE = "file";
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  it.skipIf(posixOnly)(
+    "says plaintext while a pre-existing plaintext file is only *going* to be encrypted",
+    async () => {
+      // The transitional state: the passphrase is set, so the next write will
+      // encrypt, but the bytes on disk are still readable. Reporting "File
+      // (encrypted)" here is the one false reassurance this subsystem exists to
+      // avoid.
+      const filePath = path.join(tmpDir, "secrets.json");
+      process.env.MCP_INSPECTOR_SECRET_FILE = filePath;
+      process.env.MCP_INSPECTOR_SECRET_STORE = "file";
+      vi.spyOn(console, "warn").mockImplementation(() => {});
 
-    const plain = await loadWithProbe(false);
-    await plain.defaultSecretStore().set("alpha", "env:A", "1");
+      const plain = await loadWithProbe(false);
+      await plain.defaultSecretStore().set("alpha", "env:A", "1");
 
-    // Same file, now with a passphrase configured.
-    process.env.MCP_INSPECTOR_SECRET_KEY = "hunter2";
-    const withKey = await loadWithProbe(false);
-    const info = await withKey.getSecretStorageInfo();
-    expect(info.plaintext).toBe(true);
-    expect(info.pendingEncryption).toBe(true);
+      // Same file, now with a passphrase configured.
+      process.env.MCP_INSPECTOR_SECRET_KEY = "hunter2";
+      const withKey = await loadWithProbe(false);
+      const info = await withKey.getSecretStorageInfo();
+      expect(info.plaintext).toBe(true);
+      expect(info.pendingEncryption).toBe(true);
 
-    // And the advice changes with it: telling someone to set a passphrase
-    // they have already set is worse than saying nothing.
-    const { secretStorageCaveat, secretStorageLabel } =
-      await import("@inspector/core/auth/secret-storage-info.js");
-    expect(secretStorageLabel(info)).toBe("File (unencrypted)");
-    expect(secretStorageCaveat(info)).toMatch(/next time a secret is saved/);
-  });
+      // And the advice changes with it: telling someone to set a passphrase
+      // they have already set is worse than saying nothing.
+      const { secretStorageCaveat, secretStorageLabel } =
+        await import("@inspector/core/auth/secret-storage-info.js");
+      expect(secretStorageLabel(info)).toBe("File (unencrypted)");
+      expect(secretStorageCaveat(info)).toMatch(/next time a secret is saved/);
+    },
+  );
 
   it("says encrypted once the upgrading write has actually landed", async () => {
     const filePath = path.join(tmpDir, "secrets.json");

@@ -14,7 +14,7 @@ import {
   type MantineTransition,
 } from "@mantine/core";
 import type { Implementation } from "@modelcontextprotocol/client";
-import { MdLightMode, MdDarkMode, MdSettings } from "react-icons/md";
+import { MdLightMode, MdDarkMode, MdLan, MdSettings } from "react-icons/md";
 import { VscDebugDisconnect } from "react-icons/vsc";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import { ServerStatusIndicator } from "../../elements/ServerStatusIndicator/ServerStatusIndicator";
@@ -40,6 +40,8 @@ interface ConnectedProps {
   onDisconnect: () => void;
   onToggleTheme: () => void;
   onOpenClientSettings: () => void;
+  /** Opens the backend's active session list (#2831). */
+  onOpenActiveSessions: () => void;
   /** Monitoring-sidebar toggle, shown to the right of the theme icon. */
   monitorToggle?: MonitoringToggleProps;
 }
@@ -48,6 +50,8 @@ interface UnconnectedProps {
   connected: false;
   onToggleTheme: () => void;
   onOpenClientSettings: () => void;
+  /** Opens the backend's active session list (#2831). */
+  onOpenActiveSessions: () => void;
   /** Monitoring-sidebar toggle, shown to the right of the theme icon. */
   monitorToggle?: MonitoringToggleProps;
 }
@@ -190,6 +194,12 @@ const DisconnectIcon = ActionIcon.withProps({
   variant: "subtle",
   size: 36,
   "aria-label": "Disconnect from server",
+});
+
+const ActiveSessionsToggle = ActionIcon.withProps({
+  variant: "subtle",
+  size: 36,
+  "aria-label": "Active sessions",
 });
 
 const ClientSettingsToggle = ActionIcon.withProps({
@@ -417,6 +427,11 @@ export function ViewHeader(props: ViewHeaderProps) {
             )
           }
         </Transition>
+        <Tooltip label="Active sessions">
+          <ActiveSessionsToggle onClick={props.onOpenActiveSessions}>
+            <MdLan size={20} />
+          </ActiveSessionsToggle>
+        </Tooltip>
         <Tooltip label="Client settings">
           <ClientSettingsToggle onClick={props.onOpenClientSettings}>
             <MdSettings size={20} />

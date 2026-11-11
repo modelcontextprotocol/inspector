@@ -195,6 +195,70 @@ describe("auth-helper", () => {
       });
     });
 
+    it("relays fetch_refused events as sanitized warnings before the URL (#2905)", async () => {
+      const script = writeHelperScript(`
+        process.stdin.resume();
+        process.stdin.on("end", () => {
+          process.stdout.write(
+            JSON.stringify({
+              event: "fetch_refused",
+              url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+              reason: "Refusing to fetch from a link-local or metadata address\\u001b[2J",
+            }) + "\\n" +
+            JSON.stringify({ event: "fetch_refused", url: 42 }) + "\\n" +
+            JSON.stringify({ event: "auth_url", url: "https://as.example/after-refusal" }) + "\\n",
+          );
+        });
+      `);
+      const order: string[] = [];
+      const url = await obtainPendingAuthUrl(
+        { type: "streamable-http", url: SERVER_URL },
+        undefined,
+        {
+          helperArgv1: script,
+          warningSink: (line) => order.push(line),
+        },
+      ).then((u) => {
+        order.push(`url:${u}`);
+        return u;
+      });
+      expect(url).toBe("https://as.example/after-refusal");
+      // The malformed event is dropped; the control sequence is made visible.
+      expect(order).toEqual([
+        "Warning: Refused to fetch http://169.254.169.254/.well-known/oauth-authorization-server: Refusing to fetch from a link-local or metadata address\u241b[2J\n",
+        "url:https://as.example/after-refusal",
+      ]);
+    });
+
+    it("relays fetch_refused warnings ahead of a helper error (#2905)", async () => {
+      const script = writeHelperScript(`
+        process.stdin.resume();
+        process.stdin.on("end", () => {
+          process.stdout.write(
+            JSON.stringify({
+              event: "fetch_refused",
+              url: "http://169.254.169.254/x",
+              reason: "metadata address",
+            }) + "\\n" +
+            JSON.stringify({ event: "error", message: "DCR 401" }) + "\\n",
+          );
+        });
+      `);
+      const lines: string[] = [];
+      await expect(
+        obtainPendingAuthUrl(
+          { type: "streamable-http", url: SERVER_URL },
+          undefined,
+          { helperArgv1: script, warningSink: (line) => lines.push(line) },
+        ),
+      ).rejects.toMatchObject({
+        message: expect.stringContaining("DCR 401"),
+      });
+      expect(lines).toEqual([
+        "Warning: Refused to fetch http://169.254.169.254/x: metadata address\n",
+      ]);
+    });
+
     it("skips marker reuse for stdio configs and still spawns the helper", async () => {
       const script = writeHelperScript(`
         process.stdin.resume();
@@ -495,6 +559,43 @@ describe("auth-helper", () => {
       expect(events.map((e) => e.event)).toEqual(["auth_url", "done"]);
       // Marker removed once the flow completed.
       expect(fs.existsSync(pendingAuthMarkerPath(SERVER_URL))).toBe(false);
+    });
+
+    it("relays each destination-guard refusal as a fetch_refused event (#2905)", async () => {
+      authorizeInFrontend.mockImplementation(
+        async (
+          _config: unknown,
+          _settings: unknown,
+          options: {
+            onFetchRefusal: (refusal: { url: string; reason: string }) => void;
+          },
+        ) => {
+          options.onFetchRefusal({
+            url: "http://169.254.169.254/x",
+            reason: "metadata address",
+          });
+        },
+      );
+      const restoreStdin = stubStdin(
+        JSON.stringify({
+          serverConfig: { type: "streamable-http", url: SERVER_URL },
+        }),
+      );
+      const stdout = captureStdout();
+      try {
+        await runAuthHelper();
+      } finally {
+        stdout.restore();
+        restoreStdin();
+      }
+      expect(stdout.lines().map((l) => JSON.parse(l) as unknown)).toEqual([
+        {
+          event: "fetch_refused",
+          url: "http://169.254.169.254/x",
+          reason: "metadata address",
+        },
+        { event: "done" },
+      ]);
     });
 
     it("stays silent while the navigation is disarmed (SDK auth during plain connect)", async () => {

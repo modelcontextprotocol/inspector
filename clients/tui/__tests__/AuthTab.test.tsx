@@ -3,6 +3,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "./helpers/renderTui";
 import type { OAuthConnectionState } from "@inspector/core/auth/types.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
+import type { FetchRefusal } from "@inspector/core/auth/fetchRefusal.js";
 
 vi.mock("ink-scroll-view", () => import("./helpers/inkScrollViewMock.js"));
 
@@ -42,26 +44,42 @@ const sampleOAuthState: OAuthConnectionState = {
   configuredScope: "read write",
 };
 
-function makeClient(oauthState?: OAuthConnectionState) {
+function makeClient(
+  oauthState?: OAuthConnectionState,
+  initialRefusals: FetchRefusal[] = [],
+) {
   const listeners = new Map<string, Set<() => void>>();
   const getOAuthState = vi.fn(async () => oauthState);
+  // The real event target underneath, so `useStoreSnapshot` sees genuine
+  // per-event revisions for the `fetchRefused` subscription (#2846).
+  const target = new InspectorClientEventTarget();
+  let refusals = initialRefusals;
   const client = {
     getOAuthState,
+    getFetchRefusals: () => [...refusals],
+    getEventRevision: (event: "fetchRefused") => target.getEventRevision(event),
     addEventListener: (event: string, fn: () => void) => {
       if (!listeners.has(event)) listeners.set(event, new Set());
       listeners.get(event)!.add(fn);
+      target.addEventListener(event, fn);
     },
     removeEventListener: (event: string, fn: () => void) => {
       listeners.get(event)?.delete(fn);
+      target.removeEventListener(event, fn);
     },
   };
   const fire = (event: string) => {
     listeners.get(event)?.forEach((fn) => fn());
   };
+  const refuse = (refusal: FetchRefusal) => {
+    refusals = [...refusals, refusal];
+    target.dispatchTypedEvent("fetchRefused", refusal);
+  };
   return {
     client: client as unknown as InspectorClient,
     getOAuthState,
     fire,
+    refuse,
     listeners,
   };
 }
@@ -328,6 +346,51 @@ describe("AuthTab", () => {
       />,
     );
     expect(lastFrame() ?? "").toContain("Stored OAuth state cleared.");
+  });
+
+  // #2846: a refusal discovery recovered from is otherwise invisible.
+  it("lists destination-guard refusals, including ones that arrive later", async () => {
+    const first: FetchRefusal = {
+      url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+      reason: "Refusing to fetch from a link-local or metadata address",
+    };
+    const { client, refuse } = makeClient(undefined, [first]);
+    const { lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        width={200}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+      />,
+    );
+    await tick();
+    let frame = lastFrame() ?? "";
+    expect(frame).toContain("Refused requests");
+    expect(frame).toContain(
+      "Refused to fetch http://169.254.169.254/.well-known/oauth-authorization-server: Refusing to fetch from a link-local or metadata address",
+    );
+
+    refuse({ url: "http://169.254.169.254/token", reason: "Refusing again" });
+    await tick();
+    frame = lastFrame() ?? "";
+    expect(frame).toContain(
+      "Refused to fetch http://169.254.169.254/token: Refusing again",
+    );
+  });
+
+  it("shows no refusals section when nothing was refused", async () => {
+    const { client } = makeClient(sampleOAuthState);
+    const { lastFrame } = render(
+      <AuthTab
+        {...baseProps}
+        inspectorClient={client}
+        oauthStatus="idle"
+        oauthMessage={null}
+      />,
+    );
+    await tick();
+    expect(lastFrame() ?? "").not.toContain("Refused requests");
   });
 
   it("renders OAuth details from getOAuthState", async () => {
@@ -686,6 +749,75 @@ describe("AuthTab", () => {
     expect(stdout.frames.some((f) => f.includes("\u001b]52;"))).toBe(false);
   });
 
+  // #2845 — the token's claims are what explain most OAuth failures.
+  describe("access token details", () => {
+    const b64url = (value: unknown) =>
+      Buffer.from(JSON.stringify(value)).toString("base64url");
+    const nowS = Math.floor(Date.now() / 1000);
+    // The component reads the real clock at render. Offsets sit mid-way
+    // through an hour bucket of a day-scale duration, so the rendered
+    // "2d 12h" holds for ~30 minutes of test delay rather than flipping
+    // at a minute boundary (Copilot, #2891).
+    const SPAN = 2 * 86_400 + 12 * 3600 + 30 * 60;
+
+    it("decodes a JWT access token's claims", async () => {
+      const token = `${b64url({ alg: "RS256" })}.${b64url({
+        iss: "https://as.example.com",
+        aud: "https://mcp.example.com",
+        sub: "user-42",
+        scope: "tools:read tools:call",
+        iat: nowS - SPAN,
+        exp: nowS + SPAN,
+      })}.sig`;
+      const { client } = makeClient({
+        ...sampleOAuthState,
+        tokens: { access_token: token, token_type: "Bearer" },
+      });
+      const { lastFrame } = render(
+        <AuthTab
+          {...baseProps}
+          height={60}
+          inspectorClient={client}
+          oauthStatus="idle"
+          oauthMessage={null}
+        />,
+      );
+      await tick();
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("JWT (signature not verified)");
+      expect(frame).toContain("Issuer: https://as.example.com");
+      expect(frame).toContain("Audience: https://mcp.example.com");
+      expect(frame).toContain("Subject: user-42");
+      expect(frame).toContain("Scopes: tools:read, tools:call");
+      expect(frame).toContain("(2d 12h ago)");
+      expect(frame).toContain("(in 2d 12h)");
+    });
+
+    it("shows the token response's expires_in for an opaque token", async () => {
+      const { client } = makeClient({
+        ...sampleOAuthState,
+        tokens: {
+          access_token: "opaque-token-value",
+          token_type: "Bearer",
+          expires_in: 900,
+        },
+      });
+      const { lastFrame } = render(
+        <AuthTab
+          {...baseProps}
+          height={60}
+          inspectorClient={client}
+          oauthStatus="idle"
+          oauthMessage={null}
+        />,
+      );
+      await tick();
+      const frame = lastFrame() ?? "";
+      expect(frame).toContain("Opaque (not a JWT)");
+      expect(frame).toContain("15m from issuance");
+    });
+  });
+
   describe("server switch (#2421)", () => {
     const withToken = (token: string): OAuthConnectionState => ({
       ...sampleOAuthState,
@@ -699,9 +831,11 @@ describe("AuthTab", () => {
       });
       const client = {
         getOAuthState: vi.fn(() => pending),
+        getFetchRefusals: () => [],
+        getEventRevision: () => 0,
         addEventListener: () => {},
         removeEventListener: () => {},
-        // Double cast: a partial test double covering only the three members
+        // Double cast: a partial test double covering only the members
         // AuthTab calls, same as makeClient above; InspectorClient is a class
         // with private state, so no structural single cast can reach it.
       } as unknown as InspectorClient;

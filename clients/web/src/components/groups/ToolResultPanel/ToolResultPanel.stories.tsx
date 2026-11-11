@@ -128,6 +128,16 @@ export const TextResult: Story = {
   },
 };
 
+// The latest call's duration and arguments, as the Tools screen passes them
+// (#2830).
+export const WithDurationAndArguments: Story = {
+  args: {
+    result: textResult,
+    durationMs: 1240,
+    args: { city: "San Francisco", units: "imperial" },
+  },
+};
+
 export const JsonResult: Story = {
   args: {
     result: jsonResult,

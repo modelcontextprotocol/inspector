@@ -10,6 +10,7 @@ import type {
 import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
   LoadOptions,
+  LoadProgress,
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
 import type {
@@ -20,6 +21,7 @@ import type {
 
 /** Operations the connection daemon accepts over IPC. */
 export type DaemonOp =
+  | "hello"
   | "ping"
   | "connect"
   | "disconnect"
@@ -31,6 +33,23 @@ export type DaemonOp =
   | "rpc"
   | "stream"
   | "elicitation/respond";
+
+/**
+ * Params for the `hello` op: the first line a client writes on every
+ * connection, carrying a fresh random challenge. It is the one request sent
+ * WITHOUT the IPC token — the client withholds the token, and every request
+ * payload, until the peer has proved it holds that token (see
+ * `computeDaemonProof` in `auth.ts`).
+ */
+export type HelloParams = {
+  /** 32 random bytes, hex-encoded; fresh per connection. */
+  nonce: string;
+};
+
+/** `hello` result: HMAC-SHA256 over the client's nonce, keyed by the token. */
+export type HelloResult = {
+  proof: string;
+};
 
 export type ConnectParams = {
   name: string;
@@ -115,6 +134,7 @@ export type DaemonRequest = {
    */
   token?: string;
   params?:
+    | HelloParams
     | ConnectParams
     | ConnectionNameParams
     | RpcParams
@@ -125,13 +145,20 @@ export type DaemonRequest = {
 /**
  * The envelope fields a daemon error carries across the socket beyond `code`
  * and `message`, so the caller's envelope matches the one-shot CLI's (#2772).
- * `status` is relayed for every error that has one; the rest only exist on a
- * `rate_limited` failure, where they are the structured retry timing a script
- * schedules on.
+ * `status` is relayed for every error that has one; `method`, `retryAfter`
+ * and `retryAfterMs` only exist on a `rate_limited` failure, where they are
+ * the structured retry timing a script schedules on; `oauthError` and
+ * `oauthErrorDescription` only on an `oauth_error` (#2842) — a refresh the
+ * daemon runs can be refused by the authorization server too.
  */
 export type RelayedEnvelopeFields = Pick<
   ErrorEnvelope,
-  "status" | "method" | "retryAfter" | "retryAfterMs"
+  | "status"
+  | "method"
+  | "retryAfter"
+  | "retryAfterMs"
+  | "oauthError"
+  | "oauthErrorDescription"
 >;
 
 export type DaemonErrorBody = {
@@ -166,6 +193,18 @@ export type DaemonStreamFrame =
  * pending at a time (sequential by design) — though a single call can
  * pause/resume through several of these exchanges before its final response.
  */
+/**
+ * `tools/call --load` progress (#2838): written by the daemon on the `rpc`
+ * call's socket every `LoadOptions.progressMs`, ahead of the final response.
+ * One-way — the client never answers it — so it needs none of the
+ * elicitation exchange's pairing.
+ */
+export type LoadProgressFrame = {
+  id: string;
+  kind: "load-progress";
+  progress: LoadProgress;
+};
+
 export type ElicitationRequestFrame = {
   id: string;
   kind: "elicitation-request";

@@ -26,6 +26,26 @@ describe("errorMessage", () => {
   });
 });
 
+describe("errorMessage — nested URL in a secret (#2907)", () => {
+  it("redacts all of a sensitive value that is itself a URL", () => {
+    expect(
+      errorMessage(
+        new Error(
+          "at https://as.example/token?client_secret=https://secret.example/private",
+        ),
+      ),
+    ).toBe("at https://as.example/token?client_secret=%5BREDACTED%5D");
+  });
+
+  it("still redacts comma-joined URLs separately", () => {
+    expect(
+      errorMessage("https://a.example/x?code=abc,https://b.example/y?code=def"),
+    ).toBe(
+      "https://a.example/x?code=%5BREDACTED%5D,https://b.example/y?code=%5BREDACTED%5D",
+    );
+  });
+});
+
 describe("errorCodeOf", () => {
   it("reads a numeric `code` off a protocol error", () => {
     expect(

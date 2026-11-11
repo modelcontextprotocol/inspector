@@ -68,6 +68,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import semver from "semver";
 import { escapeTableCell as cell } from "./lib/markdown-cell.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 /** The branch this repo ships from, and whose manifests are read. */
 export const TARGET_BRANCH = "v2/main";
@@ -936,6 +937,6 @@ export function main(
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

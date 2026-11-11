@@ -11,6 +11,7 @@ import {
   type ToolsUiState,
 } from "./ToolsScreen";
 import { EMPTY_TOOLS_UI } from "../screenUiState";
+import type { ToolRun, ToolRunHistory } from "../../../utils/toolRunHistory";
 
 const tools: Tool[] = [
   { name: "alpha", inputSchema: { type: "object" } },
@@ -64,6 +65,35 @@ function ControlledToolsScreen(props: Partial<ToolsScreenProps>) {
 }
 
 describe("ToolsScreen", () => {
+  it("opens the load panel on the selected tool and its arguments (#2911)", async () => {
+    const user = userEvent.setup();
+    const onRunLoadTest = vi.fn(() => new Promise<never>(() => {}));
+    renderWithMantine(
+      <ControlledToolsScreen
+        onRunLoadTest={onRunLoadTest}
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "2:gamma" }}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Load test" }));
+    expect(screen.getByText("Tool: gamma")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(onRunLoadTest).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "gamma" }),
+      expect.anything(),
+    );
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+  });
+
+  it("offers no load test without a load engine", () => {
+    renderWithMantine(
+      <ControlledToolsScreen
+        ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+      />,
+    );
+    expect(screen.queryByRole("button", { name: "Load test" })).toBeNull();
+  });
+
   it("renders the empty selection state", () => {
     renderWithMantine(<ToolsScreen {...baseProps} />);
     expect(
@@ -217,10 +247,10 @@ describe("ToolsScreen", () => {
     expect(onCallTool).toHaveBeenCalledWith("gamma", { mode: "slow" }, false);
   });
 
-  it("shows the result in place of the form when a selected tool has a result", () => {
+  it("shows the result beside the form when a selected tool has a result", () => {
     // App owns selection + result, so a remount after a tab switch re-renders
-    // with both still set. The result replaces the input form in the single
-    // content pane (#1661): the Execute button is gone while the result shows.
+    // with both still set. The input form stays visible beside the result
+    // (#2830), so the tool can be re-run without dismissing it first.
     renderWithMantine(
       <ToolsScreen
         {...baseProps}
@@ -235,15 +265,13 @@ describe("ToolsScreen", () => {
       screen.queryByText("Select a tool to view details"),
     ).not.toBeInTheDocument();
     expect(screen.getByText("Results")).toBeInTheDocument();
-    // The input form is hidden while the result is shown.
-    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Execute/ })).toBeInTheDocument();
   });
 
-  it("returns to the input form when the result is dismissed", async () => {
+  it("keeps the input form when the result is dismissed", async () => {
     // App owns both `ui` and `callState`; this host mirrors that so dismissing
-    // the result (onClearResult → callState cleared) flips the single content
-    // pane back to the input form, with the selection (and thus the form)
-    // preserved for a re-run (#1661).
+    // the result (onClearResult → callState cleared) drops only the result
+    // pane, leaving the input form (and its selection) in place (#1661, #2830).
     function Host() {
       const [ui, setUi] = useState<ToolsUiState>({
         ...EMPTY_TOOLS_UI,
@@ -267,10 +295,7 @@ describe("ToolsScreen", () => {
     }
     const user = userEvent.setup();
     renderWithMantine(<Host />);
-    // A result is present, so the result pane shows and the form is hidden.
     expect(screen.getByText("Results")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Execute/ })).toBeNull();
-    // Dismissing the result flips back to the input form (Execute reappears).
     await user.click(screen.getByRole("button", { name: "Close results" }));
     expect(
       await screen.findByRole("button", { name: /Execute/ }),
@@ -519,5 +544,119 @@ describe("automation contract (#2148)", () => {
       "data-call-status",
       "ok",
     );
+  });
+
+  describe("run history (#2830)", () => {
+    const run = (sequence: number, args: Record<string, unknown>): ToolRun => ({
+      id: `r${sequence}`,
+      sequence,
+      toolName: "alpha",
+      args,
+      startedAt: 0,
+      durationMs: 5,
+      status: "ok",
+      result: { content: [{ type: "text", text: `run ${sequence}` }] },
+    });
+    const history: ToolRunHistory = {
+      alpha: [run(2, { n: 2 }), run(1, { n: 1 })],
+    };
+
+    it("lists the selected tool's runs beside the form", () => {
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          runHistory={history}
+          ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+        />,
+      );
+      expect(screen.getByText("History")).toBeInTheDocument();
+      expect(screen.getAllByTestId("tool-run")).toHaveLength(2);
+      expect(
+        screen.getByRole("button", { name: /Execute/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("shows no history for a tool that has not run", () => {
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          runHistory={history}
+          ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "1:beta" }}
+        />,
+      );
+      expect(screen.queryByText("History")).toBeNull();
+    });
+
+    it("re-runs a run with its arguments and loads them into the form", async () => {
+      const onCallTool = vi.fn();
+      const onUiChange = vi.fn();
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          runHistory={history}
+          onCallTool={onCallTool}
+          onUiChange={onUiChange}
+          serverSupportsTaskToolCalls
+          ui={{
+            ...EMPTY_TOOLS_UI,
+            selectedToolKey: "0:alpha",
+            runAsTask: true,
+          }}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Re-run Run #1" }));
+      expect(onUiChange).toHaveBeenCalledWith(
+        expect.objectContaining({ formValues: { n: 1 } }),
+      );
+      // `alpha` declares no task support, so the screen-wide "Run as task"
+      // toggle must not route its re-run through the task path.
+      expect(onCallTool).toHaveBeenCalledWith("alpha", { n: 1 }, false);
+    });
+
+    it("re-runs an optional-task tool as a task when the toggle is on", async () => {
+      const onCallTool = vi.fn();
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          runHistory={{
+            delta: [{ ...run(1, { n: 1 }), toolName: "delta" }],
+          }}
+          onCallTool={onCallTool}
+          serverSupportsTaskToolCalls
+          ui={{
+            ...EMPTY_TOOLS_UI,
+            selectedToolKey: "3:delta",
+            runAsTask: true,
+          }}
+        />,
+      );
+      await user.click(screen.getByRole("button", { name: "Re-run Run #1" }));
+      expect(onCallTool).toHaveBeenCalledWith("delta", { n: 1 }, true);
+    });
+
+    it("shows the latest call's duration and arguments on its result", async () => {
+      const user = userEvent.setup();
+      renderWithMantine(
+        <ToolsScreen
+          {...baseProps}
+          ui={{ ...EMPTY_TOOLS_UI, selectedToolKey: "0:alpha" }}
+          callState={{
+            status: "ok",
+            result: { content: [{ type: "text", text: "ok" }] },
+            durationMs: 1500,
+            args: { n: 3 },
+          }}
+        />,
+      );
+      expect(screen.getByText("1.50 s")).toBeInTheDocument();
+      await user.click(
+        screen.getByRole("button", { name: "Expand arguments" }),
+      );
+      expect(
+        screen.getByRole("button", { name: "Collapse arguments" }),
+      ).toBeInTheDocument();
+    });
   });
 });

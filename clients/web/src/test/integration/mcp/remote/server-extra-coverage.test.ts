@@ -831,8 +831,16 @@ describe("server.ts supplemental coverage", () => {
         body: JSON.stringify({ url }),
       });
       expect(res.status).toBe(403);
-      const body = (await res.json()) as { error: string };
+      const body = (await res.json()) as {
+        error: string;
+        code: string;
+        url: string;
+      };
       expect(body.error).toMatch(/^Refusing to fetch/);
+      // #2846: marked, and naming the refused URL, so the browser can rebuild
+      // the typed refusal and report it.
+      expect(body.code).toBe("fetch_target_refused");
+      expect(body.url).toBe(url);
     });
 
     it("refuses a redirect into the metadata range", async () => {
@@ -842,8 +850,10 @@ describe("server.ts supplemental coverage", () => {
         body: JSON.stringify({ url: `${targetUrl}/redirect-to-metadata` }),
       });
       expect(res.status).toBe(403);
-      const body = (await res.json()) as { error: string };
+      const body = (await res.json()) as { error: string; url: string };
       expect(body.error).toContain("169.254.169.254");
+      // The hop that was refused, not the URL the browser asked for.
+      expect(body.url).toContain("169.254.169.254");
       expect(upstreamHits).toEqual(["/redirect-to-metadata"]);
     });
 

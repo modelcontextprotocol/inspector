@@ -7,8 +7,12 @@ import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
-import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
+import {
+  checkDaemonHelloLine,
+  createDaemonHello,
+  daemonTokenMissingError,
+} from "./handshake.js";
 import { getDaemonSocketPath } from "./paths.js";
 import type {
   DaemonRequest,
@@ -16,7 +20,7 @@ import type {
   DaemonStreamFrame,
 } from "./protocol.js";
 import type { DaemonClientOptions } from "./client.js";
-import { daemonTokenDir, relayedEnvelope } from "./client.js";
+import { relayedEnvelope, resolveDaemonToken } from "./client.js";
 import { sanitizeText } from "../connection/sanitize.js";
 
 export type StreamDaemonOptions = DaemonClientOptions & {
@@ -41,15 +45,14 @@ export async function streamDaemon(
   const socketPath = options.socketPath ?? getDaemonSocketPath();
   const timeoutMs = options.timeoutMs ?? 60_000;
   const id = randomUUID();
-  const token =
-    options.token ??
-    getDaemonTokenFromEnv() ??
-    readDaemonTokenFile(daemonTokenDir(options));
-  const request: DaemonRequest = { id, op: "stream", params };
-  if (token !== undefined) request.token = token;
+  const { token, tokenPath } = resolveDaemonToken(options);
+  const request: DaemonRequest = { id, op: "stream", params, token };
+  // Sent only after the peer proves it holds the token (see handshake.ts).
+  const hello = createDaemonHello();
 
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    let verified = false;
     let buffer = "";
     let streaming = false;
     let pendingCallbacks = 0;
@@ -91,6 +94,17 @@ export async function streamDaemon(
     function handleLine(line: string) {
       const trimmed = line.trim();
       if (!trimmed) return;
+
+      if (!verified) {
+        const error = checkDaemonHelloLine(trimmed, hello, token, socketPath);
+        if (error) {
+          fail(error);
+          return;
+        }
+        verified = true;
+        socket.write(encodeRequest(request));
+        return;
+      }
 
       if (!streaming) {
         let response: DaemonResponse;
@@ -226,7 +240,11 @@ export async function streamDaemon(
     }
 
     socket.once("connect", () => {
-      socket.write(encodeRequest(request));
+      if (token === undefined) {
+        fail(daemonTokenMissingError(tokenPath));
+        return;
+      }
+      socket.write(hello.line);
     });
 
     socket.on("data", (chunk) => {

@@ -248,6 +248,66 @@ jobs:
         # declares — the gate otherwise passes on whatever subset it was handed.
         run: npm run coverage
 
+  # The Windows tier (#2748). Nothing else in CI runs on Windows, so the three
+  # `local:gate` stages a Windows maintainer was hitting red on an untouched
+  # checkout — `test:scripts`, `coverage:web` and `coverage:mcpdo` — had no
+  # runner that could see them, and a fix made on macOS had no way to be
+  # verified. This job runs exactly those three, so a Windows regression in any
+  # of them fails CI instead of surfacing at the next Windows contributor's
+  # gate. It is not a second copy of `build`/`coverage`: the smokes, Storybook
+  # and the other clients' suites stay POSIX-only here.
+  #
+  # Cases that are platform-bound (POSIX mode bits, unwritable paths,
+  # process-group signals, mcpdo's Unix-socket daemon) are skipped on win32 BY
+  # NAME at the test site, each with its reason; everything else runs.
+  #
+  # Coverage thresholds: web's per-file gate holds on Windows and is enforced
+  # here as it is everywhere. mcpdo's is NOT — its daemon suites skip on win32,
+  # which leaves the daemon modules below 90 for a reason that is about the
+  # skip, not the code — so `clients/mcpdo/vitest.config.ts` drops the
+  # thresholds on win32 and `coverage:mcpdo` here is a test verdict only. The
+  # Linux `coverage` job above stays the authoritative per-file gate.
+  #
+  # Ordinary job: no credentials, so actions stay on moving major tags (#2484).
+  windows:
+    runs-on: windows-latest
+    # PROVISIONAL — no observed runs yet when this landed. Re-size it from
+    # observed runs (roughly twice the slowest, rounded up to the next five
+    # minutes, per the rule at the top of `jobs:`) once there are some.
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: 'npm'
+
+      - name: Install the pinned npm CLI (allowScripts needs >= 11.19)
+        # See CI_NPM_VERSION at the top of this file (#2715). `$env:` because
+        # the default shell on a Windows runner is PowerShell.
+        run: npm install -g --ignore-scripts "npm@$env:CI_NPM_VERSION"
+
+      - name: Install dependencies (root + all clients)
+        id: install
+        run: npm install
+
+      # Each stage runs whether or not the one before it passed, so one red
+      # stage still leaves the other two reporting a real verdict.
+      - name: Script tests (test:scripts)
+        run: npm run test:scripts
+
+      - name: Web unit + integration coverage (coverage:web)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run coverage:web
+
+      - name: mcpdo coverage (coverage:mcpdo)
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run coverage:mcpdo
+
   # Publish the single `@modelcontextprotocol/inspector` package to npm on a
   # published GitHub release. v2 is not an npm workspace, so there is no
   # `publish-all` / `--workspaces` (v1) — just one package.
@@ -268,7 +328,7 @@ jobs:
   package:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
-    needs: [build, coverage]
+    needs: [build, coverage, windows]
     # Carries over the old single `publish` job's budget: it was observed at
     # 2.3–2.8 min across the last three releases (2.4.0–2.6.0), of which
     # `pack:verify` is about half, and all of that work now lives here.
@@ -280,7 +340,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.x'
           cache: 'npm'
@@ -331,7 +391,7 @@ jobs:
           ls -l release-tarball
 
       - name: Upload the tarball for the publish job
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: npm-tarball
           path: release-tarball/*.tgz
@@ -373,7 +433,7 @@ jobs:
       - name: Setup Node.js
         # No `cache: 'npm'`: there is no checkout, so no lockfile to key it on,
         # and nothing here installs dependencies to cache.
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22.x'
           registry-url: 'https://registry.npmjs.org'
@@ -390,7 +450,7 @@ jobs:
         run: npm install -g --ignore-scripts "npm@$CI_NPM_VERSION"
 
       - name: Download the tarball built by the package job
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: npm-tarball
           path: release-tarball
@@ -469,7 +529,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
     environment: release
-    needs: [build, coverage]
+    needs: [build, coverage, windows]
     # Observed 14.5–15.4 min across the last three releases (2.4.0–2.6.0);
     # the linux/arm64 half of the build runs under QEMU and is most of it.
     timeout-minutes: 35
@@ -488,7 +548,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Log in to the Container registry
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}

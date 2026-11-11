@@ -7,7 +7,16 @@ import {
 } from "@inspector/core/cli/error-handler.js";
 import { getDaemonTokenFromEnv, readDaemonTokenFile } from "./auth.js";
 import { encodeRequest } from "./framing.js";
-import { getDaemonDir, getDaemonSocketPath } from "./paths.js";
+import {
+  checkDaemonHelloLine,
+  createDaemonHello,
+  daemonTokenMissingError,
+} from "./handshake.js";
+import {
+  getDaemonDir,
+  getDaemonSocketPath,
+  getDaemonTokenPath,
+} from "./paths.js";
 import { sanitizeText } from "../connection/sanitize.js";
 import type { ErrorEnvelope } from "@inspector/core/cli/error-handler.js";
 import type {
@@ -16,6 +25,7 @@ import type {
   DaemonRequest,
   DaemonResponse,
   ElicitationRequestFrame,
+  LoadProgressFrame,
   ElicitationResponseFrame,
 } from "./protocol.js";
 
@@ -54,6 +64,11 @@ export type DaemonClientOptions = {
     frame: ElicitationRequestFrame,
   ) => Promise<ElicitationResponseFrame>;
   /**
+   * Called for each `tools/call --load` progress frame (#2838). Omit to
+   * ignore them; they need no answer.
+   */
+  onLoadProgress?: (progress: LoadProgressFrame["progress"]) => void;
+  /**
    * Abort the in-flight request (e.g. on SIGINT/SIGTERM), failing it with a
    * clear cancellation error instead of leaving the caller to kill the
    * process abruptly mid-call (mid-`tools/call`, mid-elicitation-wait, etc).
@@ -82,10 +97,34 @@ export function daemonTokenDir(options: {
 }
 
 /**
+ * The IPC token for a request: explicit option, then the environment (private
+ * mode / spawner), then the token the daemon published in its directory (see
+ * getDaemonTokenPath). The directory is only derived from `socketPath` when
+ * that is a filesystem path — dirname of a Windows named pipe is the pipe
+ * namespace, not the daemon dir.
+ *
+ * `token` is undefined when there is none. The caller then still connects —
+ * so "nothing is listening" keeps reporting `daemon_unreachable` — but fails
+ * with {@link daemonTokenMissingError} the moment the connection opens,
+ * having written nothing: without a token the peer cannot be verified (see
+ * `handshake.ts`).
+ */
+export function resolveDaemonToken(options: DaemonClientOptions): {
+  token: string | undefined;
+  tokenPath: string;
+} {
+  const dir = daemonTokenDir(options);
+  return {
+    token: options.token ?? getDaemonTokenFromEnv() ?? readDaemonTokenFile(dir),
+    tokenPath: getDaemonTokenPath(dir),
+  };
+}
+
+/**
  * The envelope a daemon error is rebuilt into on this side: its `code` plus
  * whatever structured fields the daemon relayed (#2772), so the connection
- * CLI's JSON error matches the one-shot CLI's. `retryAfter` is the server's
- * own header text, so it is sanitized like the message.
+ * CLI's JSON error matches the one-shot CLI's. `retryAfter` and the OAuth
+ * fields are the servers' own text, so they are sanitized like the message.
  */
 export function relayedEnvelope(
   error: DaemonErrorBody,
@@ -99,6 +138,13 @@ export function relayedEnvelope(
     }),
     ...(error.retryAfterMs !== undefined && {
       retryAfterMs: error.retryAfterMs,
+    }),
+    // Authorization-server text, so sanitized like `retryAfter` (#2842).
+    ...(error.oauthError !== undefined && {
+      oauthError: sanitizeText(error.oauthError),
+    }),
+    ...(error.oauthErrorDescription !== undefined && {
+      oauthErrorDescription: sanitizeText(error.oauthErrorDescription),
     }),
   };
 }
@@ -114,20 +160,15 @@ export async function callDaemon<T = unknown>(
   const socketPath = options.socketPath ?? getDaemonSocketPath();
   const timeoutMs = options.timeoutMs ?? 60_000;
   const id = randomUUID();
-  // Env token wins (private mode / spawner); otherwise read the token the
-  // daemon published in its directory (see getDaemonTokenPath). The
-  // directory is only derived from `socketPath` when that is a filesystem
-  // path — dirname of a Windows named pipe is the pipe namespace, not the
-  // daemon dir.
-  const token =
-    options.token ??
-    getDaemonTokenFromEnv() ??
-    readDaemonTokenFile(daemonTokenDir(options));
-  const request: DaemonRequest = { id, op, params };
-  if (token !== undefined) request.token = token;
+  const { token, tokenPath } = resolveDaemonToken(options);
+  const request: DaemonRequest = { id, op, params, token };
+  // The token and the request go out only after the peer proves it holds
+  // the token (see handshake.ts).
+  const hello = createDaemonHello();
 
   return new Promise<T>((resolve, reject) => {
     let settled = false;
+    let verified = false;
     let buffer = "";
     let queue: Promise<void> = Promise.resolve();
     // `let` so settle() can clearTimeout before the assignment if connect fails
@@ -175,11 +216,22 @@ export async function callDaemon<T = unknown>(
     function handleLine(line: string): Promise<void> {
       const trimmed = line.trim();
       if (!trimmed) return Promise.resolve();
-      let parsed: DaemonResponse | ElicitationRequestFrame;
+      if (!verified) {
+        const error = checkDaemonHelloLine(trimmed, hello, token, socketPath);
+        if (error) {
+          fail(error);
+        } else {
+          verified = true;
+          socket.write(encodeRequest(request));
+        }
+        return Promise.resolve();
+      }
+      let parsed: DaemonResponse | ElicitationRequestFrame | LoadProgressFrame;
       try {
         parsed = JSON.parse(trimmed) as
           | DaemonResponse
-          | ElicitationRequestFrame;
+          | ElicitationRequestFrame
+          | LoadProgressFrame;
       } catch (error) {
         fail(error);
         return Promise.resolve();
@@ -191,6 +243,16 @@ export async function callDaemon<T = unknown>(
         parsed.kind === "elicitation-request"
       ) {
         return handleElicitationRequest(parsed as ElicitationRequestFrame);
+      }
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        "kind" in parsed &&
+        parsed.kind === "load-progress"
+      ) {
+        const frame = parsed as LoadProgressFrame;
+        if (frame.id === id) options.onLoadProgress?.(frame.progress);
+        return Promise.resolve();
       }
       handleResponse(parsed as DaemonResponse);
       return Promise.resolve();
@@ -284,7 +346,11 @@ export async function callDaemon<T = unknown>(
     }
 
     socket.once("connect", () => {
-      socket.write(encodeRequest(request));
+      if (token === undefined) {
+        fail(daemonTokenMissingError(tokenPath));
+        return;
+      }
+      socket.write(hello.line);
     });
 
     socket.on("data", (chunk) => {

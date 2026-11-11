@@ -65,8 +65,8 @@ None of these fails the build, so each one needs a guard or a test to catch it.
    `outputOptions.comments: { jsdoc: false }` brings it to 684 KB, against
    tsup's 844 KB.
 4. **Module banners vary by Rolldown release.** Rolldown 1.2.13, the version
-   this repo builds with, writes `//#region <path>`. 1.2.15 writes esbuild's
-   `// <path>`. `verify:bundle-externals` reads banners to find inlined
+   this repo first built with, writes `//#region <path>`. 1.2.15 writes esbuild's
+   `// <path>`; the repo has built with 1.2.16 since #2861. `verify:bundle-externals` reads banners to find inlined
    packages, so it now accepts both forms. A bundle with neither still fails
    loudly as banner-less.
 5. **Rolldown is also Vite's bundler**, so it reaches every install that has

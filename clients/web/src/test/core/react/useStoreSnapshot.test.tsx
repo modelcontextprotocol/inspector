@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { TypedEventTarget } from "@inspector/core/mcp/typedEventTarget";
 import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot";
+import type { NotifyScheduler } from "@inspector/core/react/notifyScheduler";
 
 interface Item {
   label: string;
@@ -283,5 +284,89 @@ describe("useStoreSnapshot", () => {
       useStoreSnapshot(null, "itemsChange", readItems, NO_ITEMS),
     );
     expect(() => unmount()).not.toThrow();
+  });
+
+  // #2928: a log dispatches once per entry, and each notification rendered
+  // the subscriber synchronously. A scheduler collapses a burst into one
+  // render without deferring the data itself.
+  describe("with a scheduler", () => {
+    let pending: Array<() => void>;
+    let schedule: NotifyScheduler;
+    const flushPending = () => {
+      const run = pending;
+      pending = [];
+      act(() => run.forEach((flush) => flush()));
+    };
+
+    beforeEach(() => {
+      pending = [];
+      schedule = (flush) => {
+        pending.push(flush);
+        return () => {
+          pending = pending.filter((f) => f !== flush);
+        };
+      };
+    });
+
+    it("renders a burst of dispatches once, with every entry in order", () => {
+      let renders = 0;
+      const { result } = renderHook(() => {
+        renders++;
+        return useStoreSnapshot(
+          store,
+          "itemsChange",
+          readItems,
+          NO_ITEMS,
+          schedule,
+        );
+      });
+      const before = renders;
+
+      act(() => {
+        store.add("a");
+        store.add("b");
+        store.add("c");
+      });
+      expect(renders).toBe(before);
+      expect(pending).toHaveLength(1);
+
+      flushPending();
+      expect(renders).toBe(before + 1);
+      expect(result.current.map((i) => i.label)).toEqual(["a", "b", "c"]);
+    });
+
+    it("cancels a pending notification on unmount", () => {
+      const { unmount } = renderHook(() =>
+        useStoreSnapshot(store, "itemsChange", readItems, NO_ITEMS, schedule),
+      );
+      act(() => store.add("a"));
+      expect(pending).toHaveLength(1);
+
+      unmount();
+      expect(pending).toHaveLength(0);
+    });
+
+    it("detaches the coalescing listener it attached", () => {
+      const addSpy = vi.spyOn(store, "addEventListener");
+      const removeSpy = vi.spyOn(store, "removeEventListener");
+      const { unmount } = renderHook(() =>
+        useStoreSnapshot(store, "itemsChange", readItems, NO_ITEMS, schedule),
+      );
+      const subscribed = addSpy.mock.calls[0]?.[1];
+
+      unmount();
+      expect(removeSpy).toHaveBeenCalledWith("itemsChange", subscribed);
+    });
+
+    it("still reads the live store on a render the scheduler did not cause", () => {
+      const { result, rerender } = renderHook(() =>
+        useStoreSnapshot(store, "itemsChange", readItems, NO_ITEMS, schedule),
+      );
+      act(() => store.add("a"));
+
+      // An unrelated render before the frame fires already sees the entry.
+      rerender();
+      expect(result.current).toEqual([{ label: "a" }]);
+    });
   });
 });

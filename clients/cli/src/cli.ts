@@ -10,6 +10,7 @@ import {
   awaitableError,
   awaitableLog,
 } from "@inspector/core/cli/utils/awaitable-log.js";
+import { parsePromptArgPair } from "@inspector/core/cli/utils/prompt-args.js";
 import type {
   InspectorServerSettings,
   MCPServerConfig,
@@ -37,6 +38,11 @@ import {
   type OutputFileFormat,
 } from "@inspector/core/cli/handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
+import {
+  createCliOAuthFetch,
+  oauthDebugNavigationHook,
+  traceCliOAuthFetch,
+} from "@inspector/core/cli/oauth-debug.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import { UI_EXTENSION_KEY } from "@inspector/core/mcp/extensions.js";
@@ -67,9 +73,50 @@ import {
   LOAD_FLAG_CONFLICT,
   loadSummaryWarnings,
   resolveLoadOptions,
-  runToolLoad,
+  DEFAULT_LOAD_PROGRESS_SEC,
+  formatLoadProgress,
   type LoadOptions,
+  type LoadProgress,
+  type LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
+import { formatLoadSummaryHuman } from "@inspector/core/cli/handlers/load-format.js";
+import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
+import { preflightLoadTools } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  LOAD_WORKER_ENTRY_ENV,
+  forkLoadWorker,
+  processWorkerPort,
+  readLoadShard,
+  runAsLoadWorker,
+  runLoadWorkers,
+  shardLoadOptions,
+  workerArgv,
+  type LoadWorkerHandle,
+} from "@inspector/core/cli/handlers/load-workers.js";
+import {
+  checkLoadRegression,
+  compareLoadToBaseline,
+  formatLoadBaselineComparison,
+  maxRegressionParser,
+  resolveLoadBaseline,
+  type LoadBaselineGate,
+} from "@inspector/core/cli/handlers/load-baseline.js";
+import { openLoadSampleFile } from "@inspector/core/cli/handlers/load-samples.js";
+import { styleFromOpts } from "@inspector/core/cli/style.js";
+import { sanitizeDeep } from "@inspector/core/cli/sanitize.js";
+import {
+  readLoadArgsFile,
+  readLoadScenarioFile,
+} from "@inspector/core/cli/handlers/load-files.js";
+import {
+  loadRampParser,
+  loadStepByParser,
+  loadStepsParser,
+  resolveLoadStages,
+  type LoadRamp,
+  type LoadStepBy,
+} from "@inspector/core/cli/handlers/load-stages.js";
+import { assertLoadArgsTemplate } from "@inspector/core/cli/handlers/load-template.js";
 import {
   assertNotInterrupted,
   withLoadInterrupt,
@@ -77,7 +124,10 @@ import {
 import {
   checkLoadThresholds,
   fractionParser,
+  maxP50Parser,
+  maxP95Parser,
   maxP99Parser,
+  minThroughputParser,
   resolveLoadThresholds,
   type LoadThresholds,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
@@ -104,6 +154,12 @@ import {
 } from "@inspector/core/auth/discovery.js";
 import { withRfc8414OidcCompat } from "@inspector/core/auth/oidcDiscoveryCompat.js";
 import { withOAuthRequestTimeout } from "@inspector/core/auth/requestTimeout.js";
+import { withFetchRefusalReporting } from "@inspector/core/auth/fetchRefusal.js";
+import {
+  warnOnFetchRefusals,
+  writeFetchRefusalWarning,
+  type WarningSink,
+} from "@inspector/core/cli/fetchRefusalWarning.js";
 import {
   refreshAuthorization,
   discoverAuthorizationServerMetadata,
@@ -161,12 +217,47 @@ async function callMethod(
   storedAuthOnly: boolean,
   relogin: boolean,
   revoke: boolean,
+  oauthDebug: boolean,
   load?: LoadOptions,
   loadThresholds?: LoadThresholds,
+  loadBaseline?: LoadBaselineGate,
+  /** The CLI's own arguments, for `--load-workers` to re-run (#2914). */
+  invocationArgs: string[] = [],
 ): Promise<void> {
+  // `--load-workers` (#2914) is HTTP/SSE only, like `--load-connections`:
+  // each worker process opens its own session, and over stdio that is its
+  // own server process.
+  if (
+    load?.workers !== undefined &&
+    !isOAuthCapableServerConfig(serverConfig)
+  ) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-workers above 1 requires an HTTP or SSE server; over stdio each worker process would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
   // `--load-connections` (#2746) is HTTP/SSE only. Over stdio every connection
   // spawns its own server process, so N of them test N isolated servers rather
   // than one server under N sessions. Checked before anything connects.
+  if (
+    load?.fanout !== undefined &&
+    load.fanout.subscribers > 1 &&
+    !isOAuthCapableServerConfig(serverConfig)
+  ) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-subscribers above 1 requires an HTTP or SSE server; over stdio each session would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
+  if (load?.churn !== undefined && !isOAuthCapableServerConfig(serverConfig)) {
+    throw new CliExitCodeError(
+      EXIT_CODES.USAGE,
+      "--load-churn requires an HTTP or SSE server; over stdio each session would spawn its own server process.",
+      { code: LOAD_FLAG_CONFLICT },
+    );
+  }
   if (
     load?.connections !== undefined &&
     load.connections > 1 &&
@@ -219,8 +310,10 @@ async function callMethod(
     fetch: createProxyFetch(),
     // OAuth on its own base, which refuses link-local and cloud-metadata
     // destinations a hostile server could steer discovery at (#2749). It is
-    // proxy-aware itself, so the proxy still covers OAuth.
-    oauthFetch: createGuardedFetch(),
+    // proxy-aware itself, so the proxy still covers OAuth. `--oauth-debug`
+    // (#2844) traces every request on it to stderr — discovery, registration
+    // and the token exchange all run here.
+    oauthFetch: createCliOAuthFetch(oauthDebug),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   // Disarmed until the CLI-owned interactive OAuth flow runs — SDK `auth()`
@@ -234,6 +327,7 @@ async function callMethod(
       navigation: createCliOAuthNavigation({
         autoOpenControl,
         disableAutoOpen: storedAuthOnly,
+        onAuthorizationUrl: oauthDebugNavigationHook(oauthDebug),
       }),
       redirectUrlProvider,
     };
@@ -304,6 +398,12 @@ async function callMethod(
     serverConfig,
     inspectorClientOptions,
   );
+  // A destination-guard refusal OAuth discovery recovered from is otherwise
+  // invisible: the later failure names a different URL (#2846). The main
+  // client only — `--load-connections` clients share its config, and would
+  // print the same warning N more times. Advisory, so `--quiet` drops it
+  // (#2435).
+  if (!args.quiet) warnOnFetchRefusals(inspectorClient);
 
   // Opens one extra `--load-connections` client (#2746), connected. Stored
   // auth only: the connection above already completed any login the run
@@ -339,32 +439,93 @@ async function callMethod(
       { storedAuthOnly, autoOpenControl, quiet: args.quiet },
     );
 
-    // `--load` (#2439): many calls of one tool, then a single summary, in
-    // place of the one result a plain `tools/call` prints.
+    // `--load` (#2439): many calls of one tool — or of a `--load-scenario`
+    // mix (#2839) — then a single summary, in place of the one result a
+    // plain `tools/call` prints.
     if (load) {
+      // A `--load-workers` worker process (#2914): run its share, send the
+      // results to the parent, print nothing.
+      const shard = readLoadShard();
+      if (shard !== undefined) {
+        await runLoadShard(inspectorClient, args, load, shard);
+        return;
+      }
+      // A `--load-workers` parent (#2914) looks the tools up itself, under
+      // its auth recovery, before any worker starts: the workers are
+      // stored-auth-only, so a login that listing needs must happen here.
+      if (load.workers !== undefined) {
+        await withCliAuthRecoveryRetry(
+          inspectorClient,
+          serverConfig,
+          redirectUrlProvider,
+          callbackUrlConfig,
+          serverSettings,
+          () => preflightLoadTools(inspectorClient, args, load),
+          { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+        );
+      }
+      // `--output` (#2838): every measured call as NDJSON. Opened here, after
+      // the connect succeeded, and closed whatever the run's outcome.
+      const samples =
+        args.output !== undefined ? openLoadSampleFile(args.output) : undefined;
       // Ctrl+C / SIGTERM end the run early rather than the process (#2834),
       // so the partial summary below still gets out.
-      const summary = await withLoadInterrupt(
-        (signal) =>
-          withCliAuthRecoveryRetry(
-            inspectorClient,
-            serverConfig,
-            redirectUrlProvider,
-            callbackUrlConfig,
-            serverSettings,
-            () =>
-              runToolLoad(inspectorClient, args, load, {
-                openConnection: openLoadConnection,
-                signal,
-              }),
-            { storedAuthOnly, autoOpenControl, quiet: args.quiet },
-          ),
-        { quiet: args.quiet },
+      let summary: LoadSummary;
+      try {
+        const workers = load.workers;
+        summary = await withLoadInterrupt(
+          (signal) =>
+            workers !== undefined
+              ? runLoadWorkers(
+                  workers,
+                  forkSelfAsLoadWorker(invocationArgs, workers),
+                  load,
+                  {
+                    signal,
+                    ...(load.progressMs !== undefined && {
+                      progress: {
+                        everyMs: load.progressMs,
+                        emit: writeLoadProgress,
+                      },
+                    }),
+                  },
+                )
+              : withCliAuthRecoveryRetry(
+                  inspectorClient,
+                  serverConfig,
+                  redirectUrlProvider,
+                  callbackUrlConfig,
+                  serverSettings,
+                  () =>
+                    runLoadOrFanout(inspectorClient, args, load, {
+                      openConnection: openLoadConnection,
+                      signal,
+                      ...(load.progressMs !== undefined && {
+                        progress: {
+                          everyMs: load.progressMs,
+                          emit: writeLoadProgress,
+                        },
+                      }),
+                      ...(samples && { onSample: samples.write }),
+                    }),
+                  { storedAuthOnly, autoOpenControl, quiet: args.quiet },
+                ),
+          { quiet: args.quiet },
+        );
+      } catch (err) {
+        // The run's own error wins; the file is closed as best it can be.
+        await samples?.close().catch(() => {});
+        throw err;
+      }
+      // Flushed before the summary goes out, so a script that waits for the
+      // summary can read a complete file; a write failure is raised after
+      // the summary, which is still worth printing.
+      const written = samples?.close().then(
+        () => undefined,
+        (err: unknown) => err,
       );
-      await writeFormattedResult(
-        summary,
-        args.format === "json" ? "json" : "text",
-      );
+      const writeFailure = await written;
+      await writeLoadSummary(summary, args.format);
       // Advisory, so `--quiet` drops them (#2435): a missed `--load-rate`
       // (#2837) and an early stop the summary also records (#2835).
       if (!args.quiet) {
@@ -372,10 +533,27 @@ async function callMethod(
           await awaitableError(`${warning}\n`);
         }
       }
+      if (writeFailure !== undefined) throw writeFailure;
       // After the summary is out, so a cut-short or breached run still shows
       // its numbers. An interrupted run exits 130 and is not graded.
       assertNotInterrupted(summary);
+      // `--load-baseline` (#2910): a run shaped unlike its baseline is a
+      // usage error, raised before any grading; otherwise the comparison is
+      // printed — advisory, so `--quiet` drops it — and graded after the
+      // absolute thresholds.
+      const comparison =
+        loadBaseline !== undefined
+          ? compareLoadToBaseline(summary, loadBaseline.baseline)
+          : undefined;
+      if (comparison !== undefined && !args.quiet) {
+        for (const line of formatLoadBaselineComparison(comparison)) {
+          await awaitableError(`${line}\n`);
+        }
+      }
       checkLoadThresholds(summary, loadThresholds);
+      if (comparison !== undefined) {
+        checkLoadRegression(comparison, loadBaseline!.maxRegressionPct);
+      }
       return;
     }
 
@@ -532,6 +710,10 @@ function findStoredToken(
 export interface RefreshStoredAuthDeps {
   refresh?: typeof refreshAuthorization;
   discover?: typeof discoverAuthorizationServerMetadata;
+  /** Where a destination-guard refusal warning goes (#2846). stderr by default. */
+  warn?: WarningSink;
+  /** `--oauth-debug` (#2844): trace the discovery and refresh grant. */
+  oauthDebug?: boolean;
 }
 
 /**
@@ -569,8 +751,20 @@ export async function refreshStoredAuthToken(
   // against an authorization server that accepts the connection and never
   // answers. Innermost, so the compat wrapper's own probe requests inherit the
   // deadline too.
+  //
+  // #2846: refusals are reported innermost, before discovery's candidate walk
+  // can swallow one and fall back to the next URL. `--oauth-debug` (#2844)
+  // traces just above that, as on the connect path, so each request is shown
+  // as it goes on the wire.
   const storedAuthFetch = withRfc8414OidcCompat(
-    withOAuthRequestTimeout(createGuardedFetch()),
+    withOAuthRequestTimeout(
+      traceCliOAuthFetch(
+        withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
+          writeFetchRefusalWarning(refusal, deps.warn),
+        ),
+        deps.oauthDebug === true,
+      ),
+    ),
   );
   const discover: typeof discoverAuthorizationServerMetadata =
     deps.discover ??
@@ -911,6 +1105,7 @@ type ParseResult =
       serverSettings: InspectorServerSettings | undefined;
       methodArgs: MethodArgs & { method: string };
       loadThresholds?: LoadThresholds;
+      loadBaseline?: LoadBaselineGate;
       clientConfigPath?: string;
       clientId?: string;
       clientSecret?: string;
@@ -919,6 +1114,7 @@ type ParseResult =
       storedAuthOnly?: boolean;
       relogin?: boolean;
       revoke?: boolean;
+      oauthDebug?: boolean;
       load?: LoadOptions;
     }
   // Short-circuit modes (`--list-stored-auth`, `--print-handoff`) do their own
@@ -928,6 +1124,87 @@ type ParseResult =
 /** Commander's own test for "looks like an option": a dash plus at least one character. */
 function isOptionToken(arg: string): boolean {
   return arg.length > 1 && arg.startsWith("-");
+}
+
+/**
+ * An HTTP(S) URL or a Windows drive path (`C:\…`, `C:/…`): the two target
+ * shapes that contain a colon. Neither is a `--header` value, so a token of
+ * this shape is where a header list ends and the target begins. Deliberately
+ * narrow — `X-Path:/mcp` is a valid header (`parseHeaderPair` takes the value
+ * straight after the colon) and must stay one.
+ */
+const URL_OR_DRIVE = /^(?:https?:\/\/|[A-Za-z]:[\\/])/i;
+
+function isKeyValueToken(arg: string): boolean {
+  return arg.includes("=");
+}
+
+function isHeaderToken(arg: string): boolean {
+  return arg.includes(":") && !URL_OR_DRIVE.test(arg);
+}
+
+/**
+ * The CLI's variadic options, each with the shape its values take. Commander
+ * would otherwise hand a variadic option every following non-dash token, so an
+ * ad-hoc target placed straight after one (`--tool-arg a=1 node server.js`)
+ * was swallowed as more values and failed with "Invalid parameter format:
+ * node" (#2860).
+ */
+const VARIADIC_VALUE_SHAPES: ReadonlyMap<string, (arg: string) => boolean> =
+  new Map([
+    ["--tool-arg", isKeyValueToken],
+    ["--prompt-args", isKeyValueToken],
+    ["--metadata", isKeyValueToken],
+    ["--tool-metadata", isKeyValueToken],
+    ["--header", isHeaderToken],
+  ]);
+
+/**
+ * Bound each variadic option to the run of tokens that look like its values
+ * (#2860). The first value is always the option's, exactly as before — so
+ * `--tool-arg node` still reports the malformed pair — and each further token
+ * stays with it only while it has the value's shape (`key=value`, or
+ * `Name: value` for `--header`). The first token that does not is left where
+ * it is, for Commander to read as the target.
+ *
+ * Every kept value is rewritten to the `--flag=value` form, which Commander
+ * reads as one complete value and never continues past; that is what stops the
+ * swallowing. No invocation that parsed before changes meaning: a token
+ * without the value's shape could only ever fail as a malformed value.
+ *
+ * `takesValue` holds every flag spelling whose option requires an argument.
+ * Commander gives such an option the next token unconditionally, so that token
+ * is copied through untouched: `--client-secret --header` passes the literal
+ * secret `--header`, never a variadic flag.
+ */
+function boundVariadicOptions(
+  args: readonly string[],
+  takesValue: ReadonlySet<string>,
+): string[] {
+  const out: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const arg = args[i]!;
+    const isValue = VARIADIC_VALUE_SHAPES.get(arg);
+    const first = args[i + 1];
+    if (!isValue && takesValue.has(arg) && first !== undefined) {
+      out.push(arg, first);
+      i += 2;
+      continue;
+    }
+    if (!isValue || first === undefined) {
+      out.push(arg);
+      i += 1;
+      continue;
+    }
+    out.push(`${arg}=${first}`);
+    i += 2;
+    while (i < args.length && !isOptionToken(args[i]!) && isValue(args[i]!)) {
+      out.push(`${arg}=${args[i]!}`);
+      i += 1;
+    }
+  }
+  return out;
 }
 
 async function parseArgs(argv?: string[]): Promise<ParseResult> {
@@ -1004,7 +1281,6 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   const preArgs: string[] = [
     rawArgs[0] ?? "node",
     rawArgs[1] ?? "inspector-cli",
-    ...optionArgs,
   ];
 
   program
@@ -1059,8 +1335,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--prompt-args <pairs...>",
-      "Prompt arguments as key=value pairs",
-      parseKeyValuePair,
+      "Prompt arguments as key=value pairs (values are sent verbatim as strings)",
+      parsePromptArgPair,
       {},
     )
     .option(
@@ -1130,7 +1406,90 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--load",
-      "Load-test one tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Use with --method tools/call --tool-name <name>. Bounded by --load-duration (default 10s) and/or --load-requests.",
+      "Load-test one tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Use with --method tools/call --tool-name <name>, or --method tools/call --load-scenario <file> for a weighted mix. Bounded by --load-duration (default 10s) and/or --load-requests.",
+    )
+    .option(
+      "--load-scenario <file>",
+      "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces --tool-name, --tool-arg, --tool-args-json and --tool-metadata.",
+    )
+    .option(
+      "--load-args-file <file>",
+      "With --load: NDJSON file of argument objects, one per line; each call merges the next row over --tool-arg (row wins), cycling. Placeholders {{seq}}, {{worker}}, {{uuid}} and {{rand:<min>-<max>}} work in rows and in --tool-arg values.",
+    )
+    .option(
+      "--load-args-random",
+      "With --load-args-file: pick each call's row at random instead of in turn.",
+    )
+    .option(
+      "--load-steps <list>",
+      "With --load: run consecutive stages at these levels (comma-separated, e.g. 10,25,50,100), each for --load-step-duration, with one summary row per stage. Levels are concurrency unless --load-step-by rate.",
+      loadStepsParser,
+    )
+    .option(
+      "--load-ramp <from:to:sec>",
+      "With --load: a staircase of stages from <from> to <to> over <sec> seconds, one stage per --load-step-duration, levels spaced evenly (concurrency unless --load-step-by rate).",
+      loadRampParser,
+    )
+    .option(
+      "--load-step-by <what>",
+      "With --load-steps or --load-ramp: what each level sets, concurrency (default) or rate (calls per second over --load-concurrency workers).",
+      loadStepByParser,
+    )
+    .option(
+      "--load-step-duration <sec>",
+      "With --load-steps or --load-ramp: how long each stage runs (default 10).",
+      positiveNumberParser("--load-step-duration"),
+    )
+    .option(
+      "--load-interval <sec>",
+      "With --load: also report the run as a time series of buckets this many seconds long (completions, errors, latency per bucket) in an intervals array.",
+      positiveNumberParser("--load-interval"),
+    )
+    .option(
+      "--load-warmup <sec>",
+      "With --load: run this many seconds first at the same concurrency and rate, and leave those calls out of every statistic.",
+      positiveNumberParser("--load-warmup"),
+    )
+    .option(
+      "--load-progress <sec>",
+      "With --load: print a progress line on stderr this often (default 5; --quiet turns it off).",
+      positiveNumberParser("--load-progress"),
+    )
+    .option(
+      "--load-open-loop",
+      "With --load-rate: open-loop mode. Keep every slot of the rate grid instead of dropping the ones no worker is free for, and time each call from its scheduled start, so queueing shows in the latency.",
+    )
+    .option(
+      "--load-stop-on-breach",
+      "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
+    )
+    .option(
+      "--load-churn",
+      "With --load: session churn. Each worker connects, makes --load-churn-calls calls, disconnects, and repeats, so session setup and teardown are under load too; connect times and failures are reported apart from call latency. HTTP or SSE only; not with --load-connections.",
+    )
+    .option(
+      "--load-churn-calls <n>",
+      "With --load-churn: calls per session before it is closed (positive integer; default 1).",
+      positiveIntegerParser("--load-churn-calls"),
+    )
+    .option(
+      "--load-subscribe <uri>",
+      "With --load: notification fan-out. Subscribe --load-subscribers sessions to this resource and report how notifications/resources/updated reaches them: per-notification delivery latency, misses per session, and subscribe cost. With --tool-name (or --load-scenario) each successful call is a trigger and latency runs from its start; without one the run listens for --load-duration to the server's own updates. Triggers run one at a time.",
+    )
+    .option(
+      "--load-subscribers <n>",
+      "With --load-subscribe: sessions to subscribe, this connection included (positive integer; default 1; above 1 needs an HTTP or SSE server).",
+      positiveIntegerParser("--load-subscribers"),
+    )
+    .option(
+      "--load-subscribe-wait <sec>",
+      "With --load-subscribe: how long subscribers get to catch up after the run before a notification counts as missed (default 2).",
+      positiveNumberParser("--load-subscribe-wait"),
+    )
+    .option(
+      "--load-workers <n>",
+      "With --load: spread the run over this many generator processes, each with its share of --load-concurrency, --load-requests and --load-rate, and merge their results into one summary (positive integer; default 1). For when the generator, not the server, is the bottleneck. HTTP or SSE only; not with --load-steps, --load-ramp, --load-interval, --load-connections, --load-churn, --load-subscribe or --output.",
+      positiveIntegerParser("--load-workers"),
     )
     .option(
       "--load-concurrency <n>",
@@ -1166,6 +1525,30 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "--load-max-p99 <ms>",
       "With --load: exit 10 (load_p99_exceeded) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
       maxP99Parser,
+    )
+    .option(
+      "--load-max-p50 <ms>",
+      "With --load: exit 10 (load_p50_exceeded) when the p50 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+      maxP50Parser,
+    )
+    .option(
+      "--load-max-p95 <ms>",
+      "With --load: exit 10 (load_p95_exceeded) when the p95 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+      maxP95Parser,
+    )
+    .option(
+      "--load-min-throughput <n>",
+      "With --load: exit 10 (load_throughput_below) when fewer than this many calls per second succeeded (okThroughput), after printing the summary (positive number).",
+      minThroughputParser,
+    )
+    .option(
+      "--load-baseline <file>",
+      "With --load: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with --format json, printing the comparison on stderr. The runs must be shaped alike (same tool or scenario, concurrency, bounds, rate, connections and stages), or the run exits 1 (load_baseline_mismatch).",
+    )
+    .option(
+      "--load-max-regression <pct>",
+      "With --load-baseline: exit 10 (load_regression) when p50 or p99 is higher, or ok throughput lower, than the baseline by more than this percentage, or the error rate higher by more than this many percentage points (e.g. 10 or 10%).",
+      maxRegressionParser,
     )
     .option(
       "--connect-timeout <ms>",
@@ -1257,6 +1640,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
       "Requires --relogin. Skips the RFC 7009 revocation request that would otherwise end the grant at the authorization server when the local state is deleted. Also skipped when the server entry sets oauth.revokeOnClear to false.",
     )
     .option(
+      "--oauth-debug",
+      "Print each OAuth step to stderr as it happens: protected-resource and authorization-server metadata URLs and statuses, the client registration request and response, the authorization URL, and the token request and response. Tokens, codes, verifiers and client secrets are redacted. Printed even under --quiet.",
+    )
+    .option(
       "--wait-for-auth <sec>",
       "Poll the OAuth state file until a token for --server-url appears (or the timeout elapses), then proceed as if --use-stored-auth were set. Use after handing off to a human to complete OAuth in a browser.",
       (v: string) => {
@@ -1284,7 +1671,15 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     .addOption(new Option("--cli").hideHelp());
 
   registerCompletionOption(program);
-  program.parse(preArgs);
+  // Bound the variadic options only now, once every option is registered:
+  // which flags take a required value is read off the program itself.
+  const takesValue = new Set(
+    program.options
+      .filter((option) => option.required)
+      .flatMap((option) => [option.long, option.short])
+      .filter((flag): flag is string => flag !== undefined),
+  );
+  program.parse([...preArgs, ...boundVariadicOptions(optionArgs, takesValue)]);
   // `--completion <shell>` (#2434): print the script and exit, no connect.
   if (await emitCompletionIfRequested(program)) return { shortCircuit: true };
 
@@ -1320,7 +1715,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     toolArg?: Record<string, JsonValue>;
     uri?: string;
     promptName?: string;
-    promptArgs?: Record<string, JsonValue>;
+    promptArgs?: Record<string, string>;
     logLevel?: LoggingLevel;
     metadata?: Record<string, StrictJsonValue>;
     toolMetadata?: Record<string, StrictJsonValue>;
@@ -1352,6 +1747,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     storedAuthOnly?: boolean;
     relogin?: boolean;
     revoke?: boolean;
+    oauthDebug?: boolean;
     waitForAuth?: number;
     listStoredAuth?: boolean;
     printHandoff?: boolean;
@@ -1361,8 +1757,31 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     loadDuration?: number;
     loadRequests?: number;
     loadRate?: number;
+    loadScenario?: string;
+    loadArgsFile?: string;
+    loadArgsRandom?: boolean;
+    loadSteps?: number[];
+    loadRamp?: LoadRamp;
+    loadStepBy?: LoadStepBy;
+    loadStepDuration?: number;
+    loadStopOnBreach?: boolean;
+    loadInterval?: number;
+    loadWarmup?: number;
+    loadProgress?: number;
+    loadOpenLoop?: boolean;
+    loadChurn?: boolean;
+    loadChurnCalls?: number;
+    loadSubscribe?: string;
+    loadSubscribers?: number;
+    loadSubscribeWait?: number;
+    loadWorkers?: number;
     loadMaxErrorRate?: number;
     loadMaxP99?: number;
+    loadMaxP50?: number;
+    loadMaxP95?: number;
+    loadMinThroughput?: number;
+    loadBaseline?: string;
+    loadMaxRegression?: number;
   };
 
   if (options.relogin) {
@@ -1458,8 +1877,31 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     ["--load-duration", options.loadDuration],
     ["--load-requests", options.loadRequests],
     ["--load-rate", options.loadRate],
+    ["--load-scenario", options.loadScenario],
+    ["--load-args-file", options.loadArgsFile],
+    ["--load-args-random", options.loadArgsRandom],
+    ["--load-steps", options.loadSteps],
+    ["--load-ramp", options.loadRamp],
+    ["--load-step-by", options.loadStepBy],
+    ["--load-step-duration", options.loadStepDuration],
+    ["--load-stop-on-breach", options.loadStopOnBreach],
+    ["--load-interval", options.loadInterval],
+    ["--load-warmup", options.loadWarmup],
+    ["--load-progress", options.loadProgress],
+    ["--load-open-loop", options.loadOpenLoop],
+    ["--load-churn", options.loadChurn],
+    ["--load-churn-calls", options.loadChurnCalls],
+    ["--load-subscribe", options.loadSubscribe],
+    ["--load-subscribers", options.loadSubscribers],
+    ["--load-subscribe-wait", options.loadSubscribeWait],
+    ["--load-workers", options.loadWorkers],
     ["--load-max-error-rate", options.loadMaxErrorRate],
     ["--load-max-p99", options.loadMaxP99],
+    ["--load-max-p50", options.loadMaxP50],
+    ["--load-max-p95", options.loadMaxP95],
+    ["--load-min-throughput", options.loadMinThroughput],
+    ["--load-baseline", options.loadBaseline],
+    ["--load-max-regression", options.loadMaxRegression],
   ] as const;
   for (const [flag, value] of loadBounds) {
     if (value !== undefined && !options.load) {
@@ -1479,10 +1921,49 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
         "--load cannot be combined with --list-stored-auth or --print-handoff.",
       );
     }
-    if (options.output !== undefined || options.outputFormat !== undefined) {
+    // `--output` with `--load` writes one NDJSON line per call (#2838); it
+    // has a single format, so `--output-format` has nothing to choose.
+    if (options.outputFormat !== undefined) {
       throw loadFlagConflict(
-        "--load cannot be combined with --output or --output-format; redirect stdout to keep the summary.",
+        "--load cannot be combined with --output-format; --output with --load always writes NDJSON, one line per call.",
       );
+    }
+    // Each worker process would write its own file (#2914).
+    if (
+      options.output !== undefined &&
+      options.loadWorkers !== undefined &&
+      options.loadWorkers > 1
+    ) {
+      throw loadFlagConflict(
+        "--load-workers cannot be combined with --output; each worker process would write its own samples.",
+      );
+    }
+    // The scenario names each step's tool and arguments (#2839), so a flag
+    // that names them too would be silently overridden.
+    if (options.loadScenario !== undefined) {
+      const named = [
+        ["--tool-name", options.toolName !== undefined],
+        ["--tool-arg", Object.keys(options.toolArg ?? {}).length > 0],
+        ["--tool-args-json", options.toolArgsJson !== undefined],
+        ["--tool-metadata", Object.keys(options.toolMetadata ?? {}).length > 0],
+      ] as const;
+      for (const [flag, given] of named) {
+        if (given) {
+          throw loadFlagConflict(
+            `--load-scenario cannot be combined with ${flag}; each scenario step names its own tool and arguments.`,
+          );
+        }
+      }
+      // A scenario step carries its own `args`; rows would have no step to
+      // merge into (#2840).
+      if (options.loadArgsFile !== undefined) {
+        throw loadFlagConflict(
+          "--load-args-file cannot be combined with --load-scenario; put placeholders in each step's args instead.",
+        );
+      }
+    }
+    if (options.loadArgsRandom && options.loadArgsFile === undefined) {
+      throw loadFlagConflict("--load-args-random requires --load-args-file.");
     }
   }
 
@@ -1661,6 +2142,12 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
           token = await refreshStoredAuthToken(
             options.serverUrl,
             oauthStatePath,
+            {
+              // A warning, not the result — `--quiet` drops it, as it does
+              // every other advisory line (#2435, #2846).
+              ...(options.quiet === true && { warn: discardWarning }),
+              oauthDebug: options.oauthDebug === true,
+            },
           );
         } catch (err) {
           // A failed refresh (transient auth-server hiccup, missing client
@@ -1751,6 +2238,10 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     toolArg = parsed as Record<string, JsonValue>;
   }
 
+  // A reversed `{{rand:9-1}}` in a flag argument fails here, before anything
+  // connects, rather than on every call (#2840).
+  if (options.load) assertLoadArgsTemplate(toolArg, "--tool-arg");
+
   const methodArgs: MethodArgs & { method: string } = {
     method: options.method,
     toolName: options.toolName,
@@ -1781,11 +2272,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
   // bound it. `undefined` when neither flag is set (#2745).
   const loadThresholds = resolveLoadThresholds({
     maxErrorRate: options.loadMaxErrorRate,
+    maxP50Ms: options.loadMaxP50,
+    maxP95Ms: options.loadMaxP95,
     maxP99Ms: options.loadMaxP99,
+    minThroughput: options.loadMinThroughput,
+  });
+  // `--load-baseline` (#2910): read now, before anything connects, so a bad
+  // path or a file that is not a summary fails without running the load.
+  const loadBaseline = resolveLoadBaseline({
+    baseline: options.loadBaseline,
+    maxRegressionPct: options.loadMaxRegression,
   });
 
   return {
     loadThresholds,
+    ...(loadBaseline && { loadBaseline }),
     serverConfig,
     serverSettings,
     methodArgs,
@@ -1799,8 +2300,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     // Commander's `--no-revoke` defaults this to true; only an explicit
     // `--no-revoke` makes it false.
     revoke: options.revoke !== false,
+    oauthDebug: options.oauthDebug === true,
     ...(options.load && {
-      load: resolveCliLoadOptions(options),
+      load: resolveCliLoadOptions(options, loadThresholds),
     }),
   };
 }
@@ -1821,13 +2323,70 @@ function loadFlagConflict(message: string): CliExitCodeError {
  * above `--load-concurrency`) raised as a {@link loadFlagConflict}. The engine
  * only ever throws an `Error` there.
  */
-function resolveCliLoadOptions(options: {
-  loadConcurrency?: number;
-  loadConnections?: number;
-  loadDuration?: number;
-  loadRequests?: number;
-  loadRate?: number;
-}): LoadOptions {
+function resolveCliLoadOptions(
+  options: {
+    loadConcurrency?: number;
+    loadConnections?: number;
+    loadDuration?: number;
+    loadRequests?: number;
+    loadRate?: number;
+    loadScenario?: string;
+    loadArgsFile?: string;
+    loadArgsRandom?: boolean;
+    loadSteps?: number[];
+    loadRamp?: LoadRamp;
+    loadStepBy?: LoadStepBy;
+    loadStepDuration?: number;
+    loadStopOnBreach?: boolean;
+    loadInterval?: number;
+    loadWarmup?: number;
+    loadProgress?: number;
+    loadOpenLoop?: boolean;
+    loadChurn?: boolean;
+    loadChurnCalls?: number;
+    loadSubscribe?: string;
+    loadSubscribers?: number;
+    loadSubscribeWait?: number;
+    loadWorkers?: number;
+    quiet?: boolean;
+  },
+  thresholds: LoadThresholds | undefined,
+): LoadOptions {
+  // Stages (#2841) first: their refusals are flag conflicts, which should not
+  // wait on reading a file.
+  let stages: ReturnType<typeof resolveLoadStages>;
+  try {
+    stages = resolveLoadStages({
+      steps: options.loadSteps,
+      ramp: options.loadRamp,
+      stepBy: options.loadStepBy,
+      stepDurationSec: options.loadStepDuration,
+      stopOnBreach: options.loadStopOnBreach,
+      thresholds,
+      concurrency: options.loadConcurrency,
+      rate: options.loadRate,
+      durationSec: options.loadDuration,
+      requests: options.loadRequests,
+    });
+  } catch (err) {
+    throw loadFlagConflict((err as Error).message);
+  }
+  // Read before anything connects; a bad file is a usage error of its own
+  // (`load_scenario_invalid`, `load_args_invalid`), so neither is folded into
+  // the conflict below.
+  const scenario =
+    options.loadScenario !== undefined
+      ? readLoadScenarioFile(options.loadScenario)
+      : undefined;
+  const argRows =
+    options.loadArgsFile !== undefined
+      ? {
+          rows: readLoadArgsFile(options.loadArgsFile),
+          order: options.loadArgsRandom
+            ? ("random" as const)
+            : ("sequential" as const),
+        }
+      : undefined;
   try {
     return resolveLoadOptions({
       concurrency: options.loadConcurrency,
@@ -1835,13 +2394,114 @@ function resolveCliLoadOptions(options: {
       durationSec: options.loadDuration,
       requests: options.loadRequests,
       rate: options.loadRate,
+      scenario,
+      argRows,
+      stages,
+      intervalSec: options.loadInterval,
+      warmupSec: options.loadWarmup,
+      openLoop: options.loadOpenLoop,
+      churn: options.loadChurn,
+      churnCalls: options.loadChurnCalls,
+      subscribe: options.loadSubscribe,
+      subscribers: options.loadSubscribers,
+      subscribeWaitSec: options.loadSubscribeWait,
+      workers: options.loadWorkers,
+      // Progress is on by default and `--quiet` turns it off (#2838).
+      ...(options.quiet !== true && {
+        progressSec: options.loadProgress ?? DEFAULT_LOAD_PROGRESS_SEC,
+      }),
     });
   } catch (err) {
     throw loadFlagConflict((err as Error).message);
   }
 }
 
-/** Stands in for `console.warn` during a `--quiet` run (see `parseArgs`). */
+/**
+ * The spawner for `--load-workers` (#2914): this same command, re-run as a
+ * child process without `--load-workers`. Normally that is this process's
+ * own entry and arguments — the CLI bin, or the launcher with its `--cli`
+ * — so a worker starts exactly as its parent did. `invocationArgs` (what
+ * `runCli` was handed) are used only with {@link LOAD_WORKER_ENTRY_ENV},
+ * which in-process tests set because their process's entry is the runner.
+ */
+function forkSelfAsLoadWorker(
+  invocationArgs: string[],
+  count: number,
+): (index: number) => LoadWorkerHandle {
+  const override = process.env[LOAD_WORKER_ENTRY_ENV];
+  const entry = override ?? process.argv[1]!;
+  const args = workerArgv(override ? invocationArgs : process.argv.slice(2));
+  return (index) => forkLoadWorker(entry, args, index, count);
+}
+
+/**
+ * A `--load-workers` worker process (#2914): its share of the run, stopped
+ * by its parent or by its own Ctrl+C, with its summary and raw stats sent
+ * to the parent instead of printed.
+ */
+async function runLoadShard(
+  inspectorClient: InspectorClient,
+  args: MethodArgs,
+  load: LoadOptions,
+  shard: { index: number; count: number },
+): Promise<void> {
+  const options = shardLoadOptions(load, shard.index, shard.count);
+  await withLoadInterrupt(
+    (interrupt) =>
+      runAsLoadWorker(processWorkerPort(), (worker) =>
+        runLoadOrFanout(inspectorClient, args, options, {
+          signal: AbortSignal.any([interrupt, worker.signal]),
+          ...(options.progressMs !== undefined && {
+            progress: { everyMs: options.progressMs, emit: worker.progress },
+          }),
+          observe: worker.observe,
+        }),
+      ),
+    { quiet: true },
+  );
+}
+
+/**
+ * Print a `--load` summary (#2838 item 7): the readable text summary for
+ * `--format text`, or when no `--format` was given and stdout is a terminal;
+ * the `{ "result": … }` envelope for `--format json`; and, when no `--format`
+ * was given and stdout is not a terminal — a pipe, a file, a script — the
+ * pretty-printed JSON it has always been, so scripts that read it keep
+ * working.
+ */
+async function writeLoadSummary(
+  summary: LoadSummary,
+  format: OutputFormat | undefined,
+): Promise<void> {
+  if (format === "json") return writeFormattedResult(summary, "json");
+  if (format === "text" || process.stdout.isTTY === true) {
+    const style = styleFromOpts({ format: "text" });
+    // The summary carries server-controlled text (tool-error text, thrown
+    // messages, a scenario's names). Sanitized before styling, as mcpdo does,
+    // so none of it reaches the terminal as an escape sequence.
+    const safe = sanitizeDeep(summary);
+    await awaitableLog(`${formatLoadSummaryHuman(safe, style)}\n`);
+    return;
+  }
+  await writeFormattedResult(summary, "text");
+}
+
+/**
+ * One `--load` progress line on stderr (#2838). Written directly rather
+ * than through the awaited writer: a progress report is advisory, and the
+ * run must not wait on stderr between calls.
+ */
+function writeLoadProgress(progress: LoadProgress): void {
+  // Advisory: while a slow reader has stderr backed up, skip the line
+  // rather than queue it, so a long run cannot grow the buffer unbounded.
+  if (process.stderr.writableNeedDrain) return;
+  process.stderr.write(`${formatLoadProgress(progress)}\n`);
+}
+
+/**
+ * Stands in for `console.warn` during a `--quiet` run (see `parseArgs`), and
+ * for the refusal-warning sink of the stored-auth refresh (#2846).
+ */
 function discardWarning(): void {}
 
 export async function runCli(argv?: string[]): Promise<void> {
@@ -1872,8 +2532,10 @@ async function runParsedCli(argv?: string[]): Promise<void> {
     storedAuthOnly,
     relogin,
     revoke,
+    oauthDebug,
     load,
     loadThresholds,
+    loadBaseline,
   } = parsed;
   const clientConfig = await loadRunnerClientConfig({ clientConfigPath });
   // A bad --callback-url / MCP_OAUTH_CALLBACK_URL is a *usage* error, but its
@@ -1901,10 +2563,15 @@ async function runParsedCli(argv?: string[]): Promise<void> {
       clientMetadataUrl,
     },
     callbackUrlConfig,
-    storedAuthOnly === true,
+    // A `--load-workers` worker (#2914) never starts a login: its parent
+    // connected first, and N workers must not open N browsers.
+    storedAuthOnly === true || readLoadShard() !== undefined,
     relogin === true,
     revoke !== false,
+    oauthDebug === true,
     load,
     loadThresholds,
+    loadBaseline,
+    (argv ?? process.argv).slice(2),
   );
 }

@@ -57,6 +57,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import semver from "semver";
 import { escapeTableCell as cell } from "./lib/markdown-cell.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 /** Board #28 (v2). The project and field node ids are stable; option ids are not. */
 export const PROJECT_ID = "PVT_kwDOCt2Azc4BJVxt";
@@ -1472,6 +1473,6 @@ export function main(
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

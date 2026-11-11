@@ -12,6 +12,7 @@ import {
   getDaemonSocketPath,
 } from "../src/daemon/paths.js";
 import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};
@@ -37,17 +38,23 @@ describe("daemon paths", () => {
     else process.env[key] = value;
   }
 
-  it("prefers MCP_INSPECTOR_DAEMON_DIR over MCP_STORAGE_DIR", () => {
-    const a = path.join(os.tmpdir(), "daemon-a");
-    const b = path.join(os.tmpdir(), "daemon-b");
-    setEnv("MCP_STORAGE_DIR", b);
-    setEnv("MCP_INSPECTOR_DAEMON_DIR", a);
-    expect(getDaemonDir()).toBe(path.resolve(a));
-    expect(getDaemonSocketPath()).toBe(
-      path.join(path.resolve(a), "mcpdod.sock"),
-    );
-    expect(getDaemonLockPath()).toBe(path.join(path.resolve(a), "mcpdod.lock"));
-  });
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "prefers MCP_INSPECTOR_DAEMON_DIR over MCP_STORAGE_DIR",
+    () => {
+      const a = path.join(os.tmpdir(), "daemon-a");
+      const b = path.join(os.tmpdir(), "daemon-b");
+      setEnv("MCP_STORAGE_DIR", b);
+      setEnv("MCP_INSPECTOR_DAEMON_DIR", a);
+      expect(getDaemonDir()).toBe(path.resolve(a));
+      expect(getDaemonSocketPath()).toBe(
+        path.join(path.resolve(a), "mcpdod.sock"),
+      );
+      expect(getDaemonLockPath()).toBe(
+        path.join(path.resolve(a), "mcpdod.lock"),
+      );
+    },
+  );
 
   it("falls back to MCP_STORAGE_DIR then ~/.mcp-inspector", () => {
     const storage = path.join(os.tmpdir(), "daemon-storage");
@@ -65,40 +72,48 @@ describe("daemon paths", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("tightens a pre-existing loose daemon directory to 0700 and rejects symlinks", () => {
-    // mkdirSync never re-modes an existing dir; ~/.mcp-inspector commonly
-    // pre-exists at 0755, so ensureDaemonDir must tighten it itself.
-    const base = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-tighten-"));
-    const loose = path.join(base, "loose");
-    fs.mkdirSync(loose, { mode: 0o755 });
-    fs.chmodSync(loose, 0o755);
-    ensureDaemonDir(loose);
-    expect(fs.statSync(loose).mode & 0o077).toBe(0);
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "tightens a pre-existing loose daemon directory to 0700 and rejects symlinks",
+    () => {
+      // mkdirSync never re-modes an existing dir; ~/.mcp-inspector commonly
+      // pre-exists at 0755, so ensureDaemonDir must tighten it itself.
+      const base = fs.mkdtempSync(path.join(os.tmpdir(), "daemon-tighten-"));
+      const loose = path.join(base, "loose");
+      fs.mkdirSync(loose, { mode: 0o755 });
+      fs.chmodSync(loose, 0o755);
+      ensureDaemonDir(loose);
+      expect(fs.statSync(loose).mode & 0o077).toBe(0);
 
-    const target = path.join(base, "target");
-    fs.mkdirSync(target, { mode: 0o700 });
-    const link = path.join(base, "link");
-    fs.symlinkSync(target, link);
-    expect(() => ensureDaemonDir(link)).toThrow(/not a directory/);
-    fs.rmSync(base, { recursive: true, force: true });
-  });
+      const target = path.join(base, "target");
+      fs.mkdirSync(target, { mode: 0o700 });
+      const link = path.join(base, "link");
+      fs.symlinkSync(target, link);
+      expect(() => ensureDaemonDir(link)).toThrow(/not a directory/);
+      fs.rmSync(base, { recursive: true, force: true });
+    },
+  );
 
-  it("createPrivateDaemonDir nests under a short 0700 tmpdir layout", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
-    setEnv("TMPDIR", tmp + path.sep);
-    const dir = createPrivateDaemonDir();
-    // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that mcpdod.sock stays inside
-    // the platform sun_path limit even for macOS /var/folders tmpdirs.
-    expect(dir.startsWith(tmp)).toBe(true);
-    expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
-    expect(path.basename(path.dirname(dir))).toMatch(/^mcp-conn-/);
-    expect(fs.statSync(dir).isDirectory()).toBe(true);
-    if (process.platform !== "win32") {
-      expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
-      expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
-    }
-    fs.rmSync(tmp, { recursive: true, force: true });
-  });
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "createPrivateDaemonDir nests under a short 0700 tmpdir layout",
+    () => {
+      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
+      setEnv("TMPDIR", tmp + path.sep);
+      const dir = createPrivateDaemonDir();
+      // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that mcpdod.sock stays inside
+      // the platform sun_path limit even for macOS /var/folders tmpdirs.
+      expect(dir.startsWith(tmp)).toBe(true);
+      expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
+      expect(path.basename(path.dirname(dir))).toMatch(/^mcp-conn-/);
+      expect(fs.statSync(dir).isDirectory()).toBe(true);
+      if (process.platform !== "win32") {
+        expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+        expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
+      }
+      fs.rmSync(tmp, { recursive: true, force: true });
+    },
+  );
 
   it("createPrivateDaemonDir refuses a symlinked mcp-conn root", () => {
     if (process.platform === "win32") return;
@@ -127,15 +142,19 @@ describe("daemon paths", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("assertSocketPathWithinLimit rejects paths over the sun_path limit", () => {
-    expect(() =>
-      assertSocketPathWithinLimit("/tmp/short/mcpdod.sock"),
-    ).not.toThrow();
-    const long = "/" + "x".repeat(150) + "/mcpdod.sock";
-    expect(() => assertSocketPathWithinLimit(long)).toThrow(
-      /too long for this platform/,
-    );
-  });
+  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+  it.skipIf(unixDaemonOnly)(
+    "assertSocketPathWithinLimit rejects paths over the sun_path limit",
+    () => {
+      expect(() =>
+        assertSocketPathWithinLimit("/tmp/short/mcpdod.sock"),
+      ).not.toThrow();
+      const long = "/" + "x".repeat(150) + "/mcpdod.sock";
+      expect(() => assertSocketPathWithinLimit(long)).toThrow(
+        /too long for this platform/,
+      );
+    },
+  );
 
   it("uses a deterministic named-pipe path on Windows with no sun_path limit", () => {
     const realPlatform = Object.getOwnPropertyDescriptor(

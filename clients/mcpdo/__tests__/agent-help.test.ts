@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
+import * as path from "node:path";
 import { runMcp } from "./helpers/mcp-runner.js";
 
 describe("mcpdo agent-help", () => {
@@ -24,7 +25,10 @@ describe("mcpdo agent-help", () => {
     const result = await runMcp(["agent-help", "--skill-path"]);
     expect(result.exitCode).toBe(0);
     const printedPath = result.stdout.trim();
-    expect(printedPath.endsWith("skills/mcpdo/SKILL.md")).toBe(true);
+    // Separator-agnostic: Windows prints a backslash path (#2748).
+    expect(
+      printedPath.split(path.sep).join("/").endsWith("skills/mcpdo/SKILL.md"),
+    ).toBe(true);
     expect(existsSync(printedPath)).toBe(true);
   });
 

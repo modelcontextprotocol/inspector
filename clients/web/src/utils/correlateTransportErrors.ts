@@ -34,6 +34,40 @@ function parseJsonRpcId(body: string | undefined): string | number | null {
   return null;
 }
 
+/**
+ * Per-entry memo of the two body parses this module does (#2928). Every
+ * correlation here re-scans the whole fetch log, and `App` runs them once per
+ * render — so with a few hundred calls in the log, re-parsing every body on
+ * every render was a measurable share of the page's main thread under load.
+ * A `FetchRequestEntry` is never mutated (the log replaces an entry when its
+ * body or stream state arrives), so its identity is a sound key, and a
+ * `WeakMap` lets an entry's results go when the log rotates the entry out.
+ */
+const requestIdCache = new WeakMap<FetchRequestEntry, string | number | null>();
+const responseErrorCache = new WeakMap<
+  FetchRequestEntry,
+  ReturnType<typeof parseJsonRpcError>
+>();
+
+function fetchRequestId(entry: FetchRequestEntry): string | number | null {
+  // `null` is a cached "no id"; only `undefined` means not parsed yet.
+  const cached = requestIdCache.get(entry);
+  if (cached !== undefined) return cached;
+  const id = parseJsonRpcId(entry.requestBody);
+  requestIdCache.set(entry, id);
+  return id;
+}
+
+function fetchResponseError(
+  entry: FetchRequestEntry,
+): ReturnType<typeof parseJsonRpcError> {
+  const cached = responseErrorCache.get(entry);
+  if (cached !== undefined) return cached;
+  const error = parseJsonRpcError(entry.responseBody);
+  responseErrorCache.set(entry, error);
+  return error;
+}
+
 /** The JSON-RPC `id` a MessageEntry carries (request id; notifications have none). */
 export function messageJsonRpcId(
   entry: MessageEntry,
@@ -55,9 +89,9 @@ function indexTransportFetchErrors(
   const byId = new Map<string, JSONRPCErrorResponse>();
   for (const fetchEntry of fetchEntries) {
     if (fetchEntry.category !== "transport") continue;
-    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    const requestId = fetchRequestId(fetchEntry);
     if (requestId === null) continue;
-    const error = parseJsonRpcError(fetchEntry.responseBody);
+    const error = fetchResponseError(fetchEntry);
     if (!error) continue;
     byId.set(String(requestId), {
       jsonrpc: "2.0",
@@ -86,7 +120,7 @@ export function correlateFetchEntry(
   let match: FetchRequestEntry | undefined;
   for (const fetchEntry of fetchEntries) {
     if (fetchEntry.category !== "transport") continue;
-    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    const requestId = fetchRequestId(fetchEntry);
     if (requestId !== null && String(requestId) === String(targetId)) {
       match = fetchEntry;
     }
@@ -111,7 +145,7 @@ export function revealableMessageIds(
   const fetchIdByRequestId = new Set<string>();
   for (const fetchEntry of fetchEntries) {
     if (fetchEntry.category !== "transport") continue;
-    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    const requestId = fetchRequestId(fetchEntry);
     if (requestId !== null) fetchIdByRequestId.add(String(requestId));
   }
   const ids = new Set<string>();
@@ -138,7 +172,7 @@ export function correlatedFetchStatusById(
   for (const fetchEntry of fetchEntries) {
     if (fetchEntry.category !== "transport") continue;
     if (fetchEntry.responseStatus === undefined) continue;
-    const requestId = parseJsonRpcId(fetchEntry.requestBody);
+    const requestId = fetchRequestId(fetchEntry);
     if (requestId !== null)
       statusByRequestId.set(String(requestId), fetchEntry.responseStatus);
   }

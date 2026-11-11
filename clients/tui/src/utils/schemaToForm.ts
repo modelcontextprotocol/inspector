@@ -8,7 +8,14 @@ import {
   isStringEnum,
   normalizeNullableUnion,
 } from "@inspector/core/json/nullableUnion.js";
-import { resolveRootUnion } from "@inspector/core/json/rootUnion.js";
+import {
+  resolveRootUnion,
+  sameJsonValue,
+} from "@inspector/core/json/rootUnion.js";
+import {
+  MULTISELECT_FIELD_TYPE,
+  type FormFieldMultiSelect,
+} from "./multiSelectField.js";
 
 /** Minimal JSON Schema property shape used when building tool parameter forms */
 interface JsonSchemaProperty {
@@ -23,6 +30,9 @@ interface JsonSchemaProperty {
   /** Non-standard legacy support: titles for enum values */
   enumNames?: string[];
   items?: { enum?: unknown[]; enumNames?: string[] };
+  /** Bounds on an array's length, checked at submit (#2904). */
+  minItems?: number;
+  maxItems?: number;
   minimum?: number;
   maximum?: number;
   default?: unknown;
@@ -47,6 +57,47 @@ function toSelectOptions(
     label: useNames ? names[index] : String(val),
     value: String(val),
   }));
+}
+
+/**
+ * Multi-select options for an array's `items.enum`, identified by **index**.
+ *
+ * A single select can use `String(member)` as its value because only string
+ * enums reach it; a multi-select takes any enum, where `String()` is not an
+ * identity — `[1, "1"]` would share one id and `null` would come back as
+ * `"null"`. The index is unique, and {@link memberForChoiceId} maps it back to
+ * the exact member. Labels still use `enumNames` when length-matched.
+ */
+function choiceOptions(
+  members: unknown[],
+  names: string[] | undefined,
+): { label: string; value: string }[] {
+  return toSelectOptions(members, names).map((option, index) => ({
+    label: option.label,
+    value: String(index),
+  }));
+}
+
+/**
+ * The option ids of the enum members a default lists; unknown ones dropped.
+ * Matched by JSON value, so an object member equals the parsed default that
+ * spells it.
+ */
+function choiceIds(members: unknown[], chosen: unknown[]): string[] {
+  return chosen
+    .map((value) => members.findIndex((member) => sameJsonValue(member, value)))
+    .filter((index) => index >= 0)
+    .map(String);
+}
+
+/**
+ * The enum member an option id names. An id that names no member — only a
+ * value the form was not built to produce — is passed through unchanged, so
+ * the server rather than the form is the one to reject it.
+ */
+function memberForChoiceId(members: unknown[], id: unknown): unknown {
+  const index = typeof id === "string" && /^\d+$/.test(id) ? Number(id) : -1;
+  return index >= 0 && index < members.length ? members[index] : id;
 }
 
 /**
@@ -170,6 +221,28 @@ function constOf(schema: unknown): unknown {
 }
 
 /**
+ * An array-of-choices property: `type: "array"` with its choices on
+ * `items.enum`. Detected on `items.enum` alone (matching the web SchemaForm
+ * guard) — a standard array-of-enums schema carries no top-level `enum`.
+ */
+function isChoiceArray(
+  property: JsonSchemaProperty,
+): property is JsonSchemaProperty & {
+  items: { enum: unknown[]; enumNames?: string[] };
+} {
+  return property.type === "array" && Array.isArray(property.items?.enum);
+}
+
+/** A property declaration, nullable union collapsed, as the form reads it. */
+function declarationOf(prop: unknown): JsonSchemaProperty {
+  return normalizeNullableUnion(
+    (typeof prop === "object" && prop !== null
+      ? prop
+      : {}) as JsonSchemaProperty,
+  );
+}
+
+/**
  * Converts a JSON Schema to ink-form structure
  */
 export function schemaToForm(
@@ -290,7 +363,11 @@ export function decodeFormValues<T>(
 ): Record<string, T> {
   const { base, branches } = resolveRootUnion(schema ?? {});
   if (branches.length === 0) {
-    return applyConstants(base.properties ?? {}, values, requiredOf(base));
+    return restoreChoices(
+      base.properties ?? {},
+      applyConstants(base.properties ?? {}, values, requiredOf(base)),
+      requiredOf(base),
+    );
   }
 
   const { variant, prefix } = generatedNames(base, branches);
@@ -318,10 +395,12 @@ export function decodeFormValues<T>(
       .filter(([, value]) => value !== undefined),
   ]);
   /* v8 ignore next -- an offerable branch always carries properties */
-  return applyConstants(
-    branch.schema.properties ?? {},
-    decoded,
-    requiredOf(branch.schema),
+  const properties = branch.schema.properties ?? {};
+  const required = requiredOf(branch.schema);
+  return restoreChoices(
+    properties,
+    applyConstants(properties, decoded, required),
+    required,
   );
 }
 
@@ -371,6 +450,61 @@ function applyConstants<T>(
 }
 
 /**
+ * Turn each multi-select's chosen option ids back into the schema's own enum
+ * members (#2904), and drop an empty selection on an optional field.
+ *
+ * An option's id is its member's index (see {@link choiceOptions}), so the
+ * member is recovered exactly — `null` stays `null`, and `1` and `"1"` stay
+ * distinct — rather than by matching a stringified value. An
+ * optional field the user opened and cleared is treated as unanswered, since
+ * ink-form has no way to unset a field once saved and `[]` may violate its
+ * `minItems`. A required one keeps its `[]` for the bounds check to report.
+ */
+function restoreChoices<T>(
+  properties: Record<string, unknown>,
+  values: Record<string, T>,
+  required: string[],
+): Record<string, T> {
+  const choiceFields = Object.entries(properties)
+    .map(([name, prop]) => [name, declarationOf(prop)] as const)
+    .filter(
+      ([name, property]) =>
+        isChoiceArray(property) &&
+        // A `const` is rendered as its own one-option select and has already
+        // been restored by `applyConstants`; it holds no option ids.
+        property.const === undefined &&
+        Object.hasOwn(values, name) &&
+        Array.isArray(values[name]),
+    );
+  if (choiceFields.length === 0) return values;
+  const restored = new Map<string, T | undefined>(
+    choiceFields.map(([name, property]) => {
+      const chosen = values[name] as unknown[];
+      if (chosen.length === 0 && !required.includes(name)) {
+        return [name, undefined];
+      }
+      /* v8 ignore next -- `isChoiceArray` guarantees `items.enum` above */
+      const members = property.items?.enum ?? [];
+      return [
+        name,
+        chosen.map((each) => memberForChoiceId(members, each)) as T,
+      ];
+    }),
+  );
+  // Built through `fromEntries`, like `decodeFormValues`, so an argument named
+  // `__proto__` survives.
+  return Object.fromEntries(
+    Object.entries(values)
+      .map(([name, value]) =>
+        restored.has(name)
+          ? ([name, restored.get(name)] as const)
+          : ([name, value] as const),
+      )
+      .filter(([, value]) => value !== undefined),
+  ) as Record<string, T>;
+}
+
+/**
  * Build the ink-form fields for one already-flattened object schema.
  *
  * `optional` renders every field non-required whatever the schema says, for a
@@ -398,11 +532,7 @@ function buildFields(
     // for an enum the `enum` keyword sits on the union's surviving branch — so
     // without this an argument declared with Zod's `.nullish()` loses its
     // select and degrades to a plain text field (#2015, the TUI twin of #1928).
-    const property = normalizeNullableUnion(
-      (typeof prop === "object" && prop !== null
-        ? prop
-        : {}) as JsonSchemaProperty,
-    );
+    const property = declarationOf(prop);
     const baseField = {
       name: key,
       label: property.title || key,
@@ -441,13 +571,30 @@ function buildFields(
     // alone (matching the web SchemaForm guard) — a standard array-of-enums
     // schema carries no top-level `enum`, so gating on it would drop the field
     // to a plain string input.
-    if (property.type === "array" && property.items?.enum) {
-      // ink-form has no multiselect, so we render a single select.
-      field = {
-        type: "select",
+    if (isChoiceArray(property)) {
+      // ink-form has no multi-select of its own, so this is the TUI's custom
+      // field (#2904) — rendered by `components/MultiSelectField.tsx`, which
+      // every form built here registers through `customManagers`. Its value
+      // is the list of chosen option strings; `decodeFormValues` restores the
+      // schema's own typed members on the way out.
+      const multi: FormFieldMultiSelect = {
+        type: MULTISELECT_FIELD_TYPE,
         ...baseField,
-        options: toSelectOptions(property.items.enum, property.items.enumNames),
-      } as FormField;
+        options: choiceOptions(property.items.enum, property.items.enumNames),
+        ...(typeof property.minItems === "number" && {
+          minItems: property.minItems,
+        }),
+        ...(typeof property.maxItems === "number" && {
+          maxItems: property.maxItems,
+        }),
+        // Only an array default can seed a selection; anything else would
+        // hand the renderer a value it cannot show.
+        ...(Array.isArray(property.default) && {
+          initialValue: choiceIds(property.items.enum, property.default),
+        }),
+      };
+      fields.push(multi);
+      continue;
     } else if (isStringEnum(property.enum)) {
       // Single select. Gated on the members being strings because
       // `toSelectOptions` stringifies them and ink-form hands the string
@@ -565,5 +712,41 @@ export function missingRequiredFields(
       return constOf(properties[name]) !== "";
     }
     return value === undefined;
+  });
+}
+
+/**
+ * The array fields whose length the decoded values put outside the schema's
+ * `minItems` / `maxItems` — what ink-form's own `required` gate cannot see
+ * (#2904). One message per field, e.g. `tags: choose at least 2`.
+ *
+ * Takes the **decoded** values, like {@link missingRequiredFields}, and the raw
+ * ones so a root union is checked against the branch the variant select names.
+ * A field that is absent is not reported here: whether it must be present is
+ * `missingRequiredFields`' question.
+ */
+export function selectionCountErrors(
+  schema: JsonSchemaObject | null | undefined,
+  decoded: Record<string, unknown>,
+  rawValues: Record<string, unknown> = {},
+): string[] {
+  const { base, branches } = resolveRootUnion(schema ?? {});
+  const effective =
+    branches.length === 0
+      ? base
+      : branches[selectedBranchIndex(base, branches, rawValues)]!.schema;
+  /* v8 ignore next -- an offerable branch always carries properties */
+  const properties = effective.properties ?? {};
+  return Object.entries(properties).flatMap(([name, prop]) => {
+    const value = Object.hasOwn(decoded, name) ? decoded[name] : undefined;
+    if (!Array.isArray(value)) return [];
+    const { minItems, maxItems } = declarationOf(prop);
+    if (typeof minItems === "number" && value.length < minItems) {
+      return [`${name}: choose at least ${minItems}`];
+    }
+    if (typeof maxItems === "number" && value.length > maxItems) {
+      return [`${name}: choose at most ${maxItems}`];
+    }
+    return [];
   });
 }

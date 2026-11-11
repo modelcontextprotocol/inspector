@@ -12,8 +12,8 @@ import {
 } from "@inspector/core/cli/handlers/run-method.js";
 import { MCPDO_SKILL_BUDGET_HINT } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { MethodArgs } from "@inspector/core/cli/handlers/method-types.js";
+import { runLoadOrFanout } from "@inspector/core/cli/handlers/load-fanout.js";
 import {
-  runToolLoad,
   type LoadOptions,
   type LoadStop,
 } from "@inspector/core/cli/handlers/load-test.js";
@@ -29,7 +29,13 @@ import {
   ElicitationParkRegistry,
   ParkingElicitationChannel,
 } from "./elicitation-park.js";
-import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
+import {
+  assertDaemonToken,
+  computeDaemonProof,
+  generateDaemonToken,
+  getDaemonTokenFromEnv,
+  isDaemonNonce,
+} from "./auth.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import type { InspectorClientEventMap } from "@inspector/core/mcp/inspectorClientEventTarget.js";
@@ -48,6 +54,8 @@ import type {
   DaemonResponse,
   DaemonStatus,
   ElicitationPendingInfo,
+  HelloParams,
+  HelloResult,
   ElicitationRequestFrame,
   ElicitationRespondParams,
   ElicitationRespondResult,
@@ -138,7 +146,10 @@ export class DaemonServer {
   readonly socketPath: string;
   readonly lockPath: string;
   readonly dir: string;
-  private readonly requiredToken: string | undefined;
+  /** Not readonly: {@link start} generates one when none was supplied, so a
+   * daemon listening on a socket is never tokenless — a client verifies the
+   * daemon with it (see the `hello` op) and refuses a peer that has none. */
+  private requiredToken: string | undefined;
   private server: net.Server | null = null;
   private readonly onShutdown: (() => void) | null;
   private stopping = false;
@@ -189,23 +200,22 @@ export class DaemonServer {
       // Publish the IPC token (0600, inside the 0700 daemon dir) before the
       // socket exists, so a client can never connect without being able to
       // read the token it needs. See getDaemonTokenPath.
-      if (this.requiredToken !== undefined) {
-        const tokenPath = getDaemonTokenPath(this.dir);
-        // Exclusive create after removing any existing entry: writeFileSync
-        // follows symlinks, and ensureDaemonDir's tightening of the parent
-        // does not remove children planted while the dir was writable — a
-        // planted symlink would leak the token into an attacker-readable
-        // file. rmSync removes a symlink itself, never its target.
-        fs.rmSync(tokenPath, { force: true });
-        fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
-          mode: 0o600,
-          flag: "wx",
-        });
-        try {
-          fs.chmodSync(tokenPath, 0o600);
-        } catch {
-          // Unsupported on some platforms.
-        }
+      this.requiredToken ??= generateDaemonToken();
+      const tokenPath = getDaemonTokenPath(this.dir);
+      // Exclusive create after removing any existing entry: writeFileSync
+      // follows symlinks, and ensureDaemonDir's tightening of the parent
+      // does not remove children planted while the dir was writable — a
+      // planted symlink would leak the token into an attacker-readable
+      // file. rmSync removes a symlink itself, never its target.
+      fs.rmSync(tokenPath, { force: true });
+      fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
+        mode: 0o600,
+        flag: "wx",
+      });
+      try {
+        fs.chmodSync(tokenPath, 0o600);
+      } catch {
+        // Unsupported on some platforms.
       }
 
       this.server = net.createServer((socket) => {
@@ -339,6 +349,9 @@ export class DaemonServer {
     signal?: AbortSignal,
   ): Promise<HandleOutcome> {
     try {
+      // `hello` is the one op answered without the token: it is how a client
+      // that has not yet sent its token checks this daemon holds it.
+      if (request.op === "hello") return this.hello(request);
       assertDaemonToken(this.requiredToken, request.token);
       this.activeOps++;
       try {
@@ -379,6 +392,35 @@ export class DaemonServer {
         },
       };
     }
+  }
+
+  /**
+   * Prove possession of the IPC token for one connection: HMAC over the
+   * client's fresh nonce (see `computeDaemonProof`). Reveals nothing about the
+   * token, needs no auth, and is answered while stopping too, so a client can
+   * always verify the daemon before it sends anything sensitive.
+   */
+  private hello(request: DaemonRequest): HandleOutcome {
+    const nonce = (request.params as Partial<HelloParams> | undefined)?.nonce;
+    if (!isDaemonNonce(nonce)) {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "Invalid daemon hello: expected a 64-character hex nonce.",
+        { code: "invalid_request" },
+      );
+    }
+    if (this.requiredToken === undefined) {
+      // Only an in-process daemon that was never started (tests) lacks one.
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "This connection daemon has no IPC token to prove.",
+        { code: "daemon_auth_failed" },
+      );
+    }
+    const result: HelloResult = {
+      proof: computeDaemonProof(this.requiredToken, nonce),
+    };
+    return { response: { id: request.id, ok: true, result } };
   }
 
   private async dispatch(
@@ -672,6 +714,7 @@ export class DaemonServer {
           params,
           params.load,
           openLoadClient,
+          elicitation,
           signal,
         );
       }
@@ -755,6 +798,7 @@ export class DaemonServer {
     params: RpcParams,
     load: LoadOptions,
     openLoadClient: LoadClientOpener | undefined,
+    channel: ElicitationChannel,
     signal?: AbortSignal,
   ): Promise<RpcResult> {
     const methodArgs = stripConnectionFields(params);
@@ -811,10 +855,23 @@ export class DaemonServer {
     );
     // Extra sessions this run opened (#2800). The engine disconnects each in
     // its own `finally`; this releases what the daemon set up around them.
-    const extras: { client: InspectorClient; release: () => void }[] = [];
+    // A `--load-churn` run (#2912) opens one per session, so each is let go
+    // as soon as the engine has closed it, not only when the run ends.
+    const extras = new Map<InspectorClient, () => void>();
     try {
-      const summary = await runToolLoad(client, methodArgs, load, {
+      // Progress (#2838) goes back over the caller's socket as one-way
+      // frames, ahead of the summary.
+      const notify = channel.notify?.bind(channel);
+      const summary = await runLoadOrFanout(client, methodArgs, load, {
         signal: stop.signal,
+        ...(load.progressMs !== undefined &&
+          notify && {
+            progress: {
+              everyMs: load.progressMs,
+              emit: (progress) =>
+                notify({ id: requestId, kind: "load-progress", progress }),
+            },
+          }),
         ...(openLoadClient && {
           openConnection: async () => {
             // The run's signal reaches the dial too, so a stalled handshake
@@ -831,21 +888,22 @@ export class DaemonServer {
               autoCancelElicitationChannel,
               requestId,
             );
-            extras.push({
-              client: extra,
-              release: () => {
-                unwireExtra();
-                clearExtraSignal();
-                this.registry.releaseLoadClient(extra);
-              },
+            extras.set(extra, () => {
+              unwireExtra();
+              clearExtraSignal();
+              this.registry.releaseLoadClient(extra);
             });
             return extra;
+          },
+          onConnectionClosed: (closed) => {
+            extras.get(closed)?.();
+            extras.delete(closed);
           },
         }),
       });
       return { kind: "load", summary };
     } finally {
-      for (const extra of extras) extra.release();
+      for (const release of extras.values()) release();
       clearAmbientSignal();
       client.removeEventListener("statusChange", onStatus);
       signal?.removeEventListener("abort", onCallerGone);
@@ -854,7 +912,8 @@ export class DaemonServer {
   }
 
   /**
-   * The extra-session opener for a `--load-connections` run (#2800), bound
+   * The extra-session opener for a `--load-connections` run (#2800) or a
+   * `--load-churn` run (#2912), bound
    * to the connection's server config as resolved now, or `undefined` for a
    * single-session run. Checked before the run is queued: over stdio every
    * session would spawn its own server process, testing N isolated servers
@@ -865,7 +924,13 @@ export class DaemonServer {
     params: RpcParams,
     load: LoadOptions,
   ): LoadClientOpener | undefined {
-    if (load.connections === undefined || load.connections <= 1) {
+    const churn = load.churn !== undefined;
+    const fanout = load.fanout !== undefined && load.fanout.subscribers > 1;
+    if (
+      !churn &&
+      !fanout &&
+      (load.connections === undefined || load.connections <= 1)
+    ) {
       return undefined;
     }
     const connection = this.registry.connectionFor(
@@ -875,7 +940,11 @@ export class DaemonServer {
     if (!isOAuthCapableServerConfig(connection.serverConfig)) {
       throw new CliExitCodeError(
         EXIT_CODES.USAGE,
-        "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
+        churn
+          ? "--load-churn requires an HTTP or SSE connection; over stdio each session would spawn its own server process."
+          : fanout
+            ? "--load-subscribers above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process."
+            : "--load-connections above 1 requires an HTTP or SSE connection; over stdio each session would spawn its own server process.",
         { code: "load_flag_conflict" },
       );
     }
@@ -1262,6 +1331,12 @@ function relayedEnvelopeFields(
     }),
     ...(envelope?.retryAfterMs !== undefined && {
       retryAfterMs: envelope.retryAfterMs,
+    }),
+    ...(envelope?.oauthError !== undefined && {
+      oauthError: envelope.oauthError,
+    }),
+    ...(envelope?.oauthErrorDescription !== undefined && {
+      oauthErrorDescription: envelope.oauthErrorDescription,
     }),
   };
 }

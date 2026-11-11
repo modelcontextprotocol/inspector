@@ -120,6 +120,12 @@
   --inspector-history-success: var(--mantine-color-green-6);
   --inspector-history-error: var(--mantine-color-red-6);
 
+  /* ── Tool run diff (#2830) ─────────────────────────────── */
+  /* Mantine's *-light tokens already adapt to the color scheme, so these need
+     no dark-mode override. */
+  --inspector-diff-added-bg: var(--mantine-color-green-light);
+  --inspector-diff-removed-bg: var(--mantine-color-red-light);
+
   /* ── Protocol / Network badges ─────────────────────────── */
   /* Direction (client→server / server→client) and method chips. Light mode
      keeps the tinted "light variant" look via Mantine's *-light tokens. */

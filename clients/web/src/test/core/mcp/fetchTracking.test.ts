@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   CHALLENGE_BODY_MAX_BYTES,
   CHALLENGE_BODY_READ_MS,
+  TRACKED_BODY_MAX_BYTES,
   TRUNCATED_BODY_SUFFIX,
   WITHHELD_TRUNCATED_JSON_BODY,
   createFetchTracker,
@@ -10,6 +11,7 @@ import {
   redactBody,
   redactUrlQuery,
   redactUrlsInText,
+  mapUrlsInText,
   REDACTED_HEADER_VALUE,
   REDACTED_VALUE,
 } from "@inspector/core/mcp/fetchTracking.js";
@@ -451,6 +453,22 @@ describe("createFetchTracker", () => {
     expect(bodies[0]!.body).not.toContain("live-refresh");
   });
 
+  it("redacts a recorded URL's sensitive value that is itself a URL (#2907)", async () => {
+    // The Network log redacts the request URL whole (redactUrlQuery), not
+    // through the free-text matcher, so a nested scheme never split it.
+    const tracked: FetchRequestEntryBase[] = [];
+    const fetcher = createFetchTracker(
+      vi.fn(async () => new Response("ok")) as typeof fetch,
+      { trackRequest: (entry) => tracked.push(entry) },
+    );
+    await fetcher(
+      "https://as.example/token?state=xyz&client_secret=https://secret.example/private",
+    );
+    expect(tracked[0]!.url).toBe(
+      `https://as.example/token?state=xyz&client_secret=${encodeURIComponent(REDACTED_VALUE)}`,
+    );
+  });
+
   it("redacts sensitive query params in the recorded URL (success + error paths)", async () => {
     const baseFetch = vi.fn(async () => new Response("ok"));
     const tracked: FetchRequestEntryBase[] = [];
@@ -823,6 +841,148 @@ describe("createFetchTracker — challenge body cancel rejection (#2297)", () =>
   });
 });
 
+describe("createFetchTracker — recorded body cap", () => {
+  // An endless body: every pull hands back one 64 KiB chunk of `x`.
+  function endlessStream(counter: { pulls: number }) {
+    const chunk = new Uint8Array(64 * 1024).fill(120);
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        counter.pulls += 1;
+        controller.enqueue(chunk);
+      },
+    });
+  }
+
+  function track(response: Response) {
+    const tracked: FetchRequestEntryBase[] = [];
+    const bodies: string[] = [];
+    const fetcher = createFetchTracker((async () => response) as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (_id, body) => bodies.push(body),
+    });
+    return { fetcher, tracked, bodies };
+  }
+
+  async function settle(bodies: string[]) {
+    for (let i = 0; i < 200 && bodies.length === 0; i++) await flush();
+  }
+
+  it("records a bounded prefix of an endless POST event stream, marked truncated", async () => {
+    const counter = { pulls: 0 };
+    const { fetcher, tracked, bodies } = track(
+      new Response(endlessStream(counter), {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(tracked[0]?.responseBody).toBeUndefined();
+    expect(bodies).toHaveLength(1);
+    const recorded = bodies[0]!;
+    expect(recorded.endsWith(TRUNCATED_BODY_SUFFIX)).toBe(true);
+    expect(recorded.length - TRUNCATED_BODY_SUFFIX.length).toBe(
+      TRACKED_BODY_MAX_BYTES,
+    );
+
+    // Past the cap only the clone is cancelled: with nobody reading the
+    // original, the source is no longer pulled, so nothing keeps buffering.
+    const pullsAtCap = counter.pulls;
+    for (let i = 0; i < 10; i++) await flush();
+    expect(counter.pulls - pullsAtCap).toBeLessThanOrEqual(1);
+
+    // …and the caller's stream still flows past the cap.
+    const reader = res.body!.getReader();
+    let read = 0;
+    while (read < TRACKED_BODY_MAX_BYTES * 2) {
+      const next = await reader.read();
+      expect(next.done).toBe(false);
+      read += next.value!.byteLength;
+    }
+    await reader.cancel();
+  });
+
+  it("records a body that ends at the cap intact, without the truncation mark", async () => {
+    const body = "x".repeat(TRACKED_BODY_MAX_BYTES);
+    const { fetcher, bodies } = track(
+      new Response(body, { headers: { "content-type": "text/event-stream" } }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual([body]);
+    expect(await res.text()).toBe(body);
+  });
+
+  it("withholds an over-cap JSON body rather than recording an unredacted prefix", async () => {
+    const body = `{"access_token":"live","pad":"${"x".repeat(TRACKED_BODY_MAX_BYTES)}"}`;
+    const { fetcher, bodies } = track(
+      new Response(body, { headers: { "content-type": "application/json" } }),
+    );
+
+    const res = await fetcher("https://mcp.example/token", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual([WITHHELD_TRUNCATED_JSON_BODY]);
+    expect(await res.text()).toBe(body);
+  });
+
+  it("skips an empty chunk rather than counting it", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(0));
+        controller.enqueue(new TextEncoder().encode("ok"));
+        controller.close();
+      },
+    });
+    const { fetcher, bodies } = track(new Response(stream));
+
+    await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual(["ok"]);
+  });
+
+  it("records nothing when the body errors mid-read", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"));
+        controller.error(new Error("reset"));
+      },
+    });
+    const { fetcher, tracked, bodies } = track(
+      new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    for (let i = 0; i < 10; i++) await flush();
+
+    expect(tracked).toHaveLength(1);
+    expect(bodies).toHaveLength(0);
+    await res.body?.cancel().catch(() => undefined);
+  });
+
+  it("survives an updateResponseBody listener that throws", async () => {
+    const updateResponseBody = vi.fn(() => {
+      throw new Error("sink closed");
+    });
+    const fetcher = createFetchTracker(
+      (async () => new Response("ok")) as typeof fetch,
+      { updateResponseBody },
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    for (let i = 0; i < 10; i++) await flush();
+
+    expect(updateResponseBody).toHaveBeenCalledWith(expect.any(String), "ok");
+    expect(await res.text()).toBe("ok");
+  });
+});
+
 describe("redactUrlQuery", () => {
   it("redacts sensitive params and keeps the path + other params", () => {
     expect(
@@ -905,6 +1065,126 @@ describe("redactUrlsInText", () => {
         "https://one.example/cb?state=ok,https://two.example/cb?code=secret",
       ),
     ).toBe(`https://one.example/cb?state=ok,https://two.example/cb?code=${R}`);
+  });
+
+  it("redacts all of a sensitive value that is itself an http(s) URL (#2907)", () => {
+    expect(
+      redactUrlsInText(
+        "https://as.example/token?client_secret=https://secret.example/private",
+      ),
+    ).toBe(`https://as.example/token?client_secret=${R}`);
+    // Case-insensitive on both the key and the nested scheme, and the nested
+    // URL's own `&`-joined params are read as the outer URL's.
+    const out = redactUrlsInText(
+      "see https://as.example/t?Token=HTTPS://s.example/p?a=1&code=zzz&foo=bar.",
+    );
+    expect(out).toBe(`see https://as.example/t?Token=${R}&code=${R}&foo=bar.`);
+    expect(out).not.toContain("//s.example");
+  });
+
+  it("still splits a nested URL that does not open a sensitive value (#2907)", () => {
+    // After a comma inside a sensitive value: a separate URL, as before.
+    expect(
+      redactUrlsInText(
+        "https://one.example/cb?code=abc,https://two.example/cb?code=def",
+      ),
+    ).toBe(`https://one.example/cb?code=${R},https://two.example/cb?code=${R}`);
+    // Opening a NON-sensitive value: joining it would hide the nested `code`
+    // inside a value nobody masks, so it is matched on its own.
+    expect(
+      redactUrlsInText(
+        "https://as.example/a?redirect_uri=https://app.example/cb?code=xyz",
+      ),
+    ).toBe(
+      `https://as.example/a?redirect_uri=https://app.example/cb?code=${R}`,
+    );
+  });
+
+  it("joins only at a sensitive parameter the redactor masks (#2907)", () => {
+    // A key-like run inside another parameter's value, or in the fragment, is
+    // not a parameter: the nested URL stays separate and is redacted itself.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?note=?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(`https://as.example/t?note=?token=https://app.example/cb?code=${R}`);
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok#?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok#?token=https://app.example/cb?code=${R}`,
+    );
+    // A `&` in the path is not a parameter delimiter either.
+    expect(
+      redactUrlsInText(
+        "https://as.example/a&token=https://app.example/?code=S",
+      ),
+    ).toBe(`https://as.example/a&token=https://app.example/?code=${R}`);
+    // A second scheme still inside a joined sensitive value joins too, and a
+    // percent-encoded sensitive key is decoded as the redactor decodes it.
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?%74oken=https://s.example/p?code=https://x.example/q",
+      ),
+    ).toBe(`https://as.example/t?token=${R}`);
+  });
+
+  it("keeps a literal `?` in a parameter name, so `&?token=` does not join (#2907)", () => {
+    expect(
+      redactUrlsInText(
+        "https://as.example/t?state=ok&?token=https://app.example/cb?code=SECRET",
+      ),
+    ).toBe(
+      `https://as.example/t?state=ok&?token=https://app.example/cb?code=${R}`,
+    );
+  });
+
+  it("scans a long run of joins once, not once per join (#2907)", () => {
+    // Every match joins the one before it; re-reading the growing URL per
+    // join was quadratic on server-controlled text.
+    const run = "https://b.example/?token=".repeat(20_000);
+    const out = redactUrlsInText(`see https://a.example/?token=${run} end`);
+    expect(out).toBe(`see https://a.example/?token=${R} end`);
+  });
+
+  it("falls back to each match when the redactor cannot redact the join (#2907)", () => {
+    // A redactor that leaves the joined URL unchanged (oauthDebug's
+    // `redactUrl` on an unparseable URL) must not hide the nested URL.
+    const seen: string[] = [];
+    const out = mapUrlsInText(
+      "at https://a.example/?token=https://b.example/?code=x.",
+      (url) => {
+        seen.push(url);
+        return url.startsWith("https://b.") ? "<b>" : url;
+      },
+    );
+    expect(out).toBe("at https://a.example/?token=<b>.");
+    expect(seen).toEqual([
+      "https://a.example/?token=https://b.example/?code=x",
+      "https://a.example/?token=",
+      "https://b.example/?code=x",
+    ]);
+  });
+
+  it("joins a nested URL on the caller's own sensitive names (#2907)", () => {
+    const seen: string[] = [];
+    const text = "x https://a.example/?custom=https://b.example/p y";
+    const mark = (url: string) => {
+      seen.push(url);
+      return "<url>";
+    };
+    expect(mapUrlsInText(text, mark, new Set(["custom"]))).toBe("x <url> y");
+    expect(seen).toEqual(["https://a.example/?custom=https://b.example/p"]);
+    seen.length = 0;
+    // The default set does not name `custom`, so the two split.
+    expect(mapUrlsInText(text, mark)).toBe("x <url><url> y");
+    expect(seen).toEqual(["https://a.example/?custom=", "https://b.example/p"]);
+    seen.length = 0;
+    // An empty set joins nothing — not even after a bare `?=`.
+    expect(
+      mapUrlsInText("https://a.example/?=https://b.example/p", mark, new Set()),
+    ).toBe("<url><url>");
   });
 
   it("redacts through an apostrophe and keeps a closing quote", () => {

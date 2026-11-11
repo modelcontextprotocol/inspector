@@ -17,6 +17,7 @@ import {
   formatAppInfoHuman,
   formatAppInfoListHuman,
   formatAuthListHuman,
+  formatAuthShowHuman,
   formatEmaStatusHuman,
   formatRpcResultHuman,
   formatServersListHuman,
@@ -30,6 +31,7 @@ import {
 } from "./format-human.js";
 import { isSafeLinkTarget, sanitizeDeep, sanitizeText } from "./sanitize.js";
 import { PLAIN, type Style } from "@inspector/core/cli/style.js";
+import type { StoredAuthShow } from "./stored-auth.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -129,6 +131,12 @@ export type ConnectionWriteKind =
         all?: boolean;
         clearedByName?: string;
       };
+    }
+  | {
+      kind: "auth/show";
+      result: StoredAuthShow & { shownByName?: string };
+      /** "Now" for the human output's relative times; not part of the JSON. */
+      nowMs: number;
     }
   | {
       kind: "auth/ema-status";
@@ -265,6 +273,8 @@ function jsonPayload(payload: ConnectionWriteKind): unknown {
     case "auth/list":
       return payload.list;
     case "auth/clear":
+      return payload.result;
+    case "auth/show":
       return payload.result;
     case "auth/ema-status":
       return payload.status;
@@ -434,6 +444,8 @@ function humanPayload(
           ? style.dim(` (${String(payload.result.clearedByName)})`)
           : ""
       }`;
+    case "auth/show":
+      return formatAuthShowHuman(payload.result, payload.nowMs, style);
     case "auth/ema-status":
       return formatEmaStatusHuman(payload.status, style);
     case "auth/ema-login":

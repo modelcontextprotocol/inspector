@@ -11,6 +11,10 @@ import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
+import {
+  writeFetchRefusalWarning,
+  type WarningSink,
+} from "@inspector/core/cli/fetchRefusalWarning.js";
 import { getDaemonDir } from "../daemon/paths.js";
 import { authorizeInFrontend } from "./authorize.js";
 import { sanitizeText } from "./sanitize.js";
@@ -31,6 +35,11 @@ import { sanitizeText } from "./sanitize.js";
  *
  * Params travel over **stdin as JSON**, never argv: `serverConfig` may carry
  * header secrets, and argv is world-visible in `ps`.
+ *
+ * The helper's stderr is discarded (`stdio: [..., "ignore"]`), so anything it
+ * must tell the user travels on the stdout protocol too: a destination-guard
+ * refusal (#2846) arrives as a `fetch_refused` event, which the parent prints
+ * as its own `Warning:` line before the URL or the error (#2905).
  */
 
 /** Hidden subcommand name (see registerAuthCommands in mcp.ts). */
@@ -45,6 +54,7 @@ export type AuthHelperParams = {
 /** One NDJSON line on the helper's stdout. */
 export type AuthHelperEvent =
   | { event: "auth_url"; url: string }
+  | { event: "fetch_refused"; url: string; reason: string }
   | { event: "done" }
   | { event: "error"; message: string };
 
@@ -221,6 +231,12 @@ export async function runAuthHelper(): Promise<void> {
           }
           emit({ event: "auth_url", url: url.href });
         }),
+      onFetchRefusal: (refusal) =>
+        emit({
+          event: "fetch_refused",
+          url: refusal.url,
+          reason: refusal.reason,
+        }),
     });
     emit({ event: "done" });
   } catch (error) {
@@ -316,6 +332,15 @@ async function waitForPendingAuthUrl(
   }
 }
 
+/** Test seams for {@link obtainPendingAuthUrl}; all optional. */
+export type AuthHelperSpawnOptions = {
+  helperArgv1?: string;
+  waitMs?: number;
+  pollMs?: number;
+  /** Where relayed refusal warnings go; this process's stderr by default. */
+  warningSink?: WarningSink;
+};
+
 /**
  * Non-TTY connect path: return the authorize URL for `serverConfig`, either
  * from a still-live pending marker (helper already waiting — reuse its URL)
@@ -334,7 +359,7 @@ async function waitForPendingAuthUrl(
 export async function obtainPendingAuthUrl(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
-  options?: { helperArgv1?: string; waitMs?: number; pollMs?: number },
+  options?: AuthHelperSpawnOptions,
 ): Promise<string> {
   const serverUrl = "url" in serverConfig ? serverConfig.url : undefined;
   return obtainPendingUrlForKey(
@@ -357,7 +382,7 @@ export async function obtainPendingUrlForKey(
   markerKey: string | undefined,
   helperCommand: string,
   helperParams: unknown,
-  options?: { helperArgv1?: string; waitMs?: number; pollMs?: number },
+  options?: AuthHelperSpawnOptions,
 ): Promise<string> {
   const waitMs = options?.waitMs ?? AUTH_URL_WAIT_MS;
   let lockPath: string | undefined;
@@ -376,6 +401,7 @@ export async function obtainPendingUrlForKey(
       helperParams,
       waitMs,
       options?.helperArgv1,
+      options?.warningSink,
     );
   } finally {
     // Success: the helper's marker is already on disk (written before the
@@ -391,6 +417,7 @@ async function spawnAuthHelperForUrl(
   helperParams: unknown,
   waitMs: number,
   helperArgv1?: string,
+  warningSink?: WarningSink,
 ): Promise<string> {
   /* v8 ignore next 6 -- argv[1] is always the mcpdo bin in production. */
   const script = helperArgv1 ?? process.argv[1];
@@ -438,6 +465,24 @@ async function spawnAuthHelperForUrl(
           try {
             event = JSON.parse(line) as AuthHelperEvent;
           } catch {
+            continue;
+          }
+          if (event.event === "fetch_refused") {
+            // Printed as it arrives, so it precedes the URL or the error the
+            // caller prints next. Sanitized like the error relay below: both
+            // carry server-derived text to a terminal.
+            if (
+              typeof event.url === "string" &&
+              typeof event.reason === "string"
+            ) {
+              writeFetchRefusalWarning(
+                {
+                  url: sanitizeText(event.url),
+                  reason: sanitizeText(event.reason),
+                },
+                warningSink,
+              );
+            }
             continue;
           }
           if (event.event === "auth_url") {

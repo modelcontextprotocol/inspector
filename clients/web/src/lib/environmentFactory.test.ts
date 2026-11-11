@@ -121,4 +121,31 @@ describe("createWebEnvironment", () => {
       "http://127.0.0.1:6299/api/fetch",
     );
   });
+
+  it("labels the transport's backend session with the server name (#2831)", async () => {
+    // The connect is refused, so the transport never opens an event stream;
+    // only the body it sent matters here.
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("nope", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { environment } = createWebEnvironment(
+      "api-tok",
+      new MutableRedirectUrlProvider(),
+      undefined,
+      "My Server",
+    );
+    const { transport } = environment.transport(
+      { type: "stdio", command: "node" },
+      {},
+    );
+    await expect(transport.start()).rejects.toThrow(/Remote connect failed/);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe("http://127.0.0.1:6299/api/mcp/connect");
+    expect(JSON.parse(init!.body as string)).toMatchObject({
+      serverName: "My Server",
+    });
+  });
 });

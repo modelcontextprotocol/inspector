@@ -10,9 +10,11 @@
  *
  *  - **Scheme:** `http:` and `https:` only, on every hop.
  *  - **Destinations:** link-local and metadata addresses only —
- *    `169.254.0.0/16`, its IPv4-mapped IPv6 forms, `fe80::/10` and
- *    `fd00:ec2::254`. Loopback and RFC 1918 stay reachable on purpose: local
- *    and LAN MCP servers and authorization servers are legitimate targets.
+ *    `169.254.0.0/16`, the cloud metadata services that sit outside it
+ *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped IPv6 forms of all of
+ *    those, `fe80::/10` and `fd00:ec2::254` ({@link isBlockedAddress}).
+ *    Loopback, RFC 1918 and CGNAT space stay reachable on purpose: local and
+ *    LAN MCP servers and authorization servers are legitimate targets.
  *  - **Redirects:** followed here, with `redirect: "manual"`, so each hop is
  *    re-validated. The per-hop rewrite the fetch library used to do moves here
  *    with it ({@link nextRedirectRequest}).
@@ -67,12 +69,16 @@ import {
   requestHeadersOf,
   requestUrlOf,
 } from "../../auth/requestTimeout.js";
+import {
+  FetchTargetError,
+  findFetchTargetError,
+} from "../../auth/fetchRefusal.js";
 import { asUndiciInit, readProxyEnv, toGlobalResponse } from "./proxyFetch.js";
 
-/** Raised when a guarded fetch is asked to reach a destination it refuses. */
-export class FetchTargetError extends Error {
-  override name = "FetchTargetError";
-}
+// The error and its finder are browser-safe and live in `core/auth`, so the web
+// client can rebuild a refusal relayed by `/api/fetch` into the same class
+// (#2846). Re-exported here for the Node callers that import them from the guard.
+export { FetchTargetError, findFetchTargetError };
 
 /** Hops followed after the first request before giving up, as in v1. */
 export const MAX_FETCH_REDIRECTS = 5;
@@ -100,13 +106,35 @@ const resolveWithSystemDns: ResolveHost = async (hostname) =>
 // ---------------------------------------------------------------------------
 
 /**
+ * Cloud instance-metadata services reachable at a fixed IPv4 address outside
+ * `169.254.0.0/16`. Matched exactly, against the dotted-quad form `isIP`
+ * accepts (which has no leading zeros, so each address has one spelling).
+ *
+ *  - `100.100.100.200`: Alibaba Cloud ECS metadata service
+ *  - `192.0.0.192`: Oracle Cloud Infrastructure Classic metadata service
+ */
+const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
+  "100.100.100.200",
+  "192.0.0.192",
+]);
+
+/**
  * Whether `ip` is a link-local or cloud-metadata address that a guarded fetch
  * must never reach.
  *
- *  - `169.254.0.0/16` (IPv4 link-local; includes the `169.254.169.254` IMDS)
- *  - `::ffff:169.254.x.x` in both its dotted and hex serializations
+ *  - `169.254.0.0/16` (IPv4 link-local; includes the `169.254.169.254`
+ *    metadata service of AWS, GCP, Azure, Oracle Cloud and most others)
+ *  - {@link METADATA_IPV4_ADDRESSES}: the metadata services that live at a
+ *    fixed address *outside* link-local, so the range above misses them
+ *  - `::ffff:` IPv4-mapped forms of every IPv4 address above, in both the
+ *    dotted and the hex serialization
  *  - `fe80::/10` (IPv6 link-local)
  *  - `fd00:ec2::254` (the AWS IPv6 IMDS)
+ *
+ * The out-of-range metadata addresses are blocked exactly, never by their
+ * enclosing range: `100.100.100.200` sits in `100.64.0.0/10`, the CGNAT block
+ * Tailscale also uses (its MagicDNS resolver is `100.100.100.100`), and a
+ * tailnet MCP or authorization server is as legitimate a target as a LAN one.
  *
  * Anything that is not an IP address returns `false`; names are resolved
  * before they are checked.
@@ -115,7 +143,7 @@ export function isBlockedAddress(ip: string): boolean {
   const kind = isIP(ip);
   if (kind === 4) {
     const [a, b] = ip.split(".").map(Number);
-    return a === 169 && b === 254;
+    return (a === 169 && b === 254) || METADATA_IPV4_ADDRESSES.has(ip);
   }
   if (kind !== 6) return false;
 
@@ -470,14 +498,28 @@ export async function guardedFetch(
     headers: init.headers,
   };
   for (let hop = 0; hop <= MAX_FETCH_REDIRECTS; hop++) {
-    await assertAllowedTarget(request.url, resolveHost, viaProxy, init.signal);
-    const res = await fetchFn(request.url.href, {
-      method: request.method,
-      headers: new Headers(request.headers),
-      body: request.body,
-      signal: init.signal,
-      redirect: "manual",
-    });
+    let res: Response;
+    try {
+      await assertAllowedTarget(
+        request.url,
+        resolveHost,
+        viaProxy,
+        init.signal,
+      );
+      res = await fetchFn(request.url.href, {
+        method: request.method,
+        headers: new Headers(request.headers),
+        body: request.body,
+        signal: init.signal,
+        redirect: "manual",
+      });
+    } catch (err) {
+      // Name the hop that was refused (#2846): after a redirect it is not the
+      // URL the caller asked for, and a report naming that one would point the
+      // user at the wrong server.
+      stampRefusedUrl(err, request.url);
+      throw err;
+    }
     const location = res.headers.get("location");
     if (!REDIRECT_STATUSES.has(res.status) || location === null) {
       return res;
@@ -485,28 +527,24 @@ export async function guardedFetch(
     // Nobody reads a redirect's body. Not awaited, for the reason the route
     // gives on its own stream cancel: `cancel()` may never settle.
     void res.body?.cancel().catch(() => {});
-    request = nextRedirectRequest(request, res.status, location);
+    try {
+      request = nextRedirectRequest(request, res.status, location);
+    } catch (err) {
+      // A refused redirect is refused at the URL that issued it.
+      stampRefusedUrl(err, request.url);
+      throw err;
+    }
   }
   throw new FetchTargetError(
     `Refusing to follow more than ${MAX_FETCH_REDIRECTS} redirects`,
+    request.url.href,
   );
 }
 
-/**
- * The {@link FetchTargetError} behind `err`, if any. undici reports a refused
- * connection as `TypeError("fetch failed")` with the lookup's error as its
- * `cause`, so the chain is walked rather than `err` alone tested.
- */
-export function findFetchTargetError(
-  err: unknown,
-): FetchTargetError | undefined {
-  let current = err;
-  // Bounded, in case a cause chain is ever cyclic.
-  for (let depth = 0; depth < 8 && current instanceof Error; depth++) {
-    if (current instanceof FetchTargetError) return current;
-    current = current.cause;
-  }
-  return undefined;
+/** Records `url` on the refusal behind `err`, unless one is recorded already. */
+function stampRefusedUrl(err: unknown, url: URL): void {
+  const refused = findFetchTargetError(err);
+  if (refused && refused.url === undefined) refused.url = url.href;
 }
 
 /**

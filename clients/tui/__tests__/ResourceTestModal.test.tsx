@@ -144,6 +144,25 @@ describe("ResourceTestModal", () => {
     });
   });
 
+  it("does not submit while a pending request holds its input (#2829)", async () => {
+    const read = vi.fn();
+    const api = render(
+      <ResourceTestModal
+        template={makeTemplate()}
+        inspectorClient={fakeClient(read)}
+        width={80}
+        height={24}
+        onClose={vi.fn()}
+        inputActive={false}
+      />,
+    );
+    await tick();
+    api.stdin.write("\r");
+    await tick();
+    expect(read).not.toHaveBeenCalled();
+    api.unmount();
+  });
+
   it("renders the form initially without invoking the client", async () => {
     const read = vi.fn();
     const api = render(

@@ -22,6 +22,7 @@ import {
   ghJson,
   requirePositiveInt,
 } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 const ISSUE_ID_QUERY = `query($n:Int!){repository(owner:"${OWNER}",name:"${REPO}"){issue(number:$n){id}}}`;
 const LINK_MUTATION = `mutation($i:ID!,$p:[ID!]!){addCloseIssueReferences(input:{issueId:$i, pullRequestIds:$p}){clientMutationId}}`;
@@ -77,6 +78,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   console.log(`linked: PR #${pr} closes #${issue}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

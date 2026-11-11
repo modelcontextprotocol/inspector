@@ -117,8 +117,89 @@ export function redactUrlQuery(url: string): string {
  * off as punctuation below, which still handles a `'…'`-quoted URL.
  * Case-insensitive because URI schemes are: `HTTPS://…?code=…` is the same
  * URL and must not slip past the redaction (Copilot).
+ *
+ * Stopping at a second scheme is undone in one case, by
+ * {@link opensSensitiveValue}: see {@link mapUrlsInText}.
  */
 const EMBEDDED_URL_PATTERN = /\bhttps?:\/\/(?:(?!https?:\/\/)[^\s"<>])+/gi;
+
+/**
+ * Where a URL matched so far stands, for deciding whether the next match
+ * continues it (#2907). Advanced one match at a time by {@link advanceUrlScan},
+ * so a run of joined matches is scanned once in total rather than re-read per
+ * join — the text is server-controlled, and a re-read was quadratic (Copilot).
+ */
+interface UrlScan {
+  /** Before the query, in the query proper, or in the fragment. */
+  phase: "path" | "query" | "fragment";
+  /** The current query parameter's raw name, while its `=` is still to come. */
+  name: string;
+  /** Whether the current parameter's `=` has been seen. */
+  inValue: boolean;
+  /** Whether the current parameter's name is one the redactor masks. */
+  sensitive: boolean;
+  /** Whether the URL so far ends with that parameter's `=`. */
+  endsWithEquals: boolean;
+}
+
+function newUrlScan(): UrlScan {
+  return {
+    phase: "path",
+    name: "",
+    inValue: false,
+    sensitive: false,
+    endsWithEquals: false,
+  };
+}
+
+/**
+ * Advance `scan` over `piece`. Only the first `?` opens the query and only a
+ * `&` after it delimits a parameter, so a key-like run inside another value
+ * (`?note=?token=`), in the path (`/a&token=`) or in the fragment
+ * (`#?token=`) is never taken for a parameter (Copilot). A name is decoded
+ * once, at its `=`, exactly as the redactors' URLSearchParams decode it; the
+ * leading `&` keeps a literal `?` in it (`&?token=` is the key `?token`, not
+ * `token` — Copilot).
+ */
+function advanceUrlScan(
+  scan: UrlScan,
+  piece: string,
+  sensitiveNames: ReadonlySet<string>,
+): void {
+  for (const char of piece) {
+    if (scan.phase === "fragment") break;
+    if (char === "#") {
+      scan.phase = "fragment";
+    } else if (scan.phase === "path") {
+      if (char === "?") scan.phase = "query";
+    } else if (char === "&") {
+      scan.name = "";
+      scan.inValue = false;
+      scan.sensitive = false;
+    } else if (!scan.inValue) {
+      if (char === "=") {
+        scan.inValue = true;
+        scan.sensitive = [...new URLSearchParams(`&${scan.name}=`).keys()].some(
+          (key) => sensitiveNames.has(key.toLowerCase()),
+        );
+      } else {
+        scan.name += char;
+      }
+    }
+  }
+  scan.endsWithEquals =
+    scan.phase === "query" && scan.inValue && piece.endsWith("=");
+}
+
+/**
+ * Whether the next match, which follows with no gap, belongs to the URL
+ * {@link UrlScan} describes: true when that URL ends by opening the value of a
+ * parameter the redactor masks (`?client_secret=https://…`), so the scheme
+ * that follows is part of the secret rather than a new URL.
+ */
+function opensSensitiveValue(scan: UrlScan): boolean {
+  return scan.endsWithEquals && scan.sensitive;
+}
 
 /** Sentence punctuation (or a closing quote) a message may put right after a URL. */
 const TRAILING_PUNCTUATION = new Set([
@@ -160,10 +241,66 @@ function trailingPunctuationStart(match: string): number {
  * toast or screenshot verbatim.
  */
 export function redactUrlsInText(text: string): string {
-  return text.replace(EMBEDDED_URL_PATTERN, (match) => {
-    const end = trailingPunctuationStart(match);
-    return redactUrlQuery(match.slice(0, end)) + match.slice(end);
-  });
+  return mapUrlsInText(text, redactUrlQuery);
+}
+
+/**
+ * Apply `redact` to every URL embedded in `text`, with the matching and
+ * trailing-punctuation handling {@link redactUrlsInText} uses. Exported so a
+ * caller with its own per-URL redaction (`--oauth-debug`'s trace, #2844)
+ * finds URLs exactly as this does rather than with a second, weaker pattern.
+ *
+ * A match the pattern cut short at a second scheme is rejoined with the next
+ * one when the cut opened a sensitive query value
+ * (`?client_secret=https://…`): that scheme belongs to the secret, and
+ * splitting there printed the secret's tail verbatim after its redacted head
+ * (#2907). `sensitiveNames` must therefore be the lowercase query-parameter
+ * names `redact` masks; it defaults to the set {@link redactUrlQuery} masks.
+ * Every other cut — a comma-joined URL, a nested URL opening a non-sensitive
+ * value — stays a separate URL, redacted on its own.
+ */
+export function mapUrlsInText(
+  text: string,
+  redact: (url: string) => string,
+  sensitiveNames: ReadonlySet<string> = SENSITIVE_BODY_FIELDS,
+): string {
+  let out = "";
+  let copied = 0;
+  let pieces: string[] = [];
+  let scan = newUrlScan();
+  const flush = () => {
+    if (pieces.length === 0) return;
+    const joined = pieces.join("");
+    const end = trailingPunctuationStart(joined);
+    const redacted = redact(joined.slice(0, end));
+    // A join is only made at a value the redactor masks, so an unchanged
+    // result means it could not redact the joined URL at all (oauthDebug's
+    // `redactUrl` returns an unparseable one as is). Fall back to redacting
+    // each match on its own, as the matcher did before joins (Copilot).
+    out +=
+      pieces.length > 1 && redacted === joined.slice(0, end)
+        ? pieces.map((piece) => redactMatch(piece, redact)).join("")
+        : redacted + joined.slice(end);
+  };
+  for (const match of text.matchAll(EMBEDDED_URL_PATTERN)) {
+    if (match.index !== copied || !opensSensitiveValue(scan)) {
+      flush();
+      out += text.slice(copied, match.index);
+      pieces = [];
+      scan = newUrlScan();
+    }
+    pieces.push(match[0]);
+    advanceUrlScan(scan, match[0], sensitiveNames);
+    copied = match.index + match[0].length;
+  }
+  flush();
+  return out + text.slice(copied);
+}
+
+/** `redact` applied to one match, its trailing punctuation kept outside. */
+function redactMatch(match: string, redact: (url: string) => string): string {
+  const end = trailingPunctuationStart(match);
+  return redact(match.slice(0, end)) + match.slice(end);
 }
 
 /** Recursively redact sensitive keys in a parsed JSON value (in place). */
@@ -315,10 +452,12 @@ export function findHeader(
  * Whether a response represents an unbounded (long-lived) HTTP stream
  * whose body cannot be cloned + read to completion. The streamable HTTP
  * spec uses `GET` + `text/event-stream` for the long-lived server-push
- * channel; `POST` SSE replies are bounded (server closes after the
- * JSON-RPC response) and therefore safe to capture. Shared between the
- * fetch tracker (where it decides whether to read the body) and the
- * Network UI (where it decides which placeholder to show).
+ * channel; a `POST` SSE reply is bounded *by protocol* (the server closes
+ * after the JSON-RPC response), so its payload is recorded — but a server is
+ * free to ignore that, which is why the tracker reads every recorded body
+ * through {@link TRACKED_BODY_MAX_BYTES} rather than trusting this split.
+ * Shared between the fetch tracker (where it decides whether to read the
+ * body) and the Network UI (where it decides which placeholder to show).
  */
 export function isLongLivedStreamResponse(
   method: string,
@@ -338,29 +477,44 @@ export function isLongLivedStreamResponse(
 export const CHALLENGE_BODY_MAX_BYTES = 64 * 1024;
 /** How long the tracker waits for a 401/403 body before giving up on the rest. */
 export const CHALLENGE_BODY_READ_MS = 2_000;
-/** Appended to a 401/403 body the tracker stopped reading early. */
+/**
+ * Most of any other recorded response body the tracker will buffer before it
+ * stops reading and records the body as truncated.
+ *
+ * Without a bound, a server that answers a `POST` with an event stream that
+ * never ends — or a bounded body of arbitrary size — grows the clone's buffer
+ * until the host process runs out of memory, taking every session on a shared
+ * web backend with it. 1 MiB is ten times the largest body the Network tab
+ * previews inline (100,000 characters), so every body a user can actually read
+ * there is recorded whole, while one entry can never hold more than this — the
+ * log keeps up to `DEFAULT_MAX_FETCH_REQUESTS` of them, and each one is
+ * re-published to the browser and to session storage. It is also well under
+ * the backend's `MAX_PROXIED_RESPONSE_BYTES` (4 MiB) for `/api/fetch`.
+ */
+export const TRACKED_BODY_MAX_BYTES = 1024 * 1024;
+/** Appended to a recorded body the tracker stopped reading early. */
 export const TRUNCATED_BODY_SUFFIX = "\n[truncated]";
 /**
- * Recorded in place of a 401/403 body that was cut off and looks like JSON.
+ * Recorded in place of a body that was cut off and looks like JSON.
  * {@link redactBody} can only mask fields in JSON that parses, so a cut-off
  * prefix such as `{"access_token":"…",` would otherwise reach the log verbatim.
  */
 export const WITHHELD_TRUNCATED_JSON_BODY =
   "[truncated JSON body withheld: an incomplete body cannot be redacted]";
 
-interface ChallengeBodyRead {
+interface CappedBodyRead {
   text: string;
   truncated: boolean;
 }
 
 /**
- * The recorded form of a 401/403 body: redacted, marked when cut off, and never
- * a cut-off JSON prefix. Form-encoded bodies still redact when cut, since each
- * surviving `key=value` pair is parsed on its own; plain text has nothing to
- * redact either way.
+ * The recorded form of a body: redacted, marked when cut off, and never a
+ * cut-off JSON prefix. Form-encoded bodies still redact when cut, since each
+ * surviving `key=value` pair is parsed on its own; plain text (an SSE payload
+ * included) has nothing to redact either way.
  */
-function recordableChallengeBody(
-  read: ChallengeBodyRead,
+function recordableBody(
+  read: CappedBodyRead,
   contentType: string | null,
 ): string {
   if (!read.truncated) return redactBody(read.text, contentType);
@@ -372,21 +526,26 @@ function recordableChallengeBody(
 }
 
 /**
- * Read a 401/403 response body from a clone, bounded by
- * {@link CHALLENGE_BODY_MAX_BYTES} and {@link CHALLENGE_BODY_READ_MS}.
+ * Read a response body from a clone, keeping at most `maxBytes` of it and,
+ * when `timeoutMs` is set, waiting no longer than that for the rest.
  *
- * Unlike every other status, a challenge body is read *before* the entry is
- * recorded (#2297). An auth-challenge interceptor above the tracker cancels the
- * response and throws as soon as the tracker returns, and on the web backend
- * that ends the connect request — so a body delivered later, as a separate
- * update, arrives after anything could still carry it to the log. The bound is
- * what makes waiting safe: a body that never ends is cut off, and cancelling the
- * clone's reader lets the interceptor's cancel of the original release the
- * connection instead of leaving the clone draining it.
+ * Only the clone is ever cancelled. `Response.clone()` tees the body, and
+ * cancelling one branch of a tee leaves the other — the one the transport
+ * reads — flowing: the source is released only once *both* branches are
+ * cancelled. Once the clone is cancelled the tee stops queueing chunks for it,
+ * so a stream that runs past the cap costs the tracker nothing further. The
+ * cancel is not awaited, for the same reason: on a tee branch it settles only
+ * when the other branch is cancelled too, and `cancel()` adopts the source's
+ * promise, which a stalled body may never settle.
+ *
+ * Resolves `undefined` when the clone cannot be made or the stream errors —
+ * the entry then keeps no body, as it always has for an unreadable one.
  */
-async function readChallengeBody(
+async function readCappedBody(
   response: Response,
-): Promise<ChallengeBodyRead | undefined> {
+  maxBytes: number,
+  timeoutMs?: number,
+): Promise<CappedBodyRead | undefined> {
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   try {
     const body = response.clone().body;
@@ -401,22 +560,35 @@ async function readChallengeBody(
   let text = "";
   let bytes = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(() => resolve("timeout"), CHALLENGE_BODY_READ_MS);
-  });
+  const deadline =
+    timeoutMs === undefined
+      ? undefined
+      : new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), timeoutMs);
+        });
   try {
-    while (bytes < CHALLENGE_BODY_MAX_BYTES) {
-      const next = await Promise.race([reader.read(), deadline]);
+    // A body is truncated only once a byte beyond the cap actually arrives,
+    // so one that ends exactly at the cap is recorded whole. The trade: a body
+    // that delivers exactly the cap and then stalls keeps this reader waiting
+    // for one more read. That stays bounded — the 401/403 path gives up at
+    // its deadline (CHALLENGE_BODY_READ_MS), and the fire-and-forget path
+    // blocks nobody and buffers nothing more while it waits.
+    for (;;) {
+      const next = await (deadline
+        ? Promise.race([reader.read(), deadline])
+        : reader.read());
       if (next === "timeout") break;
       if (next.done) return { text: text + decoder.decode(), truncated: false };
+      if (next.value.byteLength === 0) continue;
+      if (bytes >= maxBytes) break;
       // A stream may hand back one chunk far larger than the budget, so the cap
       // is applied to the bytes, not to the chunk count.
-      const chunk = next.value.subarray(0, CHALLENGE_BODY_MAX_BYTES - bytes);
+      const chunk = next.value.subarray(0, maxBytes - bytes);
       bytes += chunk.byteLength;
       text += decoder.decode(chunk, { stream: true });
+      if (chunk.byteLength < next.value.byteLength) break;
     }
-    // Stopped early. Not awaited: cancel() adopts the source's promise, which a
-    // stalled body may never settle.
+    // Stopped early. Not awaited — see above.
     reader.cancel().catch(() => {});
     return { text: text + decoder.decode(), truncated: true };
   } catch {
@@ -424,6 +596,29 @@ async function readChallengeBody(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Read a 401/403 response body, bounded by {@link CHALLENGE_BODY_MAX_BYTES}
+ * and {@link CHALLENGE_BODY_READ_MS}.
+ *
+ * Unlike every other status, a challenge body is read *before* the entry is
+ * recorded (#2297). An auth-challenge interceptor above the tracker cancels the
+ * response and throws as soon as the tracker returns, and on the web backend
+ * that ends the connect request — so a body delivered later, as a separate
+ * update, arrives after anything could still carry it to the log. The bound is
+ * what makes waiting safe: a body that never ends is cut off, and cancelling the
+ * clone's reader lets the interceptor's cancel of the original release the
+ * connection instead of leaving the clone draining it.
+ */
+function readChallengeBody(
+  response: Response,
+): Promise<CappedBodyRead | undefined> {
+  return readCappedBody(
+    response,
+    CHALLENGE_BODY_MAX_BYTES,
+    CHALLENGE_BODY_READ_MS,
+  );
 }
 
 export interface FetchTrackingCallbacks {
@@ -740,11 +935,12 @@ export function createFetchTracker(
 
     // Skip body reading only for *long-lived* streams. On streamable HTTP,
     // GET /mcp opens an unbounded SSE channel for server-to-client pushes
-    // — calling `.text()` on a clone of that would buffer forever. POST
-    // responses with the same content-type are bounded: the server emits
-    // the JSON-RPC reply (sometimes preceded by progress events) and
-    // closes the connection, so cloning + reading is safe and gives the
-    // user the raw SSE payload they were missing.
+    // — reading a clone of that would never finish. POST responses with
+    // the same content-type are bounded by protocol: the server emits the
+    // JSON-RPC reply (sometimes preceded by progress events) and closes the
+    // connection, so they are recorded, which gives the user the raw SSE
+    // payload. A server that breaks that promise is cut off by the
+    // TRACKED_BODY_MAX_BYTES cap below rather than buffered without limit.
     const isLongLivedStream = isLongLivedStreamResponse(
       method,
       response.headers.get("content-type"),
@@ -783,7 +979,7 @@ export function createFetchTracker(
       entry.responseBody =
         read === undefined
           ? undefined
-          : recordableChallengeBody(read, response.headers.get("content-type"));
+          : recordableBody(read, response.headers.get("content-type"));
       callbacks.trackRequest?.(entry);
       return response;
     }
@@ -806,28 +1002,28 @@ export function createFetchTracker(
     // independent tee'd stream so the transport keeps consuming the
     // original at its own pace. When the read resolves we patch the entry
     // via `updateResponseBody`. Skipped for long-lived streams (GET +
-    // SSE / ndjson) because `.text()` would never resolve on those.
+    // SSE / ndjson), which are watched above instead. The read is capped at
+    // TRACKED_BODY_MAX_BYTES: a POST reply is bounded only by the server's
+    // good behavior, and one that never ends must not grow this process
+    // without limit. Past the cap the clone (never the original) is
+    // cancelled and the entry records the prefix, marked truncated.
     if (!isLongLivedStream && response.body && !response.bodyUsed) {
       const responseContentType = response.headers.get("content-type");
-      try {
-        const cloned = response.clone();
-        cloned
-          .text()
-          .then((body) => {
-            // Mask token-endpoint secrets (access_token, refresh_token, …)
-            // before the body reaches any sink.
-            callbacks.updateResponseBody?.(
-              id,
-              redactBody(body, responseContentType) ?? body,
-            );
-          })
-          .catch(() => {
-            // Stream errored after clone — leave the body undefined.
-          });
-      } catch {
-        // Clone failed (consumed body, transport quirks). Leave body
-        // undefined; the entry is already dispatched.
-      }
+      // readCappedBody never rejects (it resolves undefined on a failed
+      // clone or an errored stream), and the listener is wrapped below.
+      void readCappedBody(response, TRACKED_BODY_MAX_BYTES).then((read) => {
+        if (read === undefined) return;
+        try {
+          // Mask token-endpoint secrets (access_token, refresh_token, …)
+          // before the body reaches any sink.
+          callbacks.updateResponseBody?.(
+            id,
+            recordableBody(read, responseContentType),
+          );
+        } catch {
+          // A throwing listener is the consumer's problem; nothing to undo.
+        }
+      });
     }
 
     return response;

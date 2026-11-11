@@ -269,9 +269,11 @@ The rules the helper applies:
 - **"Addresses", not "fixes."** The credited issues include feature requests.
 - **The section is left out** when no community reporter remains, as with 2.1.0.
 
-**Security advisories need `--advisory`** (#2766). A GHSA fix lands on
-`v2/main` as a *Merge commit from fork*, not a PR, so the generated list never
-shows it, and its reporter filed no issue, so nothing credits them. Pass one
+**Security advisories need `--advisory`** (#2766). A GHSA fix lands through an
+ordinary PR (`security-advisory`, step 5), so the generated list shows it only
+as one more PR, and its reporter filed no issue, so nothing credits them. (Before
+2.14.0 / 1.0.4, fixes merged from the private fork and put no PR in the list at
+all.) Pass one
 `--advisory "<GHSA-id>: <markdown>"` per advisory. The markdown describes the
 **fix**, not the vulnerability (the advisory's own summary is the latter), and
 is used verbatim — bold the lead clause yourself, as 1.0.3 and 2.12.0 do. For
@@ -482,10 +484,11 @@ Merge every fix the release ships **first**, then the bump, and cut the Release
 right after it. That way `v1/main` never carries the new version number without
 the fixes it names, and the commit the tag lands on is the bump itself.
 
-When the fixes are security advisories, they merge from private forks, which
-have constraints of their own — required checks that can never report, and
-an advisory merging all of its PRs at once. Those are in the
-`security-advisory` skill, step 5.
+When the fixes are security advisories, they land the same way: each fix is
+developed in the advisory's private fork, then pushed to a `v1/fix/<N>-<slug>`
+branch and merged through an ordinary PR against `v1/main`, with normal CI and
+no ruleset changes. The issue and branch steps are in the `security-advisory`
+skill, step 5.
 
 ### v1-3. Cut the Release
 

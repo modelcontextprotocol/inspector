@@ -26,8 +26,9 @@ exactly one copy of it. Invoke it as `/release`, or just read the file.
 
 The short version: publishing is automated by release-gated jobs in
 [`.github/workflows/main.yml`](../.github/workflows/main.yml), all downstream of
-`needs: [build, coverage]`, so a release cannot publish with either the build
-job or the coverage gate red. The npm half is two jobs split on the credential
+`needs: [build, coverage, windows]`, so a release cannot publish with the build
+job, the coverage gate or the Windows job
+([#2748](https://github.com/modelcontextprotocol/inspector/issues/2748)) red. The npm half is two jobs split on the credential
 ([#2483](https://github.com/modelcontextprotocol/inspector/issues/2483)):
 `package` installs, runs `pack:verify` and packs the tarball with no OIDC token,
 and `publish` — the only job holding `id-token: write` — downloads that tarball

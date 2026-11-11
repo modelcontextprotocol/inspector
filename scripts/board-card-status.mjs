@@ -32,6 +32,7 @@ import {
   projectId as resolveProjectId,
   requireSupportedBoard,
 } from "./lib/board.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 export { DEFAULT_BOARD, cardOnProject, fieldOption };
 
@@ -86,6 +87,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   console.log(`card: ${now}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

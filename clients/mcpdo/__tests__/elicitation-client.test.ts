@@ -8,6 +8,12 @@ import type {
   ElicitationRequestFrame,
   ElicitationResponseFrame,
 } from "../src/daemon/protocol.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
+import {
+  FAKE_DAEMON_TOKEN,
+  answerHelloLine,
+  publishFakeDaemonToken,
+} from "./helpers/fake-daemon.js";
 
 /**
  * Covers `callDaemon`'s duplex elicitation handling (dual-era support, phase
@@ -15,7 +21,8 @@ import type {
  * response, answered via `onElicitation` (or auto-cancelled without one),
  * with the connect timeout cleared once the exchange starts.
  */
-describe("callDaemon elicitation duplex", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
   let dir: string | undefined;
   let server: net.Server | undefined;
   const sockets = new Set<net.Socket>();
@@ -49,6 +56,12 @@ describe("callDaemon elicitation duplex", () => {
       onSocket(socket);
     });
     await new Promise<void>((resolve) => server!.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
+  }
+
+  /** The client's opening `hello`, answered before its real request. */
+  function isHello(msg: object): boolean {
+    return (msg as { op?: unknown }).op === "hello";
   }
 
   it("routes an elicitation-request frame to onElicitation and writes its answer", async () => {
@@ -64,6 +77,10 @@ describe("callDaemon elicitation duplex", () => {
           buffer = buffer.slice(idx + 1);
           if (!line.trim()) continue;
           const msg = JSON.parse(line) as { id: string; kind?: string };
+          if (isHello(msg)) {
+            socket.write(answerHelloLine(line, FAKE_DAEMON_TOKEN));
+            continue;
+          }
           if (msg.kind === "elicitation-response") {
             receivedAnswer = msg as ElicitationResponseFrame;
             socket.write(
@@ -126,6 +143,10 @@ describe("callDaemon elicitation duplex", () => {
           buffer = buffer.slice(idx + 1);
           if (!line.trim()) continue;
           const msg = JSON.parse(line) as { id: string; kind?: string };
+          if (isHello(msg)) {
+            socket.write(answerHelloLine(line, FAKE_DAEMON_TOKEN));
+            continue;
+          }
           if (msg.kind === "elicitation-response") {
             receivedAnswer = msg as ElicitationResponseFrame;
             socket.write(
@@ -172,6 +193,10 @@ describe("callDaemon elicitation duplex", () => {
           buffer = buffer.slice(idx + 1);
           if (!line.trim()) continue;
           const msg = JSON.parse(line) as { id: string };
+          if (isHello(msg)) {
+            socket.write(answerHelloLine(line, FAKE_DAEMON_TOKEN));
+            continue;
+          }
           if (!answered) {
             answered = true;
             const frame: ElicitationRequestFrame = {
@@ -221,6 +246,10 @@ describe("callDaemon elicitation duplex", () => {
           buffer = buffer.slice(idx + 1);
           if (!line.trim()) continue;
           const msg = JSON.parse(line) as { id: string; kind?: string };
+          if (isHello(msg)) {
+            socket.write(answerHelloLine(line, FAKE_DAEMON_TOKEN));
+            continue;
+          }
           if (msg.kind === "elicitation-response") continue;
           const frame: ElicitationRequestFrame = {
             id: msg.id,
@@ -282,6 +311,10 @@ describe("callDaemon elicitation duplex", () => {
           buffer = buffer.slice(idx + 1);
           if (!line.trim()) continue;
           const msg = JSON.parse(line) as { id: string };
+          if (isHello(msg)) {
+            socket.write(answerHelloLine(line, FAKE_DAEMON_TOKEN));
+            continue;
+          }
           socket.write(
             JSON.stringify({ id: msg.id, ok: true, result: { done: true } }) +
               "\n",

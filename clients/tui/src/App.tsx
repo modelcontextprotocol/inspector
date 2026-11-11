@@ -55,6 +55,7 @@ import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
+import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
@@ -107,6 +108,7 @@ import { keybindingSections } from "./utils/keybindings.js";
 import { TasksTab } from "./components/TasksTab.js";
 import { SubscriptionsTab } from "./components/SubscriptionsTab.js";
 import { RootsModal } from "./components/RootsModal.js";
+import { PendingRequestModal } from "./components/PendingRequestModal.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
 import { errorMessage, redactErrorText } from "./utils/errorText.js";
@@ -154,10 +156,10 @@ type FocusArea =
   // Used only when activeTab === 'requests'
   | "requestsList"
   | "requestsDetail"
-  // What `focus` reads while the `?` help overlay is open (#2436). No pane
-  // matches it, so every tab's own key handler goes inert underneath. Never
-  // stored in `paneFocus`.
-  | "help";
+  // What `focus` reads while the `?` help overlay (#2436) or a pending
+  // sampling/elicitation request (#2829) is open. No pane matches it, so every
+  // tab's own key handler goes inert underneath. Never stored in `paneFocus`.
+  | "overlay";
 
 interface AppProps {
   mcpServers: Record<string, TuiServer>;
@@ -193,12 +195,6 @@ function App({
   const [activeTab, setActiveTab] = useState<TabType>("info");
   const [paneFocus, setFocus] = useState<FocusArea>("serverList");
   const [helpOpen, setHelpOpen] = useState(false);
-  // While the `?` help overlay is open, every pane sees focus as "help" — which
-  // none matches — so their key handlers go inert underneath it. Derived rather
-  // than set, so a focus move made while it is open (an async step-up landing
-  // on the Auth tab) updates `paneFocus` and takes effect only once the help
-  // closes, instead of re-activating a hidden pane (Copilot).
-  const focus: FocusArea = helpOpen ? "help" : paneFocus;
   // True while a list tab's `/` filter is capturing keystrokes (#2430). The
   // global accelerators below stand down then, or typing a query would switch
   // tabs, connect, or quit on Esc. Reported by `useListFilter`.
@@ -435,6 +431,11 @@ function App({
           // through `InspectorClient.setRoots`, but never writes mcp.json, so
           // these configured roots return on the next launch.
           roots: cleanRoots(savedSettings?.roots ?? []),
+          // Sampling and both elicitation modes, answered in
+          // PendingRequestModal (#2829). Stated rather than left to core's
+          // defaults, which advertise form-mode elicitation only.
+          sample: true,
+          elicit: { form: true, url: true },
           // Per-server protocol era (SEP §7.8) from mcp.json → SDK
           // versionNegotiation; absent era defaults to legacy (#1626).
           ...(savedSettings?.protocolEra && {
@@ -643,6 +644,24 @@ function App({
     () => (selectedServer ? inspectorClients[selectedServer] : null),
     [selectedServer, inspectorClients],
   );
+
+  // Server-initiated sampling / elicitation requests (#2829). These arrive
+  // while a call is in flight and block it until answered, so the modal that
+  // renders them sits above every other overlay and takes the keyboard.
+  const { pendingSamples, pendingElicitations } = usePendingClientRequests(
+    selectedInspectorClient,
+  );
+  const pendingRequestOpen =
+    pendingSamples.length + pendingElicitations.length > 0;
+
+  // While the `?` help overlay or a pending request is open, every pane sees
+  // focus as "overlay" — which none matches — so their key handlers go inert
+  // underneath it. Derived rather than set, so a focus move made while it is
+  // open (an async step-up landing on the Auth tab) updates `paneFocus` and
+  // takes effect only once the overlay closes, instead of re-activating a
+  // hidden pane (Copilot).
+  const focus: FocusArea =
+    helpOpen || pendingRequestOpen ? "overlay" : paneFocus;
 
   // Use the hook to get reactive state from InspectorClient
   const {
@@ -1647,7 +1666,8 @@ function App({
       promptTestModal ||
       detailsModal ||
       helpOpen ||
-      rootsModalOpen
+      rootsModalOpen ||
+      pendingRequestOpen
     ) {
       return;
     }
@@ -2546,6 +2566,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setToolTestModal(null)}
+          inputActive={!pendingRequestOpen}
           onAuthRecoveryRequired={(error) => {
             onAuthRecoveryRequired(error);
             setToolTestModal(null);
@@ -2561,6 +2582,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setResourceTestModal(null)}
+          inputActive={!pendingRequestOpen}
           onAuthRecoveryRequired={(error) => {
             onAuthRecoveryRequired(error);
             setResourceTestModal(null);
@@ -2575,6 +2597,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setPromptTestModal(null)}
+          inputActive={!pendingRequestOpen}
           onAuthRecoveryRequired={(error) => {
             onAuthRecoveryRequired(error);
             setPromptTestModal(null);
@@ -2589,6 +2612,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setHelpOpen(false)}
+          inputActive={!pendingRequestOpen}
         />
       )}
 
@@ -2601,6 +2625,7 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setRootsModalOpen(false)}
+          inputActive={!pendingRequestOpen}
         />
       )}
 
@@ -2616,8 +2641,20 @@ function App({
           height={dimensions.height}
           onClose={() => setDetailsModal(null)}
           copyText={detailsModal.copyText}
+          inputActive={!pendingRequestOpen}
         />
       )}
+
+      {/* Pending sampling / elicitation request (#2829) - rendered last so it
+          draws above every other overlay; App holds their keys off while it
+          is open. */}
+      <PendingRequestModal
+        pendingSamples={pendingSamples}
+        pendingElicitations={pendingElicitations}
+        inspectorClient={selectedInspectorClient}
+        width={dimensions.width}
+        height={dimensions.height}
+      />
     </Box>
   );
 }

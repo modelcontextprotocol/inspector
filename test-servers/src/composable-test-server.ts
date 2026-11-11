@@ -891,6 +891,13 @@ export interface ServerConfig {
    * When present, progress-sending tools check isClosing() before sending and skip/break if closing.
    */
   serverControl?: { isClosing(): boolean };
+  /**
+   * Called on every `resources/subscribe` (with `subscriptions: true`), with
+   * the subscribing session's context. Each HTTP session is its own server,
+   * so a test that must notify every session — a fan-out load test (#2913) —
+   * collects the contexts here and sends to each.
+   */
+  onResourceSubscribe?: (uri: string, context: TestServerContext) => void;
 }
 
 /**
@@ -1049,6 +1056,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
         // Track subscription in state (accessible via closure)
         const uri = request.params.uri;
         state.resourceSubscriptions.add(uri);
+        config.onResourceSubscribe?.(uri, context);
         return {};
       },
     );

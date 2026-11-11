@@ -409,6 +409,35 @@ describe("ProtocolEntry", () => {
     ).toBeInTheDocument();
   });
 
+  // #2928: the body (two Ace editors) mounted with every row, though rows
+  // start compact and most are never opened — a large share of the page's
+  // per-message cost under load. It now mounts on first expand and stays.
+  it("mounts the detail body on first expand and keeps it after collapsing", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.queryByText("Parameters:")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Expand" }));
+    expect(screen.getByText("Parameters:")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Collapse" }));
+    expect(screen.getByText("Parameters:")).toBeInTheDocument();
+  });
+
+  // The modal now mounts on first open (#2928); a closed Mantine modal puts
+  // nothing in the DOM either way, so what is asserted is that opening it
+  // still works from a row that has never mounted it.
+  it("opens the edit-and-replay modal from a row that has not mounted it yet", async () => {
+    const user = userEvent.setup();
+    renderWithMantine(<ProtocolEntry {...baseProps} entry={successEntry} />);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Edit and replay" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Edit and replay" }),
+    ).toBeInTheDocument();
+  });
+
   it("starts expanded when isListExpanded is true and shows Parameters and Response", () => {
     renderWithMantine(
       <ProtocolEntry
@@ -816,15 +845,25 @@ describe("ProtocolEntry — modern vocabulary", () => {
 
     it("shows the chip only in the wide layout, not the compact sidebar row", () => {
       // Compact: only the expanded-detail alert carries the label (1 match); no
-      // row chip. Wide: the row chip AND the alert (2 matches).
+      // row chip. Wide: the row chip AND the alert (2 matches). Expanded, since
+      // the detail body only mounts once a row is opened (#2928).
       const { unmount } = renderWithMantine(
-        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} embedded />,
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+          embedded
+        />,
       );
       expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(1);
       unmount();
 
       renderWithMantine(
-        <ProtocolEntry {...baseProps} entry={headerMismatchEntry} />,
+        <ProtocolEntry
+          {...baseProps}
+          entry={headerMismatchEntry}
+          isListExpanded={true}
+        />,
       );
       expect(screen.getAllByText("-32020 HeaderMismatch")).toHaveLength(2);
     });

@@ -79,7 +79,10 @@ more).
 - Connections persist across separate `mcpdo` invocations and **self-heal**: a
   dropped transport (expired session, exited stdio child) transparently
   re-dials on next use with stored credentials. Don't monitor or reconnect
-  manually; only an `auth_required` error needs action (re-run `connect`).
+  manually; only an exit-`3` auth error needs action (re-run `connect`):
+  `auth_required`, `oauth_error` (the authorization server refused — its
+  `oauthError` / `oauthErrorDescription` say why), or `oauth_timeout` (the
+  sign-in was not completed in time).
   `mcpdo disconnect` ends one connection; `mcpdo daemon stop` resets
   everything.
 - The `[legacy]` / `[modern]` era tag on `connections/list` is the negotiated
@@ -97,7 +100,10 @@ more).
   stdio server) or to more than one URL is rejected with guidance. EMA IdP
   login records lead with their bare issuer URL and carry a trailing
   `enterprise IdP login` marker, and clear by that bare issuer URL
-  (`mcpdo auth/clear https://idp.example.com`). Run `connect` as its **own
+  (`mcpdo auth/clear https://idp.example.com`). To diagnose a 401/403 —
+  wrong audience, missing scope, expired token — run `mcpdo auth/show <url or
+  name>`: it prints the stored access token's decoded claims (unverified) and
+  expiry relative to now, never the token itself. Run `connect` as its **own
   command** — never chained with `&&`, `;`, or a follow-on
   `tools/list`/`connections/show`. A connect that needs sign-in exits 0 while
   the connection is still unusable, so a chained command runs against a
@@ -174,6 +180,47 @@ more).
   `droppedSlots`: slots nobody was free to take are dropped, so a server too
   slow for the target can still report healthy latency. A shortfall under 90%
   also prints a warning on stderr.
+- `--load-scenario <file>` (no tool name) loads a weighted mix of
+  `tools/call` / `resources/read` / `prompts/get` steps; the top-level counts
+  are totals and `steps[]` breaks them down per step — find the slow or
+  failing step there.
+- Identical calls flatter a caching server. Vary them with placeholders in
+  argument values (`id:=user-{{seq}}`, `{{uuid}}`, `{{rand:1-50}}`,
+  `{{worker}}`) or `--load-args-file rows.ndjson` (one argument object per
+  line, cycled; `--load-args-random` to shuffle).
+- To find a server's knee, step the load: `--load-steps 10,25,50` or
+  `--load-ramp 10:100:60` (concurrency; `--load-step-by rate` for rate), each
+  stage `--load-step-duration` seconds. Read `stages[]` top to bottom for
+  where `latencyMs.p99` or `errorRate` jumps. `--load-stop-on-breach` with a
+  `--load-max-*` threshold stops at the first breaching stage.
+- Latency has `p50`/`p90`/`p95`/`p99`/`p999`. Gate a run with
+  `--load-max-p50`/`-p95`/`-p99`, `--load-max-error-rate` or
+  `--load-min-throughput` (ok calls/s); a breach exits `10` after the summary.
+  To gate on "no worse than last time", save a `--format json` summary and
+  pass `--load-baseline prev.json --load-max-regression 10%` on the same run
+  shape (`load_regression` on a regression, `load_baseline_mismatch` when the
+  runs differ in tool, concurrency, bounds, rate or stages).
+- `--load-interval <sec>` adds an `intervals[]` time series (spot a GC pause
+  or a slow leak the totals hide); `--load-warmup <sec>` leaves a warm-up out
+  of the statistics (reported under `warmup`). Progress lines on stderr appear
+  only with `--format text`.
+- If the generator rather than the server is the bottleneck (throughput stops
+  rising while the server is idle), mcpdo cannot help: use the one-shot CLI's
+  `mcp-inspector --cli <url> … --load --load-workers 4`, which spreads the
+  run over processes and merges one summary.
+- To measure notification fan-out, `--load-subscribe <uri>
+  --load-subscribers 50` subscribes 50 sessions; a tool name makes each
+  successful call a trigger (latency from its start), and no tool listens for
+  `--load-duration` to the server's own updates. Read `fanout.missed` and
+  `fanout.deliveryMs`.
+- To load session setup and teardown too (servers behind gateways see many
+  short sessions), add `--load-churn` (HTTP/SSE only): each worker connects,
+  makes `--load-churn-calls` calls (default `1`), disconnects, repeats.
+  Connect cost is in `churn.connectMs`, not in `latencyMs`.
+- `--load-rate` is closed-loop: busy workers drop slots, which hides
+  queueing. Add `--load-open-loop` to keep every slot and time calls from
+  their scheduled start (`openLoop: true` in the summary).
 - `stoppedEarly` (`reason` + `detail`) means the run ended before its bounds:
-  `consecutive_errors` (the server stopped answering), `connection_lost`, or
+  `consecutive_errors` (the server stopped answering), `connection_lost`,
+  `threshold_breached` (a stepped run's `--load-stop-on-breach`), or
   `interrupted`. The counts cover only what completed.

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import type { Tool } from "@modelcontextprotocol/client";
 import {
   Button,
@@ -26,8 +26,11 @@ import {
   type SortDirection,
 } from "../../elements/SortToggle/SortToggle";
 import { EmbeddableScrollArea } from "../../elements/EmbeddableScrollArea/EmbeddableScrollArea";
+import { LazyRow } from "../../elements/LazyRow/LazyRow";
 import { extractMethod, groupProtocolEntries } from "../protocolUtils.js";
 import { useScrollMemory } from "../../../hooks/useScrollMemory";
+import { useLazyMountRegistry } from "../../../hooks/useLazyMountRegistry";
+import { useLatestCallback } from "../../../hooks/useLatestCallback";
 
 // h2 under the page's visually hidden h1 (#2827), sized as the h4 it was so
 // the look is unchanged; sections below it are h3 (axe `heading-order`).
@@ -224,6 +227,76 @@ function CollapsibleSection({
   );
 }
 
+interface ProtocolEntryRowProps {
+  entry: MessageEntry;
+  /** Stand-in height while the row is away from the viewport (`LazyRow`). */
+  estimatedHeight: number;
+  isPinned: boolean;
+  isListExpanded: boolean;
+  embedded: boolean;
+  /** Whether this entry has a correlated Network entry to reveal. */
+  revealable: boolean;
+  correlatedHttpStatus?: number;
+  tools?: Tool[];
+  /** Stable (see `useLatestCallback`), keyed by entry id. */
+  onReplay: (id: string, overrideParams?: ReplayParamsOverride) => void;
+  onTogglePin: (id: string) => void;
+  onRevealInNetwork: (id: string) => void;
+}
+
+/**
+ * One Protocol row, memoized (#2928). Without it every message re-rendered
+ * every row the list already showed, so the cost of a message grew with the
+ * length of the log. Every prop is a primitive, a stable callback, or a value
+ * whose identity changes only when its content does — the log replaces an
+ * entry rather than mutating it — so an unchanged row is skipped outright.
+ *
+ * The `LazyRow` is inside the memo, not around it (#2932): its `children` are a
+ * new element on every render, so outside it would re-render every row's
+ * stand-in each time a message lands.
+ */
+const ProtocolEntryRow = memo(function ProtocolEntryRow({
+  entry,
+  estimatedHeight,
+  isPinned,
+  isListExpanded,
+  embedded,
+  revealable,
+  correlatedHttpStatus,
+  tools,
+  onReplay,
+  onTogglePin,
+  onRevealInNetwork,
+}: ProtocolEntryRowProps) {
+  return (
+    <LazyRow estimatedHeight={estimatedHeight}>
+      <ProtocolEntry
+        entry={entry}
+        isPinned={isPinned}
+        isListExpanded={isListExpanded}
+        embedded={embedded}
+        onReplay={(overrideParams) => onReplay(entry.id, overrideParams)}
+        onTogglePin={() => onTogglePin(entry.id)}
+        onRevealInNetwork={
+          revealable ? () => onRevealInNetwork(entry.id) : undefined
+        }
+        correlatedHttpStatus={correlatedHttpStatus}
+        tools={tools}
+      />
+    </LazyRow>
+  );
+});
+
+// Stand-in height (px) for a row that has never rendered (#2932). The compact
+// sidebar row — the one a load test fills the list with — is measured (123px
+// at any sidebar width, its two header lines not wrapping); the others are
+// approximate. Close is enough: a row that has rendered holds its own measured
+// height, and the estimate only keeps the scrollbar from jumping before that.
+function estimateRowHeight(embedded: boolean, compact: boolean): number {
+  if (!compact) return 320;
+  return embedded ? 123 : 110;
+}
+
 function matchesFilters(
   entry: MessageEntry,
   searchText: string,
@@ -274,6 +347,16 @@ export function ProtocolListPanel({
   correlatedStatusById,
 }: ProtocolListPanelProps) {
   const viewportRef = useScrollMemory("protocol-list");
+  // Declared after the scroll memory, so the rows' first-paint checks run
+  // against the restored scroll offset (#2932).
+  const lazyMount = useLazyMountRegistry(viewportRef);
+  // Stable stand-ins for the parent's handlers, which are new functions on
+  // every render — passed raw they would defeat the row memo (#2928).
+  const replayEntry = useLatestCallback(onReplay);
+  const togglePinEntry = useLatestCallback(onTogglePin);
+  const revealEntry = useLatestCallback((id: string) => {
+    onRevealInNetwork?.(id);
+  });
   // Per-section expand/collapse, like the LogControls level toggles. Both start
   // open; collapsing hides that section's entries without affecting the other.
   const [pinnedOpen, setPinnedOpen] = useState(true);
@@ -323,36 +406,42 @@ export function ProtocolListPanel({
   // one MrtrConversation so an operation spanning several JSON-RPC ids reads as
   // a single unit; everything else stays a plain ProtocolEntry. `sectionPinned`
   // is the section's pin state (used for a lone entry's pin label).
+  //
+  // Each row mounts on first approach to the viewport (#2932), so a burst of
+  // messages mounts only the rows that can be seen.
+  const rowHeight = estimateRowHeight(embedded, compact);
   const renderRows = (sectionEntries: MessageEntry[], sectionPinned: boolean) =>
     groupProtocolEntries(sectionEntries, sortDirection).map((row) =>
       row.kind === "mrtr" ? (
-        <MrtrConversation
+        <LazyRow
           key={`mrtr-${row.requestState}-${row.rounds[0].id}`}
-          requestState={row.requestState}
-          rounds={row.rounds}
-          pinnedIds={pinnedIds}
-          isListExpanded={!compact}
-          embedded={embedded}
-          onReplay={onReplay}
-          onTogglePin={onTogglePin}
-          tools={tools}
-        />
+          estimatedHeight={rowHeight}
+        >
+          <MrtrConversation
+            requestState={row.requestState}
+            rounds={row.rounds}
+            pinnedIds={pinnedIds}
+            isListExpanded={!compact}
+            embedded={embedded}
+            onReplay={onReplay}
+            onTogglePin={onTogglePin}
+            tools={tools}
+          />
+        </LazyRow>
       ) : (
-        <ProtocolEntry
+        <ProtocolEntryRow
           key={row.entry.id}
+          estimatedHeight={rowHeight}
           entry={row.entry}
           isPinned={sectionPinned}
           isListExpanded={!compact}
           embedded={embedded}
-          onReplay={(overrideParams) => onReplay(row.entry.id, overrideParams)}
-          onTogglePin={() => onTogglePin(row.entry.id)}
-          onRevealInNetwork={
-            onRevealInNetwork && revealableIds?.has(row.entry.id)
-              ? () => onRevealInNetwork(row.entry.id)
-              : undefined
-          }
+          revealable={!!onRevealInNetwork && !!revealableIds?.has(row.entry.id)}
           correlatedHttpStatus={correlatedStatusById?.get(row.entry.id)}
           tools={tools}
+          onReplay={replayEntry}
+          onTogglePin={togglePinEntry}
+          onRevealInNetwork={revealEntry}
         />
       ),
     );
@@ -391,7 +480,11 @@ export function ProtocolListPanel({
           <EmptyState>No request history</EmptyState>
         </EmptyCenter>
       ) : (
-        <EmbeddableScrollArea embedded={embedded} viewportRef={viewportRef}>
+        <EmbeddableScrollArea
+          embedded={embedded}
+          viewportRef={viewportRef}
+          lazyMount={lazyMount}
+        >
           <Stack gap="md">
             {pinnedEntries.length > 0 && (
               <CollapsibleSection

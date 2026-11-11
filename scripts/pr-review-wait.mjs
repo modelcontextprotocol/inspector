@@ -39,6 +39,7 @@ import {
   ghPaginatedList,
   requirePositiveInt,
 } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 /** Remote-API polling floor per AGENTS.md "Waiting on long-running work". */
 export const POLL_INTERVAL_MS = 30_000;
@@ -149,6 +150,6 @@ export async function main(
   console.log(`ROUND=${outcome}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   await main();
 }

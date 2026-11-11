@@ -25,7 +25,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import {
   healthy,
@@ -238,11 +238,32 @@ describe("launchMode", () => {
     [["node", BIN, "--config", "x.json", "--tui"], "web"],
     // `docker run --init` puts an init in front of the launcher.
     [["/sbin/docker-init", "--", "mcp-inspector", "--tui"], "tui"],
+    // The image's own tini ENTRYPOINT (#2833), alone and behind --init.
+    [["/usr/bin/tini", "--", "mcp-inspector", "--cli"], "cli"],
+    [["/usr/bin/tini", "--", "mcp-inspector"], "web"],
+    [
+      [
+        "/sbin/docker-init",
+        "--",
+        "/usr/bin/tini",
+        "--",
+        "mcp-inspector",
+        "--tui",
+      ],
+      "tui",
+    ],
+    // An init without its `--` separator is not one of those shapes.
+    [["tini", "mcp-inspector", "--tui"], undefined],
+    // An init in front of something other than the launcher names none.
+    [["tini", "--", "node", BIN, "--tui"], undefined],
     // An overridden entrypoint names no launcher.
     [["sh", "-c", "sleep 1"], undefined],
     // …even when its args happen to name the launcher.
     [["sh", "-c", "sleep 60", "mcp-inspector", "--tui"], undefined],
-    [["tini", "--", "mcp-inspector", "--tui"], undefined],
+    [
+      ["sh", "-c", "sleep 60", "tini", "--", "mcp-inspector", "--tui"],
+      undefined,
+    ],
     // …or pass it on from a wrapper that is not the node interpreter.
     [["wrapper", BIN, "--tui"], undefined],
     // An empty argument keeps its position.
@@ -334,5 +355,36 @@ describe("Dockerfile", () => {
       `HEALTHCHECK runs ${copied[1]}`,
     );
     assert.doesNotMatch(healthcheck.split("\n\n")[0], /127\.0\.0\.1/);
+  });
+
+  // #2833: the hardening the image carries, and the shape `launchMode` reads.
+  it("runs the launcher under tini, the init launchMode recognizes", () => {
+    const entrypoint = /^ENTRYPOINT (\[.*\])$/m.exec(dockerfile);
+    assert.ok(entrypoint, "the Dockerfile declares an exec-form ENTRYPOINT");
+    const argv = [...JSON.parse(entrypoint[1]), "--tui"];
+    assert.equal(basename(argv[0]), "tini");
+    assert.equal(launchMode(argv), "tui");
+  });
+
+  it("pins every stage's base image by digest", () => {
+    const froms = [...dockerfile.matchAll(/^FROM (\S+)/gm)].map((m) => m[1]);
+    assert.ok(froms.length > 0);
+    const base = /^ARG NODE_IMAGE=(\S+)$/m.exec(dockerfile);
+    for (const from of froms) {
+      const image = from === "${NODE_IMAGE}" ? base?.[1] : from;
+      assert.match(image ?? "", /@sha256:[0-9a-f]{64}$/, `${from} is pinned`);
+    }
+  });
+
+  it("installs from the lockfiles and never runs npm install", () => {
+    // Instructions only: the comments explain what was replaced, by name.
+    const code = dockerfile
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("#"))
+      .join("\n");
+    assert.doesNotMatch(code, /\bnpm (install|i)\b/);
+    assert.match(code, /npm ci --omit=dev --ignore-scripts/);
+    const runner = code.slice(code.indexOf(" AS runner"));
+    assert.doesNotMatch(runner, /\bnpm\b/);
   });
 });

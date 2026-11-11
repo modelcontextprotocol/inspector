@@ -29,5 +29,7 @@ export type {
   RemoteConnectResponse,
   RemoteSendResponse,
   RemoteEvent,
+  RemoteSessionSummary,
+  RemoteSessionListResponse,
 } from "./types.js";
 export { API_SERVER_ENV_VARS, LEGACY_AUTH_TOKEN_ENV } from "./constants.js";

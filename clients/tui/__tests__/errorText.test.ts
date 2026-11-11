@@ -32,6 +32,22 @@ describe("redactErrorText", () => {
   it("redacts query secrets in free text", () => {
     expect(redactErrorText(`lost ${SECRET_URL}`)).toBe(`lost ${REDACTED_URL}`);
   });
+
+  it("redacts all of a sensitive value that is itself a URL (#2907)", () => {
+    expect(
+      redactErrorText(
+        "lost https://as.example/token?client_secret=https://secret.example/private",
+      ),
+    ).toBe("lost https://as.example/token?client_secret=%5BREDACTED%5D");
+    // The comma-joined control still splits.
+    expect(
+      redactErrorText(
+        "https://a.example/x?code=abc,https://b.example/y?code=def",
+      ),
+    ).toBe(
+      "https://a.example/x?code=%5BREDACTED%5D,https://b.example/y?code=%5BREDACTED%5D",
+    );
+  });
 });
 
 describe("redactedJson", () => {

@@ -28,6 +28,7 @@ import {
   createPrivateBinding,
   formatPrivateEnvExports,
 } from "../src/connection/private-env.js";
+import { unixDaemonOnly } from "./helpers/platform.js";
 
 describe("daemon IPC token", () => {
   it("compares tokens in constant time", () => {
@@ -76,7 +77,8 @@ describe("mcpdo private", () => {
     expectCliSuccess(result);
     expect(result.stdout).toMatch(
       new RegExp(
-        `export ${DAEMON_DIR_ENV}='[^']+/mcp-conn-[^/']+/[0-9a-f]{8}'`,
+        // `[\\/]`: the separator is a backslash on Windows (#2748).
+        `export ${DAEMON_DIR_ENV}='[^']+[\\\\/]mcp-conn-[^\\\\/']+[\\\\/][0-9a-f]{8}'`,
       ),
     );
     expect(result.stdout).toMatch(
@@ -108,7 +110,8 @@ describe("mcpdo private", () => {
   });
 });
 
-describe("private daemon end-to-end", () => {
+// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
+describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
 
@@ -130,14 +133,24 @@ describe("private daemon end-to-end", () => {
     await server.start();
 
     // The daemon publishes mcpdod.token (0600) for same-user clients, so a
-    // tokenless call auto-discovers it; only a wrong token must fail.
+    // tokenless call auto-discovers it; only a wrong token must fail. The
+    // client sees the mismatch first: the daemon's hello proof is keyed by
+    // the real token, so a client holding another refuses before sending.
     await expect(
       callDaemon(
         "ping",
         {},
         { socketPath: server.socketPath, timeoutMs: 2000, token: "wrong" },
       ),
-    ).rejects.toMatchObject({ envelope: { code: "daemon_auth_failed" } });
+    ).rejects.toMatchObject({ envelope: { code: "daemon_unverified" } });
+    // And the daemon still refuses a request carrying the wrong token, for a
+    // client that skips the handshake.
+    await expect(
+      server.handle({ id: "w", op: "ping", token: "wrong" }),
+    ).resolves.toMatchObject({
+      ok: false,
+      error: { code: "daemon_auth_failed" },
+    });
 
     // Tokenless call discovers the published token file next to the socket.
     const discovered = await callDaemon<{ pong: boolean }>(
@@ -270,7 +283,8 @@ describe("private daemon end-to-end", () => {
 
     const listed = await runMcp(["connections/list"], { env });
     expectCliFailure(listed);
-    expect(listed.stderr).toMatch(/authentication failed|daemon_auth_failed/i);
+    // The wrong env token fails the daemon's proof, so the client refuses.
+    expect(listed.stderr).toMatch(/could not verify|daemon_unverified/i);
 
     const status = await runMcp(["daemon", "status"], { env });
     expectCliFailure(status);
@@ -310,7 +324,7 @@ describe("private daemon end-to-end", () => {
             {},
             { socketPath, timeoutMs: 2000, token: "wrong" },
           ),
-        ).rejects.toMatchObject({ envelope: { code: "daemon_auth_failed" } });
+        ).rejects.toMatchObject({ envelope: { code: "daemon_unverified" } });
 
         const pong = await callDaemon<{ pong: boolean }>(
           "ping",

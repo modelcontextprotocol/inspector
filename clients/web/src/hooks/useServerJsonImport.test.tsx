@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import {
   describeLaunch,
+  runtimeControlSignature,
+  SECRET_MASK,
   useServerJsonImport,
   VALIDATE_DEBOUNCE_MS,
   COLLAPSE_DELAY_MS,
@@ -53,39 +55,153 @@ function typeAndFlush(
 }
 
 describe("describeLaunch", () => {
-  it("renders a stdio config as a quoted command line plus env names", () => {
+  it("renders a stdio config as a quoted command line plus NAME=value env", () => {
     expect(
       describeLaunch({
         type: "stdio",
         command: "npx",
         args: ["-c", "touch /tmp/x", "-y", "pkg"],
-        env: { API_KEY: "secret", REGION: "us" },
+        env: { API_KEY: "k 1", REGION: "us" },
       }),
     ).toEqual({
       kind: "command",
       value: "npx -c 'touch /tmp/x' -y pkg",
-      envNames: ["API_KEY", "REGION"],
+      env: [
+        {
+          name: "API_KEY",
+          display: "API_KEY='k 1'",
+          masked: false,
+          runtimeControl: false,
+        },
+        {
+          name: "REGION",
+          display: "REGION=us",
+          masked: false,
+          runtimeControl: false,
+        },
+      ],
     });
+  });
+
+  it("masks a secret value the user entered", () => {
+    // No document-supplied value, so whatever is set was typed by the user.
+    expect(
+      describeLaunch(
+        { command: "npx", env: { API_KEY: "sk-live" } },
+        new Map([["API_KEY", undefined]]),
+      ).env,
+    ).toEqual([
+      {
+        name: "API_KEY",
+        display: `API_KEY=${SECRET_MASK}`,
+        masked: true,
+        runtimeControl: false,
+      },
+    ]);
+    // A value that differs from the document's is the user's too.
+    expect(
+      describeLaunch(
+        { command: "npx", env: { API_KEY: "sk-mine" } },
+        new Map([["API_KEY", "sk-doc"]]),
+      ).env[0].masked,
+    ).toBe(true);
+  });
+
+  it("shows a secret's document-supplied value in clear", () => {
+    expect(
+      describeLaunch(
+        { command: "npx", env: { SOME_LOADER_VAR: "/tmp/evil.so" } },
+        new Map([["SOME_LOADER_VAR", "/tmp/evil.so"]]),
+      ).env,
+    ).toEqual([
+      {
+        name: "SOME_LOADER_VAR",
+        display: "SOME_LOADER_VAR=/tmp/evil.so",
+        masked: false,
+        runtimeControl: false,
+      },
+    ]);
+  });
+
+  it("flags runtime-control vars and never masks them, even when declared secret", () => {
+    const preview = describeLaunch(
+      {
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-everything@2026.10.1"],
+        env: {
+          npm_config_registry: "https://registry.example.invalid/",
+          NODE_OPTIONS: "--require ./x.js",
+        },
+      },
+      // Even a user-entered value of a runtime-control var stays visible.
+      new Map([["NODE_OPTIONS", "--require ./doc.js"]]),
+    );
+    expect(preview.env).toEqual([
+      {
+        name: "npm_config_registry",
+        display: "npm_config_registry=https://registry.example.invalid/",
+        masked: false,
+        runtimeControl: true,
+      },
+      {
+        name: "NODE_OPTIONS",
+        display: "NODE_OPTIONS='--require ./x.js'",
+        masked: false,
+        runtimeControl: true,
+      },
+    ]);
   });
 
   it("handles a stdio config with no args or env", () => {
     expect(describeLaunch({ command: "uvx" })).toEqual({
       kind: "command",
       value: "uvx",
-      envNames: [],
+      env: [],
     });
   });
 
   it("renders a remote config as its URL", () => {
     expect(
       describeLaunch({ type: "sse", url: "https://example.com/sse" }),
-    ).toEqual({ kind: "url", value: "https://example.com/sse", envNames: [] });
+    ).toEqual({ kind: "url", value: "https://example.com/sse", env: [] });
     expect(
       describeLaunch({
         type: "streamable-http",
         url: "https://example.com/mcp",
       }),
-    ).toEqual({ kind: "url", value: "https://example.com/mcp", envNames: [] });
+    ).toEqual({ kind: "url", value: "https://example.com/mcp", env: [] });
+  });
+});
+
+describe("runtimeControlSignature", () => {
+  it("is empty for a config that sets no runtime-control vars", () => {
+    expect(runtimeControlSignature({ command: "npx" })).toBe("");
+    expect(
+      runtimeControlSignature({ command: "npx", env: { API_KEY: "k" } }),
+    ).toBe("");
+    expect(
+      runtimeControlSignature({ type: "sse", url: "https://example.com" }),
+    ).toBe("");
+  });
+
+  it("changes when a flagged value changes", () => {
+    const a = runtimeControlSignature({
+      command: "npx",
+      env: { NODE_OPTIONS: "a", API_KEY: "k" },
+    });
+    const b = runtimeControlSignature({
+      command: "npx",
+      env: { NODE_OPTIONS: "b", API_KEY: "k" },
+    });
+    expect(a).not.toBe("");
+    expect(a).not.toBe(b);
+    // A non-flagged value does not take part.
+    expect(
+      runtimeControlSignature({
+        command: "npx",
+        env: { NODE_OPTIONS: "a", API_KEY: "other" },
+      }),
+    ).toBe(a);
   });
 });
 
@@ -135,7 +251,14 @@ describe("useServerJsonImport", () => {
     expect(result.current.launchPreview).toEqual({
       kind: "command",
       value: "npx -c 'touch /tmp/pwned' -y benign-pkg",
-      envNames: ["TOKEN"],
+      env: [
+        {
+          name: "TOKEN",
+          display: "TOKEN=t",
+          masked: false,
+          runtimeControl: false,
+        },
+      ],
     });
   });
 
@@ -363,5 +486,263 @@ describe("useServerJsonImport", () => {
     expect(
       result.current.validation.some((v) => v.message.includes("save boom")),
     ).toBe(true);
+  });
+  describe("runtime-control env vars", () => {
+    // Declares a runtime-control default (marked secret, which must not hide
+    // it), a registry redirect, and an ordinary secret.
+    const RUNTIME_CONTROL_JSON = JSON.stringify({
+      name: "io.github.acme/everything",
+      packages: [
+        {
+          registryType: "npm",
+          identifier: "@acme/server-everything",
+          version: "1.0.0",
+          environmentVariables: [
+            {
+              name: "npm_config_registry",
+              default: "https://registry.example.invalid/",
+            },
+            {
+              name: "NODE_OPTIONS",
+              isSecret: true,
+              default: "--require ./x.js",
+            },
+            { name: "API_KEY", isSecret: true, default: "sk-live" },
+            { name: "TOKEN", isSecret: true },
+          ],
+        },
+      ],
+    });
+
+    it("shows every document-supplied value and flags the runtime-control ones", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      expect(result.current.launchPreview?.env).toEqual([
+        {
+          name: "npm_config_registry",
+          display: "npm_config_registry=https://registry.example.invalid/",
+          masked: false,
+          runtimeControl: true,
+        },
+        {
+          name: "NODE_OPTIONS",
+          display: "NODE_OPTIONS='--require ./x.js'",
+          masked: false,
+          runtimeControl: true,
+        },
+        {
+          // Declared secret, but the document supplied the value: not hidden.
+          name: "API_KEY",
+          display: "API_KEY=sk-live",
+          masked: false,
+          runtimeControl: false,
+        },
+      ]);
+      // The form hides only the secret the document supplies no value for.
+      expect(
+        result.current.envVars.map((v) => [v.name, v.isSecret ?? false]),
+      ).toEqual([
+        ["npm_config_registry", false],
+        ["NODE_OPTIONS", false],
+        ["API_KEY", false],
+        ["TOKEN", true],
+      ]);
+    });
+
+    it("never masks the saved value of a name declared twice", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/dup",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "dup-pkg",
+              environmentVariables: [
+                { name: "FOO", default: "doc-value" },
+                { name: "FOO", isSecret: true },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(result.current.launchPreview?.env).toEqual([
+        {
+          name: "FOO",
+          display: "FOO=doc-value",
+          masked: false,
+          runtimeControl: false,
+        },
+      ]);
+      // Neither field hides it: the document supplies FOO's value.
+      expect(result.current.envVars.map((v) => v.isSecret ?? false)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
+    it("hides every field of a secret name declared twice with no value", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/dup-secret",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "dup-pkg",
+              environmentVariables: [
+                { name: "TOKEN", isSecret: true },
+                { name: "TOKEN" },
+              ],
+            },
+          ],
+        }),
+      );
+      // Both fields share one value, so the unmarked duplicate hides it too.
+      expect(result.current.envVars.map((v) => v.isSecret ?? false)).toEqual([
+        true,
+        true,
+      ]);
+    });
+
+    it("previews declarations named like Object.prototype members", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/proto",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "proto-pkg",
+              environmentVariables: [
+                { name: "constructor", default: "a" },
+                { name: "toString", isSecret: true },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(result.current.launchPreview?.env).toEqual([
+        {
+          name: "constructor",
+          display: "constructor=a",
+          masked: false,
+          runtimeControl: false,
+        },
+      ]);
+      expect(result.current.envVars.map((v) => [v.value, v.isSecret])).toEqual([
+        ["a", undefined],
+        ["", true],
+      ]);
+    });
+
+    it("masks secret values the user enters", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      act(() => result.current.setEnvVar("API_KEY", "sk-mine"));
+      act(() => result.current.setEnvVar("TOKEN", "t-mine"));
+      const byName = Object.fromEntries(
+        (result.current.launchPreview?.env ?? []).map((e) => [e.name, e]),
+      );
+      expect(byName.API_KEY.display).toBe(`API_KEY=${SECRET_MASK}`);
+      expect(byName.TOKEN.display).toBe(`TOKEN=${SECRET_MASK}`);
+      // Typing the document's own value back in shows it again.
+      act(() => result.current.setEnvVar("API_KEY", "sk-live"));
+      expect(
+        result.current.launchPreview?.env.find((e) => e.name === "API_KEY")
+          ?.masked,
+      ).toBe(false);
+    });
+
+    it("keeps Add disabled until the user confirms", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      expect(result.current.runtimeControlAcknowledged).toBe(false);
+      expect(result.current.canAdd).toBe(false);
+      act(() => result.current.setRuntimeControlAcknowledged(true));
+      expect(result.current.runtimeControlAcknowledged).toBe(true);
+      expect(result.current.canAdd).toBe(true);
+      act(() => result.current.setRuntimeControlAcknowledged(false));
+      expect(result.current.runtimeControlAcknowledged).toBe(false);
+      expect(result.current.canAdd).toBe(false);
+    });
+
+    it("withdraws the confirmation when a flagged value is edited", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      act(() => result.current.setRuntimeControlAcknowledged(true));
+      act(() =>
+        result.current.setEnvVar("NODE_OPTIONS", "--require ./other.js"),
+      );
+      expect(result.current.runtimeControlAcknowledged).toBe(false);
+      expect(result.current.canAdd).toBe(false);
+      // Editing a non-flagged value leaves a confirmation in place.
+      act(() => result.current.setRuntimeControlAcknowledged(true));
+      act(() => result.current.setEnvVar("API_KEY", "sk-other"));
+      expect(result.current.runtimeControlAcknowledged).toBe(true);
+    });
+
+    it("needs no confirmation once every flagged value is cleared", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      act(() => result.current.setEnvVar("NODE_OPTIONS", ""));
+      act(() => result.current.setEnvVar("npm_config_registry", ""));
+      expect(
+        result.current.launchPreview?.env.map((entry) => entry.name),
+      ).toEqual(["API_KEY"]);
+      expect(result.current.canAdd).toBe(true);
+    });
+
+    it("submit refuses unconfirmed values and saves confirmed ones verbatim", async () => {
+      const { result, onAddServer } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      let ok = true;
+      await act(async () => {
+        ok = await result.current.submit();
+      });
+      expect(ok).toBe(false);
+      expect(onAddServer).not.toHaveBeenCalled();
+      expect(
+        result.current.validation.some((v) =>
+          v.message.includes("Confirm the runtime-control environment"),
+        ),
+      ).toBe(true);
+
+      act(() => result.current.setRuntimeControlAcknowledged(true));
+      // Confirming clears the refusal message.
+      expect(
+        result.current.validation.some((v) =>
+          v.message.includes("Confirm the runtime-control environment"),
+        ),
+      ).toBe(false);
+      await act(async () => {
+        ok = await result.current.submit();
+      });
+      expect(ok).toBe(true);
+      expect(onAddServer).toHaveBeenCalledWith("everything", {
+        type: "stdio",
+        command: "npx",
+        args: ["-y", "@acme/server-everything@1.0.0"],
+        env: {
+          npm_config_registry: "https://registry.example.invalid/",
+          NODE_OPTIONS: "--require ./x.js",
+          API_KEY: "sk-live",
+        },
+      });
+    });
+
+    it("drops the confirmation when the modal is re-opened", () => {
+      const { result, rerender, onAddServer } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      act(() => result.current.setRuntimeControlAcknowledged(true));
+      rerender({ opened: false, existingIds: [], onAddServer });
+      rerender({ opened: true, existingIds: [], onAddServer });
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      expect(result.current.runtimeControlAcknowledged).toBe(false);
+      expect(result.current.canAdd).toBe(false);
+    });
   });
 });

@@ -33,13 +33,22 @@ export default defineConfig({
       // covered modules. Exercised by spawning real processes (daemon spawn in
       // tests, smoke), which v8 coverage can't observe from the parent.
       exclude: ["src/mcp-bin.ts", "src/daemon/run.ts"],
-      thresholds: {
-        perFile: true,
-        lines: 90,
-        statements: 90,
-        functions: 90,
-        branches: 90,
-      },
+      // The per-file gate is enforced off Windows only (#2748). On win32 the
+      // daemon / Unix-socket suites skip (see __tests__/helpers/platform.ts),
+      // which leaves the daemon modules they cover far below 90 there — a
+      // statement about the skip, not about the code. Coverage is still
+      // collected and reported on Windows; CI's Linux `coverage` job is the
+      // authoritative gate, and every POSIX `local:gate` still enforces it.
+      thresholds:
+        process.platform === "win32"
+          ? undefined
+          : {
+              perFile: true,
+              lines: 90,
+              statements: 90,
+              functions: 90,
+              branches: 90,
+            },
     },
   },
 });

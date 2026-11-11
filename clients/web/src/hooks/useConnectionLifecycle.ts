@@ -412,6 +412,7 @@ export function useConnectionLifecycle({
         getAuthToken(),
         redirectUrlProvider,
         onBeforeOAuthRedirect,
+        server.name,
       );
       // The settings node persisted in mcp.json for this server — distinct
       // from the InspectorClient options we're about to derive from it.

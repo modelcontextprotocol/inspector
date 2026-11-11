@@ -1,5 +1,7 @@
-import type { ReactNode, Ref } from "react";
+import type { ReactNode, RefObject } from "react";
 import { ScrollArea, Stack } from "@mantine/core";
+import { LazyMountContext } from "../../../hooks/useLazyMountRegistry";
+import type { LazyMountRegistry } from "../../../lib/lazyMountRegistry";
 
 // Full-size, the monitor stream panels bound their scroll to the viewport
 // minus the header and the panel's own chrome.
@@ -15,7 +17,15 @@ export interface EmbeddableScrollAreaProps {
    * and the final rows never clip.
    */
   embedded: boolean;
-  viewportRef: Ref<HTMLDivElement>;
+  viewportRef: RefObject<HTMLDivElement | null>;
+  /**
+   * The lazy-mount registry for any `LazyRow` among the children (#2932), from
+   * `useLazyMountRegistry(viewportRef)` in the panel. The panel owns it, not
+   * this component, so its first checks run after the panel's
+   * `useScrollMemory` has restored the scroll offset: React runs a
+   * component's layout effects in order, and a parent's after its children's.
+   */
+  lazyMount?: LazyMountRegistry | null;
   children: ReactNode;
   /**
    * Constrain the scrolled content to the viewport width instead of letting it
@@ -55,21 +65,29 @@ const EmbeddedColumn = Stack.withProps({ flex: 1, mih: 0, gap: 0 });
 /**
  * The scroll region shared by the Logs / Protocol / Network stream panels, which
  * render both full-size (their own tab) and embedded (the monitoring sidebar).
- * Centralizes the one layout difference between those two hosts.
+ * Centralizes the one layout difference between those two hosts, and provides
+ * the lazy-mount registry, when given one, to any `LazyRow` among its children
+ * (#2932).
  */
 export function EmbeddableScrollArea({
   embedded,
   viewportRef,
   children,
   constrainContentWidth = false,
+  lazyMount = null,
 }: EmbeddableScrollAreaProps) {
   const styles =
     embedded || constrainContentWidth ? CONSTRAIN_CONTENT_STYLES : undefined;
+  const content = (
+    <LazyMountContext.Provider value={lazyMount}>
+      {children}
+    </LazyMountContext.Provider>
+  );
   if (embedded) {
     return (
       <EmbeddedColumn>
         <StreamScrollArea viewportRef={viewportRef} mah="100%" styles={styles}>
-          {children}
+          {content}
         </StreamScrollArea>
       </EmbeddedColumn>
     );
@@ -80,7 +98,7 @@ export function EmbeddableScrollArea({
       mah={FULLSIZE_MAH}
       styles={styles}
     >
-      {children}
+      {content}
     </StreamScrollArea>
   );
 }

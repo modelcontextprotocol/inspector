@@ -10,6 +10,11 @@ interface DetailsModalProps {
   height: number;
   onClose: () => void;
   /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
+  /**
    * The raw text behind `content`, offered to Y (copy via OSC 52) and W (save
    * to a file) — #2421. Omit it and the modal offers no copy affordance.
    */
@@ -22,6 +27,7 @@ export function DetailsModal({
   width,
   height,
   onClose,
+  inputActive = true,
   copyText,
 }: DetailsModalProps) {
   const scrollViewRef = useRef<ScrollViewRef>(null);
@@ -69,7 +75,7 @@ export function DetailsModal({
         scrollViewRef.current?.scrollBy(-viewportHeight);
       }
     },
-    { isActive: true },
+    { isActive: inputActive },
   );
 
   // Calculate modal dimensions - use almost full screen

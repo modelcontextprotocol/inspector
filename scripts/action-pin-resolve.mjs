@@ -13,6 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import { ghPaginatedList } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 const EXACT_TAG = /^v\d+\.\d+\.\d+$/;
 
@@ -89,6 +90,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   console.log(`uses: ${repo}@${sha} # ${EXACT_TAG.test(tag) ? tag : version}`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }
