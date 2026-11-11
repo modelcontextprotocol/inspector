@@ -21,6 +21,7 @@ import type {
 
 /** Operations the connection daemon accepts over IPC. */
 export type DaemonOp =
+  | "hello"
   | "ping"
   | "connect"
   | "disconnect"
@@ -32,6 +33,23 @@ export type DaemonOp =
   | "rpc"
   | "stream"
   | "elicitation/respond";
+
+/**
+ * Params for the `hello` op: the first line a client writes on every
+ * connection, carrying a fresh random challenge. It is the one request sent
+ * WITHOUT the IPC token — the client withholds the token, and every request
+ * payload, until the peer has proved it holds that token (see
+ * `computeDaemonProof` in `auth.ts`).
+ */
+export type HelloParams = {
+  /** 32 random bytes, hex-encoded; fresh per connection. */
+  nonce: string;
+};
+
+/** `hello` result: HMAC-SHA256 over the client's nonce, keyed by the token. */
+export type HelloResult = {
+  proof: string;
+};
 
 export type ConnectParams = {
   name: string;
@@ -116,6 +134,7 @@ export type DaemonRequest = {
    */
   token?: string;
   params?:
+    | HelloParams
     | ConnectParams
     | ConnectionNameParams
     | RpcParams

@@ -251,13 +251,19 @@ export async function ensureDaemon(options?: {
     // orphan its connections. Only a socket nothing is listening on — the
     // unreachable path below — is stale, and the spawned daemon itself
     // removes it after a connect probe (removeStaleDaemonSocket).
+    //
+    // That ping is also where the daemon is verified: callDaemon sends
+    // nothing — not the token, not the ping — until the peer proves it holds
+    // the token, and refuses outright when no token can be found (a daemon
+    // that shut down removed it; whatever holds the endpoint now is not
+    // ours). See handshake.ts.
     token ??= readDaemonTokenFile(dir);
     const pong = await callDaemon<{
       pong: boolean;
       pid?: number;
       stopping?: boolean;
       version?: string;
-    }>("ping", {}, { socketPath, timeoutMs: 2000, token });
+    }>("ping", {}, { socketPath, dir, timeoutMs: 2000, token });
     if (pong?.stopping !== true) {
       assertDaemonVersion(pong?.version, CLIENT_VERSION);
       return { socketPath, spawned: false };

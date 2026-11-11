@@ -1517,6 +1517,9 @@ describe("ConnectionRegistry", () => {
   });
 });
 
+// Every call passes `dir` alongside `socketPath`: on Windows the endpoint is a
+// named pipe, so the client cannot derive the token's directory from it and
+// would otherwise look in the default daemon dir (see `daemonTokenDir`).
 describe("DaemonServer IPC", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
@@ -1540,7 +1543,7 @@ describe("DaemonServer IPC", () => {
     const pong = await callDaemon<{ pong: boolean }>(
       "ping",
       {},
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(pong.pong).toBe(true);
 
@@ -1552,7 +1555,7 @@ describe("DaemonServer IPC", () => {
         serverConfig: { type: "stdio", command, args },
         serverIdentity: "test-stdio",
       },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
     expect(connected.name).toBe("stdio");
     expect(connected.isMru).toBe(true);
@@ -1560,14 +1563,14 @@ describe("DaemonServer IPC", () => {
     const listed = await callDaemon<{ connections: { name: string }[] }>(
       "connections/list",
       {},
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(listed.connections.map((s) => s.name)).toEqual(["stdio"]);
 
     const status = await callDaemon<{ pid: number; socketPath: string }>(
       "daemon/status",
       {},
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(status.pid).toBe(process.pid);
     expect(status.socketPath).toBe(server.socketPath);
@@ -1575,7 +1578,7 @@ describe("DaemonServer IPC", () => {
     const disc = await callDaemon<{ name: string }>(
       "disconnect",
       { name: "stdio" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(disc.name).toBe("stdio");
   });
@@ -1593,7 +1596,7 @@ describe("DaemonServer IPC", () => {
         serverConfig: { type: "stdio", command, args },
         serverIdentity: "test-stdio",
       },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
 
     const listed = await callDaemon<{
@@ -1602,7 +1605,7 @@ describe("DaemonServer IPC", () => {
     }>(
       "rpc",
       { method: "tools/list", name: "stdio" },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
     expect(listed.kind).toBe("result");
     expect(listed.result.tools.length).toBeGreaterThan(0);
@@ -1613,7 +1616,7 @@ describe("DaemonServer IPC", () => {
     }>(
       "rpc",
       { method: "initialize", name: "stdio" },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
     expect(init.kind).toBe("result");
     expect(init.result.protocolVersion).toBeTruthy();
@@ -1621,7 +1624,7 @@ describe("DaemonServer IPC", () => {
     await callDaemon(
       "disconnect",
       { name: "stdio" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
   });
 
@@ -1638,7 +1641,7 @@ describe("DaemonServer IPC", () => {
         serverConfig: { type: "stdio", command, args },
         serverIdentity: "test-stdio",
       },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
 
     // Kill the daemon-held client's transport out from under the registry —
@@ -1654,7 +1657,7 @@ describe("DaemonServer IPC", () => {
     const shown = await callDaemon<{ transport?: string }>(
       "connections/show",
       { name: "stdio" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(shown.transport).toBe("dormant");
 
@@ -1665,7 +1668,7 @@ describe("DaemonServer IPC", () => {
     }>(
       "rpc",
       { method: "tools/list", name: "stdio" },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
     expect(listed.kind).toBe("result");
     expect(listed.result.tools.length).toBeGreaterThan(0);
@@ -1673,7 +1676,7 @@ describe("DaemonServer IPC", () => {
     const after = await callDaemon<{ transport?: string }>(
       "connections/show",
       { name: "stdio" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
     expect(after.transport).toBe("live");
   });
@@ -1691,14 +1694,14 @@ describe("DaemonServer IPC", () => {
         serverConfig: { type: "stdio", command, args },
         serverIdentity: "test-stdio",
       },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 15000 },
     );
 
     await expect(
       callDaemon(
         "rpc",
         { method: "logging/tail", name: "stdio" },
-        { socketPath: server.socketPath, timeoutMs: 5000 },
+        { socketPath: server.socketPath, dir, timeoutMs: 5000 },
       ),
     ).rejects.toMatchObject({ envelope: { code: "use_stream_op" } });
 
@@ -1719,7 +1722,7 @@ describe("DaemonServer IPC", () => {
     await callDaemon(
       "disconnect",
       { name: "stdio" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir },
     );
   });
 
@@ -1891,7 +1894,7 @@ describe("DaemonServer IPC", () => {
           },
           serverIdentity: "https://mcp.example.com/mcp",
         },
-        { socketPath: server.socketPath, timeoutMs: 0, signal: ac.signal },
+        { socketPath: server.socketPath, dir, timeoutMs: 0, signal: ac.signal },
       );
       let deadline = Date.now() + 3000;
       while (connectSpy.mock.calls.length === 0 && Date.now() < deadline) {

@@ -34,6 +34,12 @@ import {
   expectCliFailure,
 } from "../../cli/__tests__/helpers/assertions.js";
 import { unixDaemonOnly } from "./helpers/platform.js";
+import { readDaemonTokenFile } from "../src/daemon/auth.js";
+import {
+  FAKE_DAEMON_TOKEN,
+  onRequest,
+  publishFakeDaemonToken,
+} from "./helpers/fake-daemon.js";
 
 // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
 describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
@@ -367,7 +373,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const value = "héllo 👋 wörld";
     const splitter = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         const payload = Buffer.from(
           JSON.stringify({ id: req.id, ok: true, result: { value } }) + "\n",
@@ -381,6 +387,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => splitter.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       const result = await callDaemon<{ value: string }>(
         "ping",
@@ -422,13 +429,15 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const sock = path.join(d, "mcpdod.sock");
     const bad = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.write("not-json\n");
+      // Past the handshake, so the malformed line is the RESPONSE.
+      onRequest(socket, () => socket.write("not-json\n"));
     });
     await new Promise<void>((resolve) => bad.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       await expect(
         callDaemon("ping", {}, { socketPath: sock, timeoutMs: 2000 }),
-      ).rejects.toThrow();
+      ).rejects.toThrow(SyntaxError);
     } finally {
       bad.close();
       try {
@@ -444,7 +453,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const sock = path.join(d, "mcpdod.sock");
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: "other", ok: true, result: {} }) + "\n",
@@ -455,6 +464,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => echo.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       const result = await callDaemon<{ ok: boolean }>(
         "ping",
@@ -477,7 +487,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const sock = path.join(d, "mcpdod.sock");
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write("\n");
         socket.write(
@@ -490,6 +500,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => echo.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       await expect(
         callDaemon("ping", {}, { socketPath: sock, timeoutMs: 2000 }),
@@ -598,6 +609,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       socket.on("error", () => {});
     });
     await new Promise<void>((resolve) => hung.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       await expect(
         callDaemon("ping", {}, { socketPath: sock, timeoutMs: 100 }),
@@ -623,6 +635,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       socket.on("error", () => {});
     });
     await new Promise<void>((resolve) => silent.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       const pending = callDaemon(
         "ping",
@@ -797,17 +810,23 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const d = freshDir();
     const srv = new DaemonServer({ dir: d, idleMs: 0 });
     await srv.start();
-    const before = await srv.handle({ id: "p1", op: "ping" });
+    // start() generated and published a token; stop() removes the file.
+    const token = readDaemonTokenFile(d);
+    const before = await srv.handle({ id: "p1", op: "ping", token });
     expect(before).toMatchObject({ ok: true, result: { stopping: false } });
     await srv.stop("stop");
     // Ping never fails — a stopping (or just-stopped in-process) daemon
     // still answers, flagged so ensureDaemon knows to wait it out.
-    const after = await srv.handle({ id: "p2", op: "ping" });
+    const after = await srv.handle({ id: "p2", op: "ping", token });
     expect(after).toMatchObject({
       ok: true,
       result: { pong: true, stopping: true },
     });
-    const status = await srv.handle({ id: "s1", op: "daemon/status" });
+    const status = await srv.handle({
+      id: "s1",
+      op: "daemon/status",
+      token,
+    });
     expect(status).toMatchObject({ ok: true, result: { stopping: true } });
   });
 
@@ -839,7 +858,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     );
     const stoppingSocket = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({
@@ -851,6 +870,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((r) => stoppingSocket.listen(sock, r));
+    publishFakeDaemonToken(sock);
     // Mid-shutdown the socket goes away before the process does — the gap
     // where spawning too early would die on the still-held lock.
     setTimeout(() => {
@@ -913,7 +933,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     async function fakeDaemon(sock: string, result: Record<string, unknown>) {
       const server = net.createServer((socket) => {
         socket.on("error", () => {});
-        socket.once("data", (buf) => {
+        onRequest(socket, (buf) => {
           const req = JSON.parse(String(buf).trim()) as { id: string };
           socket.write(JSON.stringify({ id: req.id, ok: true, result }) + "\n");
         });
@@ -938,7 +958,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         });
         try {
           await expect(
-            ensureDaemon({ dir: d, token: "t" }),
+            ensureDaemon({ dir: d, token: FAKE_DAEMON_TOKEN }),
           ).rejects.toMatchObject({
             envelope: { code: "daemon_version_mismatch" },
             message: expect.stringContaining(named),
@@ -960,11 +980,21 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         script,
         [
           'import * as net from "node:net";',
+          'import { createHmac } from "node:crypto";',
+          // It holds the token ensureDaemon handed its child, so it passes
+          // the hello (same MAC as computeDaemonProof) and is then refused
+          // on its version alone.
+          "const token = process.env.MCP_INSPECTOR_DAEMON_TOKEN;",
           "const server = net.createServer((socket) => {",
           '  socket.on("error", () => {});',
-          '  socket.once("data", (buf) => {',
-          "    const req = JSON.parse(String(buf).trim());",
-          '    socket.write(JSON.stringify({ id: req.id, ok: true, result: { pong: true, pid: process.pid, stopping: false, version: "0.0.1" } }) + "\\n");',
+          '  socket.once("data", (helloBuf) => {',
+          "    const hello = JSON.parse(String(helloBuf).trim());",
+          '    socket.once("data", (buf) => {',
+          "      const req = JSON.parse(String(buf).trim());",
+          '      socket.write(JSON.stringify({ id: req.id, ok: true, result: { pong: true, pid: process.pid, stopping: false, version: "0.0.1" } }) + "\\n");',
+          "    });",
+          '    const proof = createHmac("sha256", token).update("mcpdo-daemon-proof-v1\\0").update(hello.params.nonce).digest("hex");',
+          '    socket.write(JSON.stringify({ id: hello.id, ok: true, result: { proof } }) + "\\n");',
           "  });",
           "});",
           `server.listen(${JSON.stringify(sock)});`,
@@ -996,7 +1026,9 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         version: root.version,
       });
       try {
-        await expect(ensureDaemon({ dir: d, token: "t" })).resolves.toEqual({
+        await expect(
+          ensureDaemon({ dir: d, token: FAKE_DAEMON_TOKEN }),
+        ).resolves.toEqual({
           socketPath: sock,
           spawned: false,
         });
@@ -1058,6 +1090,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       socket.end();
     });
     await new Promise<void>((resolve) => occupant.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       await expect(
         ensureDaemon({ dir: d, daemonScript: resolveDaemonScriptPath() }),
@@ -1069,7 +1102,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     }
   });
 
-  it("ensureDaemon fails loudly on daemon_auth_failed (wrong token is not a stale socket)", async () => {
+  it("ensureDaemon fails loudly on a token mismatch (wrong token is not a stale socket)", async () => {
     const d = freshDir();
     server = new DaemonServer({ dir: d, idleMs: 0, requiredToken: "good" });
     await server.start();
@@ -1079,7 +1112,9 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         daemonScript: resolveDaemonScriptPath(),
         token: "wrong",
       }),
-    ).rejects.toMatchObject({ envelope: { code: "daemon_auth_failed" } });
+      // The daemon's proof is keyed by "good", so a client holding "wrong"
+      // refuses it before sending its token or the ping.
+    ).rejects.toMatchObject({ envelope: { code: "daemon_unverified" } });
     // The live daemon keeps its socket and still serves the right token.
     const pong = await callDaemon(
       "ping",
@@ -1163,6 +1198,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       socket.end();
     });
     await new Promise<void>((resolve) => peer.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       await expect(
         callDaemon("ping", {}, { socketPath: sock, timeoutMs: 60_000 }),
@@ -1193,8 +1229,10 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       },
       { socketPath: server.socketPath, timeoutMs: 15000 },
     );
+    const token = readDaemonTokenFile(d);
     const used = await server.handle({
       id: "u",
+      token,
       op: "connections/use",
       params: { name: "s" },
     });
@@ -1206,6 +1244,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     // in-process, where coverage instrumentation can see it.
     const shown = await server.handle({
       id: "s2",
+      token,
       op: "connections/show",
       params: { name: "s" },
     });

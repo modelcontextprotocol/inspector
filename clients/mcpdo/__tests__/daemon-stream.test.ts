@@ -13,6 +13,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import { unixDaemonOnly } from "./helpers/platform.js";
+import { onRequest, publishFakeDaemonToken } from "./helpers/fake-daemon.js";
 
 // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
 describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
@@ -53,6 +54,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       onSocket(socket);
     });
     await new Promise<void>((resolve) => server!.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
   }
 
   it("resolves immediately on an already-aborted signal without dialing", async () => {
@@ -77,7 +79,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("delivers data frames then end (skips blank/mismatched ids)", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         // Mismatched first response id is ignored; matching ok opens the stream.
         socket.write(
@@ -121,7 +123,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     let requestId: string | undefined;
     await listen(sock, (socket) => {
       serverSocket = socket;
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         requestId = req.id;
         socket.write(
@@ -180,7 +182,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("continues the stream when an async onData callback rejects", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
@@ -215,7 +217,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("rejects on socket error after the stream has opened", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
@@ -233,7 +235,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("rejects malformed stream frames after open", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
@@ -249,7 +251,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("rejects error responses without exitCode (defaults USAGE)", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({
@@ -299,7 +301,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("aborts via signal after the stream opens", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
@@ -340,7 +342,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     // stream immediately instead of waiting indefinitely.
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         setTimeout(() => {
           socket.write(
@@ -376,7 +378,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("rejects when the peer closes mid-stream without an end frame", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
@@ -401,17 +403,21 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     try {
       let seenToken: string | undefined;
       await listen(sock, (socket) => {
-        socket.once("data", (buf) => {
-          const req = JSON.parse(String(buf).trim()) as {
-            id: string;
-            token?: string;
-          };
-          seenToken = req.token;
-          socket.write(
-            JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
-          );
-          socket.write(JSON.stringify({ id: req.id, stream: "end" }) + "\n");
-        });
+        onRequest(
+          socket,
+          (buf) => {
+            const req = JSON.parse(String(buf).trim()) as {
+              id: string;
+              token?: string;
+            };
+            seenToken = req.token;
+            socket.write(
+              JSON.stringify({ id: req.id, ok: true, result: {} }) + "\n",
+            );
+            socket.write(JSON.stringify({ id: req.id, stream: "end" }) + "\n");
+          },
+          "tok-1",
+        );
       });
       // No socketPath / timeoutMs: both fall back to defaults (the daemon
       // dir env pins the socket path; the 60s default timer is cleared by
@@ -429,7 +435,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
   it("ignores frames after the stream has already ended", async () => {
     const sock = freshSock();
     await listen(sock, (socket) => {
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         // ok + two end frames in one chunk: the second is handled by the
         // same buffered-line loop after the promise has settled.
