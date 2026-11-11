@@ -91,11 +91,34 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
-      # Deprecate exactly what was just published (#2104). `npm deprecate` is a
-      # point-in-time write to the versions matching when it runs, not a
-      # standing rule, so without this every v1 release lands un-deprecated
-      # (1.0.2 did, and had to be fixed by hand).
-      #
+  # Deprecate exactly what `publish` just published (#2104). `npm deprecate` is
+  # a point-in-time write to the versions matching when it runs, not a standing
+  # rule, so without this every v1 release lands un-deprecated (1.0.2 did, and
+  # had to be fixed by hand).
+  #
+  # A job of its own, not a step after `publish-all`: if deprecation fails
+  # (missing token, registry error), "Re-run failed jobs" must retry only this.
+  # As a step, the retry would re-run `publish-all`, which npm rejects for an
+  # already-published version, so deprecation could never be reached again.
+  # Because it references `release`, its required reviewers approve this job
+  # separately from `publish`.
+  deprecate-npm:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    environment: release
+    needs: publish
+
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+      # registry-url writes the .npmrc that reads NODE_AUTH_TOKEN.
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: package.json
+          registry-url: "https://registry.npmjs.org"
+
       # Do NOT widen this to a range. `<2.0.0` matches the v2 prereleases too
       # (`2.0.0-rc.1` sorts below `2.0.0`) and would stamp them with a v1
       # notice; the prerelease-safe spelling is `<2.0.0-0`, but the exact
