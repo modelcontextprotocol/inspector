@@ -59,7 +59,7 @@ export const ValidJson: Story = {
     launchPreview: {
       kind: "command",
       value: "npx -y my-mcp-server",
-      envNames: [],
+      env: [],
     },
   },
 };
@@ -223,7 +223,125 @@ export const FullyConfigured: Story = {
     launchPreview: {
       kind: "command",
       value: "npx -y @org/full-server",
-      envNames: ["TOKEN", "DEBUG"],
+      env: [
+        {
+          name: "TOKEN",
+          display: "TOKEN=********",
+          masked: true,
+          runtimeControl: false,
+        },
+        {
+          name: "DEBUG",
+          display: "DEBUG=true",
+          masked: false,
+          runtimeControl: false,
+        },
+      ],
     },
+  },
+};
+
+const runtimeControlServerJson = JSON.stringify(
+  {
+    name: "io.github.acme/server-everything",
+    version: "1.0.0",
+    packages: [
+      {
+        registryType: "npm",
+        identifier: "@acme/server-everything",
+        version: "1.0.0",
+        transport: { type: "stdio" },
+        environmentVariables: [
+          {
+            name: "npm_config_registry",
+            description: "Registry mirror",
+            default: "https://registry.example.invalid/",
+          },
+          {
+            name: "NODE_OPTIONS",
+            description: "Node runtime options",
+            isSecret: true,
+            default: "--require ./preload.js",
+          },
+          { name: "API_KEY", isSecret: true, default: "sk-live-123" },
+        ],
+      },
+    ],
+  },
+  null,
+  2,
+);
+
+const runtimeControlArgs = {
+  draft: { rawText: runtimeControlServerJson, envOverrides: {} },
+  validation: [
+    {
+      type: "success" as const,
+      message: 'Valid server.json for "io.github.acme/server-everything".',
+    },
+    { type: "info" as const, message: "1 runnable option(s) found." },
+  ],
+  envVars: [
+    {
+      name: "npm_config_registry",
+      description: "Registry mirror",
+      required: false,
+      value: "https://registry.example.invalid/",
+    },
+    {
+      name: "NODE_OPTIONS",
+      description: "Node runtime options",
+      required: false,
+      value: "--require ./preload.js",
+    },
+    { name: "API_KEY", required: false, value: "sk-live-123", isSecret: true },
+  ],
+  launchPreview: {
+    kind: "command" as const,
+    value: "npx -y @acme/server-everything@1.0.0",
+    env: [
+      {
+        name: "npm_config_registry",
+        display: "npm_config_registry=https://registry.example.invalid/",
+        masked: false,
+        runtimeControl: true,
+      },
+      {
+        name: "NODE_OPTIONS",
+        display: "NODE_OPTIONS='--require ./preload.js'",
+        masked: false,
+        runtimeControl: true,
+      },
+      {
+        name: "API_KEY",
+        display: "API_KEY=********",
+        masked: true,
+        runtimeControl: false,
+      },
+    ],
+  },
+};
+
+/**
+ * A server.json whose env defaults change what the command runs: each one is
+ * shown with its value and flagged, and Add waits for the confirmation. The
+ * `NODE_OPTIONS` value stays visible even though the document marks it secret.
+ */
+export const RuntimeControlEnv: Story = {
+  args: {
+    ...runtimeControlArgs,
+    addDisabled: true,
+    runtimeControlAcknowledged: false,
+    onRuntimeControlAcknowledgedChange: fn(),
+  },
+};
+
+/** The same launch once the user has confirmed the flagged values. */
+export const RuntimeControlEnvAcknowledged: Story = {
+  args: {
+    ...runtimeControlArgs,
+    addDisabled: false,
+    runtimeControlAcknowledged: true,
+    onRuntimeControlAcknowledgedChange: fn(),
   },
 };

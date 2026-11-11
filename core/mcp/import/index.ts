@@ -24,6 +24,7 @@ export type {
   ServerJsonEnvVar,
   ServerJsonSelection,
 } from "./serverJson.js";
+export { isRuntimeControlEnvVar } from "./runtimeControlEnv.js";
 export {
   IMPORT_STRATEGIES,
   IMPORT_STRATEGY_LIST,

@@ -1,10 +1,14 @@
 import {
   Accordion,
+  Alert,
+  Badge,
   Button,
+  Checkbox,
   Code,
   Divider,
   FileButton,
   Group,
+  PasswordInput,
   Radio,
   Stack,
   Text,
@@ -37,8 +41,22 @@ export interface LaunchPreview {
   kind: "command" | "url";
   /** The full, shell-quoted command line (stdio) or the remote URL. */
   value: string;
-  /** Names of the env vars the saved config sets — names only, never values. */
-  envNames: string[];
+  /** Every env var the saved config sets, in the order it sets them. */
+  env: LaunchEnvEntry[];
+}
+
+/** One environment variable the launch sets, as the preview shows it. */
+export interface LaunchEnvEntry {
+  name: string;
+  /** `NAME=value` with the value shell-quoted, or masked when `masked`. */
+  display: string;
+  /** The value is a declared secret and is hidden in `display`. */
+  masked: boolean;
+  /**
+   * The variable changes which code the command loads or where it fetches
+   * packages from, so the command line alone does not say what will run.
+   */
+  runtimeControl: boolean;
 }
 
 export interface EnvVarInfo {
@@ -46,6 +64,8 @@ export interface EnvVarInfo {
   description?: string;
   required: boolean;
   value: string;
+  /** Declared secret: the field hides its value. */
+  isSecret?: boolean;
 }
 
 export interface ImportServerJsonPanelProps {
@@ -55,6 +75,12 @@ export interface ImportServerJsonPanelProps {
   envVars: EnvVarInfo[];
   /** The resolved launch of the selected option; shown whenever present. */
   launchPreview?: LaunchPreview;
+  /**
+   * Whether the user has confirmed the launch's runtime-control env vars.
+   * Only read when the preview flags at least one.
+   */
+  runtimeControlAcknowledged?: boolean;
+  onRuntimeControlAcknowledgedChange?: (acknowledged: boolean) => void;
   onJsonChange: (content: string) => void;
   onSelectPackage: (index: number) => void;
   onEnvVarChange: (name: string, value: string) => void;
@@ -143,12 +169,142 @@ const LaunchCode = Code.withProps({
   variant: "wrapping",
 });
 
+const LaunchEnvList = Stack.withProps({ gap: "xs" });
+
+const LaunchEnvRow = Group.withProps({
+  gap: "xs",
+  align: "center",
+  wrap: "nowrap",
+});
+
+const LaunchEnvCode = Code.withProps({
+  block: true,
+  variant: "wrapping",
+  flex: 1,
+  miw: 0,
+});
+
+// The `status` variant pins amber hues to an AA-contrast fill in both schemes;
+// a plain `light` orange chip does not clear 4.5:1.
+const RuntimeControlBadge = Badge.withProps({
+  color: "orange",
+  variant: "status",
+});
+
+const SecretBadge = Badge.withProps({
+  color: "gray",
+  variant: "light",
+});
+
+const RuntimeControlAlert = Alert.withProps({
+  variant: "warning",
+  title: "These variables change what runs",
+});
+
+const AlertBody = Stack.withProps({ gap: "sm" });
+
+const AlertText = Text.withProps({ size: "sm" });
+
 function formatLaunchTitle(preview: LaunchPreview): string {
   return preview.kind === "command" ? "Command to Run:" : "Remote URL:";
 }
 
-function formatEnvNames(names: string[]): string {
-  return `Environment variables set: ${names.join(", ")}`;
+function formatRuntimeControlWarning(entries: LaunchEnvEntry[]): string {
+  const names = entries.map((entry) => entry.name).join(", ");
+  return (
+    `${names} ${entries.length === 1 ? "controls" : "control"} the runtime ` +
+    "rather than the server: they can change which code the command loads, " +
+    "or where it downloads the package from, so the command line above does " +
+    "not by itself say what will run. Add this server only if you trust where " +
+    "this server.json came from and expect these values."
+  );
+}
+
+interface LaunchEnvProps {
+  env: LaunchEnvEntry[];
+}
+
+/** The env vars the launch sets, one `NAME=value` row each, flags beside. */
+function LaunchEnv({ env }: LaunchEnvProps) {
+  return (
+    <LaunchEnvList aria-label="Resolved environment">
+      <HintText>Environment variables set:</HintText>
+      {env.map((entry) => (
+        <LaunchEnvRow key={entry.name}>
+          <LaunchEnvCode>{entry.display}</LaunchEnvCode>
+          {entry.runtimeControl && (
+            <RuntimeControlBadge>Runtime control</RuntimeControlBadge>
+          )}
+          {entry.masked && <SecretBadge>Secret</SecretBadge>}
+        </LaunchEnvRow>
+      ))}
+    </LaunchEnvList>
+  );
+}
+
+interface RuntimeControlWarningProps {
+  flagged: LaunchEnvEntry[];
+  acknowledged: boolean;
+  onAcknowledgedChange?: (acknowledged: boolean) => void;
+}
+
+/** Explains the flagged variables and takes the confirmation Add waits on. */
+function RuntimeControlWarning({
+  flagged,
+  acknowledged,
+  onAcknowledgedChange,
+}: RuntimeControlWarningProps) {
+  return (
+    <RuntimeControlAlert>
+      <AlertBody>
+        <AlertText>{formatRuntimeControlWarning(flagged)}</AlertText>
+        <Checkbox
+          label="I have reviewed these values and want to run the command with them"
+          checked={acknowledged}
+          onChange={(e) => onAcknowledgedChange?.(e.currentTarget.checked)}
+        />
+      </AlertBody>
+    </RuntimeControlAlert>
+  );
+}
+
+interface EnvVarFieldProps {
+  envVar: EnvVarInfo;
+  onEnvVarChange: (name: string, value: string) => void;
+}
+
+/**
+ * One editable env var. A declared secret gets a `PasswordInput`, whose
+ * visibility toggle occupies the right section the clear button uses
+ * elsewhere, so it has no clear button.
+ */
+function EnvVarField({ envVar, onEnvVarChange }: EnvVarFieldProps) {
+  if (envVar.isSecret) {
+    return (
+      <PasswordInput
+        label={envVar.name}
+        description={envVar.description}
+        withAsterisk={envVar.required}
+        value={envVar.value}
+        onChange={(e) => onEnvVarChange(envVar.name, e.currentTarget.value)}
+      />
+    );
+  }
+  return (
+    <TextInput
+      label={envVar.name}
+      description={envVar.description}
+      withAsterisk={envVar.required}
+      value={envVar.value}
+      onChange={(e) => onEnvVarChange(envVar.name, e.currentTarget.value)}
+      rightSectionPointerEvents="auto"
+      rightSection={
+        envVar.value ? (
+          <ClearButton onClick={() => onEnvVarChange(envVar.name, "")} />
+        ) : null
+      }
+    />
+  );
 }
 
 function formatPackageLabel(pkg: PackageInfo): string {
@@ -161,6 +317,8 @@ export function ImportServerJsonPanel({
   packages,
   envVars,
   launchPreview,
+  runtimeControlAcknowledged,
+  onRuntimeControlAcknowledgedChange,
   onJsonChange,
   onSelectPackage,
   onEnvVarChange,
@@ -176,6 +334,8 @@ export function ImportServerJsonPanel({
   // Validation results + the name-override field only make sense once there's
   // something to validate, so they stay hidden until content is pasted/loaded.
   const hasContent = draft.rawText.trim().length > 0;
+  const flaggedEnv =
+    launchPreview?.env.filter((entry) => entry.runtimeControl) ?? [];
   return (
     <Stack gap="md">
       <HeaderRow>
@@ -279,14 +439,21 @@ export function ImportServerJsonPanel({
               <Divider />
               <Title order={5}>{formatLaunchTitle(launchPreview)}</Title>
               <HintText>
-                Review this before adding: it is exactly what will be saved and
-                run.
+                Review this before adding: the command and environment below are
+                exactly what will be saved and run.
               </HintText>
               <LaunchCode aria-label="Resolved launch">
                 {launchPreview.value}
               </LaunchCode>
-              {launchPreview.envNames.length > 0 && (
-                <HintText>{formatEnvNames(launchPreview.envNames)}</HintText>
+              {launchPreview.env.length > 0 && (
+                <LaunchEnv env={launchPreview.env} />
+              )}
+              {flaggedEnv.length > 0 && (
+                <RuntimeControlWarning
+                  flagged={flaggedEnv}
+                  acknowledged={runtimeControlAcknowledged ?? false}
+                  onAcknowledgedChange={onRuntimeControlAcknowledgedChange}
+                />
               )}
             </>
           )}
@@ -296,23 +463,10 @@ export function ImportServerJsonPanel({
               <Divider />
               <Title order={5}>Environment Variables:</Title>
               {envVars.map((envVar) => (
-                <TextInput
+                <EnvVarField
                   key={envVar.name}
-                  label={envVar.name}
-                  description={envVar.description}
-                  withAsterisk={envVar.required}
-                  value={envVar.value}
-                  onChange={(e) =>
-                    onEnvVarChange(envVar.name, e.currentTarget.value)
-                  }
-                  rightSectionPointerEvents="auto"
-                  rightSection={
-                    envVar.value ? (
-                      <ClearButton
-                        onClick={() => onEnvVarChange(envVar.name, "")}
-                      />
-                    ) : null
-                  }
+                  envVar={envVar}
+                  onEnvVarChange={onEnvVarChange}
                 />
               ))}
             </>
