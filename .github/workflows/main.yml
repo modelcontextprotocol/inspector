@@ -116,6 +116,12 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
+          # Do NOT drop this: on a tag event the default `latest=auto` adds a
+          # `latest` tag, so every v1 release would move the image's `latest`
+          # from the current v2 release to deprecated v1 (#2958). This is the
+          # GHCR counterpart of `publish-all`'s `--tag v1-latest` on npm.
+          flavor: |
+            latest=false
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
