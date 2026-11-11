@@ -91,6 +91,42 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: "true"
 
+      # Deprecate exactly what was just published (#2104). `npm deprecate` is a
+      # point-in-time write to the versions matching when it runs, not a
+      # standing rule, so without this every v1 release lands un-deprecated
+      # (1.0.2 did, and had to be fixed by hand).
+      #
+      # Do NOT widen this to a range. `<2.0.0` matches the v2 prereleases too
+      # (`2.0.0-rc.1` sorts below `2.0.0`) and would stamp them with a v1
+      # notice; the prerelease-safe spelling is `<2.0.0-0`, but the exact
+      # version is idempotent and cannot rot, which is why it is used here.
+      #
+      # Auth: OIDC trusted publishing covers `npm publish` only; `npm deprecate`
+      # is an ordinary authenticated write, so it needs a token. That token is
+      # a granular one scoped to the four inspector packages, stored as an
+      # environment secret on `release` (behind its required reviewers).
+      #
+      # MSG must stay byte-identical to the message already on every v1
+      # version (`npm view @modelcontextprotocol/inspector@1.0.4 deprecated`).
+      # The runtime banners in cli/src/cli.ts, server/src/index.ts and
+      # client/bin/start.js say the same thing in different words — keep
+      # their intent in sync if this changes.
+      - name: Deprecate the published v1 packages
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p 'require("./package.json").version')"
+          MSG="v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag."
+          # An empty message LIFTS deprecation — fail rather than un-deprecate.
+          [ -n "$MSG" ] || { echo "::error::refusing to run with an empty deprecation message"; exit 1; }
+          # Only ever a v1 version: this step must never touch a v2 release.
+          [[ "$VERSION" =~ ^1\. ]] || { echo "::error::refusing to deprecate non-v1 version ${VERSION}"; exit 1; }
+          [ -n "${NODE_AUTH_TOKEN:-}" ] || { echo "::error::NPM_DEPRECATE_TOKEN is not set on the release environment; ${VERSION} was published but NOT deprecated"; exit 1; }
+          for pkg in inspector inspector-cli inspector-client inspector-server; do
+            npm deprecate "@modelcontextprotocol/${pkg}@${VERSION}" "$MSG"
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_DEPRECATE_TOKEN }}
+
   publish-github-container-registry:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
