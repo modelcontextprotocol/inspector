@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import {
@@ -68,8 +68,27 @@ function trackedFetch() {
   return { fetcher, bodies };
 }
 
-async function waitFor(condition: () => boolean): Promise<void> {
-  while (!condition()) await new Promise((r) => setTimeout(r, 10));
+/**
+ * How long a test waits for the tracker's body update. Strictly inside the
+ * integration project's 30s test budget, so a tracker that never records a
+ * body fails here, naming the wait, instead of as a bare test timeout.
+ */
+const BODY_RECORDED_TIMEOUT_MS = 10_000;
+
+/**
+ * Wait until the tracker has recorded a body. Bounded: `vi.waitFor` rejects
+ * and clears its own timers at the deadline, so a missing update cannot keep
+ * polling into later tests.
+ */
+async function waitForRecordedBody(bodies: string[]): Promise<void> {
+  await vi.waitFor(
+    () => {
+      if (bodies.length === 0) {
+        throw new Error("tracker recorded no response body");
+      }
+    },
+    { timeout: BODY_RECORDED_TIMEOUT_MS, interval: 10 },
+  );
 }
 
 describe("createFetchTracker recorded-body cap over a real socket", () => {
@@ -86,7 +105,7 @@ describe("createFetchTracker recorded-body cap over a real socket", () => {
       expect(next.done).toBe(false);
       read += next.value!.byteLength;
     }
-    await waitFor(() => bodies.length > 0);
+    await waitForRecordedBody(bodies);
     await reader.cancel();
 
     expect(bodies).toHaveLength(1);
@@ -107,7 +126,7 @@ describe("createFetchTracker recorded-body cap over a real socket", () => {
     const text = await res.text();
 
     expect(text).toBe(EVENT.repeat(events));
-    await waitFor(() => bodies.length > 0);
+    await waitForRecordedBody(bodies);
     expect(bodies[0]!.length - TRUNCATED_BODY_SUFFIX.length).toBe(
       TRACKED_BODY_MAX_BYTES,
     );
@@ -121,7 +140,7 @@ describe("createFetchTracker recorded-body cap over a real socket", () => {
     const res = await fetcher(url, { method: "POST", body: "{}" });
     const text = await res.text();
 
-    await waitFor(() => bodies.length > 0);
+    await waitForRecordedBody(bodies);
     expect(text).toBe(EVENT.repeat(3));
     expect(bodies).toEqual([EVENT.repeat(3)]);
   });
