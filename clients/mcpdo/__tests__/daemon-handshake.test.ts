@@ -160,12 +160,16 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
         }),
     ],
     [
-      "a valid-shaped answer under another request id",
+      "a valid proof under another request id",
+      // The proof is genuine for this hello's nonce, so only the id check
+      // can reject it.
       (line, socket) =>
         reply(socket, {
           id: "?",
           ok: true,
-          result: { proof: "0".repeat(64) },
+          result: {
+            proof: computeDaemonProof(VICTIM_TOKEN, helloOf(line).nonce),
+          },
         }),
     ],
     [
@@ -426,6 +430,12 @@ describe("hello proof primitives", () => {
     for (const bad of [
       "null",
       "42",
+      // A valid proof under another id: rejected on the id alone.
+      JSON.stringify({
+        id: "other",
+        ok: true,
+        result: { proof: computeDaemonProof("tok", hello.nonce) },
+      }),
       JSON.stringify({ id: hello.id, ok: true, result: null }),
       JSON.stringify({ id: hello.id, ok: true }),
     ]) {
