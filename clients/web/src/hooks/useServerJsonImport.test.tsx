@@ -549,6 +549,39 @@ describe("useServerJsonImport", () => {
       ]);
     });
 
+    it("never masks the saved value of a name declared twice", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/dup",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "dup-pkg",
+              environmentVariables: [
+                { name: "FOO", default: "doc-value" },
+                { name: "FOO", isSecret: true },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(result.current.launchPreview?.env).toEqual([
+        {
+          name: "FOO",
+          display: "FOO=doc-value",
+          masked: false,
+          runtimeControl: false,
+        },
+      ]);
+      // Neither field hides it: the document supplies FOO's value.
+      expect(result.current.envVars.map((v) => v.isSecret ?? false)).toEqual([
+        false,
+        false,
+      ]);
+    });
+
     it("masks secret values the user enters", () => {
       const { result } = setup();
       typeAndFlush(result, RUNTIME_CONTROL_JSON);

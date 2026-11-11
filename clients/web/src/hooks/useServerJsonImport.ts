@@ -297,10 +297,19 @@ export function useServerJsonImport({
     runtimeHint: o.runtimeHint,
   }));
 
+  // The value the document supplies for each variable is read from the
+  // option's base env, the same map the saved config is built from, never
+  // from an individual declaration: a name declared twice has one effective
+  // value, and comparing against another declaration's would let a duplicate
+  // `isSecret` entry mask the value that is actually saved.
+  const documentEnv: Record<string, string> =
+    selectedOption?.baseConfig.type === "stdio"
+      ? (selectedOption.baseConfig.env ?? {})
+      : {};
   const secrets: DeclaredSecrets = new Map(
     (selectedOption?.envVars ?? [])
       .filter((v) => v.isSecret)
-      .map((v) => [v.name, v.default]),
+      .map((v) => [v.name, documentEnv[v.name]]),
   );
 
   // A secret field hides its input only when the document supplies no value
@@ -312,7 +321,9 @@ export function useServerJsonImport({
     description: v.description,
     required: v.required,
     value: draft.envOverrides[v.name] ?? v.default ?? "",
-    ...(v.isSecret && v.default === undefined && !isRuntimeControlEnvVar(v.name)
+    ...(v.isSecret &&
+    documentEnv[v.name] === undefined &&
+    !isRuntimeControlEnvVar(v.name)
       ? { isSecret: true }
       : {}),
   }));
