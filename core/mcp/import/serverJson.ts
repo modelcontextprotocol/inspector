@@ -460,8 +460,10 @@ export function buildServerConfigForSelection(
 ): MCPServerConfig {
   const overrides: Record<string, string> = {};
   for (const v of option.envVars) {
-    const value = envOverrides[v.name];
-    if (value !== undefined) overrides[v.name] = value;
+    // Own properties only: a declaration named `constructor` or `toString`
+    // would otherwise read an inherited function off the plain object.
+    if (!Object.hasOwn(envOverrides, v.name)) continue;
+    overrides[v.name] = envOverrides[v.name];
   }
   return buildServerConfig(option, overrides);
 }

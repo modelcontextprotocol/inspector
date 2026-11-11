@@ -582,6 +582,63 @@ describe("useServerJsonImport", () => {
       ]);
     });
 
+    it("hides every field of a secret name declared twice with no value", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/dup-secret",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "dup-pkg",
+              environmentVariables: [
+                { name: "TOKEN", isSecret: true },
+                { name: "TOKEN" },
+              ],
+            },
+          ],
+        }),
+      );
+      // Both fields share one value, so the unmarked duplicate hides it too.
+      expect(result.current.envVars.map((v) => v.isSecret ?? false)).toEqual([
+        true,
+        true,
+      ]);
+    });
+
+    it("previews declarations named like Object.prototype members", () => {
+      const { result } = setup();
+      typeAndFlush(
+        result,
+        JSON.stringify({
+          name: "io.github.acme/proto",
+          packages: [
+            {
+              registryType: "npm",
+              identifier: "proto-pkg",
+              environmentVariables: [
+                { name: "constructor", default: "a" },
+                { name: "toString", isSecret: true },
+              ],
+            },
+          ],
+        }),
+      );
+      expect(result.current.launchPreview?.env).toEqual([
+        {
+          name: "constructor",
+          display: "constructor=a",
+          masked: false,
+          runtimeControl: false,
+        },
+      ]);
+      expect(result.current.envVars.map((v) => [v.value, v.isSecret])).toEqual([
+        ["a", undefined],
+        ["", true],
+      ]);
+    });
+
     it("masks secret values the user enters", () => {
       const { result } = setup();
       typeAndFlush(result, RUNTIME_CONTROL_JSON);

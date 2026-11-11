@@ -46,6 +46,18 @@ type ParseState =
   | { ok: false; error: string }
   | { ok: null };
 
+/**
+ * Read `name` off a plain env map as an own property only. Declared names come
+ * from the pasted document, so one named `constructor` or `toString` would
+ * otherwise read an inherited function rather than `undefined`.
+ */
+function ownValue(
+  map: Record<string, string>,
+  name: string,
+): string | undefined {
+  return Object.hasOwn(map, name) ? map[name] : undefined;
+}
+
 /** Shown in place of a secret env var's value in the launch preview. */
 export const SECRET_MASK = "********";
 
@@ -309,20 +321,22 @@ export function useServerJsonImport({
   const secrets: DeclaredSecrets = new Map(
     (selectedOption?.envVars ?? [])
       .filter((v) => v.isSecret)
-      .map((v) => [v.name, documentEnv[v.name]]),
+      .map((v) => [v.name, ownValue(documentEnv, v.name)]),
   );
 
   // A secret field hides its input only when the document supplies no value
-  // for it, so anything in it was typed by the user. Keyed on the declaration
-  // rather than on the current value so the field does not swap input types
-  // (and drop focus) partway through typing.
+  // for it, so anything in it was typed by the user. Keyed on the declared
+  // name rather than on the current value so the field does not swap input
+  // types (and drop focus) partway through typing — and on the *name*, as the
+  // preview is, rather than on each declaration: duplicates share one value,
+  // so an unmarked duplicate would otherwise show what the secret field hides.
   const envVars: EnvVarInfo[] = (selectedOption?.envVars ?? []).map((v) => ({
     name: v.name,
     description: v.description,
     required: v.required,
-    value: draft.envOverrides[v.name] ?? v.default ?? "",
-    ...(v.isSecret &&
-    documentEnv[v.name] === undefined &&
+    value: ownValue(draft.envOverrides, v.name) ?? v.default ?? "",
+    ...(secrets.has(v.name) &&
+    secrets.get(v.name) === undefined &&
     !isRuntimeControlEnvVar(v.name)
       ? { isSecret: true }
       : {}),
