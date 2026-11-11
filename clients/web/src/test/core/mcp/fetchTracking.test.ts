@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   CHALLENGE_BODY_MAX_BYTES,
   CHALLENGE_BODY_READ_MS,
+  TRACKED_BODY_MAX_BYTES,
   TRUNCATED_BODY_SUFFIX,
   WITHHELD_TRUNCATED_JSON_BODY,
   createFetchTracker,
@@ -837,6 +838,148 @@ describe("createFetchTracker — challenge body cancel rejection (#2297)", () =>
     expect(tracked[0]?.responseBody?.endsWith(TRUNCATED_BODY_SUFFIX)).toBe(
       true,
     );
+  });
+});
+
+describe("createFetchTracker — recorded body cap", () => {
+  // An endless body: every pull hands back one 64 KiB chunk of `x`.
+  function endlessStream(counter: { pulls: number }) {
+    const chunk = new Uint8Array(64 * 1024).fill(120);
+    return new ReadableStream<Uint8Array>({
+      pull(controller) {
+        counter.pulls += 1;
+        controller.enqueue(chunk);
+      },
+    });
+  }
+
+  function track(response: Response) {
+    const tracked: FetchRequestEntryBase[] = [];
+    const bodies: string[] = [];
+    const fetcher = createFetchTracker((async () => response) as typeof fetch, {
+      trackRequest: (entry) => tracked.push(entry),
+      updateResponseBody: (_id, body) => bodies.push(body),
+    });
+    return { fetcher, tracked, bodies };
+  }
+
+  async function settle(bodies: string[]) {
+    for (let i = 0; i < 200 && bodies.length === 0; i++) await flush();
+  }
+
+  it("records a bounded prefix of an endless POST event stream, marked truncated", async () => {
+    const counter = { pulls: 0 };
+    const { fetcher, tracked, bodies } = track(
+      new Response(endlessStream(counter), {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(tracked[0]?.responseBody).toBeUndefined();
+    expect(bodies).toHaveLength(1);
+    const recorded = bodies[0]!;
+    expect(recorded.endsWith(TRUNCATED_BODY_SUFFIX)).toBe(true);
+    expect(recorded.length - TRUNCATED_BODY_SUFFIX.length).toBe(
+      TRACKED_BODY_MAX_BYTES,
+    );
+
+    // Past the cap only the clone is cancelled: with nobody reading the
+    // original, the source is no longer pulled, so nothing keeps buffering.
+    const pullsAtCap = counter.pulls;
+    for (let i = 0; i < 10; i++) await flush();
+    expect(counter.pulls - pullsAtCap).toBeLessThanOrEqual(1);
+
+    // …and the caller's stream still flows past the cap.
+    const reader = res.body!.getReader();
+    let read = 0;
+    while (read < TRACKED_BODY_MAX_BYTES * 2) {
+      const next = await reader.read();
+      expect(next.done).toBe(false);
+      read += next.value!.byteLength;
+    }
+    await reader.cancel();
+  });
+
+  it("records a body that ends at the cap intact, without the truncation mark", async () => {
+    const body = "x".repeat(TRACKED_BODY_MAX_BYTES);
+    const { fetcher, bodies } = track(
+      new Response(body, { headers: { "content-type": "text/event-stream" } }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual([body]);
+    expect(await res.text()).toBe(body);
+  });
+
+  it("withholds an over-cap JSON body rather than recording an unredacted prefix", async () => {
+    const body = `{"access_token":"live","pad":"${"x".repeat(TRACKED_BODY_MAX_BYTES)}"}`;
+    const { fetcher, bodies } = track(
+      new Response(body, { headers: { "content-type": "application/json" } }),
+    );
+
+    const res = await fetcher("https://mcp.example/token", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual([WITHHELD_TRUNCATED_JSON_BODY]);
+    expect(await res.text()).toBe(body);
+  });
+
+  it("skips an empty chunk rather than counting it", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(0));
+        controller.enqueue(new TextEncoder().encode("ok"));
+        controller.close();
+      },
+    });
+    const { fetcher, bodies } = track(new Response(stream));
+
+    await fetcher("https://mcp.example/mcp", { method: "POST" });
+    await settle(bodies);
+
+    expect(bodies).toEqual(["ok"]);
+  });
+
+  it("records nothing when the body errors mid-read", async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("partial"));
+        controller.error(new Error("reset"));
+      },
+    });
+    const { fetcher, tracked, bodies } = track(
+      new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      }),
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    for (let i = 0; i < 10; i++) await flush();
+
+    expect(tracked).toHaveLength(1);
+    expect(bodies).toHaveLength(0);
+    await res.body?.cancel().catch(() => undefined);
+  });
+
+  it("survives an updateResponseBody listener that throws", async () => {
+    const updateResponseBody = vi.fn(() => {
+      throw new Error("sink closed");
+    });
+    const fetcher = createFetchTracker(
+      (async () => new Response("ok")) as typeof fetch,
+      { updateResponseBody },
+    );
+
+    const res = await fetcher("https://mcp.example/mcp", { method: "POST" });
+    for (let i = 0; i < 10; i++) await flush();
+
+    expect(updateResponseBody).toHaveBeenCalledWith(expect.any(String), "ok");
+    expect(await res.text()).toBe("ok");
   });
 });
 
