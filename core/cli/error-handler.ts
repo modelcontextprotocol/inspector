@@ -4,6 +4,12 @@ import { isUnauthorizedError } from "../auth/index.js";
 import { SecretStoreUnavailableError } from "../auth/node/secret-store.js";
 import { OAuthStateFileUnrecognizedError } from "../auth/node/oauth-persist-file.js";
 import { HTTP_TOO_MANY_REQUESTS } from "../mcp/rateLimit.js";
+import { findFetchTargetError } from "../auth/fetchRefusal.js";
+import {
+  OAuthCallbackError,
+  OAuthCallbackTimeoutError,
+} from "../auth/node/runner-interactive-oauth.js";
+import { OAuthError } from "@modelcontextprotocol/client";
 
 import {
   CliExitCodeError,
@@ -42,6 +48,41 @@ function rateLimitFieldsOf(error: unknown): RateLimitFields {
     ...(typeof retryAfterMs === "number" &&
       Number.isFinite(retryAfterMs) && { retryAfterMs }),
   };
+}
+
+/** The envelope fields that only an OAuth protocol failure carries. */
+type OAuthErrorFields = Pick<
+  ErrorEnvelope,
+  "oauthError" | "oauthErrorDescription"
+>;
+
+/**
+ * The authorization server's own `error` / `error_description`, when `error`
+ * is an OAuth protocol failure (#2842): a `?error=` redirect the loopback
+ * listener reported, or the SDK's `OAuthError` from the token endpoint. Fields
+ * the server did not send are omitted, never emitted empty.
+ */
+function oauthProtocolFieldsOf(error: unknown): OAuthErrorFields | undefined {
+  if (error instanceof OAuthCallbackError) {
+    return {
+      ...(error.oauthError !== undefined && { oauthError: error.oauthError }),
+      ...(error.oauthErrorDescription !== undefined && {
+        oauthErrorDescription: error.oauthErrorDescription,
+      }),
+    };
+  }
+  if (OAuthError.isInstance(error)) {
+    // `OAuthError.fromResponse` uses `error_description ?? error` as the
+    // message, so a message equal to the code means no description was sent.
+    return {
+      ...(error.code !== "" && { oauthError: error.code }),
+      ...(error.message !== "" &&
+        error.message !== error.code && {
+          oauthErrorDescription: error.message,
+        }),
+    };
+  }
+  return undefined;
 }
 
 /** Depth cap for {@link causeOf} — bounds a pathological/self-referential
@@ -111,6 +152,13 @@ function redactEnvelope(envelope: ErrorEnvelope): ErrorEnvelope {
     ...(envelope.retryAfter !== undefined && {
       retryAfter: redactUrlsInText(envelope.retryAfter),
     }),
+    // Authorization-server text, like `message` (#2842).
+    ...(envelope.oauthError !== undefined && {
+      oauthError: redactUrlsInText(envelope.oauthError),
+    }),
+    ...(envelope.oauthErrorDescription !== undefined && {
+      oauthErrorDescription: redactUrlsInText(envelope.oauthErrorDescription),
+    }),
   };
 }
 
@@ -168,6 +216,13 @@ function classifyUnredacted(
         ...(error.envelope?.retryAfterMs !== undefined && {
           retryAfterMs: error.envelope.retryAfterMs,
         }),
+        // Likewise an OAuth protocol failure's server fields (#2842).
+        ...(error.envelope?.oauthError !== undefined && {
+          oauthError: error.envelope.oauthError,
+        }),
+        ...(error.envelope?.oauthErrorDescription !== undefined && {
+          oauthErrorDescription: error.envelope.oauthErrorDescription,
+        }),
       },
     };
   }
@@ -200,6 +255,44 @@ function classifyUnredacted(
         code: "oauth_state_unrecognized",
         message,
         ...(cause !== undefined && { cause }),
+        ...(url !== undefined && { url }),
+      },
+    };
+  }
+
+  // The authorization server answered with an OAuth error — a declined
+  // consent redirect (`access_denied`), a token-endpoint `invalid_grant` — or
+  // the token exchange after a matching callback failed (#2842). Exit 3, like
+  // `auth_required`: authorization is what failed, and re-running it is what
+  // can fix it. Its own code, with the server's fields lifted out of
+  // `message`, because "the server said no" is not "you need to log in".
+  // Checked before the 401 test so a typed protocol error is never reduced to
+  // a bare `auth_required`.
+  const oauthFields = oauthProtocolFieldsOf(error);
+  if (oauthFields !== undefined) {
+    return {
+      exitCode: EXIT_CODES.AUTH_REQUIRED,
+      envelope: {
+        code: "oauth_error",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(status !== undefined && { status }),
+        ...(url !== undefined && { url }),
+        ...oauthFields,
+      },
+    };
+  }
+
+  // Nobody finished the authorization in the browser before the loopback
+  // listener's deadline (#2842). Exit 3 — the run is still unauthorized — but
+  // a code of its own, since the remedy is "complete it in time" (or use
+  // --stored-auth-only), not anything about the server.
+  if (error instanceof OAuthCallbackTimeoutError) {
+    return {
+      exitCode: EXIT_CODES.AUTH_REQUIRED,
+      envelope: {
+        code: "oauth_timeout",
+        message,
         ...(url !== undefined && { url }),
       },
     };
@@ -246,6 +339,25 @@ function classifyUnredacted(
     };
   }
 
+  // The OAuth destination guard refused a URL (#2842). Checked before the
+  // unreachable pattern because undici reports the refusal as
+  // `TypeError("fetch failed")` with the guard's error as its cause, which
+  // that pattern would otherwise claim — telling the caller to retry a
+  // refusal every retry repeats. See EXIT_CODES.FETCH_REFUSED.
+  const refused = findFetchTargetError(error);
+  if (refused !== undefined) {
+    const refusedUrl = url ?? refused.url;
+    return {
+      exitCode: EXIT_CODES.FETCH_REFUSED,
+      envelope: {
+        code: "fetch_refused",
+        message,
+        ...(cause !== undefined && { cause }),
+        ...(refusedUrl !== undefined && { url: refusedUrl }),
+      },
+    };
+  }
+
   // Network-layer failure → UNREACHABLE so the caller can retry via a proxy.
   if (UNREACHABLE_PATTERN.test(message + " " + (cause ?? ""))) {
     return {
@@ -286,6 +398,8 @@ function codeForExit(exitCode: number): string {
       return "schema_unportable";
     case EXIT_CODES.RATE_LIMITED:
       return "rate_limited";
+    case EXIT_CODES.FETCH_REFUSED:
+      return "fetch_refused";
     default:
       return "error";
   }

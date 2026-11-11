@@ -1290,6 +1290,12 @@ function relayedEnvelopeFields(
     ...(envelope?.retryAfterMs !== undefined && {
       retryAfterMs: envelope.retryAfterMs,
     }),
+    ...(envelope?.oauthError !== undefined && {
+      oauthError: envelope.oauthError,
+    }),
+    ...(envelope?.oauthErrorDescription !== undefined && {
+      oauthErrorDescription: envelope.oauthErrorDescription,
+    }),
   };
 }
 

@@ -212,10 +212,13 @@ one-line `ErrorEnvelope` to **stderr**:
 | `0` | Success |
 | `1` | Usage / unexpected error (the catch-all) |
 | `2` | No MCP App found on the tool (`--app-info` probe) |
-| `3` | Server requires authentication (401/403, `WWW-Authenticate`, OAuth) |
+| `3` | Authentication failed or is required (`auth_required`, `oauth_error`, `oauth_timeout`, `step_up_declined`, `insufficient_scope`) |
 | `4` | Server unreachable (DNS, connection refused, timeout, `fetch failed`) |
 | `5` | Tool error (`isError:true`, or the tool was not found) |
 | `6` | `--strict` found an error-severity schema portability problem |
+| `7`–`10` | `--verify` and `--load` verdicts — see the CLI README |
+| `11` | The server rate limited the request (HTTP 429) |
+| `12` | The OAuth destination guard refused a URL (`fetch_refused`) |
 
 [`clients/cli/README.md`](../clients/cli/README.md#exit-codes--error-envelopes)
 owns this table; treat it as the source of truth if the two ever disagree.
