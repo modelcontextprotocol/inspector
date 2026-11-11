@@ -12,6 +12,10 @@ import {
   STEP_UP_PIPE_TIMEOUT_MS,
 } from "@inspector/core/cli/cliOAuth.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
+import {
+  EXIT_CODES,
+  classifyError,
+} from "@inspector/core/cli/error-handler.js";
 import { createInterface } from "node:readline/promises";
 import {
   makeFakeCliOAuthClient,
@@ -201,6 +205,64 @@ describe("cliOAuth", () => {
         { authChallenge: challenge },
       ),
     ).rejects.toThrow(/required scopes were not granted/);
+  });
+
+  it("runCliInteractiveOAuth reports insufficient scope as exit 3 / insufficient_scope (#2842)", async () => {
+    const challenge = {
+      reason: "insufficient_scope" as const,
+      requiredScopes: ["weather:read"],
+    };
+    vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth").mockResolvedValue({
+      kind: "insufficient_scope",
+      challenge,
+    });
+    const client = {
+      authenticate: vi.fn(),
+      beginInteractiveAuthorization: vi.fn(),
+      completeOAuthFlow: vi.fn(),
+      checkAuthChallengeSatisfied: vi.fn(),
+    };
+
+    const failure = await runCliInteractiveOAuth(
+      client,
+      new MutableRedirectUrlProvider(),
+      { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
+      { authChallenge: challenge },
+    ).catch((e: unknown) => e);
+    const { exitCode, envelope } = classifyError(failure);
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope.code).toBe("insufficient_scope");
+  });
+
+  it("handleCliAuthRecoveryRequired reports a declined step-up as exit 3 / step_up_declined (#2842)", async () => {
+    vi.spyOn(runnerInteractive, "runRunnerInteractiveOAuth").mockResolvedValue({
+      kind: "success",
+    });
+    const client = {
+      authenticate: vi.fn(),
+      beginInteractiveAuthorization: vi.fn(),
+      completeOAuthFlow: vi.fn(),
+      checkAuthChallengeSatisfied: vi.fn(),
+    };
+    const error = new AuthRecoveryRequiredError(
+      new URL("https://as.example/authorize"),
+      { reason: "insufficient_scope", requiredScopes: ["weather:read"] },
+    );
+
+    const failure = await handleCliAuthRecoveryRequired(
+      client,
+      error,
+      new MutableRedirectUrlProvider(),
+      { hostname: "127.0.0.1", port: 6276, pathname: "/oauth/callback" },
+      makeFakeServerSettings(),
+      { confirmStepUp: async () => false, isTTY: true },
+    ).catch((e: unknown) => e);
+    const { exitCode, envelope } = classifyError(failure);
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope).toEqual({
+      code: "step_up_declined",
+      message: "Step-up authorization declined.",
+    });
   });
 
   it("handleCliAuthRecoveryRequired declines standard step-up when user says no", async () => {

@@ -228,7 +228,14 @@ export async function runCliInteractiveOAuth(
   );
 
   if (result.kind === "insufficient_scope") {
-    throw new Error(stepUpInsufficientScopeMessage(result.challenge));
+    // Exit 3, not the catch-all's 1 (#2842): the authorization completed but
+    // did not grant the scopes the server demanded, so it is an auth failure
+    // and the code says which one.
+    throw new CliExitCodeError(
+      EXIT_CODES.AUTH_REQUIRED,
+      stepUpInsufficientScopeMessage(result.challenge),
+      { code: "insufficient_scope" },
+    );
   }
   if (result.kind === "success" && !options?.quiet) {
     process.stderr.write("Authorization complete.\n");
@@ -256,7 +263,14 @@ export async function handleCliAuthRecoveryRequired(
       confirmStepUp,
     );
     if (!proceed) {
-      throw new Error("Step-up authorization declined.");
+      // Exit 3 (#2842): the run stays unauthorized for the scopes it needs.
+      // `step_up_declined` rather than `auth_required` so a script can tell
+      // an explicit "N" from a prompt that timed out (`auth_required`).
+      throw new CliExitCodeError(
+        EXIT_CODES.AUTH_REQUIRED,
+        "Step-up authorization declined.",
+        { code: "step_up_declined" },
+      );
     }
   } else if (await client.checkAuthChallengeSatisfied(error.authChallenge)) {
     return;

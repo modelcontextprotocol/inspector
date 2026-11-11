@@ -1065,7 +1065,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
-**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines. Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
+**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines (exit `3`, `step_up_declined`). Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
 
 **Shared OAuth storage:** the CLI **reuses** tokens stored by other Inspector clients — indexed by the shared `~/.mcp-inspector/storage/oauth.json`, with the tokens themselves held in the secret store. That is passive storage sharing, not launching another app.
 
@@ -1248,7 +1248,7 @@ prose from stderr:
 | `0`  | Success.                                                                      |
 | `1`  | Usage / unexpected error (the catch-all).                                     |
 | `2`  | No MCP App found on the tool (`--app-info` probe).                            |
-| `3`  | Server requires authentication (401/403 or a typed SDK auth error).           |
+| `3`  | Authentication failed or is required: a 401/403 or typed SDK auth error (`auth_required`), an OAuth protocol error from the authorization server (`oauth_error` — a declined consent, a token-endpoint `invalid_grant`), no OAuth callback before the deadline (`oauth_timeout`), a step-up answered **N** (`step_up_declined`), or a re-authorization that still lacks the required scopes (`insufficient_scope`). |
 | `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |
@@ -1257,6 +1257,7 @@ prose from stderr:
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
 | `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`, `load_regression` for `--load-max-regression`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
+| `12` | The OAuth destination guard refused a URL (`fetch_refused` — a link-local or cloud-metadata address, a non-http(s) scheme, or a redirect it will not follow). A policy refusal rather than a network failure, so unlike `4` a retry repeats it. |
 | `130` | A `--load` run was interrupted by Ctrl+C or SIGTERM (`interrupted`). The partial summary is printed on stdout first. See [Load testing a tool](#load-testing-a-tool---load). |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
@@ -1298,6 +1299,25 @@ and re-run without parsing `message`:
 `retryAfterMs` is that header as a delay, present only when it parsed. A server
 that sent no header gets neither field. The connection CLI (`mcpdo`) writes the
 same envelope and exit code.
+
+An `oauth_error` envelope lifts the authorization server's own RFC 6749 fields
+out of `message`, so a script can branch on the server's verdict:
+
+```json
+{
+  "error": {
+    "code": "oauth_error",
+    "message": "OAuth authorization failed. The authorization server said: The user denied the request (access_denied)",
+    "oauthError": "access_denied",
+    "oauthErrorDescription": "The user denied the request"
+  }
+}
+```
+
+`oauthError` is the server's `error` and `oauthErrorDescription` its
+`error_description`; each is present only when the server sent it. They are
+prefixed so they do not read as the envelope's own `error` key. `mcpdo` writes
+the same fields.
 
 ## Why use the CLI?
 
