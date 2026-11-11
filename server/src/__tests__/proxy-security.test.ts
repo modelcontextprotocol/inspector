@@ -113,6 +113,33 @@ describe("isBlockedProxyAddress", () => {
     });
   });
 
+  describe("cloud metadata addresses outside 169.254.0.0/16", () => {
+    it.each([
+      "100.100.100.200", // Alibaba Cloud ECS
+      "192.0.0.192", // Oracle Cloud Classic
+      "::ffff:100.100.100.200",
+      "::ffff:6464:64c8",
+      "::FFFF:6464:64C8",
+      "::ffff:192.0.0.192",
+      "::ffff:c000:c0",
+    ])("blocks %s", (ip) => {
+      expect(isBlockedProxyAddress(ip)).toBe(true);
+    });
+
+    // CGNAT / Tailscale space stays reachable; only the exact metadata
+    // addresses inside it are blocked.
+    it.each([
+      "100.100.100.100", // Tailscale MagicDNS
+      "100.100.100.201",
+      "100.64.0.1",
+      "::ffff:100.100.100.100",
+      "::ffff:6464:6464",
+      "192.0.0.193",
+    ])("allows %s", (ip) => {
+      expect(isBlockedProxyAddress(ip)).toBe(false);
+    });
+  });
+
   describe("non-IP strings", () => {
     it("allows empty string (not an IP)", () => {
       expect(isBlockedProxyAddress("")).toBe(false);
@@ -177,6 +204,39 @@ describe("assertSafeProxyTarget", () => {
       assertSafeProxyTarget(new URL("http://169.254.169.254/")),
     ).rejects.toThrow(ProxyTargetError);
     expect(mockLookup).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "http://100.100.100.200/latest/meta-data/",
+    "http://[::ffff:100.100.100.200]/",
+    "http://[::ffff:6464:64c8]/",
+    "http://1684301000/",
+    "http://192.0.0.192/",
+  ])(
+    "throws ProxyTargetError for the out-of-range metadata literal %s",
+    async (url) => {
+      await expect(assertSafeProxyTarget(new URL(url))).rejects.toThrow(
+        ProxyTargetError,
+      );
+      expect(mockLookup).not.toHaveBeenCalled();
+    },
+  );
+
+  it("throws ProxyTargetError when host resolves to an out-of-range metadata IP", async () => {
+    mockLookup.mockResolvedValueOnce([
+      { address: "100.100.100.200", family: 4 },
+    ]);
+
+    await expect(
+      assertSafeProxyTarget(new URL("http://ecs-metadata.example/")),
+    ).rejects.toThrow("100.100.100.200");
+  });
+
+  it("allows a Tailscale literal next to the blocked metadata address", async () => {
+    const addrs = await assertSafeProxyTarget(
+      new URL("http://100.100.100.100/"),
+    );
+    expect(addrs).toEqual(["100.100.100.100"]);
   });
 
   it("skips DNS lookup for literal IPv6 hosts", async () => {
