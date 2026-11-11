@@ -29,7 +29,13 @@ import {
   ElicitationParkRegistry,
   ParkingElicitationChannel,
 } from "./elicitation-park.js";
-import { assertDaemonToken, getDaemonTokenFromEnv } from "./auth.js";
+import {
+  assertDaemonToken,
+  computeDaemonProof,
+  generateDaemonToken,
+  getDaemonTokenFromEnv,
+  isDaemonNonce,
+} from "./auth.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import type { InspectorClientEventMap } from "@inspector/core/mcp/inspectorClientEventTarget.js";
@@ -48,6 +54,8 @@ import type {
   DaemonResponse,
   DaemonStatus,
   ElicitationPendingInfo,
+  HelloParams,
+  HelloResult,
   ElicitationRequestFrame,
   ElicitationRespondParams,
   ElicitationRespondResult,
@@ -138,7 +146,10 @@ export class DaemonServer {
   readonly socketPath: string;
   readonly lockPath: string;
   readonly dir: string;
-  private readonly requiredToken: string | undefined;
+  /** Not readonly: {@link start} generates one when none was supplied, so a
+   * daemon listening on a socket is never tokenless — a client verifies the
+   * daemon with it (see the `hello` op) and refuses a peer that has none. */
+  private requiredToken: string | undefined;
   private server: net.Server | null = null;
   private readonly onShutdown: (() => void) | null;
   private stopping = false;
@@ -189,23 +200,22 @@ export class DaemonServer {
       // Publish the IPC token (0600, inside the 0700 daemon dir) before the
       // socket exists, so a client can never connect without being able to
       // read the token it needs. See getDaemonTokenPath.
-      if (this.requiredToken !== undefined) {
-        const tokenPath = getDaemonTokenPath(this.dir);
-        // Exclusive create after removing any existing entry: writeFileSync
-        // follows symlinks, and ensureDaemonDir's tightening of the parent
-        // does not remove children planted while the dir was writable — a
-        // planted symlink would leak the token into an attacker-readable
-        // file. rmSync removes a symlink itself, never its target.
-        fs.rmSync(tokenPath, { force: true });
-        fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
-          mode: 0o600,
-          flag: "wx",
-        });
-        try {
-          fs.chmodSync(tokenPath, 0o600);
-        } catch {
-          // Unsupported on some platforms.
-        }
+      this.requiredToken ??= generateDaemonToken();
+      const tokenPath = getDaemonTokenPath(this.dir);
+      // Exclusive create after removing any existing entry: writeFileSync
+      // follows symlinks, and ensureDaemonDir's tightening of the parent
+      // does not remove children planted while the dir was writable — a
+      // planted symlink would leak the token into an attacker-readable
+      // file. rmSync removes a symlink itself, never its target.
+      fs.rmSync(tokenPath, { force: true });
+      fs.writeFileSync(tokenPath, this.requiredToken + "\n", {
+        mode: 0o600,
+        flag: "wx",
+      });
+      try {
+        fs.chmodSync(tokenPath, 0o600);
+      } catch {
+        // Unsupported on some platforms.
       }
 
       this.server = net.createServer((socket) => {
@@ -339,6 +349,9 @@ export class DaemonServer {
     signal?: AbortSignal,
   ): Promise<HandleOutcome> {
     try {
+      // `hello` is the one op answered without the token: it is how a client
+      // that has not yet sent its token checks this daemon holds it.
+      if (request.op === "hello") return this.hello(request);
       assertDaemonToken(this.requiredToken, request.token);
       this.activeOps++;
       try {
@@ -379,6 +392,35 @@ export class DaemonServer {
         },
       };
     }
+  }
+
+  /**
+   * Prove possession of the IPC token for one connection: HMAC over the
+   * client's fresh nonce (see `computeDaemonProof`). Reveals nothing about the
+   * token, needs no auth, and is answered while stopping too, so a client can
+   * always verify the daemon before it sends anything sensitive.
+   */
+  private hello(request: DaemonRequest): HandleOutcome {
+    const nonce = (request.params as Partial<HelloParams> | undefined)?.nonce;
+    if (!isDaemonNonce(nonce)) {
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "Invalid daemon hello: expected a 64-character hex nonce.",
+        { code: "invalid_request" },
+      );
+    }
+    if (this.requiredToken === undefined) {
+      // Only an in-process daemon that was never started (tests) lacks one.
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        "This connection daemon has no IPC token to prove.",
+        { code: "daemon_auth_failed" },
+      );
+    }
+    const result: HelloResult = {
+      proof: computeDaemonProof(this.requiredToken, nonce),
+    };
+    return { response: { id: request.id, ok: true, result } };
   }
 
   private async dispatch(

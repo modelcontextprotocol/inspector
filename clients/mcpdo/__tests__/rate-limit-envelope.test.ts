@@ -19,6 +19,7 @@ import {
 } from "../../cli/__tests__/helpers/throttling-server.js";
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
 import { unixDaemonOnly } from "./helpers/platform.js";
+import { onRequest, publishFakeDaemonToken } from "./helpers/fake-daemon.js";
 
 /**
  * mcpdo's JSON error envelope for a throttled request (#2772). The envelope is
@@ -133,7 +134,7 @@ describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
     const sock = path.join(freshDir(), "stream.sock");
     const refuser = net.createServer((socket) => {
       socket.on("error", () => {});
-      socket.once("data", (buf) => {
+      onRequest(socket, (buf) => {
         const req = JSON.parse(String(buf).trim()) as { id: string };
         socket.write(
           JSON.stringify({
@@ -153,6 +154,7 @@ describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
       });
     });
     await new Promise<void>((resolve) => refuser.listen(sock, resolve));
+    publishFakeDaemonToken(sock);
     try {
       const error = await streamDaemon(
         {},
