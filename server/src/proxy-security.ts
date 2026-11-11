@@ -29,20 +29,44 @@ import { lookup as dnsLookup } from "node:dns/promises";
 // ---------------------------------------------------------------------------
 
 /**
+ * Cloud instance-metadata services reachable at a fixed IPv4 address outside
+ * 169.254.0.0/16. Matched exactly, against the dotted-quad form `isIP`
+ * accepts (which has no leading zeros, so each address has one spelling).
+ *
+ *  - 100.100.100.200  (Alibaba Cloud ECS metadata service)
+ *  - 192.0.0.192  (Oracle Cloud Infrastructure Classic metadata service)
+ */
+const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
+  "100.100.100.200",
+  "192.0.0.192",
+]);
+
+/**
  * Returns true if `ip` is a link-local or cloud-metadata address that must
  * never be reachable through the proxy.
  *
- * Blocked ranges:
- *  - 169.254.0.0/16  (IPv4 link-local; includes 169.254.169.254 IMDS)
- *  - ::ffff:169.254.x.x  (IPv4-mapped IPv6 variants of the above)
+ * Blocked:
+ *  - 169.254.0.0/16  (IPv4 link-local; includes the 169.254.169.254 metadata
+ *    service of AWS, GCP, Azure, Oracle Cloud and most others)
+ *  - METADATA_IPV4_ADDRESSES  (metadata services at a fixed address outside
+ *    link-local, which the range above misses)
+ *  - ::ffff: IPv4-mapped IPv6 variants of every IPv4 address above, in both
+ *    the dotted and the hex serialization
  *  - fe80::/10  (IPv6 link-local)
  *  - fd00:ec2::254  (AWS IPv6 instance-metadata)
+ *
+ * The out-of-range metadata addresses are blocked exactly, never by their
+ * enclosing range: 100.100.100.200 sits in 100.64.0.0/10, the CGNAT block
+ * Tailscale also uses (its MagicDNS resolver is 100.100.100.100), and a
+ * tailnet MCP server is as legitimate a target as a LAN one.
  */
 export function isBlockedProxyAddress(ip: string): boolean {
   const kind = isIP(ip);
   if (kind === 4) {
     const parts = ip.split(".").map(Number);
-    return parts[0] === 169 && parts[1] === 254;
+    return (
+      (parts[0] === 169 && parts[1] === 254) || METADATA_IPV4_ADDRESSES.has(ip)
+    );
   }
   if (kind === 6) {
     const addr = ip.toLowerCase();
