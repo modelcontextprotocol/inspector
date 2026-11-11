@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   parseServerJson,
   buildServerConfigForSelection,
+  isRuntimeControlEnvVar,
   selectServerJsonOption,
   type ParsedServerJson,
 } from "@inspector/core/mcp/import/index.js";
@@ -11,12 +12,13 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import type {
   EnvVarInfo,
+  LaunchEnvEntry,
   LaunchPreview,
   PackageInfo,
   ValidationResult,
 } from "../components/groups/ImportServerJsonPanel/ImportServerJsonPanel";
 import { errorMessage } from "../utils/errorFormat";
-import { formatCommandLine } from "../utils/commandLine";
+import { formatCommandLine, quoteShellArg } from "../utils/commandLine";
 
 /** Debounce (ms) before a textarea edit re-triggers parse/validation. */
 export const VALIDATE_DEBOUNCE_MS = 300;
@@ -45,20 +47,99 @@ type ParseState =
   | { ok: null };
 
 /**
- * Describe the config an import will save: the shell-quoted command line and
- * the env var names for a stdio server, or the URL for a remote. Built from the
- * same `buildServerConfigForSelection` output `submit` persists, so what the
- * panel shows cannot drift from what gets saved.
+ * Read `name` off a plain env map as an own property only. Declared names come
+ * from the pasted document, so one named `constructor` or `toString` would
+ * otherwise read an inherited function rather than `undefined`.
  */
-export function describeLaunch(config: MCPServerConfig): LaunchPreview {
+function ownValue(
+  map: Record<string, string>,
+  name: string,
+): string | undefined {
+  return Object.hasOwn(map, name) ? map[name] : undefined;
+}
+
+/** Shown in place of a secret env var's value in the launch preview. */
+export const SECRET_MASK = "********";
+
+/**
+ * The variables a server.json declares `isSecret`, each mapped to the value
+ * the document itself supplies for it (its `default`/`value`), or `undefined`
+ * when it supplies none.
+ */
+export type DeclaredSecrets = ReadonlyMap<string, string | undefined>;
+
+/**
+ * Whether a variable's value is hidden in the preview. Only a value the
+ * **user** entered is hidden: one the document supplies is not a secret — it
+ * is in the pasted text — and hiding it would let a document mark any variable
+ * `isSecret` to keep its own value out of the preview, which is how a variable
+ * the runtime-control classifier does not know about would slip through. A
+ * runtime-control variable is never hidden at all, since its value decides
+ * what the command runs.
+ */
+function isMaskedSecret(
+  name: string,
+  value: string,
+  secrets: DeclaredSecrets,
+): boolean {
+  return (
+    secrets.has(name) &&
+    value !== secrets.get(name) &&
+    !isRuntimeControlEnvVar(name)
+  );
+}
+
+function describeEnvEntry(
+  name: string,
+  value: string,
+  secrets: DeclaredSecrets,
+): LaunchEnvEntry {
+  const masked = isMaskedSecret(name, value, secrets);
+  return {
+    name,
+    display: `${name}=${masked ? SECRET_MASK : quoteShellArg(value)}`,
+    masked,
+    runtimeControl: isRuntimeControlEnvVar(name),
+  };
+}
+
+/**
+ * Describe the config an import will save: the shell-quoted command line and
+ * every env var it sets (`NAME=value`, user-entered secrets masked) for a
+ * stdio server, or the URL for a remote. Built from the same
+ * `buildServerConfigForSelection` output `submit` persists, so what the panel
+ * shows cannot drift from what gets saved. `secrets` are the variables the
+ * server.json declares `isSecret`, with the values it supplies for them.
+ */
+export function describeLaunch(
+  config: MCPServerConfig,
+  secrets: DeclaredSecrets = new Map(),
+): LaunchPreview {
   if (config.type === "sse" || config.type === "streamable-http") {
-    return { kind: "url", value: config.url, envNames: [] };
+    return { kind: "url", value: config.url, env: [] };
   }
   return {
     kind: "command",
     value: formatCommandLine(config.command, config.args),
-    envNames: Object.keys(config.env ?? {}),
+    env: Object.entries(config.env ?? {}).map(([name, value]) =>
+      describeEnvEntry(name, value, secrets),
+    ),
   };
+}
+
+/**
+ * Identify the runtime-control variables a config sets, and their values, as a
+ * comparable string — empty when it sets none. The user's confirmation is
+ * recorded against this, so editing any flagged value (or switching to a
+ * package that sets different ones) withdraws it rather than carrying a
+ * confirmation over to values the user never confirmed.
+ */
+export function runtimeControlSignature(config: MCPServerConfig): string {
+  if (config.type === "sse" || config.type === "streamable-http") return "";
+  const flagged = Object.entries(config.env ?? {}).filter(([name]) =>
+    isRuntimeControlEnvVar(name),
+  );
+  return flagged.length > 0 ? JSON.stringify(flagged) : "";
 }
 
 function parseDraft(rawText: string): ParseState {
@@ -90,6 +171,11 @@ export interface ServerJsonImportViewModel {
   envVars: EnvVarInfo[];
   /** What importing the selected option will save and run. */
   launchPreview?: LaunchPreview;
+  /**
+   * Whether the user has confirmed the runtime-control env vars the current
+   * launch sets. Add stays disabled until they have, when there are any.
+   */
+  runtimeControlAcknowledged: boolean;
   canAdd: boolean;
   /** Derived id from the server.json `name` (before any override). */
   defaultServerName: string;
@@ -99,6 +185,7 @@ export interface ServerJsonImportViewModel {
   selectPackage: (index: number) => void;
   setEnvVar: (name: string, value: string) => void;
   setServerName: (name: string) => void;
+  setRuntimeControlAcknowledged: (acknowledged: boolean) => void;
   pickFile: (file: File | null) => Promise<void>;
   setFileContentsOpen: (open: boolean) => void;
   /** Build + persist the selected server. Resolves to true when it was added. */
@@ -128,6 +215,11 @@ export function useServerJsonImport({
   // content is loaded/pasted; `highlight` flashes its hover bg before collapse.
   const [fileContentsOpen, setFileContentsOpen] = useState(true);
   const [fileContentsHighlight, setFileContentsHighlight] = useState(false);
+  // The runtime-control signature the user confirmed, or null. Stored as the
+  // signature rather than a boolean so a later edit invalidates it by itself.
+  const [acknowledgedSignature, setAcknowledgedSignature] = useState<
+    string | null
+  >(null);
 
   // Reset each time the modal transitions to open. Done during render (React's
   // "adjust state when a prop changes" pattern) so there's no extra commit.
@@ -140,6 +232,7 @@ export function useServerJsonImport({
       setDebouncedText(EMPTY_DRAFT.rawText);
       setFileContentsOpen(true);
       setFileContentsHighlight(false);
+      setAcknowledgedSignature(null);
     }
   }
 
@@ -191,13 +284,24 @@ export function useServerJsonImport({
   // edit has not been shown to the user and must not be submittable.
   const previewIsCurrent = draft.rawText === debouncedText;
 
+  const selectedConfig = selectedOption
+    ? buildServerConfigForSelection(selectedOption, draft.envOverrides)
+    : undefined;
+  const signature = selectedConfig
+    ? runtimeControlSignature(selectedConfig)
+    : "";
+  const runtimeControlAcknowledged =
+    signature !== "" && acknowledgedSignature === signature;
+
   // The Add button is enabled only when the (debounced) content validates and
-  // matches what is in the textarea.
+  // matches what is in the textarea, and any runtime-control env vars it sets
+  // have been confirmed.
   const canAdd =
     previewIsCurrent &&
     selection !== undefined &&
     selection.idIsValid &&
-    !selection.idIsDuplicate;
+    !selection.idIsDuplicate &&
+    (signature === "" || runtimeControlAcknowledged);
 
   const packages: PackageInfo[] | undefined = parsed?.options.map((o) => ({
     registryType: o.registryType,
@@ -205,17 +309,41 @@ export function useServerJsonImport({
     runtimeHint: o.runtimeHint,
   }));
 
+  // The value the document supplies for each variable is read from the
+  // option's base env, the same map the saved config is built from, never
+  // from an individual declaration: a name declared twice has one effective
+  // value, and comparing against another declaration's would let a duplicate
+  // `isSecret` entry mask the value that is actually saved.
+  const documentEnv: Record<string, string> =
+    selectedOption?.baseConfig.type === "stdio"
+      ? (selectedOption.baseConfig.env ?? {})
+      : {};
+  const secrets: DeclaredSecrets = new Map(
+    (selectedOption?.envVars ?? [])
+      .filter((v) => v.isSecret)
+      .map((v) => [v.name, ownValue(documentEnv, v.name)]),
+  );
+
+  // A secret field hides its input only when the document supplies no value
+  // for it, so anything in it was typed by the user. Keyed on the declared
+  // name rather than on the current value so the field does not swap input
+  // types (and drop focus) partway through typing — and on the *name*, as the
+  // preview is, rather than on each declaration: duplicates share one value,
+  // so an unmarked duplicate would otherwise show what the secret field hides.
   const envVars: EnvVarInfo[] = (selectedOption?.envVars ?? []).map((v) => ({
     name: v.name,
     description: v.description,
     required: v.required,
-    value: draft.envOverrides[v.name] ?? v.default ?? "",
+    value: ownValue(draft.envOverrides, v.name) ?? v.default ?? "",
+    ...(secrets.has(v.name) &&
+    secrets.get(v.name) === undefined &&
+    !isRuntimeControlEnvVar(v.name)
+      ? { isSecret: true }
+      : {}),
   }));
 
-  const launchPreview = selectedOption
-    ? describeLaunch(
-        buildServerConfigForSelection(selectedOption, draft.envOverrides),
-      )
+  const launchPreview = selectedConfig
+    ? describeLaunch(selectedConfig, secrets)
     : undefined;
 
   const validation: ValidationResult[] = useMemo(() => {
@@ -281,6 +409,11 @@ export function useServerJsonImport({
     setDraft((d) => ({ ...d, nameOverride: name }));
   }
 
+  function setRuntimeControlAcknowledged(acknowledged: boolean) {
+    setSubmitError(undefined);
+    setAcknowledgedSignature(acknowledged ? signature : null);
+  }
+
   async function pickFile(file: File | null) {
     if (!file) return;
     setSubmitError(undefined);
@@ -321,6 +454,16 @@ export function useServerJsonImport({
       sel.selectedOption,
       draft.envOverrides,
     );
+    // The confirmation must cover the values being saved, not merely some
+    // values the user once confirmed. Add is disabled otherwise; this covers a
+    // click that lands before the button re-renders.
+    const liveSignature = runtimeControlSignature(config);
+    if (liveSignature !== "" && liveSignature !== acknowledgedSignature) {
+      setSubmitError(
+        "Confirm the runtime-control environment variables before adding the server.",
+      );
+      return false;
+    }
     try {
       await onAddServer(sel.serverId, config);
       return true;
@@ -336,6 +479,7 @@ export function useServerJsonImport({
     packages,
     envVars,
     launchPreview,
+    runtimeControlAcknowledged,
     canAdd,
     defaultServerName: parsed?.serverName ?? "",
     fileContentsOpen,
@@ -344,6 +488,7 @@ export function useServerJsonImport({
     selectPackage,
     setEnvVar,
     setServerName,
+    setRuntimeControlAcknowledged,
     pickFile,
     setFileContentsOpen,
     submit,
