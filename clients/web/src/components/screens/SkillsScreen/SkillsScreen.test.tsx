@@ -579,7 +579,9 @@ describe("SkillsScreen", () => {
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findAllByText("verified")).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText("verified")).toHaveLength(2),
+    );
   });
 
   it("reports a digest mismatch loudly, with both digests", async () => {
@@ -617,7 +619,9 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     // One alert per file in the manifest — both reads failed.
-    expect(await screen.findAllByText("Could not read file")).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText("Could not read file")).toHaveLength(2),
+    );
     // Three, not two: the same rejecting read also serves the SKILL.md the
     // viewer loads on selection (#2263), so the message appears once per
     // manifest row plus once in the viewer.
@@ -634,7 +638,9 @@ describe("SkillsScreen", () => {
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
     // Three: one per manifest row, plus the viewer's own auto-loaded SKILL.md
     // read, which the same mock rejects (#2263).
-    expect(await screen.findAllByText("plain string")).toHaveLength(3);
+    await waitFor(() =>
+      expect(screen.getAllByText("plain string")).toHaveLength(3),
+    );
   });
 
   it("titles a size disagreement a size mismatch, not a digest one", async () => {
@@ -1587,7 +1593,9 @@ describe("SkillsScreen", () => {
     renderWithMantine(<ControlledSkillsScreen />);
     await user.click(screen.getByText("data-analysis"));
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findAllByText("verified")).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText("verified")).toHaveLength(2),
+    );
 
     // A verdict belongs to the skill it was computed for; carrying it across a
     // selection change would attribute one skill's result to another.
@@ -1774,7 +1782,9 @@ describe("SkillsScreen", () => {
       />,
     );
     await user.click(screen.getByRole("button", { name: /Verify all/ }));
-    expect(await screen.findAllByText("verified")).toHaveLength(2);
+    await waitFor(() =>
+      expect(screen.getAllByText("verified")).toHaveLength(2),
+    );
 
     rerender(
       <SkillsScreen
