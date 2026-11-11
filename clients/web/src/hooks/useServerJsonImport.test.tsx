@@ -83,17 +83,41 @@ describe("describeLaunch", () => {
     });
   });
 
-  it("masks a declared secret's value", () => {
+  it("masks a secret value the user entered", () => {
+    // No document-supplied value, so whatever is set was typed by the user.
     expect(
       describeLaunch(
         { command: "npx", env: { API_KEY: "sk-live" } },
-        new Set(["API_KEY"]),
+        new Map([["API_KEY", undefined]]),
       ).env,
     ).toEqual([
       {
         name: "API_KEY",
         display: `API_KEY=${SECRET_MASK}`,
         masked: true,
+        runtimeControl: false,
+      },
+    ]);
+    // A value that differs from the document's is the user's too.
+    expect(
+      describeLaunch(
+        { command: "npx", env: { API_KEY: "sk-mine" } },
+        new Map([["API_KEY", "sk-doc"]]),
+      ).env[0].masked,
+    ).toBe(true);
+  });
+
+  it("shows a secret's document-supplied value in clear", () => {
+    expect(
+      describeLaunch(
+        { command: "npx", env: { SOME_LOADER_VAR: "/tmp/evil.so" } },
+        new Map([["SOME_LOADER_VAR", "/tmp/evil.so"]]),
+      ).env,
+    ).toEqual([
+      {
+        name: "SOME_LOADER_VAR",
+        display: "SOME_LOADER_VAR=/tmp/evil.so",
+        masked: false,
         runtimeControl: false,
       },
     ]);
@@ -109,7 +133,8 @@ describe("describeLaunch", () => {
           NODE_OPTIONS: "--require ./x.js",
         },
       },
-      new Set(["NODE_OPTIONS"]),
+      // Even a user-entered value of a runtime-control var stays visible.
+      new Map([["NODE_OPTIONS", "--require ./doc.js"]]),
     );
     expect(preview.env).toEqual([
       {
@@ -483,12 +508,13 @@ describe("useServerJsonImport", () => {
               default: "--require ./x.js",
             },
             { name: "API_KEY", isSecret: true, default: "sk-live" },
+            { name: "TOKEN", isSecret: true },
           ],
         },
       ],
     });
 
-    it("shows every value, flags the runtime-control ones and masks only the ordinary secret", () => {
+    it("shows every document-supplied value and flags the runtime-control ones", () => {
       const { result } = setup();
       typeAndFlush(result, RUNTIME_CONTROL_JSON);
       expect(result.current.launchPreview?.env).toEqual([
@@ -505,20 +531,40 @@ describe("useServerJsonImport", () => {
           runtimeControl: true,
         },
         {
+          // Declared secret, but the document supplied the value: not hidden.
           name: "API_KEY",
-          display: `API_KEY=${SECRET_MASK}`,
-          masked: true,
+          display: "API_KEY=sk-live",
+          masked: false,
           runtimeControl: false,
         },
       ]);
-      // The form hides the ordinary secret but not the flagged one.
+      // The form hides only the secret the document supplies no value for.
       expect(
         result.current.envVars.map((v) => [v.name, v.isSecret ?? false]),
       ).toEqual([
         ["npm_config_registry", false],
         ["NODE_OPTIONS", false],
-        ["API_KEY", true],
+        ["API_KEY", false],
+        ["TOKEN", true],
       ]);
+    });
+
+    it("masks secret values the user enters", () => {
+      const { result } = setup();
+      typeAndFlush(result, RUNTIME_CONTROL_JSON);
+      act(() => result.current.setEnvVar("API_KEY", "sk-mine"));
+      act(() => result.current.setEnvVar("TOKEN", "t-mine"));
+      const byName = Object.fromEntries(
+        (result.current.launchPreview?.env ?? []).map((e) => [e.name, e]),
+      );
+      expect(byName.API_KEY.display).toBe(`API_KEY=${SECRET_MASK}`);
+      expect(byName.TOKEN.display).toBe(`TOKEN=${SECRET_MASK}`);
+      // Typing the document's own value back in shows it again.
+      act(() => result.current.setEnvVar("API_KEY", "sk-live"));
+      expect(
+        result.current.launchPreview?.env.find((e) => e.name === "API_KEY")
+          ?.masked,
+      ).toBe(false);
     });
 
     it("keeps Add disabled until the user confirms", () => {

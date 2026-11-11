@@ -25,7 +25,14 @@ describe("isRuntimeControlEnvVar", () => {
     "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH",
     "DOTNET_STARTUP_HOOKS",
+    "COMPlus_EnableDiagnostics",
+    "CORECLR_ENABLE_PROFILING",
+    "CORECLR_PROFILER",
+    "CORECLR_PROFILER_PATH",
+    "CORECLR_PROFILER_PATH_64",
     "NUGET_PACKAGES",
+    "OPENSSL_CONF",
+    "OPENSSL_MODULES",
     "PATH",
   ])("flags %s", (name) => {
     expect(isRuntimeControlEnvVar(name)).toBe(true);

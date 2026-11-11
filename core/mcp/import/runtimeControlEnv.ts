@@ -11,8 +11,9 @@
  * entirely: `NODE_OPTIONS=--require …` preloads a module into `npx` itself,
  * `npm_config_registry` points `npx` at another registry, `UV_INDEX_URL` /
  * `PIP_INDEX_URL` do the same for `uvx`, `DOCKER_HOST` hands `docker run` to
- * another daemon, `DOTNET_STARTUP_HOOKS` loads an assembly into `dnx`, and
- * `PATH` / `LD_PRELOAD` / `DYLD_*` swap the binary or inject a library.
+ * another daemon, `DOTNET_STARTUP_HOOKS` loads an assembly into `dnx` (and
+ * `CORECLR_PROFILER_PATH` a native library), and `PATH` / `LD_PRELOAD` /
+ * `DYLD_*` swap the binary or inject a library.
  *
  * The import panel flags these so the user sees them, and asks for an explicit
  * confirmation before saving. They are not refused outright: a legitimate
@@ -34,7 +35,14 @@ const RUNTIME_CONTROL_NAMES: ReadonlySet<string> = new Set(["PATH"]);
  * Node (`NODE_OPTIONS`, `NODE_PATH`, `NODE_EXTRA_CA_CERTS`,
  * `NODE_TLS_REJECT_UNAUTHORIZED`), npm config, uv, pip, the Python
  * interpreter (`PYTHONPATH`, `PYTHONSTARTUP`, `PYTHONHOME`), docker, the
- * Linux and macOS dynamic loaders, and the .NET host and NuGet.
+ * Linux and macOS dynamic loaders, and the .NET host and NuGet — including
+ * `COMPlus_*`, the legacy spelling of the `DOTNET_*` knobs the runtime still
+ * reads, and `CORECLR_*`, whose profiler variables load a native library into
+ * the runtime the way `LD_PRELOAD` does. `OPENSSL_*` is here because an
+ * OpenSSL config file (`OPENSSL_CONF`) can load an engine or provider shared
+ * library into any runtime that links OpenSSL — Node and Python both do. It
+ * needs a file already on disk, which makes it a weaker lever than the rest,
+ * but flagging costs only a confirmation, so it errs on the side of asking.
  */
 const RUNTIME_CONTROL_PREFIXES: readonly string[] = [
   "NODE_",
@@ -46,7 +54,10 @@ const RUNTIME_CONTROL_PREFIXES: readonly string[] = [
   "LD_",
   "DYLD_",
   "DOTNET_",
+  "COMPLUS_",
+  "CORECLR_",
   "NUGET_",
+  "OPENSSL_",
 ];
 
 /**

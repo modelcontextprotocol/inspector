@@ -50,21 +50,39 @@ type ParseState =
 export const SECRET_MASK = "********";
 
 /**
- * Whether a declared variable's value is hidden. A variable that controls the
- * runtime is never hidden, even when declared `isSecret`: its value decides
- * what the command runs, so masking it would let a document hide exactly the
- * part of the launch the preview exists to show.
+ * The variables a server.json declares `isSecret`, each mapped to the value
+ * the document itself supplies for it (its `default`/`value`), or `undefined`
+ * when it supplies none.
  */
-function isMaskedSecret(name: string, secretNames: ReadonlySet<string>) {
-  return secretNames.has(name) && !isRuntimeControlEnvVar(name);
+export type DeclaredSecrets = ReadonlyMap<string, string | undefined>;
+
+/**
+ * Whether a variable's value is hidden in the preview. Only a value the
+ * **user** entered is hidden: one the document supplies is not a secret — it
+ * is in the pasted text — and hiding it would let a document mark any variable
+ * `isSecret` to keep its own value out of the preview, which is how a variable
+ * the runtime-control classifier does not know about would slip through. A
+ * runtime-control variable is never hidden at all, since its value decides
+ * what the command runs.
+ */
+function isMaskedSecret(
+  name: string,
+  value: string,
+  secrets: DeclaredSecrets,
+): boolean {
+  return (
+    secrets.has(name) &&
+    value !== secrets.get(name) &&
+    !isRuntimeControlEnvVar(name)
+  );
 }
 
 function describeEnvEntry(
   name: string,
   value: string,
-  secretNames: ReadonlySet<string>,
+  secrets: DeclaredSecrets,
 ): LaunchEnvEntry {
-  const masked = isMaskedSecret(name, secretNames);
+  const masked = isMaskedSecret(name, value, secrets);
   return {
     name,
     display: `${name}=${masked ? SECRET_MASK : quoteShellArg(value)}`,
@@ -75,14 +93,15 @@ function describeEnvEntry(
 
 /**
  * Describe the config an import will save: the shell-quoted command line and
- * every env var it sets (`NAME=value`, secrets masked) for a stdio server, or
- * the URL for a remote. Built from the same `buildServerConfigForSelection`
- * output `submit` persists, so what the panel shows cannot drift from what gets
- * saved. `secretNames` are the variables the server.json declares `isSecret`.
+ * every env var it sets (`NAME=value`, user-entered secrets masked) for a
+ * stdio server, or the URL for a remote. Built from the same
+ * `buildServerConfigForSelection` output `submit` persists, so what the panel
+ * shows cannot drift from what gets saved. `secrets` are the variables the
+ * server.json declares `isSecret`, with the values it supplies for them.
  */
 export function describeLaunch(
   config: MCPServerConfig,
-  secretNames: ReadonlySet<string> = new Set(),
+  secrets: DeclaredSecrets = new Map(),
 ): LaunchPreview {
   if (config.type === "sse" || config.type === "streamable-http") {
     return { kind: "url", value: config.url, env: [] };
@@ -91,7 +110,7 @@ export function describeLaunch(
     kind: "command",
     value: formatCommandLine(config.command, config.args),
     env: Object.entries(config.env ?? {}).map(([name, value]) =>
-      describeEnvEntry(name, value, secretNames),
+      describeEnvEntry(name, value, secrets),
     ),
   };
 }
@@ -278,22 +297,28 @@ export function useServerJsonImport({
     runtimeHint: o.runtimeHint,
   }));
 
-  const secretNames = new Set(
+  const secrets: DeclaredSecrets = new Map(
     (selectedOption?.envVars ?? [])
       .filter((v) => v.isSecret)
-      .map((v) => v.name),
+      .map((v) => [v.name, v.default]),
   );
 
+  // A secret field hides its input only when the document supplies no value
+  // for it, so anything in it was typed by the user. Keyed on the declaration
+  // rather than on the current value so the field does not swap input types
+  // (and drop focus) partway through typing.
   const envVars: EnvVarInfo[] = (selectedOption?.envVars ?? []).map((v) => ({
     name: v.name,
     description: v.description,
     required: v.required,
     value: draft.envOverrides[v.name] ?? v.default ?? "",
-    ...(isMaskedSecret(v.name, secretNames) ? { isSecret: true } : {}),
+    ...(v.isSecret && v.default === undefined && !isRuntimeControlEnvVar(v.name)
+      ? { isSecret: true }
+      : {}),
   }));
 
   const launchPreview = selectedConfig
-    ? describeLaunch(selectedConfig, secretNames)
+    ? describeLaunch(selectedConfig, secrets)
     : undefined;
 
   const validation: ValidationResult[] = useMemo(() => {

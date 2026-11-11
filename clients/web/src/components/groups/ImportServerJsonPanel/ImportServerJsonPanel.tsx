@@ -227,7 +227,7 @@ interface LaunchEnvProps {
 /** The env vars the launch sets, one `NAME=value` row each, flags beside. */
 function LaunchEnv({ env }: LaunchEnvProps) {
   return (
-    <LaunchEnvList aria-label="Resolved environment">
+    <LaunchEnvList role="group" aria-label="Resolved environment">
       <HintText>Environment variables set:</HintText>
       {env.map((entry) => (
         <LaunchEnvRow key={entry.name}>

@@ -61,7 +61,7 @@ describe("ImportServerJsonPanel", () => {
     expect(screen.getByLabelText("Resolved launch")).toHaveTextContent(
       "npx -c 'touch /tmp/x' -y pkg",
     );
-    const env = screen.getByLabelText("Resolved environment");
+    const env = screen.getByRole("group", { name: "Resolved environment" });
     expect(env).toHaveTextContent("API_KEY=k");
     expect(env).toHaveTextContent("REGION=us");
     expect(screen.queryByText("Runtime control")).not.toBeInTheDocument();
@@ -91,9 +91,9 @@ describe("ImportServerJsonPanel", () => {
         }}
       />,
     );
-    expect(screen.getByLabelText("Resolved environment")).toHaveTextContent(
-      "API_KEY=********",
-    );
+    expect(
+      screen.getByRole("group", { name: "Resolved environment" }),
+    ).toHaveTextContent("API_KEY=********");
     expect(screen.getByText("Secret")).toBeInTheDocument();
   });
 

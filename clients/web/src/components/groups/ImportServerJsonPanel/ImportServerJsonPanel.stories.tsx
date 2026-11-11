@@ -263,7 +263,8 @@ const runtimeControlServerJson = JSON.stringify(
             isSecret: true,
             default: "--require ./preload.js",
           },
-          { name: "API_KEY", isSecret: true, default: "sk-live-123" },
+          // No document-supplied value: the user types it, so it is masked.
+          { name: "API_KEY", isSecret: true },
         ],
       },
     ],
