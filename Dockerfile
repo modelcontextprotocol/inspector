@@ -9,7 +9,7 @@
 # The monthly dependency-refresh sweep reports this digest once the tag has
 # moved past it (#2885), so Node and Debian security fixes are flagged — but
 # they still reach the image only when this line is bumped.
-ARG NODE_IMAGE=node:22-slim@sha256:4b150b48b4116e2a22f2c39cc27025fbf4f153e2078fd3b14d159fdb5c7279da
+ARG NODE_IMAGE=node:22-slim@sha256:18052396bf1d0c6e0a8c58181b5c1457da19409efbd5032a3f4d86974e74d13c
 
 # ---------------------------------------------------------------------------
 # Build stage — install everything from the committed lockfiles, build all
