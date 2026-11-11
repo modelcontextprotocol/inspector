@@ -568,7 +568,11 @@ async function readCappedBody(
         });
   try {
     // A body is truncated only once a byte beyond the cap actually arrives,
-    // so one that ends exactly at the cap is recorded whole.
+    // so one that ends exactly at the cap is recorded whole. The trade: a body
+    // that delivers exactly the cap and then stalls keeps this reader waiting
+    // for one more read. That stays bounded — the 401/403 path gives up at
+    // its deadline (CHALLENGE_BODY_READ_MS), and the fire-and-forget path
+    // blocks nobody and buffers nothing more while it waits.
     for (;;) {
       const next = await (deadline
         ? Promise.race([reader.read(), deadline])
