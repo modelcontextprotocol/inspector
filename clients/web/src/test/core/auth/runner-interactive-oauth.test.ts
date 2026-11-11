@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { AuthorizationServerMismatchError } from "@modelcontextprotocol/client";
 import {
+  OAuthCallbackError,
+  OAuthCallbackTimeoutError,
   runRunnerInteractiveOAuth,
   type RunnerInteractiveOAuthClient,
 } from "@inspector/core/auth/node/runner-interactive-oauth.js";
@@ -503,6 +505,48 @@ describe("runRunnerInteractiveOAuth", () => {
     await expect(run).rejects.toThrow(/^OAuth error$/);
   });
 
+  it("rejects with a typed OAuthCallbackError carrying the server's fields (#2842)", async () => {
+    const client = mockClient({
+      authenticate: vi.fn(async () => {
+        handlers.current.onError?.({
+          error: "access_denied",
+          error_description: "user cancelled",
+          source: "redirect",
+        });
+        return new URL("https://as.example/authorize");
+      }),
+    });
+
+    const failure = await runRunnerInteractiveOAuth({
+      client,
+      redirectUrlProvider: { redirectUrl: "" },
+      callbackListen: {
+        hostname: "127.0.0.1",
+        port: 6276,
+        pathname: "/oauth/callback",
+      },
+      createCallbackServer: () => createMockCallbackServer(handlers),
+    }).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(OAuthCallbackError);
+    expect(failure).toMatchObject({
+      name: "OAuthCallbackError",
+      source: "redirect",
+      oauthError: "access_denied",
+      oauthErrorDescription: "user cancelled",
+    });
+  });
+
+  it("carries no server fields on a callback-source OAuthCallbackError (#2842)", () => {
+    const err = new OAuthCallbackError({
+      error: "callback_error",
+      error_description: "exchange failed",
+      source: "callback",
+    });
+    expect(err.message).toBe("exchange failed");
+    expect(err.oauthError).toBeUndefined();
+    expect(err.oauthErrorDescription).toBeUndefined();
+  });
+
   it("falls back to a generic message for a callback_error without a description", async () => {
     const client = mockClient({
       authenticate: vi.fn(async () => {
@@ -552,8 +596,12 @@ describe("runRunnerInteractiveOAuth", () => {
 
       const assertRejects =
         expect(promise).rejects.toThrow(/timed out after 1s/);
+      const assertTyped = expect(promise).rejects.toBeInstanceOf(
+        OAuthCallbackTimeoutError,
+      );
       await vi.advanceTimersByTimeAsync(1000);
       await assertRejects;
+      await assertTyped;
     } finally {
       vi.useRealTimers();
     }

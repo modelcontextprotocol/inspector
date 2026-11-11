@@ -13,7 +13,9 @@
  *  - 0: success
  *  - 1: usage / unexpected error (the catch-all; same as before this map)
  *  - 2: `--app-info` probe found no MCP App on the tool
- *  - 3: server requires authentication (401 / WWW-Authenticate / OAuth)
+ *  - 3: authentication failed or is required (401 / WWW-Authenticate, an
+ *       OAuth protocol error, an OAuth callback timeout, a declined or
+ *       insufficient step-up)
  *  - 4: server unreachable (DNS, connect refused, timeout, fetch failure)
  *  - 5: tool error (`tools/call` returned `isError:true`, or tool not found)
  *  - 6: `--strict` found an error-severity tool-schema portability finding
@@ -22,6 +24,7 @@
  *  - 9: `--verify --require-digests` found a skill that advertised no digests
  *  - 10: a `--load` run breached a `--load-max-*` threshold
  *  - 11: the server rate limited the request (HTTP 429)
+ *  - 12: the OAuth destination guard refused to fetch a URL
  *  - 130: a `--load` run was interrupted by Ctrl+C / SIGTERM
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
@@ -95,6 +98,21 @@ export const EXIT_CODES = {
    */
   RATE_LIMITED: 11,
   /**
+   * The destination guard (`core/mcp/node/fetchGuard.ts`) refused an OAuth
+   * request's URL — a link-local or cloud-metadata address, a non-http(s)
+   * scheme, a cross-origin redirect carrying a body, or a redirect chain too
+   * long (#2842). The envelope `code` is `fetch_refused`.
+   *
+   * Not `USAGE` (1): the command line is fine; the server under test pointed
+   * the OAuth flow somewhere the Inspector will not go. Not `UNREACHABLE` (4)
+   * either, although the refusal used to land there whenever undici wrapped
+   * it as `fetch failed`: 4 tells a caller the network failed and a retry or
+   * a proxy may help, while a refusal is a deterministic policy decision that
+   * every retry repeats. Its own code, for the reason 11 has one — the right
+   * response differs from every neighbour's.
+   */
+  FETCH_REFUSED: 12,
+  /**
    * A `--load` run was interrupted by SIGINT or SIGTERM (#2834). The partial
    * summary has already been printed, marked `stoppedEarly.reason:
    * "interrupted"`; the envelope `code` is `interrupted`. 130 is the shell's
@@ -129,6 +147,17 @@ export interface ErrorEnvelope {
   retryAfter?: string;
   /** `retryAfter` as a delay in ms; absent when it did not parse. */
   retryAfterMs?: number;
+  /**
+   * The RFC 6749 `error` code an authorization server returned (#2842) —
+   * `access_denied` from a declined consent, `invalid_grant` from the token
+   * endpoint. Present only on an `oauth_error` envelope, and only when the
+   * server sent one. Named for the protocol field it carries, with an `oauth`
+   * prefix so it does not read as the envelope's own wrapper key
+   * (`.error.oauthError`, not `.error.error`).
+   */
+  oauthError?: string;
+  /** The server's `error_description`, beside `oauthError`, when it sent one. */
+  oauthErrorDescription?: string;
 }
 
 /**

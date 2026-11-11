@@ -79,7 +79,10 @@ more).
 - Connections persist across separate `mcpdo` invocations and **self-heal**: a
   dropped transport (expired session, exited stdio child) transparently
   re-dials on next use with stored credentials. Don't monitor or reconnect
-  manually; only an `auth_required` error needs action (re-run `connect`).
+  manually; only an exit-`3` auth error needs action (re-run `connect`):
+  `auth_required`, `oauth_error` (the authorization server refused — its
+  `oauthError` / `oauthErrorDescription` say why), or `oauth_timeout` (the
+  sign-in was not completed in time).
   `mcpdo disconnect` ends one connection; `mcpdo daemon stop` resets
   everything.
 - The `[legacy]` / `[modern]` era tag on `connections/list` is the negotiated

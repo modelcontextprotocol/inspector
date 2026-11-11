@@ -90,8 +90,8 @@ export function daemonTokenDir(options: {
 /**
  * The envelope a daemon error is rebuilt into on this side: its `code` plus
  * whatever structured fields the daemon relayed (#2772), so the connection
- * CLI's JSON error matches the one-shot CLI's. `retryAfter` is the server's
- * own header text, so it is sanitized like the message.
+ * CLI's JSON error matches the one-shot CLI's. `retryAfter` and the OAuth
+ * fields are the servers' own text, so they are sanitized like the message.
  */
 export function relayedEnvelope(
   error: DaemonErrorBody,
@@ -105,6 +105,13 @@ export function relayedEnvelope(
     }),
     ...(error.retryAfterMs !== undefined && {
       retryAfterMs: error.retryAfterMs,
+    }),
+    // Authorization-server text, so sanitized like `retryAfter` (#2842).
+    ...(error.oauthError !== undefined && {
+      oauthError: sanitizeText(error.oauthError),
+    }),
+    ...(error.oauthErrorDescription !== undefined && {
+      oauthErrorDescription: sanitizeText(error.oauthErrorDescription),
     }),
   };
 }
