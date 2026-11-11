@@ -126,13 +126,20 @@ export type DaemonRequest = {
 /**
  * The envelope fields a daemon error carries across the socket beyond `code`
  * and `message`, so the caller's envelope matches the one-shot CLI's (#2772).
- * `status` is relayed for every error that has one; the rest only exist on a
- * `rate_limited` failure, where they are the structured retry timing a script
- * schedules on.
+ * `status` is relayed for every error that has one; `method`, `retryAfter`
+ * and `retryAfterMs` only exist on a `rate_limited` failure, where they are
+ * the structured retry timing a script schedules on; `oauthError` and
+ * `oauthErrorDescription` only on an `oauth_error` (#2842) — a refresh the
+ * daemon runs can be refused by the authorization server too.
  */
 export type RelayedEnvelopeFields = Pick<
   ErrorEnvelope,
-  "status" | "method" | "retryAfter" | "retryAfterMs"
+  | "status"
+  | "method"
+  | "retryAfter"
+  | "retryAfterMs"
+  | "oauthError"
+  | "oauthErrorDescription"
 >;
 
 export type DaemonErrorBody = {

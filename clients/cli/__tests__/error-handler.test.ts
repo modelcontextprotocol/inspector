@@ -7,10 +7,16 @@ import {
   handleError,
 } from "@inspector/core/cli/error-handler.js";
 import {
+  OAuthError,
   SdkErrorCode,
   SdkHttpError,
   UnauthorizedError,
 } from "@modelcontextprotocol/client";
+import {
+  OAuthCallbackError,
+  OAuthCallbackTimeoutError,
+} from "@inspector/core/auth/node/runner-interactive-oauth.js";
+import { FetchTargetError } from "@inspector/core/auth/fetchRefusal.js";
 import { annotateRateLimit } from "@inspector/core/mcp/rateLimit.js";
 import {
   SecretFileLockHeldError,
@@ -292,8 +298,29 @@ describe("classifyError", () => {
         .code,
     ).toBe("rate_limited");
     expect(
+      classifyError(new CliExitCodeError(EXIT_CODES.FETCH_REFUSED, "x"))
+        .envelope.code,
+    ).toBe("fetch_refused");
+    expect(
       classifyError(new CliExitCodeError(EXIT_CODES.USAGE, "x")).envelope.code,
     ).toBe("error");
+  });
+
+  it("carries a CliExitCodeError's relayed OAuth fields onto the envelope", () => {
+    // mcpdo rebuilds a daemon-side OAuth failure this way (#2842).
+    const { envelope } = classifyError(
+      new CliExitCodeError(EXIT_CODES.AUTH_REQUIRED, "revoked", {
+        code: "oauth_error",
+        oauthError: "invalid_grant",
+        oauthErrorDescription: "revoked",
+      }),
+    );
+    expect(envelope).toEqual({
+      code: "oauth_error",
+      message: "revoked",
+      oauthError: "invalid_grant",
+      oauthErrorDescription: "revoked",
+    });
   });
 
   it("carries a CliExitCodeError's relayed rate-limit fields onto the envelope", () => {
@@ -472,6 +499,136 @@ describe("rate-limited classification (#2772)", () => {
         }),
       ).envelope.retryAfter,
     ).not.toContain("secret");
+  });
+});
+
+describe("OAuth and fetch-guard classification (#2842)", () => {
+  it("classifies a declined-consent redirect as oauth_error, exit 3, with the server's fields", () => {
+    const err = new OAuthCallbackError({
+      error: "access_denied",
+      error_description: "The user said no",
+      source: "redirect",
+    });
+    const { exitCode, envelope } = classifyError(err, {
+      url: "http://127.0.0.1:8083/mcp",
+    });
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope).toEqual({
+      code: "oauth_error",
+      message:
+        "OAuth authorization failed. The authorization server said: The user said no (access_denied)",
+      url: "http://127.0.0.1:8083/mcp",
+      oauthError: "access_denied",
+      oauthErrorDescription: "The user said no",
+    });
+  });
+
+  it("omits the description a redirect did not send", () => {
+    const { envelope } = classifyError(
+      new OAuthCallbackError({ error: "access_denied", source: "redirect" }),
+    );
+    expect(envelope.oauthError).toBe("access_denied");
+    expect(envelope).not.toHaveProperty("oauthErrorDescription");
+  });
+
+  it("classifies a failed token exchange after the callback as oauth_error without server fields", () => {
+    // `callback_error` is the listener's own label, not anything a server said.
+    const { exitCode, envelope } = classifyError(
+      new OAuthCallbackError({
+        error: "callback_error",
+        error_description: "exchange failed",
+        source: "callback",
+      }),
+    );
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope).toEqual({
+      code: "oauth_error",
+      message: "exchange failed",
+    });
+  });
+
+  it("classifies the SDK's token-endpoint OAuthError as oauth_error", () => {
+    const { exitCode, envelope } = classifyError(
+      new OAuthError("invalid_grant", "Authorization code expired"),
+    );
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope).toMatchObject({
+      code: "oauth_error",
+      oauthError: "invalid_grant",
+      oauthErrorDescription: "Authorization code expired",
+    });
+  });
+
+  it("omits the description when an OAuthError's message is only its code", () => {
+    // OAuthError.fromResponse uses `error_description ?? error` as the message.
+    const { envelope } = classifyError(
+      OAuthError.fromResponse({ error: "invalid_client" }),
+    );
+    expect(envelope.oauthError).toBe("invalid_client");
+    expect(envelope).not.toHaveProperty("oauthErrorDescription");
+  });
+
+  it("omits both fields for an OAuthError with an empty code and message", () => {
+    const { envelope } = classifyError(new OAuthError("", ""));
+    expect(envelope.code).toBe("oauth_error");
+    expect(envelope).not.toHaveProperty("oauthError");
+    expect(envelope).not.toHaveProperty("oauthErrorDescription");
+  });
+
+  it("redacts a URL in the server's description", () => {
+    const { envelope } = classifyError(
+      new OAuthError(
+        "invalid_request",
+        "see https://as.example/cb?code=SECRET123",
+      ),
+    );
+    expect(envelope.oauthErrorDescription).not.toContain("SECRET123");
+  });
+
+  it("classifies the OAuth callback timeout as oauth_timeout, exit 3", () => {
+    const { exitCode, envelope } = classifyError(
+      new OAuthCallbackTimeoutError(900_000),
+      { url: "http://127.0.0.1:8083/mcp" },
+    );
+    expect(exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+    expect(envelope).toEqual({
+      code: "oauth_timeout",
+      message: "OAuth callback timed out after 900s",
+      url: "http://127.0.0.1:8083/mcp",
+    });
+  });
+
+  it("classifies a thrown FetchTargetError as fetch_refused, exit 12", () => {
+    const { exitCode, envelope } = classifyError(
+      new FetchTargetError(
+        "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+        "http://169.254.169.254/latest",
+      ),
+    );
+    expect(exitCode).toBe(EXIT_CODES.FETCH_REFUSED);
+    expect(envelope.code).toBe("fetch_refused");
+    expect(envelope.url).toBe("http://169.254.169.254/latest");
+  });
+
+  it("classifies undici's `fetch failed` wrapping a refusal as fetch_refused, not unreachable", () => {
+    const err = new TypeError("fetch failed", {
+      cause: new FetchTargetError("Refusing to fetch a file: URL"),
+    });
+    const { exitCode, envelope } = classifyError(err, {
+      url: "https://api.example/mcp",
+    });
+    expect(exitCode).toBe(EXIT_CODES.FETCH_REFUSED);
+    expect(envelope).toEqual({
+      code: "fetch_refused",
+      message: "fetch failed",
+      cause: "Refusing to fetch a file: URL",
+      url: "https://api.example/mcp",
+    });
+  });
+
+  it("omits url for a refusal with no URL known anywhere", () => {
+    const { envelope } = classifyError(new FetchTargetError("refused"));
+    expect(envelope).not.toHaveProperty("url");
   });
 });
 
