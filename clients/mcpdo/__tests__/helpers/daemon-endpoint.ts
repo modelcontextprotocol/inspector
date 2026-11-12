@@ -11,10 +11,10 @@
  * - {@link daemonEndpoint} — where a daemon (or a fake) for `dir` listens.
  * - {@link releaseEndpoint} — what a test does after closing a fake's server:
  *   remove the socket file on POSIX; a pipe disappears with its server.
- * - {@link stopDaemonIn} — teardown for a daemon an mcpdo command spawned. The
- *   liveness signal is the published `mcpdod.token` and the `mcpdod.lock`,
- *   which exist on every platform (unlike a socket file) and which the daemon
- *   removes last on shutdown, after the socket.
+ * - {@link stopDaemonIn} — teardown for a daemon an mcpdo command spawned:
+ *   stop it, then wait for its published `mcpdod.token` and `mcpdod.lock`
+ *   (present on every platform, unlike a socket file) to go AND for its
+ *   process to exit.
  * - {@link removeDaemonDir} — `rmSync` with retries: a stopping daemon process
  *   still holds its `mcpdod.log` until it exits, which Windows reports as
  *   `EBUSY`/`EPERM` rather than letting the directory go.
@@ -49,27 +49,52 @@ export function daemonMayBeLive(dir: string): boolean {
   );
 }
 
+/** Whether process `pid` is still running. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    // EPERM: it exists but belongs to someone else — still alive.
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 /**
- * Stop the daemon serving `dir`, if any, and wait for its shutdown to finish.
- * `daemon/stop` answers before shutdown completes, so the wait is what keeps
- * the caller from deleting a directory a live daemon still holds.
+ * Stop the daemon serving `dir`, if any, and wait for its process to exit.
+ *
+ * `daemon/stop` answers before shutdown completes, and the daemon removes its
+ * token and lock before its process actually exits (it exits once its event
+ * loop drains). On POSIX that gap is harmless. On Windows it is not: the
+ * daemon `chdir()`s into `dir` (see `daemon/run.ts`), and a directory that is
+ * some process's cwd cannot be removed (`EBUSY`). So the wait is on the pid
+ * the daemon reports in `ping`, not only on its files.
+ *
+ * The default budget keeps ping + stop + this wait + {@link removeDaemonDir}'s
+ * retries inside the shared 30s `hookTimeout` (vitest.shared.mts).
  */
 export async function stopDaemonIn(
   dir: string,
-  waitMs: number = 5000,
+  waitMs: number = 15_000,
 ): Promise<void> {
   if (!daemonMayBeLive(dir)) return;
+  const options = { socketPath: daemonEndpoint(dir), dir, timeoutMs: 2000 };
+  let pid: number | undefined;
   try {
-    await callDaemon(
-      "daemon/stop",
-      {},
-      { socketPath: daemonEndpoint(dir), dir, timeoutMs: 2000 },
-    );
+    ({ pid } = await callDaemon<{ pid?: number }>("ping", {}, options));
   } catch {
-    // already stopped, or a stale token left by a daemon that died
+    // unreachable: a stale token left by a daemon that died
+  }
+  try {
+    await callDaemon("daemon/stop", {}, options);
+  } catch {
+    // already stopped
   }
   const deadline = Date.now() + waitMs;
-  while (daemonMayBeLive(dir) && Date.now() < deadline) {
+  const running = () =>
+    daemonMayBeLive(dir) ||
+    (pid !== undefined && pid !== process.pid && processAlive(pid));
+  while (running() && Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 50));
   }
 }
