@@ -117,6 +117,22 @@ describe("subscriptions-broadcast-http.json (CLI)", () => {
     expect(hub?.size).toBe(0);
   });
 
+  it("does not hold a server whose sessionless POST was rejected", async () => {
+    const { url, hub } = await startConfig("subscriptions-broadcast-http.json");
+    // Not an `initialize`, and no Mcp-Session-Id: the transport refuses it, and
+    // the server built for it is never registered as a session nor closed.
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(response.ok).toBe(false);
+    expect(hub?.size).toBe(0);
+  });
+
   it("is what the stock legacy config lacks: only the caller is notified", async () => {
     const { url, hub } = await startConfig("subscriptions-legacy-http.json");
     expect(hub).toBeUndefined();

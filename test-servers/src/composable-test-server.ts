@@ -1755,10 +1755,10 @@ export function createMcpServer(config: ServerConfig): McpServer {
     wireExtensionGatedTools(mcpServer, state, config.extensionGatedTools);
   }
 
-  // Cross-session resource updates (#2964): join after the resources are
+  // Cross-session resource updates (#2964). Wired after the resources are
   // registered, so the hub's replay of earlier updates has copies to apply to.
   if (config.resourceUpdateBroadcast) {
-    joinResourceUpdateBroadcast(
+    wireResourceUpdateBroadcast(
       mcpServer,
       state,
       config.resourceUpdateBroadcast,
@@ -1769,29 +1769,41 @@ export function createMcpServer(config: ServerConfig): McpServer {
 }
 
 /**
- * Join `broadcast` as this session, and leave it when the connection closes.
- * Chains any `onclose` already set rather than replacing it.
+ * Join `broadcast` as this session once the client completes initialization,
+ * and leave it when the connection closes. Joining on `initialized` rather
+ * than at construction keeps out a server that never becomes a session — a
+ * sessionless HTTP POST the transport rejects builds one, registers it
+ * nowhere and never closes it, so a hub joined at construction would hold it
+ * forever. Nothing can subscribe before `initialized`, and the hub replays
+ * the latest updates on join, so no update is lost by waiting. Chains any
+ * `oninitialized` / `onclose` already set rather than replacing them.
  */
-function joinResourceUpdateBroadcast(
+function wireResourceUpdateBroadcast(
   mcpServer: McpServer,
   state: ServerState,
   broadcast: ResourceUpdateBroadcast,
 ): void {
-  const leave = broadcast.join({
-    apply: (uri, text) => {
-      setResourceText(state.registeredResources, uri, text);
-    },
-    notify: async (uri) => {
-      if (!state.resourceSubscriptions.has(uri)) {
-        return false;
-      }
-      await mcpServer.server.sendResourceUpdated({ uri });
-      return true;
-    },
-  });
+  let leave: (() => void) | undefined;
+  const previousOnInitialized = mcpServer.server.oninitialized;
+  mcpServer.server.oninitialized = () => {
+    leave ??= broadcast.join({
+      apply: (uri, text) => {
+        setResourceText(state.registeredResources, uri, text);
+      },
+      notify: async (uri) => {
+        if (!state.resourceSubscriptions.has(uri)) {
+          return false;
+        }
+        await mcpServer.server.sendResourceUpdated({ uri });
+        return true;
+      },
+    });
+    previousOnInitialized?.();
+  };
   const previousOnClose = mcpServer.server.onclose;
   mcpServer.server.onclose = () => {
-    leave();
+    leave?.();
+    leave = undefined;
     previousOnClose?.();
   };
 }

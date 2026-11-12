@@ -732,7 +732,7 @@ mcp-inspector --cli http://127.0.0.1:3221/mcp --transport http --method tools/ca
 #  Delivered:  10 of 50 notifications (10 updates × 5), 40 missed across 4 sessions, 0 unexpected
 ```
 
-`broadcastResourceUpdates` gives the server one hub shared by every session (`test-servers/src/resource-update-broadcast.ts`). Each session joins it when created and leaves when its connection closes, and `update_resource` publishes through it: every session's copy of the resource takes the new text, and every session subscribed to it gets `notifications/resources/updated`. The same run against port `3225` delivers them all:
+`broadcastResourceUpdates` gives the server one hub shared by every session (`test-servers/src/resource-update-broadcast.ts`). Each session joins it once initialized and leaves when its connection closes, and `update_resource` publishes through it: every session's copy of the resource takes the new text, and every session subscribed to it gets `notifications/resources/updated`. The same run against port `3225` delivers them all:
 
 ```
 #  Delivered:  50 of 50 notifications (10 updates × 5), 0 missed across 0 sessions, 0 unexpected

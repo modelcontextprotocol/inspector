@@ -10,7 +10,7 @@
  *
  * A broadcast is the cross-session half a real server has and the fixture did
  * not: a hub shared by every session the server opens. Each session joins it
- * on creation and leaves when its connection closes; `publish` applies the new
+ * once initialized and leaves when its connection closes; `publish` applies the new
  * text to every member's copy of the resource and sends
  * `notifications/resources/updated` to each member subscribed to it. It is
  * opted into by `broadcastResourceUpdates: true` in a config file, which
