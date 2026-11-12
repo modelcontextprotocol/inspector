@@ -139,7 +139,13 @@ export function relayedHelperError(
   for (const key of Object.keys(fields) as (keyof ErrorEnvelope)[]) {
     if (fields[key] === undefined) delete fields[key];
   }
-  return new CliExitCodeError(exitCode, message, fields);
+  const relayed = new CliExitCodeError(exitCode, message, fields);
+  // `classifyError` reads a cause off the error itself, never off its
+  // envelope, so the relayed one goes back where it came from — otherwise a
+  // wrapped refusal (`fetch failed` caused by the guard) loses its reason.
+  const cause = text(envelope.cause);
+  if (cause !== undefined) relayed.cause = cause;
+  return relayed;
 }
 
 /**

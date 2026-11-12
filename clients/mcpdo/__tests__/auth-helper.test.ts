@@ -5,7 +5,10 @@ import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import type { CallbackNavigation } from "@inspector/core/auth/index.js";
 import { FetchTargetError } from "@inspector/core/auth/fetchRefusal.js";
-import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
+import {
+  classifyError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 
 const authorizeInFrontend = vi.fn();
 
@@ -899,9 +902,7 @@ describe("auth-helper", () => {
             method: "tools/list",
             retryAfter: "5",
             retryAfterMs: 5000,
-            // Not a field the relay carries: classifyError reads a cause
-            // off the error itself, not off its envelope.
-            cause: "not relayed",
+            cause: "token endpoint said no\u001b[2J",
           },
         },
         message,
@@ -918,6 +919,23 @@ describe("auth-helper", () => {
         retryAfter: "5",
         retryAfterMs: 5000,
       });
+      // The cause goes back onto the error, where classifyError reads it.
+      expect(error?.cause).toBe("token endpoint said no\u241b[2J");
+    });
+
+    it("round-trips a wrapped refusal to the envelope the TTY path prints", () => {
+      const original = new TypeError("fetch failed", {
+        cause: new FetchTargetError(
+          "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+          "http://169.254.169.254/.well-known/oauth-authorization-server",
+        ),
+      });
+      // Through the wire, exactly as the parent decodes it.
+      const event = JSON.parse(
+        JSON.stringify(helperErrorEvent(original)),
+      ) as RelayEvent;
+      const relayed = relayedHelperError(event, event.message);
+      expect(classifyError(relayed)).toEqual(classifyError(original));
     });
 
     it("drops mistyped optional fields rather than coercing them", () => {
