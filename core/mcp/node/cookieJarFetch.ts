@@ -80,6 +80,8 @@ export class ConnectionCookieJar {
         value: parsed.value,
         expiresAt: parsed.expiresAt,
       });
+      // Expired entries must not hold capacity a live cookie needs.
+      if (this.cookies.size > MAX_COOKIES) this.dropExpired();
       while (this.cookies.size > MAX_COOKIES) {
         const oldest = this.cookies.keys().next().value;
         /* v8 ignore next -- size > MAX_COOKIES ≥ 1 guarantees a first key */
@@ -149,9 +151,11 @@ export function createCookieJarFetch(
     }
     // `fetch` follows redirects, so the response may come from another
     // origin than the request; only cookies the server's own origin set are
-    // kept. An empty `url` is a synthetic response, which never left the
-    // request's origin.
-    const finalUrl = response.url ? requestUrl(response.url) : url;
+    // kept. A response with no `url` has lost its provenance — a wrapper
+    // below rebuilt it (OAuth endpoint overrides, discovery compatibility)
+    // — so its cookies are refused rather than attributed to the request's
+    // origin. Network responses always carry one (`proxyFetch` restores it).
+    const finalUrl = response.url ? requestUrl(response.url) : undefined;
     if (finalUrl?.origin === origin) {
       jar.store(response.headers.getSetCookie());
     }

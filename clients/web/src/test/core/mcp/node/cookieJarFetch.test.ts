@@ -26,19 +26,25 @@ const SERVER = new URL("https://mcp.example.com/mcp");
  * wrapper reads. Node's real `Headers` path is exercised end to end by the
  * integration test named above.
  */
-function respondWith(...setCookie: string[]): Response {
+function respondFrom(url: string, ...setCookie: string[]): Response {
   const response = new Response("ok", { status: 200 });
   Object.defineProperty(response, "headers", {
     value: { getSetCookie: () => setCookie },
   });
+  // A network response reports the URL it finally came from; a rebuilt one
+  // (`new Response`) reports "".
+  Object.defineProperty(response, "url", { value: url });
   return response;
+}
+
+/** A network response from the MCP endpoint itself. */
+function respondWith(...setCookie: string[]): Response {
+  return respondFrom(SERVER.href, ...setCookie);
 }
 
 /** As {@link respondWith}, but as if `fetch` followed a redirect to `url`. */
 function redirectedTo(url: string, ...setCookie: string[]): Response {
-  const response = respondWith(...setCookie);
-  Object.defineProperty(response, "url", { value: url });
-  return response;
+  return respondFrom(url, ...setCookie);
 }
 
 /** The `Cookie` header the base fetch saw on call `n` (0-based). */
@@ -134,6 +140,12 @@ describe("createCookieJarFetch (#2936)", () => {
     expect(sentCookie(baseFetch, 2)).toBe("lb=pod-a");
   });
 
+  it("refuses cookies from a rebuilt response that lost its URL", async () => {
+    const { fetchFn, jar } = setup([respondFrom("", "lb=pod-a")]);
+    await fetchFn(SERVER.href);
+    expect(jar.size).toBe(0);
+  });
+
   it("replays to any path on the server's origin", async () => {
     const { baseFetch, fetchFn } = setup([respondWith("lb=pod-a; Path=/mcp")]);
     await fetchFn(SERVER.href);
@@ -206,6 +218,18 @@ describe("ConnectionCookieJar (#2936)", () => {
     jar.store(["c0=again", "extra=1"]);
     expect(jar.cookieHeader()).toMatch(/c0=again/);
     expect(jar.cookieHeader()).not.toMatch(/(^|; )c1=/);
+  });
+
+  it("prunes expired cookies before evicting a live one for capacity", () => {
+    let now = 1_000_000;
+    const jar = new ConnectionCookieJar(() => now);
+    jar.store(["lb=pod-a"]);
+    jar.store(
+      Array.from({ length: MAX_COOKIES - 1 }, (_, i) => `t${i}=1; Max-Age=1`),
+    );
+    now += 2_000;
+    jar.store(["fresh=1"]);
+    expect(jar.cookieHeader()).toBe("lb=pod-a; fresh=1");
   });
 
   it("drops malformed and oversized lines", () => {
