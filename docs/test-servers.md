@@ -60,6 +60,7 @@ as a missing capability rather than an error.
 | `oauth-stalled-{token,discovery}-http.json` **(legacy era)** | An OAuth endpoint that accepts the request and never answers, so the OAuth-path request timeouts fire against a real idle socket | [#2382](https://github.com/modelcontextprotocol/inspector/issues/2382) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
+| `subscriptions-broadcast-http.json` **(legacy era)** | A resource update that reaches **every** subscribed session — the server for a `--load-subscribe` fan-out run | [#2964](https://github.com/modelcontextprotocol/inspector/issues/2964) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `subscriptions-listen-refused-http.json` **(modern era)** | A `subscriptions/listen` refused with a bare HTTP 403 | [#2722](https://github.com/modelcontextprotocol/inspector/issues/2722) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
@@ -716,6 +717,28 @@ That gating is faithful to the spec ("a server MUST NOT emit `notifications/mess
 The modern config deliberately **omits** `update_resource`. The SDK's modern leg is stateless/per-request (`createMcpHandler(() => createMcpServer(config))`), so the tool would run against a throwaway server instance — the content change wouldn't persist for the next `resources/read`, and its `resources/updated` wouldn't reach the separate listen stream. More confusing than useful.
 
 So the live update-notification round-trip is demonstrated on the legacy (stateful-session) server, and the modern server is for the subscribe/listen/badge behavior. The Inspector's _receive_ path is era-transparent, so a real stateful modern server that routes `resources/updated` onto the listen stream drives the subscribed tile the same way.
+
+## Resource updates fanned out to every session
+
+`subscriptions-broadcast-http.json` serves the same three `numbered_resources` and `update_resource` tool as `subscriptions-legacy-http.json`, plus `broadcastResourceUpdates: true`. It is the server to point `--load-subscribe` ([CLI README](../clients/cli/README.md#notification-fan-out---load-subscribe)) at by hand. Connect with the legacy era.
+
+Over Streamable HTTP each session of the composable server is its own server instance, so on the stock legacy config `update_resource` changes and notifies **only the session that called it**. A fan-out run against it reports every other subscriber as missed — correctly, since nothing was sent to them:
+
+```sh
+node test-servers/build/server-composable.js --config test-servers/configs/subscriptions-legacy-http.json
+mcp-inspector --cli http://127.0.0.1:3221/mcp --transport http --method tools/call \
+  --tool-name update_resource --tool-arg uri=test://resource_1 --tool-arg 'text=v{{seq}}' \
+  --load --load-requests 10 --load-subscribe test://resource_1 --load-subscribers 5 --format text
+#  Delivered:  10 of 50 notifications (10 updates × 5), 40 missed across 4 sessions, 0 unexpected
+```
+
+`broadcastResourceUpdates` gives the server one hub shared by every session (`test-servers/src/resource-update-broadcast.ts`). Each session joins it when created and leaves when its connection closes, and `update_resource` publishes through it: every session's copy of the resource takes the new text, and every session subscribed to it gets `notifications/resources/updated`. The same run against port `3225` delivers them all:
+
+```
+#  Delivered:  50 of 50 notifications (10 updates × 5), 0 missed across 0 sessions, 0 unexpected
+```
+
+The latest text per URI is kept, so a session opened after an update — a `resources/read` from a fresh CLI call, or a subscriber re-reading on notification — serves the updated content rather than the preset's. The tool's result says how many subscribed sessions it notified. In-process, pass `resourceUpdateBroadcast: createResourceUpdateBroadcast()` on the `ServerConfig` instead.
 
 ## A listen that is never acknowledged
 

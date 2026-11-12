@@ -12,3 +12,4 @@ export * from "./test-server-oauth-jwt.js";
 export * from "./test-helpers.js";
 export * from "./load-config.js";
 export * from "./resolve-config.js";
+export * from "./resource-update-broadcast.js";

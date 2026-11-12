@@ -269,6 +269,7 @@ usually looks like a missing capability rather than an error.
 | OAuth token revocation on clear | `oauth-revocation-http.json` (legacy) |
 | A token endpoint the SDK refuses  | `oauth-insecure-token-endpoint-http.json` (legacy) |
 | Cancelling a call mid-flight | `cancellation-modern-http.json` (modern) |
+| A resource update reaching every subscribed session (`--load-subscribe`) | `subscriptions-broadcast-http.json` (legacy) |
 
 ## Adding a config or preset
 
