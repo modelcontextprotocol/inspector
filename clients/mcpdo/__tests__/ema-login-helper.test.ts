@@ -270,10 +270,14 @@ describe("ema-login-helper", () => {
 
     it("emits an error event and rethrows when EMA is not configured", async () => {
       await expect(runEmaLoginHelper()).rejects.toThrow(/not configured/i);
+      // The failure is pre-classified (usage), and that classification rides
+      // on the event so the parent reports it instead of auth_required (#2962).
       expect(events()).toEqual([
         {
           event: "error",
           message: expect.stringContaining("not configured") as string,
+          exitCode: 1,
+          envelope: { code: "usage" },
         },
       ]);
     });
