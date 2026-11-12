@@ -10,7 +10,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import { DaemonServer } from "../src/daemon/server.js";
-import { callDaemon, relayedEnvelope } from "../src/daemon/client.js";
+import { relayedEnvelope } from "../src/daemon/client.js";
 import { streamDaemon } from "../src/daemon/stream-client.js";
 import { runMcp } from "./helpers/mcp-runner.js";
 import {
@@ -18,7 +18,11 @@ import {
   type ThrottlingServer,
 } from "../../cli/__tests__/helpers/throttling-server.js";
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import {
+  daemonEndpoint,
+  removeDaemonDir,
+  stopDaemonIn,
+} from "./helpers/daemon-endpoint.js";
 import { onRequest, publishFakeDaemonToken } from "./helpers/fake-daemon.js";
 
 /**
@@ -27,8 +31,7 @@ import { onRequest, publishFakeDaemonToken } from "./helpers/fake-daemon.js";
  * the daemon socket first, so these tests cover that hop on each side and then
  * the whole path end to end.
  */
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
+describe("mcpdo rate-limited request envelope", () => {
   let dir: string | undefined;
   let server: DaemonServer | undefined;
   let throttling: ThrottlingServer | undefined;
@@ -40,15 +43,8 @@ describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
       server = undefined;
     }
     if (dir) {
-      const socketPath = path.join(dir, "mcpdod.sock");
-      if (fs.existsSync(socketPath)) {
-        try {
-          await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
-        } catch {
-          // already stopped
-        }
-      }
-      fs.rmSync(dir, { recursive: true, force: true });
+      await stopDaemonIn(dir);
+      removeDaemonDir(dir);
       dir = undefined;
     }
     await throttling?.stop();
@@ -131,7 +127,8 @@ describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
   it("keeps the relayed fields when a stream's setup is refused", async () => {
     // `resources/subscribe` runs over `streamDaemon`, whose first frame is an
     // ordinary daemon response — a throttled subscribe must keep its fields.
-    const sock = path.join(freshDir(), "stream.sock");
+    const d = freshDir();
+    const sock = daemonEndpoint(d);
     const refuser = net.createServer((socket) => {
       socket.on("error", () => {});
       onRequest(socket, (buf) => {
@@ -154,11 +151,11 @@ describe.skipIf(unixDaemonOnly)("mcpdo rate-limited request envelope", () => {
       });
     });
     await new Promise<void>((resolve) => refuser.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       const error = await streamDaemon(
         {},
-        { socketPath: sock, timeoutMs: 2000, onData: () => {} },
+        { socketPath: sock, dir: d, timeoutMs: 2000, onData: () => {} },
       ).catch((e: unknown) => e);
       expect(error).toBeInstanceOf(CliExitCodeError);
       expect((error as CliExitCodeError).exitCode).toBe(

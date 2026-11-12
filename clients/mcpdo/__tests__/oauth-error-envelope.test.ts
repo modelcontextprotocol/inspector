@@ -6,7 +6,7 @@ import { OAuthError } from "@modelcontextprotocol/client";
 import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import { DaemonServer } from "../src/daemon/server.js";
 import { relayedEnvelope } from "../src/daemon/client.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { removeDaemonDir } from "./helpers/daemon-endpoint.js";
 
 /**
  * An OAuth protocol failure's envelope across mcpdo's daemon socket (#2842).
@@ -14,8 +14,7 @@ import { unixDaemonOnly } from "./helpers/platform.js";
  * tests cover the hop, where the authorization server's `error` /
  * `error_description` fields would otherwise be dropped.
  */
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("mcpdo oauth_error envelope", () => {
+describe("mcpdo oauth_error envelope", () => {
   let dir: string | undefined;
   let server: DaemonServer | undefined;
 
@@ -26,7 +25,7 @@ describe.skipIf(unixDaemonOnly)("mcpdo oauth_error envelope", () => {
       server = undefined;
     }
     if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
+      removeDaemonDir(dir);
       dir = undefined;
     }
   });

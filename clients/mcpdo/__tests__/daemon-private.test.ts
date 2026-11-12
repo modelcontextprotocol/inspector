@@ -28,7 +28,7 @@ import {
   createPrivateBinding,
   formatPrivateEnvExports,
 } from "../src/connection/private-env.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { removeDaemonDir, stopDaemonIn } from "./helpers/daemon-endpoint.js";
 
 describe("daemon IPC token", () => {
   it("compares tokens in constant time", () => {
@@ -110,8 +110,9 @@ describe("mcpdo private", () => {
   });
 });
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
+// Every call passes `dir`: on Windows the endpoint is a named pipe, from which
+// the client cannot derive the token's directory (see `daemonTokenDir`).
+describe("private daemon end-to-end", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
 
@@ -121,7 +122,9 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
       server = undefined;
     }
     if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
+      // A daemon `ensureDaemon` spawned is a separate process.
+      await stopDaemonIn(dir);
+      removeDaemonDir(dir);
       dir = undefined;
     }
   });
@@ -140,7 +143,12 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
       callDaemon(
         "ping",
         {},
-        { socketPath: server.socketPath, timeoutMs: 2000, token: "wrong" },
+        {
+          socketPath: server.socketPath,
+          dir,
+          timeoutMs: 2000,
+          token: "wrong",
+        },
       ),
     ).rejects.toMatchObject({ envelope: { code: "daemon_unverified" } });
     // And the daemon still refuses a request carrying the wrong token, for a
@@ -152,18 +160,18 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
       error: { code: "daemon_auth_failed" },
     });
 
-    // Tokenless call discovers the published token file next to the socket.
+    // Tokenless call discovers the token file published in the daemon dir.
     const discovered = await callDaemon<{ pong: boolean }>(
       "ping",
       {},
-      { socketPath: server.socketPath, timeoutMs: 2000 },
+      { socketPath: server.socketPath, dir, timeoutMs: 2000 },
     );
     expect(discovered.pong).toBe(true);
 
     const pong = await callDaemon<{ pong: boolean }>(
       "ping",
       {},
-      { socketPath: server.socketPath, timeoutMs: 2000, token },
+      { socketPath: server.socketPath, dir, timeoutMs: 2000, token },
     );
     expect(pong.pong).toBe(true);
   });
@@ -260,7 +268,7 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
       const pong = await callDaemon<{ pong: boolean }>(
         "ping",
         {},
-        { socketPath, timeoutMs: 2000, token: "winner-token" },
+        { socketPath, dir, timeoutMs: 2000, token: "winner-token" },
       );
       expect(pong.pong).toBe(true);
     } finally {
@@ -322,14 +330,14 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
           callDaemon(
             "ping",
             {},
-            { socketPath, timeoutMs: 2000, token: "wrong" },
+            { socketPath, dir, timeoutMs: 2000, token: "wrong" },
           ),
         ).rejects.toMatchObject({ envelope: { code: "daemon_unverified" } });
 
         const pong = await callDaemon<{ pong: boolean }>(
           "ping",
           {},
-          { socketPath, timeoutMs: 2000, token },
+          { socketPath, dir, timeoutMs: 2000, token },
         );
         expect(pong.pong).toBe(true);
 
@@ -341,9 +349,9 @@ describe.skipIf(unixDaemonOnly)("private daemon end-to-end", () => {
             serverConfig: { type: "stdio", command, args },
             serverIdentity: "s",
           },
-          { socketPath, timeoutMs: 15000, token },
+          { socketPath, dir, timeoutMs: 15000, token },
         );
-        await callDaemon("daemon/stop", {}, { socketPath, token });
+        await callDaemon("daemon/stop", {}, { socketPath, dir, token });
       } finally {
         if (prevDir === undefined) delete process.env[DAEMON_DIR_ENV];
         else process.env[DAEMON_DIR_ENV] = prevDir;

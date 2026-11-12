@@ -9,9 +9,8 @@ import {
   expectCliFailure,
 } from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
-import { callDaemon } from "../src/daemon/client.js";
 import type { ElicitationPendingInfo } from "../src/daemon/protocol.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { removeDaemonDir, stopDaemonIn } from "./helpers/daemon-endpoint.js";
 
 /**
  * End-to-end non-interactive elicitation: a real daemon, a real composable
@@ -20,8 +19,7 @@ import { unixDaemonOnly } from "./helpers/platform.js";
  * parked (`elicitationPending`), and `elicitation/respond` resuming the call
  * to its final result.
  */
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("mcp non-interactive elicitation (e2e)", () => {
+describe("mcp non-interactive elicitation (e2e)", () => {
   let storageDir: string | undefined;
   let configPath: string | undefined;
   const ttyDescriptors: Array<{
@@ -38,19 +36,8 @@ describe.skipIf(unixDaemonOnly)("mcp non-interactive elicitation (e2e)", () => {
       if (desc) Object.defineProperty(stream, "isTTY", desc);
     }
     if (storageDir) {
-      const socketPath = path.join(storageDir, "mcpdod.sock");
-      if (fs.existsSync(socketPath)) {
-        try {
-          await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
-        } catch {
-          // already stopped
-        }
-        const deadline = Date.now() + 2000;
-        while (fs.existsSync(socketPath) && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 50));
-        }
-      }
-      fs.rmSync(storageDir, { recursive: true, force: true });
+      await stopDaemonIn(storageDir);
+      removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

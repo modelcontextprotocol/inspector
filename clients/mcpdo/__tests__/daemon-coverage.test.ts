@@ -33,7 +33,14 @@ import {
   expectCliSuccess,
   expectCliFailure,
 } from "../../cli/__tests__/helpers/assertions.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { isWindows } from "./helpers/platform.js";
+import {
+  daemonEndpoint,
+  daemonMayBeLive,
+  releaseEndpoint,
+  removeDaemonDir,
+  stopDaemonIn,
+} from "./helpers/daemon-endpoint.js";
 import { readDaemonTokenFile } from "../src/daemon/auth.js";
 import {
   FAKE_DAEMON_TOKEN,
@@ -41,8 +48,10 @@ import {
   publishFakeDaemonToken,
 } from "./helpers/fake-daemon.js";
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
+// Every client call passes `dir` alongside `socketPath`: on Windows the
+// endpoint is a named pipe, from which the client cannot derive the token's
+// directory (see `daemonTokenDir` and helpers/daemon-endpoint.ts).
+describe("daemon coverage", () => {
   let server: DaemonServer | undefined;
   let dir: string | undefined;
   let configPath: string | undefined;
@@ -53,7 +62,9 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       server = undefined;
     }
     if (dir) {
-      fs.rmSync(dir, { recursive: true, force: true });
+      // Some cases spawn a real daemon process into `dir`.
+      await stopDaemonIn(dir);
+      removeDaemonDir(dir);
       dir = undefined;
     }
     if (configPath) {
@@ -138,7 +149,9 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     process.env.MCP_INSPECTOR_DAEMON_DIR = freshDir();
     try {
       const defs = new DaemonServer();
-      expect(defs.socketPath).toContain("mcpdod.sock");
+      expect(defs.socketPath).toBe(
+        daemonEndpoint(process.env.MCP_INSPECTOR_DAEMON_DIR!),
+      );
     } finally {
       if (prev === undefined) delete process.env.MCP_INSPECTOR_DAEMON_DIR;
       else process.env.MCP_INSPECTOR_DAEMON_DIR = prev;
@@ -267,9 +280,11 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     client.destroy();
   });
 
-  it("removes a stale socket before binding", async () => {
+  // POSIX-only: a stale endpoint is a leftover socket FILE; a named pipe
+  // vanishes with its server, so Windows never has one to remove.
+  it.skipIf(isWindows)("removes a stale socket before binding", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     fs.writeFileSync(sock, "");
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
@@ -283,7 +298,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     const result = await callDaemon<{ stopping: boolean }>(
       "daemon/stop",
       {},
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir: server.dir },
     );
     expect(result.stopping).toBe(true);
     // Allow async stop to finish.
@@ -345,7 +360,12 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       callDaemon(
         "ping",
         {},
-        { socketPath: server.socketPath, timeoutMs: 0, signal: ac.signal },
+        {
+          socketPath: server.socketPath,
+          dir: server.dir,
+          timeoutMs: 0,
+          signal: ac.signal,
+        },
       ),
     ).rejects.toThrow(/cancelled/);
   });
@@ -355,7 +375,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       callDaemon(
         "ping",
         {},
-        { socketPath: path.join(freshDir(), "missing.sock") },
+        { socketPath: daemonEndpoint(freshDir()), dir: dir! },
       ),
     ).rejects.toThrow(CliExitCodeError);
 
@@ -363,13 +383,17 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
     await expect(
-      callDaemon("connections/use", {}, { socketPath: server.socketPath }),
+      callDaemon(
+        "connections/use",
+        {},
+        { socketPath: server.socketPath, dir: server.dir },
+      ),
     ).rejects.toThrow(/requires a connection name/);
   });
 
   it("callDaemon reassembles a multi-byte UTF-8 character split across chunks", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const value = "héllo 👋 wörld";
     const splitter = net.createServer((socket) => {
       socket.on("error", () => {});
@@ -387,21 +411,17 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => splitter.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       const result = await callDaemon<{ value: string }>(
         "ping",
         {},
-        { socketPath: sock, timeoutMs: 2000 },
+        { socketPath: sock, dir: d, timeoutMs: 2000 },
       );
       expect(result.value).toBe(value);
     } finally {
       splitter.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   });
 
@@ -416,7 +436,8 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         "ping",
         {},
         {
-          socketPath: path.join(d, "absent.sock"),
+          socketPath: daemonEndpoint(d),
+          dir: d,
           signal: ac.signal,
           timeoutMs: 2000,
         },
@@ -426,31 +447,27 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
   it("callDaemon rejects malformed response JSON", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const bad = net.createServer((socket) => {
       socket.on("error", () => {});
       // Past the handshake, so the malformed line is the RESPONSE.
       onRequest(socket, () => socket.write("not-json\n"));
     });
     await new Promise<void>((resolve) => bad.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       await expect(
-        callDaemon("ping", {}, { socketPath: sock, timeoutMs: 2000 }),
+        callDaemon("ping", {}, { socketPath: sock, dir: d, timeoutMs: 2000 }),
       ).rejects.toThrow(SyntaxError);
     } finally {
       bad.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   });
 
   it("callDaemon ignores mismatched response ids then accepts a match", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
       onRequest(socket, (buf) => {
@@ -464,27 +481,23 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => echo.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       const result = await callDaemon<{ ok: boolean }>(
         "ping",
         {},
-        { socketPath: sock, timeoutMs: 2000 },
+        { socketPath: sock, dir: d, timeoutMs: 2000 },
       );
       expect(result.ok).toBe(true);
     } finally {
       echo.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   });
 
   it("callDaemon skips blank lines and defaults missing exitCode", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const echo = net.createServer((socket) => {
       socket.on("error", () => {});
       onRequest(socket, (buf) => {
@@ -500,18 +513,14 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((resolve) => echo.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       await expect(
-        callDaemon("ping", {}, { socketPath: sock, timeoutMs: 2000 }),
+        callDaemon("ping", {}, { socketPath: sock, dir: d, timeoutMs: 2000 }),
       ).rejects.toMatchObject({ exitCode: 1 });
     } finally {
       echo.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   });
 
@@ -522,7 +531,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
     server = new DaemonServer({ dir: d, idleMs: 0 });
     await server.start();
-    fs.unlinkSync(server.socketPath);
+    releaseEndpoint(server.socketPath);
     fs.unlinkSync(path.join(d, "mcpdod.lock"));
     await server.stop("stop");
     server = undefined;
@@ -539,6 +548,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     expect(second).toBe(first);
     await first;
     expect(fs.existsSync(server.socketPath)).toBe(false);
+    expect(daemonMayBeLive(server.dir)).toBe(false);
     server = undefined;
   });
 
@@ -604,23 +614,19 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
   it("callDaemon times out a hung server", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const hung = net.createServer((socket) => {
       socket.on("error", () => {});
     });
     await new Promise<void>((resolve) => hung.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       await expect(
-        callDaemon("ping", {}, { socketPath: sock, timeoutMs: 100 }),
+        callDaemon("ping", {}, { socketPath: sock, dir: d, timeoutMs: 100 }),
       ).rejects.toThrow(/timed out/);
     } finally {
       hung.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   }, 5000);
 
@@ -628,19 +634,19 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     // rpc/connect callers pass 0 because the daemon enforces the configured
     // MCP timeouts; a fixed 60s local timer falsely failed long tool calls.
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const sockets: net.Socket[] = [];
     const silent = net.createServer((socket) => {
       sockets.push(socket);
       socket.on("error", () => {});
     });
     await new Promise<void>((resolve) => silent.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       const pending = callDaemon(
         "ping",
         {},
-        { socketPath: sock, timeoutMs: 0 },
+        { socketPath: sock, dir: d, timeoutMs: 0 },
       );
       let settled = false;
       // void: observer only; the promise itself is asserted on below.
@@ -653,11 +659,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       await expect(pending).rejects.toThrow(/closed the connection/);
     } finally {
       silent.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   }, 5000);
 
@@ -802,7 +804,11 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       daemonScript: resolveDaemonScriptPath(),
     });
     expect(ensured.spawned).toBe(true);
-    await callDaemon("daemon/stop", {}, { socketPath: ensured.socketPath });
+    await callDaemon(
+      "daemon/stop",
+      {},
+      { socketPath: ensured.socketPath, dir: d },
+    );
     await new Promise((r) => setTimeout(r, 150));
   });
 
@@ -841,12 +847,12 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
   it("waitForDaemonExit falls back to socket reachability without a pid", async () => {
     const d = freshDir();
-    await waitForDaemonExit(undefined, path.join(d, "absent.sock"), 500, 10);
+    await waitForDaemonExit(undefined, daemonEndpoint(d), 500, 10);
   });
 
   it("ensureDaemon waits out a stopping daemon and spawns a fresh one", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     // The "old daemon": a process that takes a moment to exit, and a socket
     // that answers ping with stopping:true (as the real dispatch does).
     const oldDaemon = spawn(
@@ -870,16 +876,12 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       });
     });
     await new Promise<void>((r) => stoppingSocket.listen(sock, r));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     // Mid-shutdown the socket goes away before the process does — the gap
     // where spawning too early would die on the still-held lock.
     setTimeout(() => {
       stoppingSocket.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // already gone
-      }
+      releaseEndpoint(sock);
     }, 200);
     try {
       const ensured = await ensureDaemon({
@@ -887,7 +889,11 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         daemonScript: resolveDaemonScriptPath(),
       });
       expect(ensured.spawned).toBe(true);
-      await callDaemon("daemon/stop", {}, { socketPath: ensured.socketPath });
+      await callDaemon(
+        "daemon/stop",
+        {},
+        { socketPath: ensured.socketPath, dir: d },
+      );
       await new Promise((r) => setTimeout(r, 150));
     } finally {
       oldDaemon.kill();
@@ -949,7 +955,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       "ensureDaemon refuses a running daemon reporting %s",
       async (_label, extra, named) => {
         const d = freshDir();
-        const sock = path.join(d, "mcpdod.sock");
+        const sock = daemonEndpoint(d);
         const old = await fakeDaemon(sock, {
           pong: true,
           pid: process.pid,
@@ -974,7 +980,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       // concurrent first invocation from another release can win the lock.
       // This "daemon" binds the socket and reports another release.
       const d = freshDir();
-      const sock = path.join(d, "mcpdod.sock");
+      const sock = daemonEndpoint(d);
       const script = path.join(d, "other-release-daemon.mjs");
       fs.writeFileSync(
         script,
@@ -1012,7 +1018,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
     it("ensureDaemon reuses a running daemon of the same release", async () => {
       const d = freshDir();
-      const sock = path.join(d, "mcpdod.sock");
+      const sock = daemonEndpoint(d);
       const root = JSON.parse(
         fs.readFileSync(
           new URL("../../../package.json", import.meta.url),
@@ -1084,13 +1090,13 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     // connections is owned by a live process. ensureDaemon must never unlink
     // it and install a replacement daemon — it must surface the ping failure.
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const occupant = net.createServer((socket) => {
       socket.on("error", () => {});
       socket.end();
     });
     await new Promise<void>((resolve) => occupant.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       await expect(
         ensureDaemon({ dir: d, daemonScript: resolveDaemonScriptPath() }),
@@ -1121,6 +1127,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
       {},
       {
         socketPath: server.socketPath,
+        dir: d,
         token: "good",
       },
     );
@@ -1191,27 +1198,23 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
 
   it("callDaemon fails immediately when the peer closes without a response", async () => {
     const d = freshDir();
-    const sock = path.join(d, "mcpdod.sock");
+    const sock = daemonEndpoint(d);
     const peer = net.createServer((socket) => {
       socket.on("error", () => {});
       // Accept then FIN with no NDJSON reply.
       socket.end();
     });
     await new Promise<void>((resolve) => peer.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(d);
     try {
       await expect(
-        callDaemon("ping", {}, { socketPath: sock, timeoutMs: 60_000 }),
+        callDaemon("ping", {}, { socketPath: sock, dir: d, timeoutMs: 60_000 }),
       ).rejects.toMatchObject({
         envelope: { code: "daemon_unreachable" },
       });
     } finally {
       peer.close();
-      try {
-        fs.unlinkSync(sock);
-      } catch {
-        // ignore
-      }
+      releaseEndpoint(sock);
     }
   });
 
@@ -1227,7 +1230,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
         serverConfig: { type: "stdio", command, args },
         serverIdentity: "s",
       },
-      { socketPath: server.socketPath, timeoutMs: 15000 },
+      { socketPath: server.socketPath, dir: server.dir, timeoutMs: 15000 },
     );
     const token = readDaemonTokenFile(d);
     const used = await server.handle({
@@ -1267,7 +1270,7 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
     await callDaemon(
       "disconnect",
       { name: "s" },
-      { socketPath: server.socketPath },
+      { socketPath: server.socketPath, dir: server.dir },
     );
     // Idle timer armed — remaining countdown is positive and ≤ configured idleMs.
     const remaining = server.registry.idleRemainingMs();
@@ -1277,26 +1280,14 @@ describe.skipIf(unixDaemonOnly)("daemon coverage", () => {
   });
 });
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("mcp connection coverage", () => {
+describe("mcp connection coverage", () => {
   let configPath: string | undefined;
   let storageDir: string | undefined;
 
   afterEach(async () => {
     if (storageDir) {
-      const socketPath = path.join(storageDir, "mcpdod.sock");
-      if (fs.existsSync(socketPath)) {
-        try {
-          await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
-        } catch {
-          // ignore
-        }
-        const deadline = Date.now() + 2000;
-        while (fs.existsSync(socketPath) && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 50));
-        }
-      }
-      fs.rmSync(storageDir, { recursive: true, force: true });
+      await stopDaemonIn(storageDir);
+      removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

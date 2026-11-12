@@ -15,7 +15,6 @@ import {
   deleteConfigFile,
 } from "../../cli/__tests__/helpers/fixtures.js";
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
-import { callDaemon } from "../src/daemon/client.js";
 import { resolveLoadFlags } from "../src/connection/load-flags.js";
 import { formatLoadSummaryHuman } from "../src/connection/format-human.js";
 import { writeRpcOutcome } from "../src/connection/dispatch.js";
@@ -26,7 +25,7 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import { EXIT_CODES } from "@inspector/core/cli/error-handler.js";
 import { PLAIN } from "@inspector/core/cli/style.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { removeDaemonDir, stopDaemonIn } from "./helpers/daemon-endpoint.js";
 
 /**
  * `mcpdo tools/call --load` (#2744): the flag rules, the summary rendering,
@@ -994,56 +993,387 @@ const DAEMON_COMMAND_MS = 20_000;
  */
 const DAEMON_TEST_MS = 3 * DAEMON_COMMAND_MS + 5_000;
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)(
-  "mcpdo tools/call --load",
-  { timeout: DAEMON_TEST_MS },
-  () => {
-    let configPath: string | undefined;
-    let storageDir: string | undefined;
+describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
+  let configPath: string | undefined;
+  let storageDir: string | undefined;
 
-    afterEach(async () => {
-      if (storageDir) {
-        const socketPath = path.join(storageDir, "mcpdod.sock");
-        if (fs.existsSync(socketPath)) {
-          try {
-            await callDaemon(
-              "daemon/stop",
-              {},
-              { socketPath, timeoutMs: 2000 },
-            );
-          } catch {
-            // already stopped
-          }
-        }
-        fs.rmSync(storageDir, { recursive: true, force: true });
-        storageDir = undefined;
-      }
-      if (configPath) {
-        deleteConfigFile(configPath);
-        configPath = undefined;
-      }
+  afterEach(async () => {
+    if (storageDir) {
+      await stopDaemonIn(storageDir);
+      removeDaemonDir(storageDir);
+      storageDir = undefined;
+    }
+    if (configPath) {
+      deleteConfigFile(configPath);
+      configPath = undefined;
+    }
+  });
+
+  function env(): Record<string, string> {
+    storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-load-e2e-"));
+    return {
+      MCP_STORAGE_DIR: storageDir,
+      MCP_INSPECTOR_DAEMON_DIR: storageDir,
+      MCP_ALLOW_DEFAULT_CONNECTION: "1",
+    };
+  }
+
+  it("loads a tool over a live connection and leaves it usable", async () => {
+    configPath = createSampleTestConfig();
+    const e = env();
+    expectCliSuccess(
+      await runMcp(["connect", "test-stdio", "--config", configPath], {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      }),
+    );
+
+    const loaded = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-requests",
+        "12",
+        "--load-concurrency",
+        "3",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(loaded);
+    expect(JSON.parse(loaded.stdout)).toMatchObject({
+      tool: "echo",
+      concurrency: 3,
+      requestLimit: 12,
+      requests: 12,
+      ok: 12,
+      errors: 0,
+      errorRate: 0,
     });
 
-    function env(): Record<string, string> {
-      storageDir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-load-e2e-"));
-      return {
-        MCP_STORAGE_DIR: storageDir,
-        MCP_INSPECTOR_DAEMON_DIR: storageDir,
-        MCP_ALLOW_DEFAULT_CONNECTION: "1",
-      };
-    }
+    // The queue slot is released: an ordinary call runs afterwards.
+    expectCliSuccess(
+      await runMcp(
+        ["tools/call", "echo", "message:=after", "--format", "json"],
+        {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        },
+      ),
+    );
+  });
 
-    it("loads a tool over a live connection and leaves it usable", async () => {
-      configPath = createSampleTestConfig();
+  it("fails before loading when the tool does not exist", async () => {
+    configPath = createSampleTestConfig();
+    const e = env();
+    expectCliSuccess(
+      await runMcp(["connect", "test-stdio", "--config", configPath], {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      }),
+    );
+    const result = await runMcp(
+      ["tools/call", "no_such_tool", "--load", "--load-requests", "2"],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expect(result.exitCode).toBe(5);
+    expect(result.stderr).toContain("Tool 'no_such_tool' not found on server.");
+  });
+
+  it("runs a --load-scenario mix over a live connection (#2839)", async () => {
+    const e = env();
+    await connectStdio(e);
+    const dir = fs.mkdtempSync(path.join(storageDir!, "scenario-"));
+    const file = path.join(dir, "scenario.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify([
+        { method: "tools/call", tool: "echo", args: { message: "hi" } },
+        { method: "resources/read", uri: "test://env" },
+      ]),
+    );
+    const result = await runMcp(
+      [
+        "tools/call",
+        "--load",
+        "--load-scenario",
+        file,
+        "--load-requests",
+        "6",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(result);
+    const summary = JSON.parse(result.stdout) as LoadSummary;
+    expect(summary).toMatchObject({ requests: 6, ok: 6 });
+    expect(summary.steps!.map((s) => [s.name, s.ok])).toEqual([
+      ["tools/call echo", 3],
+      ["resources/read test://env", 3],
+    ]);
+  });
+
+  it("sends --load-args-file rows through the daemon (#2840)", async () => {
+    const e = env();
+    await connectStdio(e);
+    const file = path.join(storageDir!, "args.ndjson");
+    // Every second row breaks echo's `message: string` schema, so the
+    // failure count shows the rows reached the daemon's calls.
+    fs.writeFileSync(file, '{"message":"ok-{{seq}}"}\n{"message":5}\n');
+    const result = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "--load",
+        "--load-args-file",
+        file,
+        "--load-requests",
+        "4",
+        "--load-concurrency",
+        "1",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(result);
+    const summary = JSON.parse(result.stdout) as LoadSummary;
+    expect(summary.requests).toBe(4);
+    expect(summary.ok).toBe(2);
+    expect(summary.toolErrors + summary.errors).toBe(2);
+  });
+
+  it("runs --load-steps over a live connection (#2841)", async () => {
+    const e = env();
+    await connectStdio(e);
+    const result = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-steps",
+        "1,2",
+        "--load-step-duration",
+        "0.2",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(result);
+    const summary = JSON.parse(result.stdout) as LoadSummary;
+    expect(summary.stages!.map((s) => [s.stage, s.level])).toEqual([
+      [1, 1],
+      [2, 2],
+    ]);
+    expect(summary.requests).toBeGreaterThan(0);
+  });
+
+  it("shows progress on stderr in text mode only (#2838)", async () => {
+    const e = env();
+    await connectStdio(e);
+    const args = [
+      "tools/call",
+      "echo",
+      "message:=hi",
+      "--load",
+      "--load-duration",
+      "0.4",
+      "--load-progress",
+      "0.1",
+      "--load-interval",
+      "0.2",
+    ];
+    const text = await runMcp(args, { env: e, timeout: DAEMON_COMMAND_MS });
+    expectCliSuccess(text);
+    expect(text.stderr).toMatch(/\[load \d+\.\ds\] \d+ calls/);
+    const json = await runMcp([...args, "--format", "json"], {
+      env: e,
+      timeout: DAEMON_COMMAND_MS,
+    });
+    expectCliSuccess(json);
+    expect(json.stderr).not.toContain("[load");
+    const summary = JSON.parse(json.stdout) as LoadSummary;
+    expect(summary.intervals!.length).toBeGreaterThanOrEqual(2);
+    // A backed-up stderr drops the advisory lines rather than queue them.
+    Object.defineProperty(process.stderr, "writableNeedDrain", {
+      configurable: true,
+      get: () => true,
+    });
+    try {
+      const drained = await runMcp(args, {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      });
+      expectCliSuccess(drained);
+      expect(drained.stderr).not.toContain("[load");
+    } finally {
+      delete (process.stderr as { writableNeedDrain?: boolean })
+        .writableNeedDrain;
+    }
+  });
+
+  async function connectStdio(e: Record<string, string>): Promise<void> {
+    configPath = createSampleTestConfig();
+    expectCliSuccess(
+      await runMcp(["connect", "test-stdio", "--config", configPath], {
+        env: e,
+        timeout: DAEMON_COMMAND_MS,
+      }),
+    );
+  }
+
+  it("warns on stderr when a --load-rate run falls short (#2837)", async () => {
+    const e = env();
+    await connectStdio(e);
+    // No single worker starts 100k calls a second.
+    const result = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-rate",
+        "100000",
+        "--load-concurrency",
+        "1",
+        "--load-duration",
+        "0.3",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expectCliSuccess(result);
+    const summary = JSON.parse(result.stdout);
+    expect(summary).toMatchObject({ rate: 100000, plannedStarts: 30000 });
+    expect(summary.droppedSlots).toBeGreaterThan(0);
+    expect(result.stderr).toContain("Warning: --load-rate 100000/s");
+  });
+
+  it("prints the summary, then fails a breached threshold with the CLI's code", async () => {
+    const e = env();
+    await connectStdio(e);
+    // A real call never completes in a microsecond, so this p99 always fails.
+    const breached = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "message:=hi",
+        "--load",
+        "--load-requests",
+        "4",
+        "--load-max-p99",
+        "0.001",
+        "--format",
+        "json",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expect(breached.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
+    expect(JSON.parse(breached.stdout)).toMatchObject({ requests: 4, ok: 4 });
+    expect(breached.stderr).toContain("load_p99_exceeded");
+
+    // A threshold the run meets leaves the exit code alone.
+    expectCliSuccess(
+      await runMcp(
+        [
+          "tools/call",
+          "echo",
+          "message:=hi",
+          "--load",
+          "--load-requests",
+          "4",
+          "--load-max-error-rate",
+          "0",
+        ],
+        { env: e, timeout: DAEMON_COMMAND_MS },
+      ),
+    );
+  });
+
+  it("compares against a saved baseline and fails a regression (#2910)", async () => {
+    const e = env();
+    await connectStdio(e);
+    const run = [
+      "tools/call",
+      "echo",
+      "message:=hi",
+      "--load",
+      "--load-requests",
+      "4",
+      "--load-concurrency",
+      "1",
+      "--format",
+      "json",
+    ];
+    const saved = await runMcp(run, { env: e, timeout: DAEMON_COMMAND_MS });
+    expectCliSuccess(saved);
+    const baselinePath = path.join(storageDir!, "baseline.json");
+    fs.writeFileSync(baselinePath, saved.stdout);
+    const compared = await runMcp([...run, "--load-baseline", baselinePath], {
+      env: e,
+      timeout: DAEMON_COMMAND_MS,
+    });
+    expectCliSuccess(compared);
+    expect(compared.stderr).toContain(`Baseline ${baselinePath}: p50 `);
+
+    // A baseline no real call can match: microsecond latencies.
+    const fast = JSON.parse(saved.stdout) as LoadSummary;
+    fast.latencyMs = { ...fast.latencyMs!, p50: 0.001, p99: 0.001 };
+    fs.writeFileSync(baselinePath, JSON.stringify(fast));
+    const regressed = await runMcp(
+      [...run, "--load-baseline", baselinePath, "--load-max-regression", "10%"],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expect(regressed.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
+    expect(JSON.parse(regressed.stdout)).toMatchObject({ requests: 4 });
+    expect(regressed.stderr).toContain("load_regression");
+  });
+
+  it("refuses more than one session over stdio", async () => {
+    const e = env();
+    await connectStdio(e);
+    const result = await runMcp(
+      [
+        "tools/call",
+        "echo",
+        "--load",
+        "--load-requests",
+        "2",
+        "--load-connections",
+        "2",
+      ],
+      { env: e, timeout: DAEMON_COMMAND_MS },
+    );
+    expect(result.exitCode).toBe(EXIT_CODES.USAGE);
+    expect(result.stderr).toContain(
+      "--load-connections above 1 requires an HTTP or SSE connection",
+    );
+  });
+
+  it("spreads a run over extra sessions that never become connections", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-sessions", "1.0.0"),
+      tools: [createEchoTool()],
+    });
+    try {
+      await server.start();
+      configPath = createTestConfig({
+        mcpServers: { remote: { type: "streamable-http", url: server.url } },
+      });
       const e = env();
       expectCliSuccess(
-        await runMcp(["connect", "test-stdio", "--config", configPath], {
+        await runMcp(["connect", "remote", "--config", configPath], {
           env: e,
           timeout: DAEMON_COMMAND_MS,
         }),
       );
-
       const loaded = await runMcp(
         [
           "tools/call",
@@ -1051,8 +1381,10 @@ describe.skipIf(unixDaemonOnly)(
           "message:=hi",
           "--load",
           "--load-requests",
-          "12",
+          "9",
           "--load-concurrency",
+          "3",
+          "--load-connections",
           "3",
           "--format",
           "json",
@@ -1061,224 +1393,119 @@ describe.skipIf(unixDaemonOnly)(
       );
       expectCliSuccess(loaded);
       expect(JSON.parse(loaded.stdout)).toMatchObject({
-        tool: "echo",
-        concurrency: 3,
-        requestLimit: 12,
-        requests: 12,
-        ok: 12,
+        requests: 9,
+        ok: 9,
         errors: 0,
-        errorRate: 0,
+        connections: { requested: 3, opened: 3, failed: 0 },
       });
 
-      // The queue slot is released: an ordinary call runs afterwards.
-      expectCliSuccess(
-        await runMcp(
-          ["tools/call", "echo", "message:=after", "--format", "json"],
-          {
-            env: e,
-            timeout: DAEMON_COMMAND_MS,
-          },
-        ),
-      );
-    });
-
-    it("fails before loading when the tool does not exist", async () => {
-      configPath = createSampleTestConfig();
-      const e = env();
-      expectCliSuccess(
-        await runMcp(["connect", "test-stdio", "--config", configPath], {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        }),
-      );
-      const result = await runMcp(
-        ["tools/call", "no_such_tool", "--load", "--load-requests", "2"],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expect(result.exitCode).toBe(5);
-      expect(result.stderr).toContain(
-        "Tool 'no_such_tool' not found on server.",
-      );
-    });
-
-    it("runs a --load-scenario mix over a live connection (#2839)", async () => {
-      const e = env();
-      await connectStdio(e);
-      const dir = fs.mkdtempSync(path.join(storageDir!, "scenario-"));
-      const file = path.join(dir, "scenario.json");
-      fs.writeFileSync(
-        file,
-        JSON.stringify([
-          { method: "tools/call", tool: "echo", args: { message: "hi" } },
-          { method: "resources/read", uri: "test://env" },
-        ]),
-      );
-      const result = await runMcp(
-        [
-          "tools/call",
-          "--load",
-          "--load-scenario",
-          file,
-          "--load-requests",
-          "6",
-          "--format",
-          "json",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expectCliSuccess(result);
-      const summary = JSON.parse(result.stdout) as LoadSummary;
-      expect(summary).toMatchObject({ requests: 6, ok: 6 });
-      expect(summary.steps!.map((s) => [s.name, s.ok])).toEqual([
-        ["tools/call echo", 3],
-        ["resources/read test://env", 3],
-      ]);
-    });
-
-    it("sends --load-args-file rows through the daemon (#2840)", async () => {
-      const e = env();
-      await connectStdio(e);
-      const file = path.join(storageDir!, "args.ndjson");
-      // Every second row breaks echo's `message: string` schema, so the
-      // failure count shows the rows reached the daemon's calls.
-      fs.writeFileSync(file, '{"message":"ok-{{seq}}"}\n{"message":5}\n');
-      const result = await runMcp(
-        [
-          "tools/call",
-          "echo",
-          "--load",
-          "--load-args-file",
-          file,
-          "--load-requests",
-          "4",
-          "--load-concurrency",
-          "1",
-          "--format",
-          "json",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expectCliSuccess(result);
-      const summary = JSON.parse(result.stdout) as LoadSummary;
-      expect(summary.requests).toBe(4);
-      expect(summary.ok).toBe(2);
-      expect(summary.toolErrors + summary.errors).toBe(2);
-    });
-
-    it("runs --load-steps over a live connection (#2841)", async () => {
-      const e = env();
-      await connectStdio(e);
-      const result = await runMcp(
-        [
-          "tools/call",
-          "echo",
-          "message:=hi",
-          "--load",
-          "--load-steps",
-          "1,2",
-          "--load-step-duration",
-          "0.2",
-          "--format",
-          "json",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expectCliSuccess(result);
-      const summary = JSON.parse(result.stdout) as LoadSummary;
-      expect(summary.stages!.map((s) => [s.stage, s.level])).toEqual([
-        [1, 1],
-        [2, 2],
-      ]);
-      expect(summary.requests).toBeGreaterThan(0);
-    });
-
-    it("shows progress on stderr in text mode only (#2838)", async () => {
-      const e = env();
-      await connectStdio(e);
-      const args = [
-        "tools/call",
-        "echo",
-        "message:=hi",
-        "--load",
-        "--load-duration",
-        "0.4",
-        "--load-progress",
-        "0.1",
-        "--load-interval",
-        "0.2",
-      ];
-      const text = await runMcp(args, { env: e, timeout: DAEMON_COMMAND_MS });
-      expectCliSuccess(text);
-      expect(text.stderr).toMatch(/\[load \d+\.\ds\] \d+ calls/);
-      const json = await runMcp([...args, "--format", "json"], {
+      // The extras belonged to the run: only the connection itself is listed.
+      const listed = await runMcp(["connections/list", "--format", "json"], {
         env: e,
         timeout: DAEMON_COMMAND_MS,
       });
-      expectCliSuccess(json);
-      expect(json.stderr).not.toContain("[load");
-      const summary = JSON.parse(json.stdout) as LoadSummary;
-      expect(summary.intervals!.length).toBeGreaterThanOrEqual(2);
-      // A backed-up stderr drops the advisory lines rather than queue them.
-      Object.defineProperty(process.stderr, "writableNeedDrain", {
-        configurable: true,
-        get: () => true,
-      });
-      try {
-        const drained = await runMcp(args, {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        });
-        expectCliSuccess(drained);
-        expect(drained.stderr).not.toContain("[load");
-      } finally {
-        delete (process.stderr as { writableNeedDrain?: boolean })
-          .writableNeedDrain;
-      }
-    });
-
-    async function connectStdio(e: Record<string, string>): Promise<void> {
-      configPath = createSampleTestConfig();
-      expectCliSuccess(
-        await runMcp(["connect", "test-stdio", "--config", configPath], {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        }),
-      );
+      expectCliSuccess(listed);
+      expect(
+        (
+          JSON.parse(listed.stdout) as { connections: { name: string }[] }
+        ).connections.map((c) => c.name),
+      ).toEqual(["remote"]);
+    } finally {
+      await server.stop();
     }
+  });
 
-    it("warns on stderr when a --load-rate run falls short (#2837)", async () => {
+  it("fans a triggered update out to subscribed sessions (#2913)", async () => {
+    const URI = "test://fanout";
+    const subscribed: TestServerContext[] = [];
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-fanout", "1.0.0"),
+      subscriptions: true,
+      resources: [{ uri: URI, name: "fanout", text: "v" }],
+      onResourceSubscribe: (_uri, context) => subscribed.push(context),
+      tools: [
+        {
+          name: "bump",
+          description: "Updates the resource",
+          inputSchema: {},
+          handler: async () => {
+            await Promise.all(
+              subscribed.map((c) =>
+                c.server.server
+                  .sendResourceUpdated({ uri: URI })
+                  .catch(() => {}),
+              ),
+            );
+            return { content: [{ type: "text", text: "bumped" }] };
+          },
+        },
+      ],
+    });
+    try {
+      await server.start();
+      configPath = createTestConfig({
+        mcpServers: { remote: { type: "streamable-http", url: server.url } },
+      });
       const e = env();
-      await connectStdio(e);
-      // No single worker starts 100k calls a second.
-      const result = await runMcp(
+      expectCliSuccess(
+        await runMcp(["connect", "remote", "--config", configPath], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        }),
+      );
+      const loaded = await runMcp(
         [
           "tools/call",
-          "echo",
-          "message:=hi",
+          "bump",
           "--load",
-          "--load-rate",
-          "100000",
-          "--load-concurrency",
+          "--load-requests",
+          "2",
+          "--load-subscribe",
+          URI,
+          "--load-subscribers",
+          "2",
+          "--load-subscribe-wait",
           "1",
-          "--load-duration",
-          "0.3",
           "--format",
           "json",
         ],
         { env: e, timeout: DAEMON_COMMAND_MS },
       );
-      expectCliSuccess(result);
-      const summary = JSON.parse(result.stdout);
-      expect(summary).toMatchObject({ rate: 100000, plannedStarts: 30000 });
-      expect(summary.droppedSlots).toBeGreaterThan(0);
-      expect(result.stderr).toContain("Warning: --load-rate 100000/s");
-    });
+      expectCliSuccess(loaded);
+      expect(JSON.parse(loaded.stdout)).toMatchObject({
+        requests: 2,
+        ok: 2,
+        fanout: {
+          mode: "triggered",
+          subscribed: 2,
+          updates: 2,
+          delivered: 4,
+          missed: 0,
+        },
+      });
+    } finally {
+      await server.stop();
+    }
+  });
 
-    it("prints the summary, then fails a breached threshold with the CLI's code", async () => {
+  it("churns sessions that never become connections (#2912)", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("load-churn", "1.0.0"),
+      tools: [createEchoTool()],
+    });
+    try {
+      await server.start();
+      configPath = createTestConfig({
+        mcpServers: { remote: { type: "streamable-http", url: server.url } },
+      });
       const e = env();
-      await connectStdio(e);
-      // A real call never completes in a microsecond, so this p99 always fails.
-      const breached = await runMcp(
+      expectCliSuccess(
+        await runMcp(["connect", "remote", "--config", configPath], {
+          env: e,
+          timeout: DAEMON_COMMAND_MS,
+        }),
+      );
+      const loaded = await runMcp(
         [
           "tools/call",
           "echo",
@@ -1286,311 +1513,59 @@ describe.skipIf(unixDaemonOnly)(
           "--load",
           "--load-requests",
           "4",
-          "--load-max-p99",
-          "0.001",
+          "--load-concurrency",
+          "1",
+          "--load-churn",
           "--format",
           "json",
         ],
         { env: e, timeout: DAEMON_COMMAND_MS },
       );
-      expect(breached.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
-      expect(JSON.parse(breached.stdout)).toMatchObject({ requests: 4, ok: 4 });
-      expect(breached.stderr).toContain("load_p99_exceeded");
-
-      // A threshold the run meets leaves the exit code alone.
-      expectCliSuccess(
-        await runMcp(
-          [
-            "tools/call",
-            "echo",
-            "message:=hi",
-            "--load",
-            "--load-requests",
-            "4",
-            "--load-max-error-rate",
-            "0",
-          ],
-          { env: e, timeout: DAEMON_COMMAND_MS },
-        ),
-      );
-    });
-
-    it("compares against a saved baseline and fails a regression (#2910)", async () => {
-      const e = env();
-      await connectStdio(e);
-      const run = [
-        "tools/call",
-        "echo",
-        "message:=hi",
-        "--load",
-        "--load-requests",
-        "4",
-        "--load-concurrency",
-        "1",
-        "--format",
-        "json",
-      ];
-      const saved = await runMcp(run, { env: e, timeout: DAEMON_COMMAND_MS });
-      expectCliSuccess(saved);
-      const baselinePath = path.join(storageDir!, "baseline.json");
-      fs.writeFileSync(baselinePath, saved.stdout);
-      const compared = await runMcp([...run, "--load-baseline", baselinePath], {
+      expectCliSuccess(loaded);
+      expect(JSON.parse(loaded.stdout)).toMatchObject({
+        requests: 4,
+        ok: 4,
+        churn: { callsPerSession: 1, opened: 4, failed: 0 },
+      });
+      const listed = await runMcp(["connections/list", "--format", "json"], {
         env: e,
         timeout: DAEMON_COMMAND_MS,
       });
-      expectCliSuccess(compared);
-      expect(compared.stderr).toContain(`Baseline ${baselinePath}: p50 `);
+      expect(
+        (
+          JSON.parse(listed.stdout) as { connections: { name: string }[] }
+        ).connections.map((c) => c.name),
+      ).toEqual(["remote"]);
+    } finally {
+      await server.stop();
+    }
+  });
 
-      // A baseline no real call can match: microsecond latencies.
-      const fast = JSON.parse(saved.stdout) as LoadSummary;
-      fast.latencyMs = { ...fast.latencyMs!, p50: 0.001, p99: 0.001 };
-      fs.writeFileSync(baselinePath, JSON.stringify(fast));
-      const regressed = await runMcp(
-        [
-          ...run,
-          "--load-baseline",
-          baselinePath,
-          "--load-max-regression",
-          "10%",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expect(regressed.exitCode).toBe(EXIT_CODES.LOAD_THRESHOLD_EXCEEDED);
-      expect(JSON.parse(regressed.stdout)).toMatchObject({ requests: 4 });
-      expect(regressed.stderr).toContain("load_regression");
-    });
-
-    it("refuses more than one session over stdio", async () => {
-      const e = env();
-      await connectStdio(e);
-      const result = await runMcp(
-        [
-          "tools/call",
-          "echo",
-          "--load",
-          "--load-requests",
-          "2",
-          "--load-connections",
-          "2",
-        ],
-        { env: e, timeout: DAEMON_COMMAND_MS },
-      );
-      expect(result.exitCode).toBe(EXIT_CODES.USAGE);
-      expect(result.stderr).toContain(
-        "--load-connections above 1 requires an HTTP or SSE connection",
-      );
-    });
-
-    it("spreads a run over extra sessions that never become connections", async () => {
-      const server = createTestServerHttp({
-        serverInfo: createTestServerInfo("load-sessions", "1.0.0"),
-        tools: [createEchoTool()],
-      });
-      try {
-        await server.start();
-        configPath = createTestConfig({
-          mcpServers: { remote: { type: "streamable-http", url: server.url } },
-        });
-        const e = env();
-        expectCliSuccess(
-          await runMcp(["connect", "remote", "--config", configPath], {
-            env: e,
-            timeout: DAEMON_COMMAND_MS,
-          }),
-        );
-        const loaded = await runMcp(
-          [
-            "tools/call",
-            "echo",
-            "message:=hi",
-            "--load",
-            "--load-requests",
-            "9",
-            "--load-concurrency",
-            "3",
-            "--load-connections",
-            "3",
-            "--format",
-            "json",
-          ],
-          { env: e, timeout: DAEMON_COMMAND_MS },
-        );
-        expectCliSuccess(loaded);
-        expect(JSON.parse(loaded.stdout)).toMatchObject({
-          requests: 9,
-          ok: 9,
-          errors: 0,
-          connections: { requested: 3, opened: 3, failed: 0 },
-        });
-
-        // The extras belonged to the run: only the connection itself is listed.
-        const listed = await runMcp(["connections/list", "--format", "json"], {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        });
-        expectCliSuccess(listed);
-        expect(
-          (
-            JSON.parse(listed.stdout) as { connections: { name: string }[] }
-          ).connections.map((c) => c.name),
-        ).toEqual(["remote"]);
-      } finally {
-        await server.stop();
-      }
-    });
-
-    it("fans a triggered update out to subscribed sessions (#2913)", async () => {
-      const URI = "test://fanout";
-      const subscribed: TestServerContext[] = [];
-      const server = createTestServerHttp({
-        serverInfo: createTestServerInfo("load-fanout", "1.0.0"),
-        subscriptions: true,
-        resources: [{ uri: URI, name: "fanout", text: "v" }],
-        onResourceSubscribe: (_uri, context) => subscribed.push(context),
-        tools: [
-          {
-            name: "bump",
-            description: "Updates the resource",
-            inputSchema: {},
-            handler: async () => {
-              await Promise.all(
-                subscribed.map((c) =>
-                  c.server.server
-                    .sendResourceUpdated({ uri: URI })
-                    .catch(() => {}),
-                ),
-              );
-              return { content: [{ type: "text", text: "bumped" }] };
-            },
-          },
-        ],
-      });
-      try {
-        await server.start();
-        configPath = createTestConfig({
-          mcpServers: { remote: { type: "streamable-http", url: server.url } },
-        });
-        const e = env();
-        expectCliSuccess(
-          await runMcp(["connect", "remote", "--config", configPath], {
-            env: e,
-            timeout: DAEMON_COMMAND_MS,
-          }),
-        );
-        const loaded = await runMcp(
-          [
-            "tools/call",
-            "bump",
-            "--load",
-            "--load-requests",
-            "2",
-            "--load-subscribe",
-            URI,
-            "--load-subscribers",
-            "2",
-            "--load-subscribe-wait",
-            "1",
-            "--format",
-            "json",
-          ],
-          { env: e, timeout: DAEMON_COMMAND_MS },
-        );
-        expectCliSuccess(loaded);
-        expect(JSON.parse(loaded.stdout)).toMatchObject({
-          requests: 2,
-          ok: 2,
-          fanout: {
-            mode: "triggered",
-            subscribed: 2,
-            updates: 2,
-            delivered: 4,
-            missed: 0,
-          },
-        });
-      } finally {
-        await server.stop();
-      }
-    });
-
-    it("churns sessions that never become connections (#2912)", async () => {
-      const server = createTestServerHttp({
-        serverInfo: createTestServerInfo("load-churn", "1.0.0"),
-        tools: [createEchoTool()],
-      });
-      try {
-        await server.start();
-        configPath = createTestConfig({
-          mcpServers: { remote: { type: "streamable-http", url: server.url } },
-        });
-        const e = env();
-        expectCliSuccess(
-          await runMcp(["connect", "remote", "--config", configPath], {
-            env: e,
-            timeout: DAEMON_COMMAND_MS,
-          }),
-        );
-        const loaded = await runMcp(
-          [
-            "tools/call",
-            "echo",
-            "message:=hi",
-            "--load",
-            "--load-requests",
-            "4",
-            "--load-concurrency",
-            "1",
-            "--load-churn",
-            "--format",
-            "json",
-          ],
-          { env: e, timeout: DAEMON_COMMAND_MS },
-        );
-        expectCliSuccess(loaded);
-        expect(JSON.parse(loaded.stdout)).toMatchObject({
-          requests: 4,
-          ok: 4,
-          churn: { callsPerSession: 1, opened: 4, failed: 0 },
-        });
-        const listed = await runMcp(["connections/list", "--format", "json"], {
-          env: e,
-          timeout: DAEMON_COMMAND_MS,
-        });
-        expect(
-          (
-            JSON.parse(listed.stdout) as { connections: { name: string }[] }
-          ).connections.map((c) => c.name),
-        ).toEqual(["remote"]);
-      } finally {
-        await server.stop();
-      }
-    });
-
-    it.each([
-      [
-        ["tools/call", "echo", "--load-requests", "2"],
-        "--load-requests requires --load.",
-      ],
-      [["tools/call", "--load"], "--load requires a tool name."],
-      [
-        ["tools/call", "echo", "--load", "--load-concurrency", "0"],
-        "--load-concurrency must be a positive integer.",
-      ],
-      [
-        ["tools/call", "echo", "--load-max-p99", "10"],
-        "--load-max-p99 requires --load.",
-      ],
-      [
-        ["tools/call", "echo", "--load", "--load-max-error-rate", "5"],
-        "--load-max-error-rate must be a number from 0 to 1.",
-      ],
-      [
-        ["tools/call", "echo", "--load", "--load-connections", "0"],
-        "--load-connections must be a positive integer.",
-      ],
-    ])("rejects %j before reaching a daemon", async (args, message) => {
-      const result = await runMcp(args, { env: env() });
-      expect(result.exitCode).not.toBe(0);
-      expect(result.stderr).toContain(message);
-    });
-  },
-);
+  it.each([
+    [
+      ["tools/call", "echo", "--load-requests", "2"],
+      "--load-requests requires --load.",
+    ],
+    [["tools/call", "--load"], "--load requires a tool name."],
+    [
+      ["tools/call", "echo", "--load", "--load-concurrency", "0"],
+      "--load-concurrency must be a positive integer.",
+    ],
+    [
+      ["tools/call", "echo", "--load-max-p99", "10"],
+      "--load-max-p99 requires --load.",
+    ],
+    [
+      ["tools/call", "echo", "--load", "--load-max-error-rate", "5"],
+      "--load-max-error-rate must be a number from 0 to 1.",
+    ],
+    [
+      ["tools/call", "echo", "--load", "--load-connections", "0"],
+      "--load-connections must be a positive integer.",
+    ],
+  ])("rejects %j before reaching a daemon", async (args, message) => {
+    const result = await runMcp(args, { env: env() });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(message);
+  });
+});

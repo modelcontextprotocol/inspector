@@ -10,11 +10,9 @@ import {
 } from "../../cli/__tests__/helpers/fixtures.js";
 import { expectCliSuccess } from "../../cli/__tests__/helpers/assertions.js";
 import { resolveDaemonScriptPath } from "../src/daemon/ensure.js";
-import { callDaemon } from "../src/daemon/client.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { removeDaemonDir, stopDaemonIn } from "./helpers/daemon-endpoint.js";
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("mcp connection CLI", () => {
+describe("mcp connection CLI", () => {
   let configPath: string | undefined;
   let storageDir: string | undefined;
 
@@ -25,19 +23,8 @@ describe.skipIf(unixDaemonOnly)("mcp connection CLI", () => {
 
   afterEach(async () => {
     if (storageDir) {
-      const socketPath = path.join(storageDir, "mcpdod.sock");
-      if (fs.existsSync(socketPath)) {
-        try {
-          await callDaemon("daemon/stop", {}, { socketPath, timeoutMs: 2000 });
-        } catch {
-          // already stopped
-        }
-        const deadline = Date.now() + 2000;
-        while (fs.existsSync(socketPath) && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 50));
-        }
-      }
-      fs.rmSync(storageDir, { recursive: true, force: true });
+      await stopDaemonIn(storageDir);
+      removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

@@ -12,7 +12,7 @@ import {
   getDaemonSocketPath,
 } from "../src/daemon/paths.js";
 import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { isWindows } from "./helpers/platform.js";
 
 describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};
@@ -23,6 +23,8 @@ describe("daemon paths", () => {
       "MCP_STORAGE_DIR",
       "HOME",
       "TMPDIR",
+      "TEMP",
+      "TMP",
     ]) {
       if (key in backup) {
         if (backup[key] === undefined) delete process.env[key];
@@ -38,23 +40,28 @@ describe("daemon paths", () => {
     else process.env[key] = value;
   }
 
-  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-  it.skipIf(unixDaemonOnly)(
-    "prefers MCP_INSPECTOR_DAEMON_DIR over MCP_STORAGE_DIR",
-    () => {
-      const a = path.join(os.tmpdir(), "daemon-a");
-      const b = path.join(os.tmpdir(), "daemon-b");
-      setEnv("MCP_STORAGE_DIR", b);
-      setEnv("MCP_INSPECTOR_DAEMON_DIR", a);
-      expect(getDaemonDir()).toBe(path.resolve(a));
+  it("prefers MCP_INSPECTOR_DAEMON_DIR over MCP_STORAGE_DIR", () => {
+    const a = path.join(os.tmpdir(), "daemon-a");
+    const b = path.join(os.tmpdir(), "daemon-b");
+    setEnv("MCP_STORAGE_DIR", b);
+    setEnv("MCP_INSPECTOR_DAEMON_DIR", a);
+    expect(getDaemonDir()).toBe(path.resolve(a));
+    if (isWindows) {
+      // The endpoint is a pipe keyed by the directory, not a file inside it.
+      expect(getDaemonSocketPath()).toMatch(
+        /^\\\\\.\\pipe\\mcp-conn-[0-9a-f]{16}$/,
+      );
+      expect(getDaemonSocketPath()).toBe(getDaemonSocketPath(path.resolve(a)));
+      expect(getDaemonSocketPath()).not.toBe(
+        getDaemonSocketPath(path.resolve(b)),
+      );
+    } else {
       expect(getDaemonSocketPath()).toBe(
         path.join(path.resolve(a), "mcpdod.sock"),
       );
-      expect(getDaemonLockPath()).toBe(
-        path.join(path.resolve(a), "mcpdod.lock"),
-      );
-    },
-  );
+    }
+    expect(getDaemonLockPath()).toBe(path.join(path.resolve(a), "mcpdod.lock"));
+  });
 
   it("falls back to MCP_STORAGE_DIR then ~/.mcp-inspector", () => {
     const storage = path.join(os.tmpdir(), "daemon-storage");
@@ -72,8 +79,9 @@ describe("daemon paths", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-  it.skipIf(unixDaemonOnly)(
+  // POSIX-only: asserts 0700 mode bits, and `ensureDaemonDir`'s ownership and
+  // mode checks are a no-op on Windows (no getuid, no UNIX mode semantics).
+  it.skipIf(isWindows)(
     "tightens a pre-existing loose daemon directory to 0700 and rejects symlinks",
     () => {
       // mkdirSync never re-modes an existing dir; ~/.mcp-inspector commonly
@@ -94,26 +102,25 @@ describe("daemon paths", () => {
     },
   );
 
-  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-  it.skipIf(unixDaemonOnly)(
-    "createPrivateDaemonDir nests under a short 0700 tmpdir layout",
-    () => {
-      const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
-      setEnv("TMPDIR", tmp + path.sep);
-      const dir = createPrivateDaemonDir();
-      // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that mcpdod.sock stays inside
-      // the platform sun_path limit even for macOS /var/folders tmpdirs.
-      expect(dir.startsWith(tmp)).toBe(true);
-      expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
-      expect(path.basename(path.dirname(dir))).toMatch(/^mcp-conn-/);
-      expect(fs.statSync(dir).isDirectory()).toBe(true);
-      if (process.platform !== "win32") {
-        expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
-        expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
-      }
-      fs.rmSync(tmp, { recursive: true, force: true });
-    },
-  );
+  it("createPrivateDaemonDir nests under a short 0700 tmpdir layout", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-t-"));
+    // os.tmpdir() reads TMPDIR on POSIX and TEMP/TMP on Windows.
+    setEnv("TMPDIR", tmp + path.sep);
+    setEnv("TEMP", tmp);
+    setEnv("TMP", tmp);
+    const dir = createPrivateDaemonDir();
+    // $TMPDIR/mcp-conn-<uid>/<8-hex>; short enough that mcpdod.sock stays inside
+    // the platform sun_path limit even for macOS /var/folders tmpdirs.
+    expect(dir.startsWith(tmp)).toBe(true);
+    expect(path.basename(dir)).toMatch(/^[0-9a-f]{8}$/);
+    expect(path.basename(path.dirname(dir))).toMatch(/^mcp-conn-/);
+    expect(fs.statSync(dir).isDirectory()).toBe(true);
+    if (process.platform !== "win32") {
+      expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
+      expect(fs.statSync(path.dirname(dir)).mode & 0o777).toBe(0o700);
+    }
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
 
   it("createPrivateDaemonDir refuses a symlinked mcp-conn root", () => {
     if (process.platform === "win32") return;
@@ -142,8 +149,9 @@ describe("daemon paths", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  // Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-  it.skipIf(unixDaemonOnly)(
+  // POSIX-only: `sun_path` bounds a socket FILE; Windows named pipes have no
+  // such limit, which the named-pipe case below asserts on every platform.
+  it.skipIf(isWindows)(
     "assertSocketPathWithinLimit rejects paths over the sun_path limit",
     () => {
       expect(() =>
