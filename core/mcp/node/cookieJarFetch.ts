@@ -54,7 +54,11 @@ export class ConnectionCookieJar {
   /** Insertion-ordered, so the first key is the oldest entry. */
   private readonly cookies = new Map<string, StoredCookie>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  private readonly now: () => number;
+
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   /** Number of live (unexpired) cookies. */
   get size(): number {

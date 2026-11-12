@@ -17,7 +17,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
-import { Readable } from "node:stream";
 import { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { createTransportNode } from "@inspector/core/mcp/node/transport.js";
 import type {
@@ -40,6 +39,29 @@ const SKIPPED_HEADERS = new Set([
   "transfer-encoding",
   "keep-alive",
 ]);
+
+/**
+ * Stream an upstream body to the client as it arrives, so an SSE response
+ * reaches the transport event by event. Owns its failures (an aborted
+ * upstream ends the response), so the caller may discard the promise.
+ */
+async function pipeBody(
+  body: ReadableStream<Uint8Array>,
+  res: http.ServerResponse,
+): Promise<void> {
+  const reader = body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(value);
+    }
+  } catch {
+    // Upstream aborted (the client went away); just end the response.
+  } finally {
+    res.end();
+  }
+}
 
 interface AffinityProxy {
   url: string;
@@ -89,9 +111,8 @@ async function startAffinityProxy(
             res.end();
             return;
           }
-          Readable.fromWeb(upstream.body)
-            .on("error", () => res.end())
-            .pipe(res);
+          // pipeBody owns its failures: it ends the response on any error.
+          void pipeBody(upstream.body, res);
         },
         () => {
           if (!res.headersSent) res.writeHead(502);

@@ -8,7 +8,7 @@
  * SDK transports carry the replayed cookie through a sticky load balancer — is
  * `integration/mcp/cookie-jar-affinity.test.ts`.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, type Mock } from "vitest";
 import {
   ConnectionCookieJar,
   createCookieJarFetch,
@@ -35,11 +35,10 @@ function respondWith(...setCookie: string[]): Response {
 }
 
 /** The `Cookie` header the base fetch saw on call `n` (0-based). */
-function sentCookie(
-  baseFetch: ReturnType<typeof vi.fn>,
-  n: number,
-): string | null {
-  const [input, init] = baseFetch.mock.calls[n] as Parameters<typeof fetch>;
+function sentCookie(baseFetch: Mock<typeof fetch>, n: number): string | null {
+  const call = baseFetch.mock.calls[n];
+  if (!call) throw new Error(`no fetch call ${n}`);
+  const [input, init] = call;
   const headers = new Headers(
     init?.headers ?? (input instanceof Request ? input.headers : undefined),
   );
@@ -47,7 +46,9 @@ function sentCookie(
 }
 
 function setup(responses: Response[], now: () => number = Date.now) {
-  const baseFetch = vi.fn(async () => responses.shift() ?? respondWith());
+  const baseFetch = vi.fn<typeof fetch>(
+    async () => responses.shift() ?? respondWith(),
+  );
   const jar = new ConnectionCookieJar(now);
   return {
     baseFetch,
@@ -79,7 +80,7 @@ describe("createCookieJarFetch (#2936)", () => {
     await fetchFn(new URL(SERVER.href));
     await fetchFn(new Request(SERVER.href, { headers: { "x-keep": "yes" } }));
     expect(sentCookie(baseFetch, 1)).toBe("lb=pod-a");
-    const [, init] = baseFetch.mock.calls[1] as Parameters<typeof fetch>;
+    const init = baseFetch.mock.calls[1]?.[1];
     expect(new Headers(init?.headers).get("x-keep")).toBe("yes");
   });
 
