@@ -83,7 +83,10 @@ export async function stopDaemonIn(
   try {
     ({ pid } = await callDaemon<{ pid?: number }>("ping", {}, options));
   } catch {
-    // unreachable: a stale token left by a daemon that died
+    // Nothing answers (a daemon answers `ping` even while stopping): the
+    // token is stale — a closed fake's, or a dead daemon's — and there is no
+    // shutdown to wait for. A process still draining is removeDaemonDir's.
+    return;
   }
   try {
     await callDaemon("daemon/stop", {}, options);
