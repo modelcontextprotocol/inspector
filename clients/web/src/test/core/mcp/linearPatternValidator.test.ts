@@ -263,6 +263,42 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () 
       'data must match pattern "^(a{9000}|z)$"',
     );
   });
+
+  it("does not carry a pattern declined for one schema's budget into a later schema (#2934)", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const heavy: JsonSchemaType = {
+      type: "object",
+      properties: {
+        ...properties,
+        late: { type: "string", pattern: "^[a-z]+$" },
+      },
+    };
+    expect(
+      provider.getValidator(heavy)({ late: "abc" }).errorMessage,
+    ).toContain(
+      'pattern "^[a-z]+$" was not evaluated (the patterns together exceed the compilation budget)',
+    );
+
+    const validate = provider.getValidator({
+      type: "string",
+      pattern: "^[a-z]+$",
+    });
+    expect(validate("abc")).toEqual({
+      valid: true,
+      data: "abc",
+      errorMessage: undefined,
+    });
+    expect(validate("ABC").errorMessage).toBe(
+      'data must match pattern "^[a-z]+$"',
+    );
+
+    // The heavy schema still reports its own decline.
+    expect(
+      provider.getValidator(heavy)({ late: "abc" }).errorMessage,
+    ).toContain(
+      'pattern "^[a-z]+$" was not evaluated (the patterns together exceed the compilation budget)',
+    );
+  });
 });
 
 describe("validateToolOutput with the bounded provider", () => {

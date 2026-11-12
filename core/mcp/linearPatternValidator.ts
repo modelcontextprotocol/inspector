@@ -35,6 +35,7 @@ import type {
   jsonSchemaValidator,
 } from "@modelcontextprotocol/client";
 import {
+  COMPILE_BUDGET_EXHAUSTED,
   compileLinearRegExp,
   isCompileBudgetExhausted,
   MAX_COMPILE_STEPS,
@@ -124,10 +125,32 @@ class PatternLedger {
   }
 }
 
+/**
+ * Distinguishes the cache keys of budget-declined patterns; see
+ * {@link LinearPattern.key}.
+ */
+let budgetDeclinedKeys = 0;
+
 /** The `RegExpLike` Ajv calls `.test()` on for one pattern. */
 class LinearPattern implements RegExpLike {
   private readonly source: string;
-  private readonly flags: string;
+  /**
+   * What {@link toString} returns. Ajv's `usePattern` registers each regex in
+   * the ENGINE-wide scope under `rx.toString()`, and that scope hands back the
+   * first entry registered for a key — so whatever a key first names is what
+   * every later schema on the engine tests against, whatever its own call to
+   * the regex hook produced.
+   *
+   * That sharing is right for an outcome that depends only on the pattern: a
+   * compiled program, or a decline for an unsupported construct or a pattern
+   * too long or too complex, would come out the same for any schema. It is
+   * wrong for a decline because ONE schema's compile budget ran out (#2934):
+   * shared, it would leave the pattern declined for every later schema on the
+   * engine, each of which has a budget of its own. Such a decline therefore
+   * gets a key nothing else can register, so it stays with the schema whose
+   * budget it reflects.
+   */
+  private readonly key: string;
   private readonly compiled: LinearRegExpCompilation;
   private readonly ledger: PatternLedger;
 
@@ -138,7 +161,11 @@ class LinearPattern implements RegExpLike {
     ledger: PatternLedger,
   ) {
     this.source = source;
-    this.flags = flags;
+    const shared = `/${source}/${flags}`;
+    this.key =
+      !compiled.ok && compiled.reason === COMPILE_BUDGET_EXHAUSTED
+        ? `${shared}#${++budgetDeclinedKeys}`
+        : shared;
     this.compiled = compiled;
     this.ledger = ledger;
   }
@@ -172,9 +199,9 @@ class LinearPattern implements RegExpLike {
     return true;
   }
 
-  /** Ajv keys its per-schema pattern cache on this, so it must be unique. */
+  /** Ajv's scope key for this pattern; see {@link key}. */
   toString(): string {
-    return `/${this.source}/${this.flags}`;
+    return this.key;
   }
 }
 
