@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
-import { Form } from "ink-form";
+import { GatedForm } from "./GatedForm.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/client";
@@ -41,6 +41,7 @@ interface ResourceTestModalProps {
   /**
    * False while a pending sampling/elicitation request (#2829) is open above
    * this overlay, so a key meant for that request does not also act here.
+   * Its form is unmounted meanwhile, draft kept (`GatedForm`, #2967).
    */
   inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
@@ -144,9 +145,6 @@ export function ResourceTestModal({
   );
 
   const handleFormSubmit = async (values: Record<string, string>) => {
-    // A pending sampling/elicitation request (#2829) is open above this
-    // modal: ink-form still sees its keys, so Enter must not submit here.
-    if (!inputActive) return;
     if (!inspectorClient || !template) return;
 
     // RFC 6570 keeps a required expression satisfied by any ONE of its names,
@@ -283,8 +281,9 @@ export function ResourceTestModal({
                   <Text dimColor>{template.description}</Text>
                 </Box>
               )}
-              <Form
+              <GatedForm
                 form={untitledForm(formStructure)}
+                active={inputActive}
                 onSubmit={(values: object) =>
                   handleFormSubmit(values as Record<string, string>)
                 }

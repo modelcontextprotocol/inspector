@@ -14,7 +14,8 @@
  */
 import React, { useRef, useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
-import { Form, type FormStructure } from "ink-form";
+import type { FormStructure } from "ink-form";
+import { GatedForm } from "./GatedForm.js";
 import type { Root } from "@modelcontextprotocol/client";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
@@ -58,6 +59,7 @@ interface RootsModalProps {
   /**
    * False while a pending sampling/elicitation request (#2829) is open above
    * this overlay, so a key meant for that request does not also act here.
+   * Its form is unmounted meanwhile, draft kept (`GatedForm`, #2967).
    */
   inputActive?: boolean;
 }
@@ -104,9 +106,6 @@ export function RootsModal({
   };
 
   const handleSubmit = (values: Record<string, unknown>) => {
-    // A pending sampling/elicitation request (#2829) is open above this
-    // modal: ink-form still sees its keys, so Enter must not submit here.
-    if (!inputActive) return;
     const root = rootFromForm(values);
     if ("error" in root) {
       setError(root.error);
@@ -184,8 +183,9 @@ export function RootsModal({
 
         {mode === "add" ? (
           <Box flexGrow={1} flexDirection="column">
-            <Form
+            <GatedForm
               form={ADD_ROOT_FORM}
+              active={inputActive}
               onSubmit={(values: object) =>
                 handleSubmit(values as Record<string, unknown>)
               }
