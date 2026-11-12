@@ -29,7 +29,7 @@ import {
   createDaemonHello,
 } from "../src/daemon/handshake.js";
 import type { ConnectParams } from "../src/daemon/protocol.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { daemonEndpoint } from "./helpers/daemon-endpoint.js";
 import { publishFakeDaemonToken } from "./helpers/fake-daemon.js";
 
 /** The victim's token, published in its daemon dir. */
@@ -95,9 +95,9 @@ function helloOf(line: string): { id: string; nonce: string } {
 
 const unverified = { envelope: { code: "daemon_unverified" } };
 
-// Skipped on win32: needs a Unix socket (helpers/platform.ts, #2748). The
-// handshake itself is platform-independent; Windows is the platform it is for.
-describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
+// The handshake is platform-independent, and Windows is the platform it is
+// for: a named pipe lives in a machine-wide namespace (see handshake.ts).
+describe("daemon hello handshake", () => {
   let dir: string | undefined;
   const servers: net.Server[] = [];
   let daemon: DaemonServer | undefined;
@@ -118,7 +118,12 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
 
   function freshSock(): string {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-hello-"));
-    return path.join(dir, "mcpdod.sock");
+    return daemonEndpoint(dir);
+  }
+
+  function freshDir(): string {
+    freshSock();
+    return dir!;
   }
 
   async function listenImpostor(sock: string, answer: Answer) {
@@ -201,12 +206,13 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
     "callDaemon('connect') refuses an impostor answering with %s, having sent only the hello",
     async (_label, answer) => {
       const sock = freshSock();
-      publishFakeDaemonToken(sock, VICTIM_TOKEN);
+      publishFakeDaemonToken(dir!, VICTIM_TOKEN);
       const { received } = await listenImpostor(sock, answer);
       let elicited = false;
       await expect(
         callDaemon("connect", connectParams, {
           socketPath: sock,
+          dir,
           timeoutMs: 2000,
           onElicitation: () => {
             elicited = true;
@@ -223,7 +229,7 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
     "streamDaemon refuses an impostor answering with %s, having sent only the hello",
     async (_label, answer) => {
       const sock = freshSock();
-      publishFakeDaemonToken(sock, VICTIM_TOKEN);
+      publishFakeDaemonToken(dir!, VICTIM_TOKEN);
       const { received } = await listenImpostor(sock, answer);
       const data: unknown[] = [];
       await expect(
@@ -231,6 +237,7 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
           { method: "logging/tail" },
           {
             socketPath: sock,
+            dir,
             timeoutMs: 2000,
             onData: (d) => {
               data.push(d);
@@ -253,13 +260,13 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
     delete process.env.MCP_INSPECTOR_DAEMON_TOKEN;
     try {
       await expect(
-        callDaemon("connect", connectParams, { socketPath: sock }),
+        callDaemon("connect", connectParams, { socketPath: sock, dir }),
       ).rejects.toMatchObject({
         ...unverified,
         message: expect.stringContaining("No connection daemon token found"),
       });
       await expect(
-        streamDaemon({}, { socketPath: sock, onData: () => {} }),
+        streamDaemon({}, { socketPath: sock, dir, onData: () => {} }),
       ).rejects.toMatchObject(unverified);
       // ensureDaemon finds the endpoint occupied and must not ping it.
       await expect(ensureDaemon({ dir: dir! })).rejects.toMatchObject(
@@ -276,13 +283,13 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
   it("without a token, nothing listening is still reported as unreachable", async () => {
     const sock = freshSock();
     await expect(
-      callDaemon("ping", {}, { socketPath: sock, timeoutMs: 2000 }),
+      callDaemon("ping", {}, { socketPath: sock, dir, timeoutMs: 2000 }),
     ).rejects.toMatchObject({ envelope: { code: "daemon_unreachable" } });
   });
 
   it("ensureDaemon refuses an impostor on the endpoint even with a token on disk", async () => {
     const sock = freshSock();
-    publishFakeDaemonToken(sock, VICTIM_TOKEN);
+    publishFakeDaemonToken(dir!, VICTIM_TOKEN);
     const { received } = await listenImpostor(sock, (line, socket) =>
       reply(socket, {
         id: helloOf(line).id,
@@ -295,13 +302,13 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
   });
 
   it("the genuine daemon proves its token and serves calls and streams", async () => {
-    const sock = freshSock();
-    daemon = new DaemonServer({ dir: path.dirname(sock), idleMs: 0 });
+    const d = freshDir();
+    daemon = new DaemonServer({ dir: d, idleMs: 0 });
     await daemon.start();
     const pong = await callDaemon<{ pong: boolean }>(
       "ping",
       {},
-      { socketPath: daemon.socketPath, timeoutMs: 2000 },
+      { socketPath: daemon.socketPath, dir: d, timeoutMs: 2000 },
     );
     expect(pong.pong).toBe(true);
     // A stream over an unknown connection is refused by the daemon itself —
@@ -309,13 +316,18 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
     await expect(
       streamDaemon(
         { name: "missing", method: "logging/tail" },
-        { socketPath: daemon.socketPath, timeoutMs: 2000, onData: () => {} },
+        {
+          socketPath: daemon.socketPath,
+          dir: d,
+          timeoutMs: 2000,
+          onData: () => {},
+        },
       ),
     ).rejects.not.toMatchObject(unverified);
   });
 
   it("the daemon answers hello with the HMAC of the nonce, without the token, even while stopping", async () => {
-    const d = path.dirname(freshSock());
+    const d = freshDir();
     daemon = new DaemonServer({ dir: d, idleMs: 0 });
     await daemon.start();
     const token = readDaemonTokenFile(d)!;
@@ -345,7 +357,7 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
 
   it("the daemon rejects a malformed hello nonce", async () => {
     const srv = new DaemonServer({
-      dir: path.dirname(freshSock()),
+      dir: freshDir(),
       idleMs: 0,
       requiredToken: "t",
     });
@@ -367,7 +379,7 @@ describe.skipIf(unixDaemonOnly)("daemon hello handshake", () => {
     delete process.env.MCP_INSPECTOR_DAEMON_TOKEN;
     try {
       const srv = new DaemonServer({
-        dir: path.dirname(freshSock()),
+        dir: freshDir(),
         idleMs: 0,
       });
       const answer = await srv.handle({

@@ -12,11 +12,11 @@ import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { isWindows } from "./helpers/platform.js";
+import { daemonEndpoint } from "./helpers/daemon-endpoint.js";
 import { onRequest, publishFakeDaemonToken } from "./helpers/fake-daemon.js";
 
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
+describe("streamDaemon + ipc-glue", () => {
   let dir: string | undefined;
   let server: net.Server | undefined;
   const sockets = new Set<net.Socket>();
@@ -40,7 +40,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
 
   function freshSock(): string {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-stream-"));
-    return path.join(dir, "mcpdod.sock");
+    return daemonEndpoint(dir);
   }
 
   async function listen(
@@ -54,7 +54,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       onSocket(socket);
     });
     await new Promise<void>((resolve) => server!.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(dir!);
   }
 
   it("resolves immediately on an already-aborted signal without dialing", async () => {
@@ -68,6 +68,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
         { method: "logging/tail" },
         {
           socketPath: sock,
+          dir,
           timeoutMs: 2000,
           signal: ac.signal,
           onData: () => {},
@@ -108,6 +109,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       { method: "logging/tail" },
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         onData: (d) => {
           data.push(d);
@@ -152,6 +154,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       { method: "logging/tail" },
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         // First callback stalls on the gate; the client must stop reading
         // instead of queueing further frames behind an unbounded chain.
@@ -204,6 +207,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       { method: "logging/tail" },
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         onData: (d) => {
           seen.push(d);
@@ -226,7 +230,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
+      ),
     ).rejects.toMatchObject({
       envelope: { code: "daemon_unreachable" },
     });
@@ -244,7 +251,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
+      ),
     ).rejects.toThrow();
   });
 
@@ -264,7 +274,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     });
 
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
+      ),
     ).rejects.toMatchObject({ exitCode: EXIT_CODES.USAGE });
   });
 
@@ -276,7 +289,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
+      ),
     ).rejects.toThrow();
   });
 
@@ -291,6 +307,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       {},
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         signal: ac.signal,
         onData: () => {},
@@ -314,6 +331,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       {},
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         signal: ac.signal,
         onData: () => {},
@@ -332,7 +350,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 80, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 80, onData: () => {} },
+      ),
     ).rejects.toThrow(/timed out/);
   }, 5000);
 
@@ -353,7 +374,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 0, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 0, onData: () => {} },
+      ),
     ).resolves.toBeUndefined();
   }, 5000);
 
@@ -368,7 +392,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     await expect(
       streamDaemon(
         {},
-        { socketPath: sock, timeoutMs: 60_000, onData: () => {} },
+        { socketPath: sock, dir, timeoutMs: 60_000, onData: () => {} },
       ),
     ).rejects.toMatchObject({
       envelope: { code: "daemon_unreachable" },
@@ -387,7 +411,10 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
       });
     });
     await expect(
-      streamDaemon({}, { socketPath: sock, timeoutMs: 2000, onData: () => {} }),
+      streamDaemon(
+        {},
+        { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
+      ),
     ).rejects.toMatchObject({
       envelope: { code: "daemon_unreachable" },
       message: expect.stringMatching(/closed the stream before it ended/),
@@ -398,7 +425,7 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     const sock = freshSock();
     const prevDir = process.env.MCP_INSPECTOR_DAEMON_DIR;
     const prevToken = process.env.MCP_INSPECTOR_DAEMON_TOKEN;
-    process.env.MCP_INSPECTOR_DAEMON_DIR = path.dirname(sock);
+    process.env.MCP_INSPECTOR_DAEMON_DIR = dir!;
     delete process.env.MCP_INSPECTOR_DAEMON_TOKEN;
     try {
       let seenToken: string | undefined;
@@ -451,23 +478,31 @@ describe.skipIf(unixDaemonOnly)("streamDaemon + ipc-glue", () => {
     });
     await streamDaemon(
       {},
-      { socketPath: sock, timeoutMs: 2000, onData: () => {} },
+      { socketPath: sock, dir, timeoutMs: 2000, onData: () => {} },
     );
   });
 
-  it("removeStaleDaemonSocket handles absent, dead, and live sockets", async () => {
+  it("removeStaleDaemonSocket handles absent and live endpoints", async () => {
     const sock = freshSock();
     await removeStaleDaemonSocket(sock);
-
-    fs.writeFileSync(sock, "");
-    await removeStaleDaemonSocket(sock);
-    expect(fs.existsSync(sock)).toBe(false);
 
     await listen(sock, () => {});
     await expect(removeStaleDaemonSocket(sock)).rejects.toThrow(
       /already running/,
     );
   });
+
+  // POSIX-only: a dead endpoint is a leftover socket FILE; a named pipe
+  // vanishes with its server, so Windows has nothing stale to remove.
+  it.skipIf(isWindows)(
+    "removeStaleDaemonSocket unlinks a dead socket file",
+    async () => {
+      const sock = freshSock();
+      fs.writeFileSync(sock, "");
+      await removeStaleDaemonSocket(sock);
+      expect(fs.existsSync(sock)).toBe(false);
+    },
+  );
 
   it("acceptDaemonConnection rejects invalid request lines", async () => {
     const sock = freshSock();
