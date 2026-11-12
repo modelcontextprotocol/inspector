@@ -147,7 +147,14 @@ export function createCookieJarFetch(
       );
       response = await baseFetch(input, { ...init, headers });
     }
-    jar.store(response.headers.getSetCookie());
+    // `fetch` follows redirects, so the response may come from another
+    // origin than the request; only cookies the server's own origin set are
+    // kept. An empty `url` is a synthetic response, which never left the
+    // request's origin.
+    const finalUrl = response.url ? requestUrl(response.url) : url;
+    if (finalUrl?.origin === origin) {
+      jar.store(response.headers.getSetCookie());
+    }
     return response;
   };
 }

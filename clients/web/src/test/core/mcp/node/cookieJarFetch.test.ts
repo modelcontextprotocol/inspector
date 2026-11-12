@@ -34,6 +34,13 @@ function respondWith(...setCookie: string[]): Response {
   return response;
 }
 
+/** As {@link respondWith}, but as if `fetch` followed a redirect to `url`. */
+function redirectedTo(url: string, ...setCookie: string[]): Response {
+  const response = respondWith(...setCookie);
+  Object.defineProperty(response, "url", { value: url });
+  return response;
+}
+
 /** The `Cookie` header the base fetch saw on call `n` (0-based). */
 function sentCookie(baseFetch: Mock<typeof fetch>, n: number): string | null {
   const call = baseFetch.mock.calls[n];
@@ -113,6 +120,18 @@ describe("createCookieJarFetch (#2936)", () => {
     expect(sentCookie(baseFetch, 2)).toBeNull();
     expect(sentCookie(baseFetch, 3)).toBeNull();
     expect(sentCookie(baseFetch, 4)).toBeNull();
+  });
+
+  it("ignores cookies from a response redirected to another origin", async () => {
+    const { baseFetch, fetchFn, jar } = setup([
+      redirectedTo("https://elsewhere.example.com/landing", "foreign=1"),
+      redirectedTo("https://mcp.example.com/mcp/next", "lb=pod-a"),
+    ]);
+    await fetchFn(SERVER.href);
+    expect(jar.size).toBe(0);
+    await fetchFn(SERVER.href);
+    await fetchFn(SERVER.href);
+    expect(sentCookie(baseFetch, 2)).toBe("lb=pod-a");
   });
 
   it("replays to any path on the server's origin", async () => {
