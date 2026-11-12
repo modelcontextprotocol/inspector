@@ -44,7 +44,7 @@ describe("mcpdo rate-limited request envelope", () => {
     }
     if (dir) {
       await stopDaemonIn(dir);
-      removeDaemonDir(dir);
+      await removeDaemonDir(dir);
       dir = undefined;
     }
     await throttling?.stop();

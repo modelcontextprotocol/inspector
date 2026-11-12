@@ -24,7 +24,7 @@ describe("mcp connection CLI", () => {
   afterEach(async () => {
     if (storageDir) {
       await stopDaemonIn(storageDir);
-      removeDaemonDir(storageDir);
+      await removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

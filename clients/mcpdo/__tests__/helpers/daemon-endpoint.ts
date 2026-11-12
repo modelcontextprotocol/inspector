@@ -15,8 +15,8 @@
  *   stop it, then wait for its published `mcpdod.token` and `mcpdod.lock`
  *   (present on every platform, unlike a socket file) to go AND for its
  *   process to exit.
- * - {@link removeDaemonDir} — `rmSync` with retries: a stopping daemon process
- *   still holds its `mcpdod.log` until it exits, which Windows reports as
+ * - {@link removeDaemonDir} — `rmSync`, retried while an exiting daemon still
+ *   holds the directory (its cwd, its `mcpdod.log`), which Windows reports as
  *   `EBUSY`/`EPERM` rather than letting the directory go.
  *
  * A pipe has no directory, so a client given only a pipe cannot find the
@@ -75,7 +75,7 @@ function processAlive(pid: number): boolean {
  */
 export async function stopDaemonIn(
   dir: string,
-  waitMs: number = 15_000,
+  waitMs: number = 8_000,
 ): Promise<void> {
   if (!daemonMayBeLive(dir)) return;
   const options = { socketPath: daemonEndpoint(dir), dir, timeoutMs: 2000 };
@@ -99,12 +99,37 @@ export async function stopDaemonIn(
   }
 }
 
-/** Delete a daemon directory, retrying while an exiting daemon releases it. */
-export function removeDaemonDir(dir: string): void {
-  fs.rmSync(dir, {
-    recursive: true,
-    force: true,
-    maxRetries: 10,
-    retryDelay: 100,
-  });
+/** Errors Windows reports while some process still holds the directory. */
+const HELD = new Set(["EBUSY", "EPERM", "ENOTEMPTY"]);
+
+/**
+ * Delete a daemon directory, retrying while an exiting daemon releases it.
+ *
+ * A daemon that stopped on its own — idle self-reap after a `disconnect`, or
+ * a test's own `daemon stop` — has already removed its token and lock, so
+ * {@link stopDaemonIn} has no pid to wait on, yet its process can still be
+ * draining its event loop with `dir` as its cwd (Windows: `EBUSY`). Retry
+ * until it lets go; the budget fits the shared 30s `hookTimeout` together
+ * with {@link stopDaemonIn}'s.
+ */
+export async function removeDaemonDir(
+  dir: string,
+  waitMs: number = 15_000,
+): Promise<void> {
+  const started = Date.now();
+  for (;;) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (!code || !HELD.has(code) || Date.now() - started >= waitMs) {
+        throw new Error(
+          `could not remove ${dir} after ${Date.now() - started}ms: ${String(error)}`,
+          { cause: error },
+        );
+      }
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
 }

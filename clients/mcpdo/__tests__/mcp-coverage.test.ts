@@ -36,7 +36,7 @@ describe("mcp.ts coverage", () => {
       const dir = storageDir;
       storageDir = undefined;
       await stopDaemonIn(dir);
-      removeDaemonDir(dir);
+      await removeDaemonDir(dir);
     }
     if (configPath) {
       deleteConfigFile(configPath);

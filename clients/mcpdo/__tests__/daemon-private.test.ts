@@ -124,7 +124,7 @@ describe("private daemon end-to-end", () => {
     if (dir) {
       // A daemon `ensureDaemon` spawned is a separate process.
       await stopDaemonIn(dir);
-      removeDaemonDir(dir);
+      await removeDaemonDir(dir);
       dir = undefined;
     }
   });

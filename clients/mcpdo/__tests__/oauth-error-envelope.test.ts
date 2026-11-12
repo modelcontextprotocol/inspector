@@ -25,7 +25,7 @@ describe("mcpdo oauth_error envelope", () => {
       server = undefined;
     }
     if (dir) {
-      removeDaemonDir(dir);
+      await removeDaemonDir(dir);
       dir = undefined;
     }
   });

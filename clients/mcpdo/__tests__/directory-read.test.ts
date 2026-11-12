@@ -60,7 +60,7 @@ describe("mcpdo resources/directory/read (#2767)", () => {
   afterEach(async () => {
     if (storageDir) {
       await stopDaemonIn(storageDir);
-      removeDaemonDir(storageDir);
+      await removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

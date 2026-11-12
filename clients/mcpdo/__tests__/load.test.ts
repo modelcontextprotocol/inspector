@@ -1000,7 +1000,7 @@ describe("mcpdo tools/call --load", { timeout: DAEMON_TEST_MS }, () => {
   afterEach(async () => {
     if (storageDir) {
       await stopDaemonIn(storageDir);
-      removeDaemonDir(storageDir);
+      await removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

@@ -37,7 +37,7 @@ describe("mcp non-interactive elicitation (e2e)", () => {
     }
     if (storageDir) {
       await stopDaemonIn(storageDir);
-      removeDaemonDir(storageDir);
+      await removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {

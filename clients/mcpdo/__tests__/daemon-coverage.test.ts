@@ -64,7 +64,7 @@ describe("daemon coverage", () => {
     if (dir) {
       // Some cases spawn a real daemon process into `dir`.
       await stopDaemonIn(dir);
-      removeDaemonDir(dir);
+      await removeDaemonDir(dir);
       dir = undefined;
     }
     if (configPath) {
@@ -1287,7 +1287,7 @@ describe("mcp connection coverage", () => {
   afterEach(async () => {
     if (storageDir) {
       await stopDaemonIn(storageDir);
-      removeDaemonDir(storageDir);
+      await removeDaemonDir(storageDir);
       storageDir = undefined;
     }
     if (configPath) {
