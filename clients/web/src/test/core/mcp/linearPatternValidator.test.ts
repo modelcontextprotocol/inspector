@@ -301,6 +301,83 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () 
   });
 });
 
+describe("LinearPatternJsonSchemaValidator — schemas sharing a $id (#2935)", () => {
+  it("validates a changed schema that kept its $id against the new schema", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const before: JsonSchemaType = {
+      $id: "urn:example:weather-output",
+      type: "object",
+      properties: { temp: { type: "number" } },
+      required: ["temp"],
+    };
+    const after: JsonSchemaType = {
+      $id: "urn:example:weather-output",
+      type: "object",
+      properties: { temp: { type: "string", pattern: "^-?\\d+C$" } },
+      required: ["temp"],
+    };
+    expect(provider.getValidator(before)({ temp: 21 }).valid).toBe(true);
+    expect(provider.getValidator(after)({ temp: "21C" }).valid).toBe(true);
+    expect(provider.getValidator(after)({ temp: 21 }).errorMessage).toBe(
+      "data/temp must be string",
+    );
+  });
+
+  it("validates each of two schemas declaring the same $id against itself, in any order", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const a: JsonSchemaType = {
+      $id: "output",
+      type: "object",
+      required: ["a"],
+    };
+    const b: JsonSchemaType = {
+      $id: "output",
+      type: "object",
+      required: ["b"],
+    };
+    expect(provider.getValidator(a)({ a: 1 }).valid).toBe(true);
+    expect(provider.getValidator(b)({ b: 1 }).valid).toBe(true);
+    expect(provider.getValidator(a)({ b: 1 }).errorMessage).toBe(
+      "data must have required property 'a'",
+    );
+    expect(provider.getValidator(b)({ a: 1 }).errorMessage).toBe(
+      "data must have required property 'b'",
+    );
+  });
+
+  it("replaces a $id written with a trailing empty fragment", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    expect(
+      provider.getValidator({ $id: "urn:example:out#", type: "string" })("s")
+        .valid,
+    ).toBe(true);
+    expect(
+      provider.getValidator({ $id: "urn:example:out#", type: "number" })(1)
+        .valid,
+    ).toBe(true);
+  });
+
+  it("replaces a $id an earlier schema's $defs registered without breaking that schema", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const outer = provider.getValidator({
+      type: "object",
+      properties: { n: { $ref: "urn:example:n" } },
+      $defs: { n: { $id: "urn:example:n", type: "string" } },
+    });
+    expect(outer({ n: "s" }).valid).toBe(true);
+
+    const replacement = provider.getValidator({
+      $id: "urn:example:n",
+      type: "number",
+    });
+    expect(replacement(1).valid).toBe(true);
+    expect(replacement("s").valid).toBe(false);
+
+    expect(outer({ n: "s" }).valid).toBe(true);
+    expect(outer({ n: 1 }).errorMessage).toBe("data/n must be string");
+  });
+});
+
 describe("validateToolOutput with the bounded provider", () => {
   const tool: Tool = {
     name: "redos",
