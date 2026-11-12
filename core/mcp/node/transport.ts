@@ -22,6 +22,7 @@ import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
 import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
+import { createCookieJarWrapper } from "./cookieJarFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -120,9 +121,22 @@ export function createTransportNode(
   // the real response and reads its body (bounded) before the interceptor
   // cancels it.
   const trackedBase = withTracking(withChallengeObserver(baseFetch));
+
+  // Opt-in cookie jar (#2936): one per transport, shared by every fetch the
+  // transport makes, so an affinity cookie learned on any response pins the
+  // whole session. It sits above the tracker, so the Network log records the
+  // `Cookie` header actually sent (#2385) and the `Set-Cookie` the jar read —
+  // both redacted there — and below the auth-challenge interceptor, so a
+  // 401/403 that the interceptor turns into a throw still updates the jar
+  // before the OAuth retry. Off, the chains below are exactly what they were.
+  const withCookieJar =
+    settings?.cookieJar === true && "url" in config
+      ? createCookieJarWrapper(new URL(config.url))
+      : (inner: typeof fetch): typeof fetch => inner;
+  const jarredBase = withCookieJar(trackedBase);
   const fetchWithOptionalAuthIntercept = interceptAuthChallenges
-    ? createAuthChallengeInterceptFetch(trackedBase)
-    : trackedBase;
+    ? createAuthChallengeInterceptFetch(jarredBase)
+    : jarredBase;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -162,7 +176,7 @@ export function createTransportNode(
       | typeof fetch
       | undefined;
     const trackedFetch = configuredSseFetch
-      ? withTracking(withChallengeObserver(configuredSseFetch))
+      ? withCookieJar(withTracking(withChallengeObserver(configuredSseFetch)))
       : fetchWithOptionalAuthIntercept;
 
     const headers = headersFromSettings(settings);
@@ -198,12 +212,13 @@ export function createTransportNode(
       ...(headers && { headers }),
     };
 
-    // Both wrappers sit above the tracker. Header stamping, so the tracker
-    // records the headers actually sent (#2385); stream suppression outermost
-    // of all, so a suppressed GET is answered before it reaches the tracker —
-    // it is never sent, and the Network log should not show a request the
-    // server never saw (#2317). They touch disjoint requests (notification
-    // POSTs vs. the endpoint's SSE GET), so their relative order is free.
+    // Both wrappers sit above the tracker and the cookie jar. Header
+    // stamping, so the tracker records the headers actually sent (#2385);
+    // stream suppression outermost of all, so a suppressed GET is answered
+    // before it reaches the tracker — it is never sent, and the Network log
+    // should not show a request the server never saw (#2317). They touch
+    // disjoint requests (notification POSTs vs. the endpoint's SSE GET), so
+    // their relative order is free.
     const stampedFetch = createNotificationHeadersFetch(
       fetchWithOptionalAuthIntercept,
     );

@@ -2388,6 +2388,13 @@ export function createRemoteApp(
         error: "settings.suppressNotificationStream must be a boolean",
       };
     }
+    // Optional on the wire; boolean when present, else unset (off) (#2936).
+    if (obj.cookieJar !== undefined && typeof obj.cookieJar !== "boolean") {
+      return {
+        ok: false,
+        error: "settings.cookieJar must be a boolean",
+      };
+    }
     // maxFetchRequests is optional on the wire (older clients won't send it);
     // when present it must be a non-negative number (0 = unlimited), otherwise
     // it defaults below.
@@ -2558,6 +2565,8 @@ export function createRemoteApp(
       ...(obj.suppressNotificationStream === true && {
         suppressNotificationStream: true,
       }),
+      // Absent → unset (off); only an explicit true is carried (#2936).
+      ...(obj.cookieJar === true && { cookieJar: true }),
       // Absent → product default, matching the read side. The default is the
       // omit-sentinel in inspectorSettingsToStoredFields, so a client that
       // didn't send one writes no spurious maxFetchRequests to disk.

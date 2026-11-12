@@ -383,6 +383,39 @@ describe("serverEntriesToMcpConfig", () => {
     ).toBe(false);
   });
 
+  it("round-trips cookieJar: lifts true to settings and back to disk (#2936)", () => {
+    const original: MCPConfig = {
+      mcpServers: {
+        sticky: {
+          type: "sse",
+          url: "https://x.test/sse",
+          cookieJar: true,
+        },
+      },
+    };
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings?.cookieJar).toBe(true);
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect(round).toEqual(original);
+  });
+
+  it("drops a non-true cookieJar on read and omits it on write (#2936)", () => {
+    const original = {
+      mcpServers: {
+        unsticky: {
+          type: "streamable-http",
+          url: "https://x.test/mcp",
+          cookieJar: false,
+        },
+      },
+    } satisfies MCPConfig;
+    const [entry] = mcpConfigToServerEntries(original);
+    expect(entry?.settings).toBeDefined();
+    expect(entry?.settings?.cookieJar).toBeUndefined();
+    const round = serverEntriesToMcpConfig(mcpConfigToServerEntries(original));
+    expect("cookieJar" in (round.mcpServers.unsticky ?? {})).toBe(false);
+  });
+
   it("round-trips advertisedExtensions: lifts a non-empty map to settings and back to disk", () => {
     const original: MCPConfig = {
       mcpServers: {

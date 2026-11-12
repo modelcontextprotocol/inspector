@@ -189,6 +189,7 @@ type StoredInspectorFields = Pick<
   | "autoRefreshOnListChanged"
   | "paginatedLists"
   | "suppressNotificationStream"
+  | "cookieJar"
   | "advertisedExtensions"
   | "maxFetchRequests"
   | "skillCatalogMaxSkills"
@@ -553,6 +554,7 @@ export function storedFieldsToInspectorSettings(
     stored.autoRefreshOnListChanged !== undefined ||
     stored.paginatedLists !== undefined ||
     stored.suppressNotificationStream !== undefined ||
+    stored.cookieJar !== undefined ||
     stored.advertisedExtensions !== undefined ||
     stored.maxFetchRequests !== undefined ||
     stored.skillCatalogMaxSkills !== undefined ||
@@ -608,6 +610,10 @@ export function storedFieldsToInspectorSettings(
   // only an explicit `true` suppresses the stream (#2317).
   if (stored.suppressNotificationStream === true) {
     settings.suppressNotificationStream = true;
+  }
+  // Same shape: only an explicit `true` enables the cookie jar (#2936).
+  if (stored.cookieJar === true) {
+    settings.cookieJar = true;
   }
   // Absent on disk reads back as the default era; the write side then omits the
   // default so a byte-stable round-trip never injects `protocolEra` into files
@@ -765,6 +771,10 @@ export function inspectorSettingsToStoredFields(
   if (settings.suppressNotificationStream) {
     out.suppressNotificationStream = true;
   }
+  // Persist only when enabled — absent reads back as unset (off) (#2936).
+  if (settings.cookieJar) {
+    out.cookieJar = true;
+  }
 
   // Persist only when the user has toggled at least one extension override;
   // an empty map reads back as unset (above), keeping the diff minimal for the
@@ -914,6 +924,7 @@ const INSPECTOR_FIELD_KEY_MAP = {
   autoRefreshOnListChanged: true,
   paginatedLists: true,
   suppressNotificationStream: true,
+  cookieJar: true,
   advertisedExtensions: true,
   maxFetchRequests: true,
   skillCatalogMaxSkills: true,
