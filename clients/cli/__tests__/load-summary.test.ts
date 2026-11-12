@@ -43,17 +43,32 @@ import {
  * Deliver a signal to the listener `withLoadInterrupt` added, and to nothing
  * else: `process.emit` would also reach the test worker's own SIGINT/SIGTERM
  * handlers, which end the worker. Returns false while no new listener exists.
+ *
+ * Calls the RAW listener, so a `process.once` one (the re-raise absorber,
+ * #2973) removes itself as a real delivery would; `process.listeners` hands
+ * back the unwrapped function, and calling that would leave it registered.
  */
 function signalLoadRun(
   signal: "SIGINT" | "SIGTERM",
   existing: NodeJS.SignalsListener[],
 ): boolean {
   const added = process
-    .listeners(signal)
-    .find((listener) => !existing.includes(listener));
+    .rawListeners(signal)
+    .find((raw) => !existing.includes(unwrapOnce(raw)));
   if (!added) return false;
-  (added as (s: NodeJS.Signals) => void)(signal);
+  (added as NodeJS.SignalsListener)(signal);
   return true;
+}
+
+/**
+ * The function a `process.once` wrapper calls, or the listener itself.
+ * `rawListeners` is typed `Function[]`, hence the single narrowing cast.
+ */
+function unwrapOnce(raw: object): NodeJS.SignalsListener {
+  const listener = raw as NodeJS.SignalsListener & {
+    listener?: NodeJS.SignalsListener;
+  };
+  return listener.listener ?? listener;
 }
 
 describe("success and failure latency (#2836)", () => {
@@ -585,6 +600,8 @@ describe("withLoadInterrupt (#2834)", () => {
     const run = withLoadInterrupt(untilAborted);
     expect(process.listenerCount("SIGTERM")).toBe(before + 1);
     expect(signalLoadRun("SIGTERM", existing)).toBe(true);
+    // `when-exit`'s re-raise, landing while the run is still pending.
+    expect(signalLoadRun("SIGTERM", existing)).toBe(true);
     await expect(run).resolves.toEqual({
       reason: "interrupted",
       detail: "received SIGTERM",
@@ -632,6 +649,8 @@ describe("withLoadInterrupt (#2834)", () => {
     expect(exit).toHaveBeenCalledWith(EXIT_CODES.INTERRUPTED);
     finish();
     await run;
+    // The SIGINT re-raise never came, so deliver it to the absorber (#2973).
+    expect(signalLoadRun("SIGINT", ints)).toBe(true);
   });
 
   it("exits the real process by default on the second signal", async () => {
@@ -651,6 +670,28 @@ describe("withLoadInterrupt (#2834)", () => {
     expect(exit).toHaveBeenCalledWith(130);
     finish();
     await run;
+    // The SIGINT re-raise never came, so deliver it to the absorber (#2973).
+    expect(signalLoadRun("SIGINT", ints)).toBe(true);
+  });
+
+  it("absorbs a re-raise still in flight when the run ends (#2973)", async () => {
+    const exit = vi.fn();
+    const existing = process.listeners("SIGINT");
+    const before = existing.length;
+    const terms = process.listenerCount("SIGTERM");
+    // The run settles on the abort, before the re-raise has arrived.
+    const run = withLoadInterrupt(untilAborted, { quiet: true, exit });
+    signalLoadRun("SIGINT", existing);
+    await run;
+    // One listener is left, for the first signal only, so the pending copy
+    // never meets Node's default disposition (which would end the process by
+    // the signal rather than with 130).
+    expect(process.listenerCount("SIGINT")).toBe(before + 1);
+    expect(process.listenerCount("SIGTERM")).toBe(terms);
+    // The copy arrives — at any time, there is no window — and is swallowed.
+    expect(signalLoadRun("SIGINT", existing)).toBe(true);
+    expect(exit).not.toHaveBeenCalled();
+    expect(process.listenerCount("SIGINT")).toBe(before);
   });
 
   it("removes its listeners when the run throws", async () => {
@@ -723,6 +764,9 @@ describe("--load summary fixes (CLI)", () => {
       () => expect(signalLoadRun("SIGINT", existing)).toBe(true),
       { timeout: 10_000, interval: 200 },
     );
+    // `when-exit`'s re-raise, as a real process would receive it; without
+    // it the listener that absorbs a late copy (#2973) is left behind.
+    expect(signalLoadRun("SIGINT", existing)).toBe(true);
     const result = await run;
     expect(result.exitCode).toBe(EXIT_CODES.INTERRUPTED);
     const lines = result.stdout.trim().split("\n");
