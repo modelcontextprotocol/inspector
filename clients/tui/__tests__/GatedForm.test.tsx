@@ -41,6 +41,23 @@ describe("initialFormValues", () => {
       }),
     ).toEqual({ city: "Oslo", flag: false });
   });
+
+  it("keeps a field named __proto__ as an own value", () => {
+    const values = initialFormValues({
+      sections: [
+        {
+          title: "Args",
+          fields: [{ type: "string", name: "__proto__", initialValue: "x" }],
+        },
+      ],
+    });
+    expect(Object.prototype.hasOwnProperty.call(values, "__proto__")).toBe(
+      true,
+    );
+    expect(JSON.parse(JSON.stringify(values))).toEqual(
+      JSON.parse('{"__proto__":"x"}'),
+    );
+  });
 });
 
 describe("GatedForm", () => {

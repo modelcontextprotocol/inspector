@@ -35,19 +35,22 @@ interface GatedFormProps {
   customManagers?: FormProps["customManagers"];
 }
 
-/** Each field's declared `initialValue`, keyed by field name across sections. */
+/**
+ * Each field's declared `initialValue`, keyed by field name across sections.
+ * Built with `Object.fromEntries` so a field named `__proto__` becomes an own
+ * property, as ink-form's own computed-key seeding made it, rather than
+ * hitting the prototype setter.
+ */
 export function initialFormValues(
   form: FormStructure,
 ): Record<string, unknown> {
-  const values: Record<string, unknown> = {};
-  for (const section of form.sections) {
-    for (const field of section.fields) {
-      if (field.initialValue !== undefined) {
-        values[field.name] = field.initialValue;
-      }
-    }
-  }
-  return values;
+  return Object.fromEntries(
+    form.sections.flatMap((section) =>
+      section.fields
+        .filter((field) => field.initialValue !== undefined)
+        .map((field) => [field.name, field.initialValue]),
+    ),
+  );
 }
 
 export function GatedForm({
