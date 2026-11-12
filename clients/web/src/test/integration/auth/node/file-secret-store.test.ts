@@ -26,8 +26,25 @@ import { SecretStoreUnavailableError } from "@inspector/core/auth/node/secret-st
 import { SECRET_FIELD_OAUTH_CLIENT_SECRET } from "@inspector/core/auth/secret-fields.js";
 import { describeSecretStoreContract } from "./secretStoreContract.js";
 
+// These cases assert POSIX permission bits (0600 / 0644). Windows has no
+// owner/group/other split, so `readSecretFilePermissions` deliberately
+// answers `unknown` there (pinned by the mocked-win32 cases below); the
+// real-file assertions are skipped on win32 by name (#2748).
+const posixModesUnsupported = process.platform === "win32";
+
 let tmpDir: string;
 const filePath = (): string => path.join(tmpDir, "secrets.json");
+
+/**
+ * A secrets path the store cannot read for a reason other than "no file
+ * yet": a directory sits where the file should be, so the read fails EISDIR
+ * on every platform (#2748).
+ */
+async function blockedPath(): Promise<string> {
+  const target = filePath();
+  await fs.mkdir(target);
+  return target;
+}
 
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "inspector-secrets-"));
@@ -533,15 +550,13 @@ describe("FileSecretStore failure handling", () => {
   });
 
   it("set reports an unreachable location instead of failing silently", async () => {
-    // A path whose parent is a *file*: the read fails with ENOTDIR rather
-    // than the ENOENT that means "no file yet", so this lands on the read
-    // refusal. It is the class the 503 exists for — fixable outside the
-    // process.
-    const blocker = path.join(tmpDir, "blocker");
-    await fs.writeFile(blocker, "x", "utf-8");
-    const store = new FileSecretStore({
-      filePath: path.join(blocker, "secrets.json"),
-    });
+    // A DIRECTORY where the secrets file should be: the read fails with
+    // EISDIR rather than the ENOENT that means "no file yet", so this lands
+    // on the read refusal. It is the class the 503 exists for — fixable
+    // outside the process. (A path *under a file* was used before; that is
+    // ENOTDIR on POSIX but plain ENOENT on Windows, where it read as "no file
+    // yet" — #2748. EISDIR is the same refusal on every platform.)
+    const store = new FileSecretStore({ filePath: await blockedPath() });
     await expect(store.set("alpha", "env:A", "1")).rejects.toThrow(
       /Could not read the secrets file/,
     );
@@ -708,20 +723,23 @@ describe("tightenSecretFilePermissions", () => {
     }
   });
 
-  it("readSecretFilePermissions reports the mode without changing it", async () => {
-    // The descriptor is rebuilt on every GET /api/config, so the function it
-    // calls must not chmod — once per page load, on a file another process
-    // may be mid-write on. The repair belongs at startup.
-    const store = new FileSecretStore({ filePath: filePath() });
-    await store.set("alpha", "env:A", "1");
-    await fs.chmod(filePath(), 0o644);
-    expect(await readSecretFilePermissions(filePath())).toEqual({
-      state: "loose",
-      mode: 0o644,
-    });
-    // Still 0644 — reading did not quietly repair it.
-    expect((await fs.stat(filePath())).mode & 0o777).toBe(0o644);
-  });
+  it.skipIf(posixModesUnsupported)(
+    "readSecretFilePermissions reports the mode without changing it",
+    async () => {
+      // The descriptor is rebuilt on every GET /api/config, so the function it
+      // calls must not chmod — once per page load, on a file another process
+      // may be mid-write on. The repair belongs at startup.
+      const store = new FileSecretStore({ filePath: filePath() });
+      await store.set("alpha", "env:A", "1");
+      await fs.chmod(filePath(), 0o644);
+      expect(await readSecretFilePermissions(filePath())).toEqual({
+        state: "loose",
+        mode: 0o644,
+      });
+      // Still 0644 — reading did not quietly repair it.
+      expect((await fs.stat(filePath())).mode & 0o777).toBe(0o644);
+    },
+  );
 
   it("reports absent, not a failure, for a file that doesn't exist yet", async () => {
     // The first-run case. Nothing to tighten and nothing to warn about —
@@ -731,45 +749,48 @@ describe("tightenSecretFilePermissions", () => {
     ).resolves.toEqual({ state: "absent" });
   });
 
-  it("reports a mode it could not fix, instead of claiming 0600", async () => {
-    // The case the caller has to hear about: the docs and the footer both say
-    // the file is 0600, so a file we failed to tighten must be surfaced rather
-    // than silently described as protected.
-    //
-    // Driven through a fresh module whose `chmod` rejects — a test cannot
-    // readily own a file it lacks permission to chmod, and vitest cannot spy
-    // on a `node:fs/promises` export because the ESM namespace is not
-    // configurable.
-    const store = new FileSecretStore({ filePath: filePath() });
-    await store.set("alpha", "env:A", "1");
-    await fs.chmod(filePath(), 0o644);
+  it.skipIf(posixModesUnsupported)(
+    "reports a mode it could not fix, instead of claiming 0600",
+    async () => {
+      // The case the caller has to hear about: the docs and the footer both say
+      // the file is 0600, so a file we failed to tighten must be surfaced rather
+      // than silently described as protected.
+      //
+      // Driven through a fresh module whose `chmod` rejects — a test cannot
+      // readily own a file it lacks permission to chmod, and vitest cannot spy
+      // on a `node:fs/promises` export because the ESM namespace is not
+      // configurable.
+      const store = new FileSecretStore({ filePath: filePath() });
+      await store.set("alpha", "env:A", "1");
+      await fs.chmod(filePath(), 0o644);
 
-    vi.resetModules();
-    vi.doMock("node:fs/promises", async () => {
-      const actual =
-        await vi.importActual<typeof import("node:fs/promises")>(
-          "node:fs/promises",
-        );
-      return {
-        ...actual,
-        default: actual,
-        chmod: vi.fn(() =>
-          Promise.reject(new Error("EPERM: operation not permitted")),
-        ),
-      };
-    });
-    try {
-      const mod =
-        await import("@inspector/core/auth/node/file-secret-store.js");
-      expect(await mod.tightenSecretFilePermissions(filePath())).toEqual({
-        state: "loose",
-        mode: 0o644,
-      });
-    } finally {
-      vi.doUnmock("node:fs/promises");
       vi.resetModules();
-    }
-  });
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises",
+          );
+        return {
+          ...actual,
+          default: actual,
+          chmod: vi.fn(() =>
+            Promise.reject(new Error("EPERM: operation not permitted")),
+          ),
+        };
+      });
+      try {
+        const mod =
+          await import("@inspector/core/auth/node/file-secret-store.js");
+        expect(await mod.tightenSecretFilePermissions(filePath())).toEqual({
+          state: "loose",
+          mode: 0o644,
+        });
+      } finally {
+        vi.doUnmock("node:fs/promises");
+        vi.resetModules();
+      }
+    },
+  );
 });
 
 describe("readOnDiskEncryption", () => {
@@ -1230,13 +1251,9 @@ describe("getStrict (round 9)", () => {
   });
 
   it("wraps a filesystem failure as SecretStoreUnavailableError", async () => {
-    // Not a typed refusal — a raw ENOTDIR — which must still arrive as
+    // Not a typed refusal — a raw EISDIR — which must still arrive as
     // something the migrations' catch recognises.
-    const blocker = path.join(tmpDir, "blocker");
-    await fs.writeFile(blocker, "x", "utf-8");
-    const store = new FileSecretStore({
-      filePath: path.join(blocker, "secrets.json"),
-    });
+    const store = new FileSecretStore({ filePath: await blockedPath() });
     await expect(store.getStrict("srv", "env:A")).rejects.toBeInstanceOf(
       SecretStoreUnavailableError,
     );
@@ -1284,11 +1301,7 @@ describe("getManyStrict", () => {
   });
 
   it("wraps a filesystem failure as SecretStoreUnavailableError", async () => {
-    const blocker = path.join(tmpDir, "blocker");
-    await fs.writeFile(blocker, "x", "utf-8");
-    const store = new FileSecretStore({
-      filePath: path.join(blocker, "secrets.json"),
-    });
+    const store = new FileSecretStore({ filePath: await blockedPath() });
     await expect(
       store.getManyStrict([{ serverId: "srv", fields: ["env:A"] }]),
     ).rejects.toBeInstanceOf(SecretStoreUnavailableError);
@@ -1726,14 +1739,17 @@ describe("tightenSecretFilePermissions reports what it could not fix", () => {
     });
   });
 
-  it("says ok once the file is 0600", async () => {
-    const store = new FileSecretStore({ filePath: filePath() });
-    await store.set("alpha", "env:A", "1");
-    await fs.chmod(filePath(), 0o644);
-    expect(await tightenSecretFilePermissions(filePath())).toEqual({
-      state: "ok",
-    });
-  });
+  it.skipIf(posixModesUnsupported)(
+    "says ok once the file is 0600",
+    async () => {
+      const store = new FileSecretStore({ filePath: filePath() });
+      await store.set("alpha", "env:A", "1");
+      await fs.chmod(filePath(), 0o644);
+      expect(await tightenSecretFilePermissions(filePath())).toEqual({
+        state: "ok",
+      });
+    },
+  );
 });
 
 describe("resolveSecretPassphrase (MCP_INSPECTOR_SECRET_KEY_FILE, #2447)", () => {

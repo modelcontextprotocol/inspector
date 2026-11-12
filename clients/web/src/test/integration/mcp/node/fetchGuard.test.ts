@@ -76,6 +76,7 @@ afterAll(async () => {
 const resolveHost: ResolveHost = async (hostname) => {
   if (hostname === "pinned.test") return ["127.0.0.1"];
   if (hostname === "metadata.test") return ["169.254.169.254"];
+  if (hostname === "ecs-metadata.test") return ["100.100.100.200"];
   throw Object.assign(new Error(`ENOTFOUND ${hostname}`), {
     code: "ENOTFOUND",
   });
@@ -116,6 +117,15 @@ describe("guardedFetch (direct)", () => {
       }),
     );
     expect(findFetchTargetError(err)).toBeInstanceOf(FetchTargetError);
+  });
+
+  it("refuses a name that resolves to a metadata address outside link-local", async () => {
+    const err = await caught(
+      guardedFetch(`http://ecs-metadata.test:${upstream.port}/`, init(), {
+        resolveHost,
+      }),
+    );
+    expect(findFetchTargetError(err)?.message).toContain("100.100.100.200");
   });
 
   it("refuses a redirect to such a name", async () => {

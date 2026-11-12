@@ -36,6 +36,7 @@
 
 import { spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
+import { isMainModule } from "./lib/main-module.mjs";
 
 // Records are NUL-separated (`git log -z`): `git commit` refuses a NUL in a
 // message, so no body can split a record. Fields use \x1f, and the message
@@ -230,7 +231,7 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   return 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   try {
     process.exitCode = main();
   } catch (error) {

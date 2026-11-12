@@ -87,7 +87,13 @@ Those run as written in the default (web) mode. Under `--cli` two extra rules ap
 
   A flag the Inspector does **not** define (`--verbose`) is part of the target and reaches the server, wherever it sits after the target's first token; one placed _before_ that token is ignored, since a command cannot begin with a dash. A flag the Inspector _does_ define is always the Inspector's — the `--` separator below is how to send one to the server.
 
-  ⚠️ A variadic option (`--tool-arg`, `--prompt-args`, `--header`, `--metadata`, `--tool-metadata`) takes every following non-dash token as a value, so placed directly before the target it swallows the command. Put it after the target, or put another option between the two. Releases before v2.11 required the target to come first and silently dropped it otherwise (#2631).
+  A variadic option (`--tool-arg`, `--prompt-args`, `--header`, `--metadata`, `--tool-metadata`) may also sit directly before the target. It always takes the token after it, then keeps taking tokens only while they look like its values — `key=value`, or `Name: value` for `--header` (a URL or a `C:\` path does not count) — so the first token that does not is where the target begins (#2860):
+
+  ```bash
+  mcp-inspector --cli --method tools/call --tool-name echo --tool-arg message=hi node build/index.js
+  ```
+
+  The one shape it cannot tell apart is a target whose first token itself looks like a value (`FOO=bar`, `Host:port`); put another option between the two, or put the target first. Earlier v2 releases let the variadic option swallow the target (`Invalid parameter format: node`), and releases before v2.11 required the target to come first and silently dropped it otherwise (#2631).
 
 ### The `--` separator
 

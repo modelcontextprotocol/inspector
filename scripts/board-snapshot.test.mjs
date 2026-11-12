@@ -68,7 +68,12 @@ test("main writes the verified dump and prints its path", (t) => {
   // the snapshot belongs to the board it diffs against.
   assert.equal(written.board, 28);
   // The dump is private: owner-only, and an existing file is never reused.
-  assert.equal(statSync(path).mode & 0o777, 0o600);
+  // POSIX mode bits only: Windows has no owner/group/other split, and
+  // `fs.stat` there reports 0o666 for any writable file whatever `mode` was
+  // passed (#2748). The rest of this test still runs on win32.
+  if (process.platform !== "win32") {
+    assert.equal(statSync(path).mode & 0o777, 0o600);
+  }
   assert.throws(() => main(["--dir", dir], spawnScript(1)), /EEXIST/);
 });
 

@@ -139,7 +139,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--uri <uri>`                 | Resource URI (`resources/read`), directory URI (`resources/directory/read`), or skill URI (`skills/get`).                                                                                                                                                                                                                                                                                                                                                                                 |
 | `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                                                                                                                                                                                                                                                                                                                                                     |
-| `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple.                                                                                                                                                                                                                                                                                                                                                                               |
+| `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple. Values are sent verbatim as strings (`price=1.50` sends `"1.50"`; `q=` sends `""`).                                                                                                                                                                                                                                                                                                                                                                            |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                                                                                                                                                                                                                                                                                                                                                         |
 | `--metadata <key=value>`      | General `_meta` entries (key=value); applied to all methods. The value is JSON-parsed when it parses, so `trace={"id":"abc"}` sends a real object and `n=3` a number; anything that is not valid JSON is sent as the literal string. Merged **over** the server's persisted `metadata` from `mcp.json`, which is sent on every request without this flag (#2093). |
 | `--tool-metadata <key=value>` | Tool-specific `_meta` entries for `tools/call`. Same JSON-parsed value handling as `--metadata`. |
@@ -158,14 +158,37 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--load`                      | Load-test one tool: call it repeatedly and concurrently, then print a latency / error-rate summary in place of a result. Requires `--method tools/call --tool-name <name>`. See [Load testing a tool](#load-testing-a-tool---load). |
 | `--load-concurrency <n>`      | With `--load`: the most calls in flight at once (positive integer; default `10`). |
 | `--load-connections <n>`      | With `--load`: spread the calls over this many independent connections (sessions), opened before timing starts. HTTP/SSE servers only; at most `--load-concurrency` (default `1`). See [Load testing a tool](#load-testing-a-tool---load). |
+| `--load-churn`                | With `--load`: session churn. Each worker connects, makes `--load-churn-calls` calls, disconnects, and repeats; connect times and failures are reported in `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. See [Session churn](#session-churn---load-churn). |
+| `--load-workers <n>`          | With `--load`: spread the run over `n` generator processes, each with its share of `--load-concurrency`, `--load-requests` and `--load-rate`, and merge their results into one summary. HTTP/SSE only. See [Multi-process generation](#multi-process-generation---load-workers). |
+| `--load-subscribe <uri>`      | With `--load`: notification fan-out. Subscribe `--load-subscribers` sessions to this resource and report how `notifications/resources/updated` reaches them, in `fanout`. With `--tool-name` (or `--load-scenario`) each successful call is a trigger; without one the run listens for `--load-duration`. See [Notification fan-out](#notification-fan-out---load-subscribe). |
+| `--load-subscribers <n>`      | With `--load-subscribe`: sessions to subscribe, this connection included (default `1`; above `1` HTTP/SSE only). |
+| `--load-subscribe-wait <sec>` | With `--load-subscribe`: how long subscribers get to catch up after the run before a notification counts as missed (default `2`). |
+| `--load-churn-calls <n>`      | With `--load-churn`: calls per session before it is closed (positive integer; default `1`). |
 | `--load-duration <sec>`       | With `--load`: stop starting calls after this many seconds; calls already in flight still finish. Default `10` when `--load-requests` is not set. |
 | `--load-requests <n>`         | With `--load`: stop after starting this many calls. With `--load-duration` too, whichever is reached first ends the run. |
 | `--load-rate <n>`             | With `--load`: start at most this many calls per second across all workers, spaced evenly (default: unlimited). |
+| `--load-scenario <file>`      | With `--load`: run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step breakdown. Replaces `--tool-name`, `--tool-arg`, `--tool-args-json` and `--tool-metadata`. See [Scenarios](#scenarios---load-scenario). |
+| `--load-args-file <file>`    | With `--load`: an NDJSON file of argument objects, one per line; each call merges the next row over `--tool-arg` (the row wins on a key), cycling. Not with `--load-scenario`. See [Varying the arguments](#varying-the-arguments---load-args-file-placeholders). |
+| `--load-args-random`          | With `--load-args-file`: pick each call's row at random instead of in turn. |
+| `--load-steps <list>`         | With `--load`: run consecutive stages at these levels (`10,25,50,100`), one summary row per stage. See [Stepped and ramped load](#stepped-and-ramped-load---load-steps---load-ramp). |
+| `--load-ramp <from:to:sec>`   | With `--load`: a staircase of stages from `from` to `to` over `sec` seconds, one stage per `--load-step-duration`. |
+| `--load-step-by <what>`       | With `--load-steps` / `--load-ramp`: what a level sets, `concurrency` (default) or `rate`. |
+| `--load-step-duration <sec>`  | With `--load-steps` / `--load-ramp`: each stage's length (default `10`). |
+| `--load-stop-on-breach`       | With `--load-steps` / `--load-ramp` and a `--load-max-*` threshold: stop after the first stage that breaches it. |
+| `--load-interval <sec>`       | With `--load`: also report the run as a time series of buckets this long, in `intervals`. See [Watching a run](#watching-a-run---load-progress---load-interval---load-warmup). |
+| `--load-warmup <sec>`         | With `--load`: run this long first, at the same concurrency and rate, and leave those calls out of every statistic. Not with `--load-steps` / `--load-ramp`. |
+| `--load-progress <sec>`       | With `--load`: how often to print a progress line on stderr (default `5`). `--quiet` turns progress off. |
+| `--load-open-loop`            | With `--load-rate`: open-loop mode. Keep every slot of the rate grid, and time each call from its scheduled start, so queueing shows in the latency. See [Open loop](#open-loop---load-open-loop). |
 | `--load-max-error-rate <fraction>` | With `--load`: after printing the summary, exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value. `0` to `1`; `0` fails on any failed call. See [Thresholds for CI](#thresholds-for-ci). |
 | `--load-max-p99 <ms>`         | With `--load`: after printing the summary, exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded. Positive number. |
+| `--load-max-p50 <ms>`, `--load-max-p95 <ms>` | With `--load`: the same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`). |
+| `--load-min-throughput <n>`   | With `--load`: after printing the summary, exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`). Positive number. |
+| `--load-baseline <file>`      | With `--load`: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with `--format json`, printing the comparison on stderr. A baseline from a differently shaped run exits `1` (`load_baseline_mismatch`). See [Comparing against a baseline](#comparing-against-a-baseline---load-baseline). |
+| `--load-max-regression <pct>` | With `--load-baseline`: after printing the summary, exit `10` (`load_regression`) when any compared figure is worse than the baseline by more than this — percent for latency and throughput, percentage points for the error rate. `10` or `10%`; `0` fails on any regression. |
 | `--relogin`                   | Delete stored OAuth for this server URL from the shared store before connect; interactive login still only runs if the server requires auth. Requires an HTTP/SSE URL (rejected for stdio). Conflicts with `--stored-auth-only` / `--use-stored-auth` / `--wait-for-auth` / catalog short-circuits.                                                                                                                  |
 | `--no-revoke`                 | With `--relogin`, skip the [RFC 7009](https://datatracker.ietf.org/doc/html/rfc7009) revocation request that would otherwise end the grant at the authorization server when the local state is deleted. The per-server `oauth.revokeOnClear` setting is the persistent form of the same opt-out; either one is enough to skip it. See [Revoking on `--relogin`](#revoking-on---relogin). |
 | `--stored-auth-only`          | **CI / non-interactive safe:** never start interactive OAuth / step-up (and never auto-open a browser); use the shared store if present, otherwise fail immediately with `auth_required`. Prefer this over a bare pipe/CI run that would otherwise attempt interactive login.                                                                                                                                        |
+| `--oauth-debug`               | Print each OAuth step to stderr as it runs: the protected-resource and authorization-server metadata URLs and statuses, the client registration request and response, the authorization URL, and the token request and response. Tokens, codes, PKCE verifiers and client secrets are redacted. See [Tracing OAuth](#tracing-oauth---oauth-debug). |
 | `--completion <shell>`        | Print a `bash`, `zsh` or `fish` completion script and exit (no server connection). See [Shell completion](#shell-completion). |
 
 #### Revoking on `--relogin`
@@ -183,6 +206,30 @@ Turn it off per run with `--no-revoke`, or per server with `oauth.revokeOnClear:
 ```bash
 mcp-inspector --cli --server-url https://example.com/mcp --relogin --method tools/list
 mcp-inspector --cli --server-url https://example.com/mcp --relogin --no-revoke --method tools/list
+```
+
+#### Tracing OAuth (`--oauth-debug`)
+
+When a login fails, the final error rarely says which step went wrong. `--oauth-debug` ([#2844](https://github.com/modelcontextprotocol/inspector/issues/2844)) prints every OAuth request the run makes to stderr, one `[oauth]` line for the request and one for the response, so the step that broke is the last one in the trace. It is the terminal counterpart of the web client's OAuth view, and it shows what was actually sent and received:
+
+```text
+[oauth] protected-resource metadata: GET https://example.com/.well-known/oauth-protected-resource/mcp
+[oauth]   -> 200 OK {"resource":"https://example.com/mcp","authorization_servers":["https://auth.example.com"]}
+[oauth] authorization-server metadata: GET https://auth.example.com/.well-known/oauth-authorization-server
+[oauth]   -> 200 OK {"issuer":"https://auth.example.com","authorization_endpoint":"…","token_endpoint":"…","registration_endpoint":"…"}
+[oauth] client registration: POST https://auth.example.com/register {"redirect_uris":["http://127.0.0.1:6276/oauth/callback"],…}
+[oauth]   -> 201 Created {"client_id":"abc123","client_secret":"[redacted]",…}
+[oauth] authorization: open https://auth.example.com/authorize?response_type=code&client_id=abc123&…
+[oauth] token request: POST https://auth.example.com/token grant_type=authorization_code code=[redacted] code_verifier=[redacted] …
+[oauth]   -> 200 OK {"access_token":"[redacted]","token_type":"Bearer","expires_in":3600,"scope":"mcp","refresh_token":"[redacted]"}
+```
+
+- **What is redacted.** Every value under a credential-bearing field name — `access_token`, `refresh_token`, `id_token`, `code`, `code_verifier`, `client_secret`, `registration_access_token`, the assertion and token-exchange fields, and `token` — in query strings, form bodies and JSON alike. An `Authorization` header shows only its scheme. Everything else prints, since client ids, redirect URIs, scopes, endpoints and `error_description` are what the trace is for. Metadata documents are cut down to the fields that decide where the flow goes next.
+- **What is covered.** The discovery, registration, code exchange and refresh the connect runs, including any refresh `--use-stored-auth` makes. A failed request prints `-> failed: <reason>` — a destination the OAuth fetch guard refuses shows up there. A run whose stored token is still valid makes no OAuth requests and prints nothing; add `--relogin` to trace a fresh login.
+- **Where it goes.** Stderr only, so `--format json` keeps stdout clean. It is printed under `--quiet` too, since you asked for it.
+
+```bash
+mcp-inspector --cli --server-url https://example.com/mcp --relogin --oauth-debug --method tools/list
 ```
 
 `servers/show` redacts secret-bearing fields (`env` values, sensitive headers, sensitive `settings.metadata` keys whose whole value is replaced whether or not it is structured, `requestInit` / `eventSourceInit` headers, `oauthClientSecret`). It does **not** scrub credentials embedded in a server `url` (userinfo or query tokens) or in stdio `args` — treat `detail` / raw URL fields as potentially sensitive before pasting into issues.
@@ -230,6 +277,7 @@ What it suppresses:
 | The result payload / NDJSON on stdout                                          | Kept            |
 | The error envelope on a non-zero exit                                          | Kept            |
 | The `--strict` report                                                          | Kept — you asked for it, and it is the detail behind exit `6` |
+| The `--oauth-debug` trace                                                      | Kept — you asked for it |
 | The OAuth authorization URL, the step-up `[y/N]` prompt, "open it by hand"     | Kept — interactive login cannot finish without them |
 
 So a quiet run that needs an interactive login still shows what it must; for a run
@@ -295,7 +343,7 @@ The flag is `--output-format` rather than a new `--format` value because `--form
 
 Exit codes are unchanged: a `tools/call` that returns `isError:true` is still written and still exits `5`. A file that cannot be written (missing directory, no permission) exits `1` with envelope code `output_write_failed`.
 
-`--output` is rejected where there is no single result to write — `--app-info`, `--load`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
+`--output` is rejected where there is no single result to write — `--app-info`, `--verify`, `--list-stored-auth`, `--print-handoff`, and `servers/list` / `servers/show` — and `--output-format` is rejected without `--output`, rather than either being silently ignored.
 
 #### Load testing a tool (`--load`)
 
@@ -316,8 +364,20 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
   --tool-arg query=mcp --load --load-requests 500 --load-rate 50
 ```
 
-Every call sends the same arguments and `_meta`. When the run ends, one summary
-is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
+Every call sends the same arguments and `_meta`, unless the arguments use
+placeholders or an args file (see [Varying the arguments](#varying-the-arguments---load-args-file-placeholders)).
+When the run ends, one summary is printed on stdout
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)):
+
+- **`--format text`**, or **no `--format` with stdout a terminal**: a short,
+  readable table, the same one `mcpdo` prints, with colour unless `NO_COLOR`
+  is set.
+- **`--format json`**: the summary wrapped in `{ "result": … }`.
+- **no `--format`, stdout not a terminal** (a pipe, a file, a script): the
+  summary as pretty-printed JSON, unwrapped, as it always has been. Scripts
+  that read it keep working; pass `--format json` to be explicit.
+
+The JSON summary looks like this:
 
 ```json
 {
@@ -332,8 +392,8 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   "elapsedMs": 30012.4,
   "throughput": 1373.12,
   "okThroughput": 1372.35,
-  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p99": 61.3, "max": 212.8 },
-  "errorLatencyMs": { "min": 30001.2, "mean": 30003.1, "p50": 30002.9, "p90": 30004.1, "p99": 30004.8, "max": 30004.8 },
+  "latencyMs": { "min": 2.1, "mean": 14.5, "p50": 12.9, "p90": 22.4, "p95": 30.7, "p99": 61.3, "p999": 140.2, "max": 212.8 },
+  "errorLatencyMs": { "min": 30001.2, "mean": 30003.1, "p50": 30002.9, "p90": 30004.1, "p95": 30004.6, "p99": 30004.8, "p999": 30004.8, "max": 30004.8 },
   "errorMessages": [{ "message": "Request timed out", "count": 23 }],
   "toolErrorMessages": []
 }
@@ -358,6 +418,14 @@ is printed on stdout (wrapped in `{ "result": … }` with `--format json`):
   Latency includes everything the Inspector does around the request, which
   is negligible next to a network round trip but not next to a
   sub-millisecond stdio echo.
+- **Percentiles** are `p50`, `p90`, `p95`, `p99` and `p999` (the 99.9th)
+  ([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)).
+  Memory stays bounded however long the run: the first 10,000 latencies of
+  each kind are kept exactly, so a short run's percentiles are exact, and
+  past that they fold into a log-bucketed histogram whose percentiles are
+  within 1% of the exact value. `min`, `max` and `mean` are always exact.
+  Latencies are given to two decimal places, or to four significant figures
+  below a millisecond.
 - **Bounds.** `--load-duration` stops *starting* calls; anything in flight is
   allowed to finish, so `elapsedMs` can exceed the window by up to one call.
   A run that reaches its `--load-duration` is measured to the end of that
@@ -437,7 +505,7 @@ contention that only appear across sessions:
     "requested": 50,
     "opened": 48,
     "failed": 2,
-    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p99": 41.8, "max": 41.8 },
+    "connectMs": { "min": 8.2, "mean": 21.7, "p50": 19.4, "p90": 33.0, "p95": 38.1, "p99": 41.8, "p999": 41.8, "max": 41.8 },
     "errorMessages": [{ "message": "Too many sessions", "count": 2 }]
   }
   ```
@@ -453,6 +521,322 @@ contention that only appear across sessions:
 A slow call is bounded by the server's request timeout (`requestTimeout` in the
 catalog/config file).
 
+##### Session churn (`--load-churn`)
+
+`--load-connections` opens its sessions once and keeps them, so a server's
+session setup, its per-session state and its behaviour under many short-lived
+sessions — what a server behind a gateway mostly sees — are never under load.
+`--load-churn` ([#2912](https://github.com/modelcontextprotocol/inspector/issues/2912))
+makes every worker **connect, make `--load-churn-calls` calls (default `1`),
+disconnect, and start over**:
+
+```bash
+# 20 workers, each opening a fresh session for every 5 calls, for 30 s
+mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-concurrency 20 --load-duration 30 \
+  --load-churn --load-churn-calls 5
+```
+
+- **Connecting is not in the call latency.** A worker opens its session after
+  taking its slot and before its call is timed, and closes it after the call
+  is recorded, so `latencyMs` is still the calls alone. The sessions are
+  reported in their own `churn` block: `opened`, `failed`, `closeFailed`,
+  `connectMs` (handshake included) and the connect `errorMessages`. Under
+  `--load-open-loop` a call is timed from its scheduled start, so the connect
+  is inside it there — that wait is the queueing open loop exposes.
+- **A session that fails to open spends its slot** and is counted in
+  `churn.failed`, never in `errors` or `errorRate`. It does count toward the
+  circuit breaker, so a server refusing every session stops the run in about
+  a second (`stoppedEarly.reason: "consecutive_errors"`) rather than spinning
+  on instant failures.
+- **HTTP and SSE only**, for the reason `--load-connections` is: over stdio
+  each session would spawn its own server process. Not combined with
+  `--load-connections`; each worker holds at most one session at a time.
+  Sessions are opened like `--load-connections` extras — stored credentials
+  only — so the connection the CLI opens first completes any login, and is
+  used only to look up the tool.
+- **`--load-rate` paces slots, and under churn a slot is a session's turn**:
+  the worker takes the slot, connects if it has no session, then calls. The
+  calls therefore follow the handshakes, and a slow or uneven handshake shifts
+  them off the even grid; the rate figures count calls that actually started,
+  so slots lost to failed or late connects show as `droppedSlots`.
+- Warm-up sessions (`--load-warmup`) count in `churn`. A session still open
+  when the run ends is closed then.
+
+##### Multi-process generation (`--load-workers`)
+
+One Node process has a ceiling: measured against a bare SDK client it trailed
+by ~18% at concurrency 10–50, so at high load the **generator** can become the
+bottleneck rather than the server. `--load-workers <n>`
+([#2914](https://github.com/modelcontextprotocol/inspector/issues/2914)) spreads
+one run over `n` processes:
+
+```bash
+# 400 in flight, 4000 calls/s, over 4 generator processes
+mcp-inspector --cli https://example.com/mcp --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-concurrency 400 --load-rate 4000 \
+  --load-duration 60 --load-workers 4
+```
+
+- **One run, split.** The CLI connects once (so any login happens before a
+  worker starts), then re-runs its own command as `n` child processes. Each
+  takes its share of `--load-concurrency`, `--load-requests` and
+  `--load-rate`, split as evenly as integers allow, connects with **stored
+  credentials only**, and runs the engine. Everything else (duration, warm-up,
+  scenario, argument rows, open loop) applies to every worker as given.
+- **One summary, merged exactly.** Each worker sends back its counts, error
+  tallies and latency histograms, and the CLI merges them as if one recorder
+  had seen every call. `elapsedMs` is the slowest worker's; the
+  `--load-rate` figures add up. The summary gains `"workers": n`, and
+  thresholds and `--load-baseline` judge the merged result.
+- **One stop reaches every worker.** If one worker's circuit breaker trips, the
+  CLI stops the rest with the same `stoppedEarly` reason. Ctrl+C stops them
+  all and still prints the merged partial summary. If a worker fails outright,
+  the run exits with that worker's exit code (`load_worker_failed`) once the
+  rest have stopped.
+- **The rate and the mix hold across processes.** Each worker runs
+  `--load-rate / n` on a grid offset by its share of one interval, so the
+  processes interleave into the run's even spacing rather than all starting at
+  once. Each runs the whole `--load-scenario` cycle itself, starting a step
+  further in than the one before, so the mix holds whatever each step costs.
+  Processes start a few milliseconds apart, which shifts their grids by as
+  much.
+- **`{{seq}}` and `{{worker}}` stay unique** across processes: worker
+  process `i` of `n` numbers its calls `i+1`, `i+1+n`, `i+1+2n`, and so on. A
+  sequential `--load-args-file` still cycles on each process's own count, so
+  every process runs every row.
+- **Progress lines** add up every worker's latest report. Their p50 and p99
+  are the slowest worker's, since percentiles do not add. The final summary's
+  latencies are exact.
+- `n` may not exceed `--load-concurrency` or `--load-requests`, since every
+  worker needs a call in flight and one to make. HTTP and SSE only, because
+  each worker opens its own session. Not combined with `--load-steps` /
+  `--load-ramp`, `--load-interval`, `--load-connections`, `--load-churn`,
+  `--load-subscribe` or `--output`.
+
+##### Notification fan-out (`--load-subscribe`)
+
+A request/response latency says nothing about what it costs a server to fan
+`notifications/resources/updated` out to many subscribers, or how long each one
+waits for it. `--load-subscribe <uri>`
+([#2913](https://github.com/modelcontextprotocol/inspector/issues/2913)) opens
+`--load-subscribers` sessions, subscribes each to `<uri>`, and measures the
+notifications instead:
+
+```bash
+# 50 subscribers; each call of update_doc should notify all of them
+mcp-inspector --cli https://example.com/mcp --method tools/call \
+  --tool-name update_doc --tool-arg id=1 --load --load-requests 100 \
+  --load-subscribe docs://1 --load-subscribers 50
+
+# no trigger: listen 30 s to the server's own updates
+mcp-inspector --cli https://example.com/mcp --method tools/call --load \
+  --load-subscribe feed://live --load-subscribers 50 --load-duration 30
+```
+
+- **Triggered** (with `--tool-name` or `--load-scenario`): the ordinary
+  `--load` run is the trigger, and each **successful** call is expected to
+  update the resource once. Triggers run **one at a time**
+  (`--load-concurrency` defaults to, and must be, `1`), so the k-th
+  notification a session receives is attributed to the k-th successful call,
+  and its delivery latency runs from that call's start. `--load-rate`,
+  `--load-requests` and `--load-duration` bound the triggers as usual, and the
+  top-level figures are the trigger calls'.
+- **Passive** (no tool): nothing is called. The run listens for
+  `--load-duration` (`--load-requests` is refused: there are no calls to
+  count), and delivery latency runs from the **first** subscriber's receipt
+  of each update, so it measures the spread of the fan-out rather than its
+  absolute cost.
+- After the run, subscribers get `--load-subscribe-wait` seconds (default
+  `2`) to catch up; whatever has not arrived by then is **missed**. The
+  `fanout` block reports `updates` (expected per subscriber), `delivered`,
+  `missed`, `sessionsMissed`, `unexpected` (notifications beyond `updates` —
+  the server's own, or repeats), `deliveryMs`, and the setup costs
+  `connectMs` and `subscribeMs`, none of which is in the trigger latency.
+- A session that fails to open or to subscribe is counted in `failed` with its
+  message, and the run goes on with the rest; if none can subscribe, the run
+  fails. More than one subscriber needs an HTTP or SSE server, for the reason
+  `--load-connections` does, and the extra sessions open with stored
+  credentials only.
+- Not combined with `--load-connections`, `--load-churn`, `--load-steps` /
+  `--load-ramp`, `--load-warmup` or `--load-open-loop` (which would time each
+  trigger from its scheduled start). The CLI's own connection is subscribed too,
+  and unsubscribed when the run ends.
+
+##### Per-call samples (`--output`)
+
+`--output <path>` with `--load` writes **one NDJSON line per measured call**
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)), for
+analysis the summary cannot do: your own histogram, a scatter over time, a
+join against server logs by `seq`. The summary still goes to stdout.
+
+```json
+{"seq":17,"worker":3,"startMs":412.5,"latencyMs":14.218,"outcome":"ok"}
+{"seq":18,"worker":0,"startMs":415.02,"latencyMs":30001.4,"outcome":"error","message":"Request timed out"}
+```
+
+- `seq` is the run-wide call number (the one `{{seq}}` sees) and `worker` the
+  worker that made the call. `startMs` is from the start of the run, or of its
+  stage in a stepped run. In open loop it is the scheduled start. `latencyMs`
+  is the call's latency.
+- `outcome` is `ok`, `tool_error` (with the result's text as `message`) or
+  `error` (with the thrown message). A scenario adds `step` (the step's name),
+  and a stepped run adds `stage`.
+- Lines are in completion order. Warm-up calls are not written.
+- `--output-format` is refused with `--load`, since this file has one format.
+  A file that cannot be written fails with `output_write_failed` (exit `1`)
+  after the summary is printed.
+
+##### Open loop (`--load-open-loop`)
+
+By default `--load-rate` is **closed-loop**: a slot that no worker is free to
+take is dropped, so a server too slow for the rate is sent fewer requests and
+its latency looks healthier than its users would see.
+`--load-open-loop`
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838))
+keeps the rate grid as the arrival schedule instead:
+
+- **No slot is dropped while the run lasts.** A slot that comes due while
+  every worker is busy waits, and starts as soon as one frees.
+- **Each call is timed from its scheduled start**, so the wait for a worker
+  counts in its latency. Queueing behind a slow server shows up in
+  `latencyMs`, where closed-loop mode hides it.
+- `--load-concurrency` still caps the calls in flight. Slots still waiting
+  when the window closes are not started; they are reported in
+  `droppedSlots`, and the summary carries `"openLoop": true`.
+- It needs `--load-rate`, or `--load-step-by rate`, whose stages all run open
+  loop.
+
+##### Watching a run (`--load-progress`, `--load-interval`, `--load-warmup`)
+
+A long run used to be silent until its summary, and one aggregate p99 hides a
+GC pause or a slow leak in the middle of it
+([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838)).
+
+- **Progress.** Every `--load-progress` seconds (default `5`) a line goes to
+  stderr: the totals so far, plus the completion rate and the p50 / p99 of the
+  successful calls over the last interval —
+  `[load 12.0s] 1234 calls (1230 ok, 4 failed), 102.3/s, p50 12.1 / p99 40.2 ms`.
+  It is prefixed `warm-up` during a warm-up and `stage N` in a stepped run.
+  `--quiet` turns it off. It never reaches stdout, so it does not disturb the
+  summary.
+- **Time series.** `--load-interval <sec>` adds an **`intervals`** array: the
+  run's calls bucketed by completion time, one entry per interval from the
+  start, with empty intervals included so the series has no gaps. Each entry
+  has `startMs` and `endMs` (from the start of the run), then the same
+  `requests`, `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
+  `okThroughput`, `latencyMs`, `errorLatencyMs` and message tallies as the
+  totals. A call finishing exactly on a boundary counts in the interval it
+  finished. The last interval can be shorter, and its rates use its own
+  length. A stepped run carries `intervals` per stage.
+- **Warm-up.** `--load-warmup <sec>` runs that long first, at the run's own
+  concurrency and rate and over the same connections, and leaves those calls
+  out of every figure. The measured window starts when the warm-up ends, so
+  `--load-duration` and `--load-requests` bound the measured part only.
+  **`warmup`** reports what the warm-up ran (`durationMs`, `requests`, `ok`,
+  `failed`). If the warm-up stops early (the server is down, or Ctrl+C), the run
+  ends there. `warmup.stoppedEarly` and the summary's own `stoppedEarly` then
+  say why, and nothing is measured. `{{seq}}` keeps counting from the warm-up
+  into the run. A warm-up is refused with `--load-steps` / `--load-ramp`, since
+  the first stage already plays that part.
+
+##### Varying the arguments (`--load-args-file`, placeholders)
+
+A server that caches results or dedupes identical requests looks far faster
+under one fixed argument than under real traffic, and its per-key code paths
+never run. Two ways to vary each call's arguments
+([#2840](https://github.com/modelcontextprotocol/inspector/issues/2840)),
+usable together:
+
+```bash
+# a distinct id per call, and a random page from 1 to 50
+mcp-inspector --cli <server> --method tools/call --tool-name lookup \
+  --tool-arg id=user-{{seq}} --tool-arg page={{rand:1-50}} --load --load-requests 1000
+
+# one argument object per line of args.ndjson, in turn (or --load-args-random)
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --load --load-args-file args.ndjson --load-duration 30
+```
+
+- **Placeholders** work in any string value of a call's arguments
+  (`--tool-arg`, `--tool-args-json`, an args-file row, and a scenario step's
+  `args` and `uri`), only in a `--load` run:
+
+  | Placeholder              | Becomes                                              |
+  | ------------------------ | ---------------------------------------------------- |
+  | `{{seq}}`                | The call's number in start order, from `1`.          |
+  | `{{worker}}`             | The index of the worker making it, from `0`.         |
+  | `{{uuid}}`               | A fresh random UUID (v4).                            |
+  | `{{rand:<min>-<max>}}`   | A random integer from `min` to `max`, inclusive.     |
+
+  A value that is exactly one numeric placeholder (`page={{rand:1-50}}`,
+  `"{{seq}}"`) is sent as a **number**, so an integer-typed argument receives an
+  integer; a placeholder inside other text (`user-{{seq}}`) yields a string.
+  Anything else in double braces — `{{name}}`, `{{ seq }}` — is sent as
+  written, so an argument that is itself a Mustache template is untouched. A
+  `{{rand:…}}` whose bounds are reversed or not safe integers, or whose span
+(`max - min + 1`) is not a safe integer, is refused
+  before anything connects (exit `1`, `load_args_invalid`).
+- **`--load-args-file <file>`** is NDJSON: one JSON object per line, blank
+  lines ignored. Call `n` takes row `(n - 1) mod rows` (`--load-args-random`:
+  any row), merged over the `--tool-arg` / `--tool-args-json` arguments with
+  the row winning on a shared key; placeholders inside a row are substituted
+  too. A file that cannot be read, a line that is not a JSON object, or a
+  number that overflows to `Infinity` exits `1` with `load_args_invalid`. It
+  is refused with `--load-scenario`, whose steps carry their own `args`.
+
+##### Scenarios (`--load-scenario`)
+
+Real traffic is rarely one tool with fixed arguments. `--load-scenario <file>`
+([#2839](https://github.com/modelcontextprotocol/inspector/issues/2839)) runs a
+weighted mix of steps over the same connection(s) and bounds instead:
+
+```json
+{
+  "steps": [
+    { "name": "search", "method": "tools/call", "tool": "search", "args": { "query": "mcp" }, "weight": 7 },
+    { "method": "resources/read", "uri": "docs://readme", "weight": 2 },
+    { "method": "prompts/get", "prompt": "summarize", "args": { "style": "short" }, "weight": 1 }
+  ]
+}
+```
+
+```bash
+mcp-inspector --cli <server> --method tools/call \
+  --load --load-scenario scenario.json --load-duration 30 --load-concurrency 20
+```
+
+- **The file** is either that object or a bare array of steps. Each step has a
+  `method` (`tools/call`, `resources/read` or `prompts/get`) and what it calls
+  (`tool`, `uri` or `prompt`), plus optional `args` (tools and prompts),
+  `meta` (the request's `_meta`, over any `--metadata`), `weight` (a positive
+  number, default `1`) and `name`. Any other key is an error, so a typo such
+  as `"argument"` fails the run instead of silently sending no arguments.
+  Every problem with the file exits `1` with the envelope `code`
+  `load_scenario_invalid`, before anything connects.
+- **The mix is exact, not random.** Steps are picked in slot order by smooth
+  weighted round-robin, so weights `7:2:1` start exactly 7, 2 and 1 calls in
+  every 10, interleaved rather than in runs, and two runs of the same scenario
+  are comparable. Completion counts can trail the start counts by whatever was
+  in flight when the run ended.
+- **The summary** keeps its totals at the top level — so the thresholds below
+  judge the whole mix — and adds a **`steps`** array in scenario order: each
+  step's `name` (defaulting to `<method> <target>`, numbered `#n` when two
+  unnamed steps share a target), `method`, `target` and `weight`, then the
+  same `requests`, `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`,
+  `okThroughput`, `latencyMs`, `errorLatencyMs`, `errorMessages` and
+  `toolErrorMessages` as the totals, for that step's calls alone. There is no
+  top-level `tool`. A `resources/read` or `prompts/get` step has no `isError`
+  result, so its `toolErrors` is always `0`.
+- **Tools are checked up front; resources and prompts are not.** Every tool a
+  step names is looked up before the clock starts, so a missing one exits `5`
+  (`tool_not_found`) as with `--tool-name`. A server may serve URIs or
+  prompts it does not list, so a bad one shows as that step's `errors`.
+- `--load-scenario` replaces `--tool-name`, `--tool-arg`, `--tool-args-json`
+  and `--tool-metadata`, so combining it with any of them is refused
+  (`load_flag_conflict`). `--method tools/call` is still required: it selects
+  the load mode.
+
 A load run does not prompt for OAuth step-up: a tool that needs scopes the
 session lacks fails every call, and the challenge shows in `errorMessages`.
 Run one plain `tools/call` of the tool first to grant them, then load it.
@@ -461,7 +845,7 @@ The tool is looked up once before the clock starts, so a missing tool fails
 the run with exit `5` (`tool_not_found`) instead of reporting a 100% error
 rate. Otherwise a completed run exits `0` whatever its error rate — the summary
 is the result — unless a threshold below is set. `--load` is rejected with any other method and with `--app-info`,
-`--output`, `--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
+`--output-format`, `--list-stored-auth` and `--print-handoff`, and each `--load-*` flag is
 rejected without `--load`. Each of those refusals — and `--load-connections`
 above `--load-concurrency`, or above `1` over stdio — exits `1` with the
 envelope `code` `load_flag_conflict`, the code `mcpdo` uses for the same
@@ -482,17 +866,114 @@ mcp-inspector --cli <server> --method tools/call --tool-name search \
 
 - The full summary is printed first either way; a breach then exits `10`
   with an error envelope on stderr whose `code` names the threshold:
-  `load_error_rate_exceeded` or `load_p99_exceeded`. When both are breached
-  the message lists both and the `code` is `load_error_rate_exceeded`.
+  `load_error_rate_exceeded`, `load_p50_exceeded`, `load_p95_exceeded`,
+  `load_p99_exceeded` or `load_throughput_below`. When several are breached
+  the message lists them all and the `code` names the first in that order.
 - A value equal to the threshold passes. The error-rate check uses the exact
   share of failed calls (`toolErrors` plus `errors`, over `requests`), not the
   four-place `errorRate`, so `--load-max-error-rate 0` fails even one failure
   that rounds away in the summary.
-- `--load-max-p99` judges the **successful** calls (`latencyMs`), so a run
-  in which half the calls fail instantly cannot pass on the strength of its
-  failures. A run in which no call succeeded has no p99 to compare, and fails
-  rather than passing a latency check it never measured.
+- `--load-max-p50`, `--load-max-p95` and `--load-max-p99` judge the
+  **successful** calls (`latencyMs`), so a run in which half the calls fail
+  instantly cannot pass on the strength of its failures. A run in which no
+  call succeeded has no latency to compare, and fails rather than passing a
+  latency check it never measured.
+- `--load-min-throughput` judges `okThroughput`, the successful calls per
+  second, so a server failing fast cannot meet it with errors.
 - With no threshold set, nothing changes: a completed run exits `0`.
+- A stepped run (below) is judged **stage by stage**, and the message names
+  the first stage that breached.
+
+##### Comparing against a baseline (`--load-baseline`)
+
+An absolute threshold has to be picked, and re-picked as the server changes.
+To gate on "no worse than last time" instead, save a run's summary and compare
+later runs against it
+([#2910](https://github.com/modelcontextprotocol/inspector/issues/2910)):
+
+```bash
+# on the release: save the summary
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-duration 30 --format json > baseline.json
+
+# on each change: the same run, failing if anything is more than 10% worse
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-duration 30 \
+  --load-baseline baseline.json --load-max-regression 10%
+```
+
+- Four figures are compared: **p50** and **p99** of the successful calls and
+  **ok throughput** by relative change, and the **error rate** in
+  **percentage points** — a healthy baseline's error rate is usually `0`,
+  from which any relative change is infinite. `--load-max-error-rate` stays
+  the absolute ceiling. A run in which no call succeeded, against a baseline
+  in which some did, is a regression on both latencies.
+- The comparison is printed on stderr after the summary, one line per figure
+  as `baseline -> this run` (`--quiet` drops it). Without
+  `--load-max-regression` it only reports; with it, a figure worse by more
+  than the budget exits `10` (`load_regression`), naming each regressed
+  figure with both values. The absolute thresholds are judged first.
+- The two runs must be shaped alike — the same tool (or scenario steps),
+  `--load-concurrency`, `--load-duration`, `--load-requests`, `--load-rate`,
+  `--load-open-loop`, `--load-connections`, `--load-churn-calls` and stages — or the run exits `1`
+  with `load_baseline_mismatch`, listing every difference, rather than
+  comparing numbers that mean different things. A stepped run is compared
+  **stage by stage**.
+- The baseline is read before anything connects. Either `--format json`
+  shape is accepted — this CLI's `{ "result": … }` envelope, or the bare
+  summary `mcpdo` and a piped run print. A file that is not a summary, or a
+  baseline run that stopped early, exits `1` with `load_baseline_invalid`.
+
+##### Stepped and ramped load (`--load-steps`, `--load-ramp`)
+
+One concurrency or rate shows how a server behaves at one load level. To find
+where latency or errors start climbing — the knee — run consecutive
+**stages** at rising levels in one run, with one summary row per stage
+([#2841](https://github.com/modelcontextprotocol/inspector/issues/2841)):
+
+```bash
+# concurrency 10, 25, 50, then 100, 30 seconds each
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-steps 10,25,50,100 --load-step-duration 30
+
+# rate from 50/s to 500/s over two minutes in 10 s stairs, over 200 workers,
+# stopping at the first stage whose p99 tops 250 ms
+mcp-inspector --cli <server> --method tools/call --tool-name search \
+  --tool-arg query=mcp --load --load-ramp 50:500:120 --load-step-duration 10 \
+  --load-step-by rate --load-concurrency 200 --load-max-p99 250 --load-stop-on-breach
+```
+
+- **`--load-steps <list>`** runs one stage per level. **`--load-ramp
+  <from>:<to>:<sec>`** is a staircase: `sec / --load-step-duration` stages
+  (rounded, at least one), each `sec / stages` long, with levels spaced
+  evenly from `from` to `to`, both included. It is stairs rather than a
+  continuous ramp so that every level runs long enough to measure and gets a
+  row of its own.
+- **`--load-step-by`** says what a level is. `concurrency` (the default) is
+  calls in flight. A ramp rounds it to whole workers, and `--load-steps`
+  must be whole numbers; `--load-concurrency` is refused, since the stages
+  set it. `rate` is calls started per second over a fixed pool of
+  `--load-concurrency` workers; `--load-rate` is refused. A `--load-rate` set
+  while stepping concurrency applies to every stage.
+- **Each stage runs for `--load-step-duration`** (default `10`), so
+  `--load-duration` and `--load-requests` are refused. The connections
+  (`--load-connections`, which may not exceed the smallest concurrency stage)
+  are opened once and serve every stage.
+- **The summary** keeps its totals at the top level, over every stage, with
+  `elapsedMs` the sum of the stages' and `durationMs` the planned total, and
+  adds **`stages`**: one full summary per stage that ran, in order, each
+  carrying `stage` (from `1`), `stepBy` and `level` before the usual fields —
+  including its own `--load-rate` figures, which the totals leave out, and
+  its own `steps` for a scenario. `{{seq}}` keeps counting across stages.
+- **Any early stop ends the run**: Ctrl+C, a lost connection, or the circuit
+  breaker. With **`--load-stop-on-breach`** (which needs a `--load-max-*`
+  threshold) so does the first stage that breaches, with
+  `"stoppedEarly": { "reason": "threshold_breached", "detail": "stage 3
+  (concurrency 50) breached a threshold: …" }`. The thresholds then fail the
+  run with exit `10`, naming that stage. Without the flag every stage runs,
+  and the run still exits `10` if any stage breached.
+- A stage that falls short of its `--load-rate` prints its own warning,
+  prefixed `Stage N:`.
 
 #### Schema portability (`--strict`)
 
@@ -584,7 +1065,7 @@ The CLI runs the same loopback callback server as the TUI (`http://127.0.0.1:627
 
 Interactive OAuth (connect-time or mid-RPC) requires a TTY on **stdin or stderr** (so `2>&1 | tee` still works — stdin stays a TTY), or `MCP_AUTO_OPEN_ENABLED=true`. When neither stdin nor stderr is a TTY and that env is unset (typical CI), the CLI fails fast with `auth_required` instead of waiting up to 15 minutes on the loopback callback. Use **`--stored-auth-only`** for non-interactive runs that should only consume the shared store.
 
-**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines. Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
+**Step-up (standard OAuth):** when an RPC needs extra scopes, the CLI prompts on stderr: `Proceed with step-up authorization? [y/N]`. **y** continues (including piped stdin — `echo y | …` or `printf y | …`); **N** or EOF with no answer (`< /dev/null` / Ctrl-D) declines (exit `3`, `step_up_declined`). Piped answers must be **newline-terminated, or stdin must close** — a bare `y` held open without `\n` or EOF is not flushed as a line and times out. A non-TTY stdin that never sends a line within **5 seconds** fails with `auth_required` (`timed out`, not the same as an explicit **N**). Answering **y** only confirms step-up — the following browser/loopback OAuth can still wait up to 15 minutes; for headless CI prefer **`--stored-auth-only`** with tokens already in the store. EMA step-up re-mints silently (no prompt).
 
 **Shared OAuth storage:** the CLI **reuses** tokens stored by other Inspector clients — indexed by the shared `~/.mcp-inspector/storage/oauth.json`, with the tokens themselves held in the secret store. That is passive storage sharing, not launching another app.
 
@@ -767,15 +1248,16 @@ prose from stderr:
 | `0`  | Success.                                                                      |
 | `1`  | Usage / unexpected error (the catch-all).                                     |
 | `2`  | No MCP App found on the tool (`--app-info` probe).                            |
-| `3`  | Server requires authentication (401/403 or a typed SDK auth error).           |
+| `3`  | Authentication failed or is required: a 401/403 or typed SDK auth error (`auth_required`), an OAuth protocol error from the authorization server (`oauth_error` — a declined consent, a token-endpoint `invalid_grant`), no OAuth callback before the deadline (`oauth_timeout`), a step-up answered **N** (`step_up_declined`), or a re-authorization that still lacks the required scopes (`insufficient_scope`). |
 | `4`  | Server unreachable (DNS, connection refused, timeout, `fetch failed`).        |
 | `5`  | Tool error (`tools/call` returned `isError:true`, or the tool was not found). |
 | `6`  | `--strict` found an error-severity tool-schema portability problem (`schema_unportable` — the schema is valid JSON Schema, just not portable). |
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
-| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p99_exceeded` for `--load-max-p99`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
+| `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`, `load_regression` for `--load-max-regression`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
+| `12` | The OAuth destination guard refused a URL (`fetch_refused` — a link-local or cloud-metadata address, a non-http(s) scheme, or a redirect it will not follow). A policy refusal rather than a network failure, so unlike `4` a retry repeats it. |
 | `130` | A `--load` run was interrupted by Ctrl+C or SIGTERM (`interrupted`). The partial summary is printed on stdout first. See [Load testing a tool](#load-testing-a-tool---load). |
 
 On any non-zero exit the CLI also writes a single JSON line to **stderr** — the
@@ -817,6 +1299,25 @@ and re-run without parsing `message`:
 `retryAfterMs` is that header as a delay, present only when it parsed. A server
 that sent no header gets neither field. The connection CLI (`mcpdo`) writes the
 same envelope and exit code.
+
+An `oauth_error` envelope lifts the authorization server's own RFC 6749 fields
+out of `message`, so a script can branch on the server's verdict:
+
+```json
+{
+  "error": {
+    "code": "oauth_error",
+    "message": "OAuth authorization failed. The authorization server said: The user denied the request (access_denied)",
+    "oauthError": "access_denied",
+    "oauthErrorDescription": "The user denied the request"
+  }
+}
+```
+
+`oauthError` is the server's `error` and `oauthErrorDescription` its
+`error_description`; each is present only when the server sent it. They are
+prefixed so they do not read as the envelope's own `error` key. `mcpdo` writes
+the same fields.
 
 ## Why use the CLI?
 

@@ -33,6 +33,7 @@ import {
 import { formatClientConfigLoadError } from "@inspector/core/client/config-parse.js";
 import type { FetchRequestLogStateEventMap } from "@inspector/core/mcp/state/fetchRequestLogState.js";
 import { useInspectorClient } from "@inspector/core/react/useInspectorClient.js";
+import { animationFrameScheduler } from "@inspector/core/react/notifyScheduler.js";
 import {
   ServerListReloadError,
   useServers,
@@ -118,6 +119,9 @@ import { parseDeepLink, deepLinkParseStatus } from "./utils/deepLink";
 import type { DeepLink, DeepLinkParseStatus } from "./utils/deepLink";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import { getAuthToken } from "./lib/authToken";
+import { browserActiveSessionsApi } from "./lib/activeSessions";
+import { useActiveSessions } from "./hooks/useActiveSessions";
+import { ActiveSessionsModal } from "./components/groups/ActiveSessionsModal/ActiveSessionsModal";
 import { messagesToLogEntries } from "./lib/protocolReplay";
 import { EMPTY_SETTINGS } from "./utils/serverSettingsDefaults";
 import { resolveOAuthClearIdentity } from "./utils/oauthClearKey";
@@ -132,6 +136,7 @@ import { HeadersReconnectToastMessage } from "./components/elements/Toasts/Heade
 import { OutputValidationToastMessage } from "./components/elements/Toasts/OutputValidationToastMessage";
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
 import { errorMessage } from "./utils/errorFormat";
+import { runWebLoadTest, type RunLoadTest } from "./lib/loadTest";
 
 /**
  * Terminates a dispatched handler's promise by reporting the failure, for the
@@ -314,6 +319,7 @@ function App() {
   const panels = useResultPanels();
   const {
     toolCallState,
+    toolRunHistory,
     getPromptState,
     readResourceState,
     clearResultPanels,
@@ -399,7 +405,9 @@ function App() {
 
   // Hook layer. Each hook subscribes to its respective event source and
   // re-renders the App on change. When `inspectorClient` / state managers
-  // are null, the hooks degrade to empty results.
+  // are null, the hooks degrade to empty results. Connection diagnostics
+  // re-dispatch on every request and response, so they are coalesced to the
+  // animation frame like the logs, or each call rendered the page twice (#2928).
   const {
     status: connectionStatus,
     capabilities,
@@ -413,7 +421,7 @@ function App() {
     malformedListItems,
     connectionDiagnostics,
     lastError,
-  } = useInspectorClient(inspectorClient);
+  } = useInspectorClient(inspectorClient, animationFrameScheduler);
   // What every settings write that landed on disk actually wrote, so a later
   // failed write can be rolled back to that rather than to a `servers` entry
   // frozen at the last successful list read (#2089).
@@ -1741,6 +1749,8 @@ function App() {
   );
 
   const openClientSettings = useCallback(() => setClientSettingsOpen(true), []);
+  // #2831: every backend session across tabs, so a leaked one can be ended.
+  const activeSessions = useActiveSessions(browserActiveSessionsApi);
   const openConnectionInfo = useCallback(
     () => setConnectionInfoModalOpen(true),
     [],
@@ -1792,6 +1802,15 @@ function App() {
     },
     [onCallTool],
   );
+  // The load panel (#2911) runs the shared engine over this tab's live
+  // client — see `lib/loadTest.ts` for why the browser, not the backend.
+  const onRunLoadTest = useMemo<RunLoadTest | undefined>(
+    () =>
+      inspectorClient
+        ? (request, hooks) => runWebLoadTest(inspectorClient, request, hooks)
+        : undefined,
+    [inspectorClient],
+  );
   const dispatchGetPrompt = useCallback(
     (name: string, args: Record<string, string>) => {
       onGetPrompt(name, args).catch(
@@ -1832,6 +1851,7 @@ function App() {
     onActiveTabChange: setActiveTab,
     onToggleTheme,
     onOpenClientSettings: openClientSettings,
+    onOpenActiveSessions: activeSessions.open,
   };
 
   const connectionProps: ConnectionProps = {
@@ -1873,6 +1893,7 @@ function App() {
     toolsLoadError: toolsPagination.error,
     toolsUi: ui.toolsUi,
     toolCallState,
+    toolRunHistory,
     toolsPagination: toolsPaginationControls,
     serverSupportsTaskToolCalls: offersRunAsTask(protocolEra, capabilities),
     onToolsUiChange,
@@ -1881,6 +1902,7 @@ function App() {
     onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
+    onRunLoadTest,
   };
 
   const promptsPanelProps: PromptsPanelProps = {
@@ -2120,6 +2142,23 @@ function App() {
         emaIdpLoginState={emaIdpLoginState}
         onEmaIdpLogout={logoutEmaIdp}
         secretStorage={secretStorage}
+      />
+      <ActiveSessionsModal
+        opened={activeSessions.opened}
+        sessions={activeSessions.sessions}
+        capturedAt={activeSessions.capturedAt}
+        loading={activeSessions.loading}
+        error={activeSessions.error}
+        terminatingId={activeSessions.terminatingId}
+        currentSessionId={
+          // Read only while the modal shows it, not on every App render.
+          activeSessions.opened
+            ? inspectorClient?.getRemoteBackendSessionId()
+            : undefined
+        }
+        onRefresh={activeSessions.refresh}
+        onTerminate={activeSessions.terminate}
+        onClose={activeSessions.close}
       />
       {initializeResult && activeServer && (
         <ConnectionInfoModal

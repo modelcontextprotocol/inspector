@@ -68,8 +68,11 @@ describe("InspectorClient.markResponseRejected", () => {
 
     client!.markResponseRejected("tools/list", "second one failed");
 
-    expect(entries[0]?.clientError).toBeUndefined();
-    expect(entries[1]?.clientError).toBe("second one failed");
+    // Re-read: the log replaces an annotated entry rather than mutating the
+    // one already handed out (#2928).
+    const after = entriesFor("tools/list");
+    expect(after[0]?.clientError).toBeUndefined();
+    expect(after[1]?.clientError).toBe("second one failed");
   });
 
   it("does not cross method boundaries", async () => {

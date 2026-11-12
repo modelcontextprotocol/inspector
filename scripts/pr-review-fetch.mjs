@@ -24,6 +24,7 @@ import {
   ghPaginatedList,
   requirePositiveInt,
 } from "./lib/gh.mjs";
+import { isMainModule } from "./lib/main-module.mjs";
 
 /** The latest Copilot-posted review in a flattened listing, or undefined. */
 export function latestCopilotReview(reviews) {
@@ -100,6 +101,6 @@ export function main(argv = process.argv.slice(2), spawn = spawnSync) {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main();
 }

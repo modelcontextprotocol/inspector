@@ -62,6 +62,58 @@ export interface RunRunnerInteractiveOAuthOptions {
 }
 
 /**
+ * The interactive flow ended on an error the loopback listener reported
+ * (#2842): the authorization server redirected back with `?error=…`
+ * (`source: "redirect"`), or the Inspector's own token exchange failed after
+ * a matching callback (`source: "callback"`).
+ *
+ * Typed rather than a plain `Error` so a runner can classify it without
+ * reading prose — the CLI and mcpdo map it to exit 3 / `oauth_error` and lift
+ * the server's `error` / `error_description` onto their error envelope as
+ * separate fields. The message is unchanged from the plain error it replaced,
+ * so the TUI, which shows the message, renders exactly what it did.
+ */
+export class OAuthCallbackError extends Error {
+  override name = "OAuthCallbackError";
+  /**
+   * The RFC 6749 `error` code the authorization server sent. Set only for a
+   * `"redirect"` failure, and only when non-empty: a `"callback"` failure's
+   * `error` is the listener's own `callback_error`, which no server said.
+   */
+  readonly oauthError?: string;
+  /** The server's `error_description`, under the same conditions. */
+  readonly oauthErrorDescription?: string;
+  readonly source: "redirect" | "callback";
+
+  constructor(params: Parameters<OAuthErrorHandler>[0]) {
+    super(callbackErrorMessage(params));
+    this.source = params.source;
+    if (params.source === "redirect") {
+      if (params.error) this.oauthError = params.error;
+      if (params.error_description) {
+        this.oauthErrorDescription = params.error_description;
+      }
+    }
+  }
+}
+
+/**
+ * Nobody completed the authorization in the browser before the flow's
+ * deadline (#2842). Its own class so a runner can tell "the user never came
+ * back" from "the authorization server said no" — the CLI and mcpdo report it
+ * as `oauth_timeout`, exit 3.
+ */
+export class OAuthCallbackTimeoutError extends Error {
+  override name = "OAuthCallbackTimeoutError";
+  readonly timeoutMs: number;
+
+  constructor(timeoutMs: number) {
+    super(`OAuth callback timed out after ${Math.round(timeoutMs / 1000)}s`);
+    this.timeoutMs = timeoutMs;
+  }
+}
+
+/**
  * Replace an opaque SEP-2352 callback-leg failure with actionable copy (#1808).
  *
  * The runners have no banner to render, so their affordance is the message
@@ -140,9 +192,8 @@ export async function runRunnerInteractiveOAuth(
   // callback would otherwise either hang until the timeout below or (for
   // SIGINT specifically, absent any handler) hit Node's default abrupt exit
   // with no cleanup. Reject cleanly instead so the server is stopped and the
-  // caller gets a normal, classifiable error ("OAuth" in the message maps to
-  // AUTH_REQUIRED — see core/cli/error-handler.ts) rather than a raw
-  // process death. Opt-in (see handleSignals) — never installed under the
+  // caller gets a normal error (reported through core/cli/error-handler.ts)
+  // rather than a raw process death. Opt-in (see handleSignals) — never installed under the
   // TUI, which owns Ctrl-C through Ink.
   //
   // Every awaited phase — server.start(), authenticate() /
@@ -206,7 +257,7 @@ export async function runRunnerInteractiveOAuth(
           }
         },
         onError: (params) => {
-          flowReject(new Error(callbackErrorMessage(params)));
+          flowReject(new OAuthCallbackError(params));
         },
       }),
     );
@@ -225,11 +276,7 @@ export async function runRunnerInteractiveOAuth(
       }),
       new Promise<void>((_, reject) => {
         timeoutId = setTimeout(() => {
-          reject(
-            new Error(
-              `OAuth callback timed out after ${Math.round(timeoutMs / 1000)}s`,
-            ),
-          );
+          reject(new OAuthCallbackTimeoutError(timeoutMs));
         }, timeoutMs);
       }),
     ]);

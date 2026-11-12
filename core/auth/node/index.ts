@@ -18,7 +18,11 @@ export {
   parseRunnerOAuthCallbackUrl,
 } from "./runner-oauth-callback.js";
 export type { RunnerOAuthCallbackConfig } from "./runner-oauth-callback.js";
-export { runRunnerInteractiveOAuth } from "./runner-interactive-oauth.js";
+export {
+  OAuthCallbackError,
+  OAuthCallbackTimeoutError,
+  runRunnerInteractiveOAuth,
+} from "./runner-interactive-oauth.js";
 export type {
   RunRunnerInteractiveOAuthOptions,
   RunnerInteractiveOAuthClient,

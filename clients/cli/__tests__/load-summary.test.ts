@@ -378,6 +378,18 @@ describe("planned and achieved rate (#2837)", () => {
     expect(loadRateShortfallWarning(summary)).toBeUndefined();
   });
 
+  it("does not count a slightly late final timer as dropped in open loop", async () => {
+    const summary = await runLoad(
+      async () => "ok",
+      { concurrency: 1, requests: 3, rate: 10, openLoop: true },
+      fakeClock({ jitter: 0.1 }),
+    );
+    // The last start at 200.1ms is snapped to its grid slot: the window
+    // ends at 300, not 300.1, and no slot was missed.
+    expect(summary).toMatchObject({ plannedStarts: 3, droppedSlots: 0 });
+    expect(loadRateShortfallWarning(summary)).toBeUndefined();
+  });
+
   it("ends the window at the request bound when an interrupt lands later", async () => {
     const clock = fakeClock();
     const abort = new AbortController();

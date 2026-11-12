@@ -93,3 +93,30 @@ export function offersRunAsTask(
     protocolEra !== "modern" && !!capabilities?.tasks?.requests?.tools?.call
   );
 }
+
+/** A tool's per-tool task support; absent `execution` means "forbidden". */
+export function getTaskSupport(
+  tool: Tool,
+): "forbidden" | "optional" | "required" {
+  return tool.execution?.taskSupport ?? "forbidden";
+}
+
+/**
+ * Whether a call of `tool` actually runs as a task, given the server's
+ * capability and the user's "Run as task" toggle. A tool's task support is only
+ * considered when the server advertises task tool calls; `required` forces it
+ * on, `optional` follows the toggle, `forbidden` never. Shared by Execute and
+ * the history's Re-run (#2830) so the two cannot route the same tool
+ * differently.
+ */
+export function effectiveRunAsTask(
+  tool: Tool,
+  serverSupportsTaskToolCalls: boolean,
+  runAsTask: boolean,
+): boolean {
+  const taskSupport = getTaskSupport(tool);
+  return (
+    serverSupportsTaskToolCalls &&
+    (taskSupport === "required" || (taskSupport === "optional" && runAsTask))
+  );
+}

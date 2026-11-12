@@ -6,7 +6,16 @@ import type {
 } from "@inspector/core/cli/handlers/method-types.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
 import { checkLoadThresholds } from "@inspector/core/cli/handlers/load-thresholds.js";
-import { loadSummaryWarnings } from "@inspector/core/cli/handlers/load-test.js";
+import {
+  checkLoadRegression,
+  compareLoadToBaseline,
+  formatLoadBaselineComparison,
+} from "@inspector/core/cli/handlers/load-baseline.js";
+import {
+  formatLoadProgress,
+  loadSummaryWarnings,
+  type LoadOptions,
+} from "@inspector/core/cli/handlers/load-test.js";
 import { awaitableError } from "@inspector/core/cli/utils/awaitable-log.js";
 import type { LoadFlags } from "./load-flags.js";
 import { writeConnectionOutput } from "./format-connection.js";
@@ -36,6 +45,18 @@ export type ConnectionDispatchOpts = {
 };
 
 /**
+ * The load options sent to the daemon. Progress lines (#2838) are for a
+ * person watching the terminal, so `--format json` — a machine reading the
+ * one payload — asks for none.
+ */
+function loadOptionsFor(load: LoadFlags, format: OutputFormat): LoadOptions {
+  if (format === "text") return load.options;
+  const rest = { ...load.options };
+  delete rest.progressMs;
+  return rest;
+}
+
+/**
  * Run one connection MCP method via daemon `rpc` or `stream`.
  */
 export async function dispatchConnectionRpc(
@@ -54,7 +75,7 @@ export async function dispatchConnectionRpc(
     method,
     name: stripAt(opts.connection),
     requireExplicit: opts.requireExplicit,
-    ...(opts.load !== undefined && { load: opts.load.options }),
+    ...(opts.load !== undefined && { load: loadOptionsFor(opts.load, format) }),
   };
 
   const { socketPath } = await ensureDaemon();
@@ -126,6 +147,12 @@ export async function dispatchConnectionRpc(
       // fixed local deadline would falsely fail long-running tool calls.
       timeoutMs: 0,
       signal: ac.signal,
+      onLoadProgress: (progress) => {
+        // Advisory: skipped while stderr is backed up, as in the one-shot
+        // CLI, so a slow reader cannot grow the buffer without bound.
+        if (process.stderr.writableNeedDrain) return;
+        process.stderr.write(`${formatLoadProgress(progress)}\n`);
+      },
       onElicitation: (frame) =>
         promptElicitation(frame, {
           style,
@@ -154,7 +181,22 @@ export async function dispatchConnectionRpc(
     for (const warning of loadSummaryWarnings(outcome.summary)) {
       await awaitableError(`${warning}\n`);
     }
+    // `--load-baseline` (#2910), in the one-shot CLI's order: a mismatch
+    // first, then the comparison, the thresholds, and the regression budget.
+    const baseline = opts.load?.baseline;
+    const comparison =
+      baseline !== undefined
+        ? compareLoadToBaseline(outcome.summary, baseline.baseline)
+        : undefined;
+    for (const line of comparison !== undefined
+      ? formatLoadBaselineComparison(comparison)
+      : []) {
+      await awaitableError(`${line}\n`);
+    }
     checkLoadThresholds(outcome.summary, opts.load?.thresholds);
+    if (comparison !== undefined) {
+      checkLoadRegression(comparison, baseline!.maxRegressionPct);
+    }
   }
 }
 

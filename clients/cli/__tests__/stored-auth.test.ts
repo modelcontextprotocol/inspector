@@ -21,6 +21,7 @@ import {
   resolveStoredCredentials,
   type StoredServers,
 } from "../src/cli.js";
+import type { refreshAuthorization } from "@modelcontextprotocol/client";
 import { SecretFileLockHeldError } from "@inspector/core/auth/node/secret-store.js";
 import {
   readOAuthStore,
@@ -160,6 +161,41 @@ describe("refreshStoredAuthToken", () => {
       });
       expect(token).toBe("refreshed-access-token");
       expect(discover).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(path, { force: true });
+    }
+  });
+
+  // #2846: a destination-guard refusal on this path is warned about as it
+  // happens, since discovery and the grant may recover from it or fail with
+  // an error that names something else.
+  it("warns about a destination-guard refusal on its own fetch", async () => {
+    const path = writeOAuthFixture({
+      [SERVER]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid" },
+        serverMetadata: {
+          issuer: "https://auth.example",
+          token_endpoint: "https://auth.example/token",
+        },
+      },
+    });
+    try {
+      const warn = vi.fn();
+      const refresh = vi.fn<typeof refreshAuthorization>(async (_url, opts) => {
+        await expect(
+          opts.fetchFn!("http://169.254.169.254/token"),
+        ).rejects.toThrow(/link-local or metadata address/);
+        return freshTokens;
+      });
+      await refreshStoredAuthToken(SERVER, path, {
+        refresh,
+        discover: vi.fn(),
+        warn,
+      });
+      expect(warn).toHaveBeenCalledWith(
+        "Warning: Refused to fetch http://169.254.169.254/token: Refusing to fetch from a link-local or metadata address (169.254.169.254)\n",
+      );
     } finally {
       rmSync(path, { force: true });
     }

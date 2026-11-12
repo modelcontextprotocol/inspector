@@ -87,6 +87,8 @@
     "esbuild": "^0.28.2",
     "open": "^11.0.4",
     "vitest": "4.1.12",
-    "rolldown": "1.2.13"
+    "rolldown": "1.2.16",
+    "minimatch": "^11.0.4",
+    "glob": "^14.0.3"
   }
 }

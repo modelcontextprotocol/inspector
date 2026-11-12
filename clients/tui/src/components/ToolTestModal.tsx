@@ -9,7 +9,9 @@ import {
   decodeFormValues,
   missingRequiredFields,
   schemaToForm,
+  selectionCountErrors,
 } from "../utils/schemaToForm.js";
+import { FORM_FIELD_MANAGERS } from "./MultiSelectField.js";
 import { ScrollView, type ScrollViewRef } from "ink-scroll-view";
 import { inlineLocalRefs } from "@inspector/core/json/localRefs.js";
 import { redactErrorText, redactedJson } from "../utils/errorText.js";
@@ -31,6 +33,11 @@ interface ToolTestModalProps {
   width: number;
   height: number;
   onClose: () => void;
+  /**
+   * False while a pending sampling/elicitation request (#2829) is open above
+   * this overlay, so a key meant for that request does not also act here.
+   */
+  inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
 }
 
@@ -56,6 +63,7 @@ export function ToolTestModal({
   width,
   height,
   onClose,
+  inputActive = true,
   onAuthRecoveryRequired,
 }: ToolTestModalProps) {
   const [state, setState] = useState<ModalState>("form");
@@ -173,7 +181,7 @@ export function ToolTestModal({
     }
   };
   useInput((input: string, key: Key) => handleInputRef.current(input, key), {
-    isActive: true,
+    isActive: inputActive,
   });
 
   const openSavePrompt = () => {
@@ -259,6 +267,9 @@ export function ToolTestModal({
   };
 
   const handleFormSubmit = async (rawValues: Record<string, JsonValue>) => {
+    // A pending sampling/elicitation request (#2829) is open above this
+    // modal: ink-form still sees its keys, so Enter must not submit here.
+    if (!inputActive) return;
     if (!inspectorClient || !tool) return;
 
     // A root union renders every alternative as its own section, under prefixed
@@ -278,6 +289,20 @@ export function ToolTestModal({
         input: values,
         output: null,
         error: `Missing required argument${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+        duration: 0,
+      });
+      setState("results");
+      return;
+    }
+
+    // A multi-select's `minItems` / `maxItems` are invisible to ink-form's
+    // own gate, which only knows "empty or not" (#2904).
+    const outOfBounds = selectionCountErrors(inputSchema, values, rawValues);
+    if (outOfBounds.length > 0) {
+      setResult({
+        input: values,
+        output: null,
+        error: `Invalid argument${outOfBounds.length > 1 ? "s" : ""}: ${outOfBounds.join("; ")}`,
         duration: 0,
       });
       setState("results");
@@ -386,6 +411,7 @@ export function ToolTestModal({
             <Box flexGrow={1} width="100%">
               <Form
                 form={untitledForm(formStructure)}
+                customManagers={FORM_FIELD_MANAGERS}
                 onSubmit={(value: object) =>
                   void handleFormSubmit(value as Record<string, JsonValue>)
                 }

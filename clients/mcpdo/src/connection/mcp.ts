@@ -27,6 +27,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import { readInspectorVersion } from "@inspector/core/node/version.js";
+import { parsePromptArgPair } from "@inspector/core/cli/utils/prompt-args.js";
 import {
   getSecretStorageInfo,
   warnAboutSecretStorage,
@@ -66,9 +67,18 @@ import {
 } from "@inspector/core/cli/handlers/load-test.js";
 import {
   fractionParser,
+  maxP50Parser,
+  maxP95Parser,
   maxP99Parser,
+  minThroughputParser,
 } from "@inspector/core/cli/handlers/load-thresholds.js";
+import { maxRegressionParser } from "@inspector/core/cli/handlers/load-baseline.js";
 import { resolveLoadFlags, type LoadFlags } from "./load-flags.js";
+import {
+  loadRampParser,
+  loadStepByParser,
+  loadStepsParser,
+} from "@inspector/core/cli/handlers/load-stages.js";
 import { authorizeInFrontend } from "./authorize.js";
 import {
   AUTH_HELPER_COMMAND,
@@ -106,6 +116,7 @@ import {
   clearStoredAuthForRelogin,
   listStoredAuth,
   normalizeServerUrl,
+  showStoredAuth,
 } from "./stored-auth.js";
 import {
   type AuthNameIndex,
@@ -590,6 +601,16 @@ function registerConnect(program: CommandType): void {
         "per-server OAuth client id/secret from the catalog entry, so it " +
         "cannot be used with an ad-hoc target.",
     )
+    .option(
+      "--oauth-debug",
+      "Print each OAuth step to stderr: protected-resource and " +
+        "authorization-server metadata URLs and statuses, the client " +
+        "registration request and response, the authorization URL, and the " +
+        "token request and response, with tokens, codes and secrets redacted. " +
+        "Runs the sign-in in this process before the daemon connects, so the " +
+        "whole flow is traced here (an HTTP/SSE server with a valid stored " +
+        "token makes no OAuth requests; add --relogin to trace a fresh login).",
+    )
     .action(async (target: string[], cmdOpts) => {
       const opts = program.opts<GlobalOpts>();
       const { name: positionalConnection, rest } =
@@ -688,6 +709,20 @@ function registerConnect(program: CommandType): void {
         await clearStoredAuthForRelogin(serverConfig.url);
       }
 
+      // `--oauth-debug` (#2844): sign in here, before the daemon dials. The
+      // daemon's own first attempt would otherwise run discovery and
+      // registration in a process whose stderr is not this terminal, leaving
+      // the front-end retry to trace only the tail of the flow; done first,
+      // the daemon then connects on the stored tokens this wrote. A no-op for
+      // stdio; a server with a still-valid stored token is connected once and
+      // makes no OAuth request, so there is nothing to trace.
+      if (cmdOpts.oauthDebug === true) {
+        await authorizeInFrontend(serverConfig, serverSettings, {
+          storedAuthOnly: opts.storedAuthOnly === true,
+          oauthDebug: true,
+        });
+      }
+
       const { socketPath } = await ensureDaemon();
       const connectParams = {
         name,
@@ -723,7 +758,13 @@ function registerConnect(program: CommandType): void {
         // flow: that's an explicit unattended-automation opt-in.
         const humanPresent =
           process.stdin.isTTY === true || process.stderr.isTTY === true;
-        if (!humanPresent && !isCliAutoOpenForced()) {
+        // `--oauth-debug` stays on the blocking flow: the detached helper's
+        // stderr is not this terminal, so the trace would be lost (#2844).
+        if (
+          !humanPresent &&
+          !isCliAutoOpenForced() &&
+          cmdOpts.oauthDebug !== true
+        ) {
           const authUrl = await obtainPendingAuthUrl(
             serverConfig,
             serverSettings,
@@ -748,6 +789,7 @@ function registerConnect(program: CommandType): void {
         }
         await authorizeInFrontend(serverConfig, serverSettings, {
           storedAuthOnly: false,
+          oauthDebug: cmdOpts.oauthDebug === true,
         });
         // Interactive OAuth can run well past the daemon's idle timeout
         // (60s, armed while it holds zero connections) — a slow human login
@@ -792,6 +834,62 @@ async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
     if (!isDaemonUnreachable(error)) throw error;
   }
   return buildAuthNameIndex(entries, connections);
+}
+
+/**
+ * Resolve an `auth/clear` / `auth/show` key argument to a store key.
+ *
+ * A URL argument — or any string that is already an exact key in the store
+ * (e.g. an `ema-idp:<issuer>` EMA login key, which auth/list shows verbatim) —
+ * keeps the direct store-key path. Only a bare friendly name falls through to
+ * catalog + live-connection resolution, and only then is `byName` set.
+ */
+async function resolveAuthKeyArgument(
+  trimmed: string,
+  opts: GlobalOpts,
+  action: "clear" | "show",
+): Promise<{ key: string; byName?: string }> {
+  const storedKeys = (await listStoredAuth()).servers.map((s) => s.url);
+  if (storedKeys.includes(trimmed)) return { key: trimmed };
+  if (/^https?:\/\//i.test(trimmed)) {
+    // auth/list renders an EMA IdP login by its bare issuer URL (prefix
+    // hidden), so accept that issuer here and map it back to the prefixed
+    // store key — preferring a real server entry on the off chance both
+    // exist. Otherwise fall through to the store's own URL handling.
+    const idpKey = idpOAuthStorageKey(trimmed);
+    const key =
+      storedKeys.includes(idpKey) &&
+      !storedKeys.includes(normalizeServerUrl(trimmed))
+        ? idpKey
+        : trimmed;
+    return { key };
+  }
+  const index = await collectAuthNameIndex(opts);
+  const resolution = resolveFriendlyName(trimmed, index);
+  switch (resolution.kind) {
+    case "no-url":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `'${trimmed}' is a stdio server — it has no stored OAuth entry to ${action}.`,
+        { code: "usage" },
+      );
+    case "ambiguous":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `'${trimmed}' maps to multiple server URLs (${resolution.urls.join(
+          ", ",
+        )}). Pass the explicit URL from auth/list.`,
+        { code: "usage" },
+      );
+    case "unknown":
+      throw new CliExitCodeError(
+        EXIT_CODES.USAGE,
+        `No server named '${trimmed}'. Use auth/list or servers/list to see names, or pass a URL.`,
+        { code: "usage" },
+      );
+    case "url":
+      return { key: resolution.url, byName: trimmed };
+  }
 }
 
 function registerAuthCommands(program: CommandType): void {
@@ -906,70 +1004,43 @@ function registerAuthCommands(program: CommandType): void {
         });
         return;
       }
-      const trimmed = key!.trim();
-      // A URL argument — or any string that is already an exact key in the
-      // store (e.g. an `ema-idp:<issuer>` EMA login key, which auth/list shows
-      // verbatim) — keeps the direct store-key path. Only a bare friendly name
-      // falls through to catalog + live-connection resolution.
-      const storedKeys = (await listStoredAuth()).servers.map((s) => s.url);
-      if (storedKeys.includes(trimmed)) {
-        const result = await clearStoredAuth(trimmed);
-        await writeConnectionOutput(outOpts(opts), {
-          kind: "auth/clear",
-          result: { url: result.url },
-        });
-        return;
+      const target = await resolveAuthKeyArgument(key!.trim(), opts, "clear");
+      const result = await clearStoredAuth(target.key);
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/clear",
+        result: {
+          url: result.url,
+          ...(target.byName !== undefined && { clearedByName: target.byName }),
+        },
+      });
+    });
+
+  program
+    .command("auth/show")
+    .description(
+      "Show the stored access token's decoded claims (issuer, audience, scopes, expiry) for one server — never the token itself",
+    )
+    .argument("<key>", "Server URL or catalog/connection name from auth/list")
+    .action(async (key: string) => {
+      const opts = program.opts<GlobalOpts>();
+      const trimmed = key.trim();
+      if (!trimmed) {
+        throw new CliExitCodeError(
+          EXIT_CODES.USAGE,
+          "auth/show requires a server URL key (from auth/list)",
+          { code: "usage" },
+        );
       }
-      if (/^https?:\/\//i.test(trimmed)) {
-        // auth/list renders an EMA IdP login by its bare issuer URL (prefix
-        // hidden), so accept that issuer here and map it back to the prefixed
-        // store key — preferring a real server entry on the off chance both
-        // exist. Otherwise fall through to clearStoredAuth's own URL handling.
-        const idpKey = idpOAuthStorageKey(trimmed);
-        const target =
-          storedKeys.includes(idpKey) &&
-          !storedKeys.includes(normalizeServerUrl(trimmed))
-            ? idpKey
-            : trimmed;
-        const result = await clearStoredAuth(target);
-        await writeConnectionOutput(outOpts(opts), {
-          kind: "auth/clear",
-          result: { url: result.url },
-        });
-        return;
-      }
-      const index = await collectAuthNameIndex(opts);
-      const resolution = resolveFriendlyName(trimmed, index);
-      switch (resolution.kind) {
-        case "no-url":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `'${trimmed}' is a stdio server — it has no stored OAuth entry to clear.`,
-            { code: "usage" },
-          );
-        case "ambiguous":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `'${trimmed}' maps to multiple server URLs (${resolution.urls.join(
-              ", ",
-            )}). Pass the explicit URL from auth/list.`,
-            { code: "usage" },
-          );
-        case "unknown":
-          throw new CliExitCodeError(
-            EXIT_CODES.USAGE,
-            `No server named '${trimmed}'. Use auth/list or servers/list to see names, or pass a URL.`,
-            { code: "usage" },
-          );
-        case "url": {
-          const result = await clearStoredAuth(resolution.url);
-          await writeConnectionOutput(outOpts(opts), {
-            kind: "auth/clear",
-            result: { url: result.url, clearedByName: trimmed },
-          });
-          return;
-        }
-      }
+      const target = await resolveAuthKeyArgument(trimmed, opts, "show");
+      const result = await showStoredAuth(target.key);
+      await writeConnectionOutput(outOpts(opts), {
+        kind: "auth/show",
+        result: {
+          ...result,
+          ...(target.byName !== undefined && { shownByName: target.byName }),
+        },
+        nowMs: Date.now(),
+      });
     });
 
   program
@@ -1374,6 +1445,85 @@ function registerRpcCommands(program: CommandType): void {
             "Load-test the tool: call it repeatedly and concurrently, then print a latency and error-rate summary instead of a result. Bounded by --load-duration (default 10s) and/or --load-requests. Later commands on this connection wait until the run ends.",
           )
           .option(
+            "--load-scenario <file>",
+            "With --load: run the weighted mix of tools/call, resources/read and prompts/get steps in this JSON file instead of one tool, and break the summary down per step. Replaces the tool name, its arguments and --tool-metadata.",
+          )
+          .option(
+            "--load-args-file <file>",
+            "With --load: NDJSON file of argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Placeholders {{seq}}, {{worker}}, {{uuid}} and {{rand:<min>-<max>}} work in rows and in argument values.",
+          )
+          .option(
+            "--load-args-random",
+            "With --load-args-file: pick each call's row at random instead of in turn.",
+          )
+          // Stepped / ramped load (#2841), as in the one-shot CLI.
+          .option(
+            "--load-steps <list>",
+            "With --load: run consecutive stages at these levels (comma-separated, e.g. 10,25,50,100), each for --load-step-duration, with one summary row per stage. Levels are concurrency unless --load-step-by rate.",
+            loadStepsParser,
+          )
+          .option(
+            "--load-ramp <from:to:sec>",
+            "With --load: a staircase of stages from <from> to <to> over <sec> seconds, one stage per --load-step-duration, levels spaced evenly (concurrency unless --load-step-by rate).",
+            loadRampParser,
+          )
+          .option(
+            "--load-step-by <what>",
+            "With --load-steps or --load-ramp: what each level sets, concurrency (default) or rate (calls per second over --load-concurrency workers).",
+            loadStepByParser,
+          )
+          .option(
+            "--load-step-duration <sec>",
+            "With --load-steps or --load-ramp: how long each stage runs (default 10).",
+            positiveNumberParser("--load-step-duration"),
+          )
+          .option(
+            "--load-interval <sec>",
+            "With --load: also report the run as a time series of buckets this many seconds long (completions, errors, latency per bucket) in an intervals array.",
+            positiveNumberParser("--load-interval"),
+          )
+          .option(
+            "--load-warmup <sec>",
+            "With --load: run this many seconds first at the same concurrency and rate, and leave those calls out of every statistic.",
+            positiveNumberParser("--load-warmup"),
+          )
+          .option(
+            "--load-progress <sec>",
+            "With --load: print a progress line on stderr this often (default 5). Shown with --format text only; --format json prints none.",
+            positiveNumberParser("--load-progress"),
+          )
+          .option(
+            "--load-open-loop",
+            "With --load-rate: open-loop mode. Keep every slot of the rate grid instead of dropping the ones no worker is free for, and time each call from its scheduled start, so queueing shows in the latency.",
+          )
+          .option(
+            "--load-stop-on-breach",
+            "With --load-steps or --load-ramp and a --load-max-* threshold: stop after the first stage that breaches it (the run still exits 10).",
+          )
+          .option(
+            "--load-subscribe <uri>",
+            "With --load: notification fan-out. Subscribe --load-subscribers sessions to this resource and report how notifications/resources/updated reaches them: per-notification delivery latency, misses per session, and subscribe cost. With a tool name (or --load-scenario) each successful call is a trigger and latency runs from its start; without one the run listens for --load-duration to the server's own updates. Triggers run one at a time.",
+          )
+          .option(
+            "--load-subscribers <n>",
+            "With --load-subscribe: sessions to subscribe, this connection included (positive integer; default 1; above 1 needs an HTTP or SSE connection, and opens the rest with stored credentials).",
+            positiveIntegerParser("--load-subscribers"),
+          )
+          .option(
+            "--load-subscribe-wait <sec>",
+            "With --load-subscribe: how long subscribers get to catch up after the run before a notification counts as missed (default 2).",
+            positiveNumberParser("--load-subscribe-wait"),
+          )
+          .option(
+            "--load-churn",
+            "With --load: session churn. Each worker opens a session to the connection's HTTP or SSE server with stored credentials, makes --load-churn-calls calls, closes it, and repeats; connect times and failures are reported apart from call latency. Not with --load-connections.",
+          )
+          .option(
+            "--load-churn-calls <n>",
+            "With --load-churn: calls per session before it is closed (positive integer; default 1).",
+            positiveIntegerParser("--load-churn-calls"),
+          )
+          .option(
             "--load-concurrency <n>",
             "With --load: most calls in flight at once (positive integer; default 10).",
             positiveIntegerParser("--load-concurrency"),
@@ -1409,6 +1559,31 @@ function registerRpcCommands(program: CommandType): void {
             "--load-max-p99 <ms>",
             "With --load: exit 10 (load_p99_exceeded) when the p99 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
             maxP99Parser,
+          )
+          .option(
+            "--load-max-p50 <ms>",
+            "With --load: exit 10 (load_p50_exceeded) when the p50 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+            maxP50Parser,
+          )
+          .option(
+            "--load-max-p95 <ms>",
+            "With --load: exit 10 (load_p95_exceeded) when the p95 latency of the successful calls is above this many milliseconds, or when no call succeeded, after printing the summary (positive number).",
+            maxP95Parser,
+          )
+          .option(
+            "--load-min-throughput <n>",
+            "With --load: exit 10 (load_throughput_below) when fewer than this many calls per second succeeded (okThroughput), after printing the summary (positive number).",
+            minThroughputParser,
+          )
+          // `--load-baseline` (#2910): judged here, after the summary.
+          .option(
+            "--load-baseline <file>",
+            "With --load: compare the run's p50, p99, error rate and ok throughput against a summary saved from an earlier run with --format json, printing the comparison on stderr. The runs must be shaped alike (same tool or scenario, concurrency, bounds, rate, connections and stages), or the run exits 1 (load_baseline_mismatch).",
+          )
+          .option(
+            "--load-max-regression <pct>",
+            "With --load-baseline: exit 10 (load_regression) when p50 or p99 is higher, or ok throughput lower, than the baseline by more than this percentage, or the error rate higher by more than this many percentage points (e.g. 10 or 10%).",
+            maxRegressionParser,
           );
         cmd.action(
           async (
@@ -1423,7 +1598,14 @@ function registerRpcCommands(program: CommandType): void {
               toolArgFlag: (o.toolArg ?? {}) as Record<string, JsonValue>,
               toolArgsJson: o.toolArgsJson as string | undefined,
             });
-            const load = resolveLoadFlags({ ...o, toolName });
+            const load = resolveLoadFlags({
+              ...o,
+              toolName,
+              toolArg,
+              toolMetadata: o.toolMetadata as
+                | Record<string, unknown>
+                | undefined,
+            });
             await runRpc(
               program,
               method,
@@ -1506,14 +1688,14 @@ function registerRpcCommands(program: CommandType): void {
           .option("--prompt-name <name>", "Prompt name")
           .option(
             "--prompt-args <pairs...>",
-            "Prompt arguments",
-            parseKeyValue,
+            "Prompt arguments as key=value pairs (values are sent verbatim as strings)",
+            parsePromptArgPair,
             {},
           );
         cmd.action(async (promptPos: string | undefined, o) => {
           await runRpc(program, method, {
             promptName: (o.promptName as string | undefined) ?? promptPos,
-            promptArgs: (o.promptArgs ?? {}) as Record<string, JsonValue>,
+            promptArgs: (o.promptArgs ?? {}) as Record<string, string>,
             metadata: o.metadata,
           });
         });

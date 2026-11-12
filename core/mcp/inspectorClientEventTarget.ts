@@ -30,6 +30,7 @@ import type {
   InspectorTask,
 } from "./types.js";
 import type { MalformedListItem } from "./listSalvage.js";
+import type { FetchRefusal } from "../auth/fetchRefusal.js";
 import type { ConnectionDiagnostics } from "./connectionDiagnostics.js";
 import type {
   Tool,
@@ -214,6 +215,12 @@ export interface InspectorClientEventMap {
   oauthComplete: { tokens: OAuthTokens };
   oauthAuthorizationRequired: { url: URL };
   oauthError: { error: Error };
+  /**
+   * A destination-guard refusal on one of the client's fetch chains (#2846),
+   * fired once per distinct URL and reason — even when OAuth discovery
+   * recovered by trying another URL, which is when it is otherwise invisible.
+   */
+  fetchRefused: FetchRefusal;
   /** Ambient (SSE) auth challenge while no command-scoped send is active. */
   authChallengeAmbient: { challenge: AuthChallenge };
   /** Command-scoped direct-transport auth challenge (no ambient toast). */

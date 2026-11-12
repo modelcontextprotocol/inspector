@@ -7,7 +7,7 @@ const disconnectSpy = vi.fn().mockResolvedValue(undefined);
 const navigationSpy = vi.fn();
 const clientCtorSpy = vi.fn();
 const createProxyFetchSpy = vi.fn<() => typeof fetch | undefined>();
-const createGuardedFetchSpy = vi.fn<() => typeof fetch>();
+const createCliOAuthFetchSpy = vi.fn<(oauthDebug: boolean) => typeof fetch>();
 
 vi.mock("@inspector/core/cli/cliOAuth.js", () => ({
   connectInspectorWithOAuth: (...args: unknown[]) => connectSpy(...args),
@@ -21,8 +21,11 @@ vi.mock("@inspector/core/cli/cli-oauth-navigation.js", () => ({
 }));
 
 vi.mock("@inspector/core/mcp/index.js", () => ({
-  InspectorClient: class {
+  // An event target, as the real client is: the front-end subscribes to its
+  // `fetchRefused` event (#2846).
+  InspectorClient: class extends EventTarget {
     constructor(...args: unknown[]) {
+      super();
       clientCtorSpy(...args);
     }
     connect = vi.fn();
@@ -36,7 +39,16 @@ vi.mock("@inspector/core/mcp/node/index.js", async (importOriginal) => {
   return {
     ...actual,
     createProxyFetch: () => createProxyFetchSpy(),
-    createGuardedFetch: () => createGuardedFetchSpy(),
+  };
+});
+
+vi.mock("@inspector/core/cli/oauth-debug.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@inspector/core/cli/oauth-debug.js")>();
+  return {
+    ...actual,
+    createCliOAuthFetch: (oauthDebug: boolean) =>
+      createCliOAuthFetchSpy(oauthDebug),
   };
 });
 
@@ -57,7 +69,7 @@ describe("authorizeInFrontend", () => {
     navigationSpy.mockClear();
     clientCtorSpy.mockClear();
     createProxyFetchSpy.mockReset();
-    createGuardedFetchSpy.mockReset();
+    createCliOAuthFetchSpy.mockReset();
   });
 
   it("installs the proxy-aware fetch on the client environment (#2642)", async () => {
@@ -82,7 +94,7 @@ describe("authorizeInFrontend", () => {
   it("installs the guarded fetch as the OAuth base (#2749)", async () => {
     connectSpy.mockResolvedValue(undefined);
     const guardedFetch: typeof fetch = vi.fn<typeof fetch>(); // a stand-in, never called
-    createGuardedFetchSpy.mockReturnValue(guardedFetch);
+    createCliOAuthFetchSpy.mockReturnValue(guardedFetch);
     const { authorizeInFrontend } =
       await import("../src/connection/authorize.js");
     await authorizeInFrontend(
@@ -93,6 +105,105 @@ describe("authorizeInFrontend", () => {
       environment: { oauthFetch?: typeof fetch };
     };
     expect(options.environment.oauthFetch).toBe(guardedFetch);
+    // Untraced unless asked for.
+    expect(createCliOAuthFetchSpy).toHaveBeenCalledWith(false);
+    const navOptions = navigationSpy.mock.calls[0]?.[0] as {
+      onAuthorizationUrl?: unknown;
+    };
+    expect(navOptions.onAuthorizationUrl).toBeUndefined();
+  });
+
+  it("traces the OAuth fetch and the authorize URL under oauthDebug (#2844)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+      { oauthDebug: true },
+    );
+    expect(createCliOAuthFetchSpy).toHaveBeenCalledWith(true);
+    const navOptions = navigationSpy.mock.calls[0]?.[0] as {
+      onAuthorizationUrl?: unknown;
+    };
+    expect(navOptions.onAuthorizationUrl).toBeTypeOf("function");
+  });
+
+  it("warns on stderr about a destination-guard refusal during the flow (#2846)", async () => {
+    const write = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    connectSpy.mockImplementation(async (client: EventTarget) => {
+      client.dispatchEvent(
+        new CustomEvent("fetchRefused", {
+          detail: {
+            url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+            reason: "Refusing to fetch from a link-local or metadata address",
+          },
+        }),
+      );
+    });
+    try {
+      const { authorizeInFrontend } =
+        await import("../src/connection/authorize.js");
+      await authorizeInFrontend(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        undefined,
+      );
+      expect(write).toHaveBeenCalledWith(
+        "Warning: Refused to fetch http://169.254.169.254/.well-known/oauth-authorization-server: Refusing to fetch from a link-local or metadata address\n",
+      );
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("hands each refusal to onFetchRefusal instead of stderr (#2905)", async () => {
+    const write = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const refusal = {
+      url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+      reason: "Refusing to fetch from a link-local or metadata address",
+    };
+    connectSpy.mockImplementation(async (client: EventTarget) => {
+      client.dispatchEvent(
+        new CustomEvent("fetchRefused", { detail: refusal }),
+      );
+    });
+    const onFetchRefusal = vi.fn();
+    try {
+      const { authorizeInFrontend } =
+        await import("../src/connection/authorize.js");
+      await authorizeInFrontend(
+        { type: "streamable-http", url: "https://example.com/mcp" },
+        undefined,
+        { onFetchRefusal },
+      );
+      expect(onFetchRefusal).toHaveBeenCalledWith(refusal);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it("advertises the configured roots, as the daemon's client does (#2844)", async () => {
+    connectSpy.mockResolvedValue(undefined);
+    const { authorizeInFrontend } =
+      await import("../src/connection/authorize.js");
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      { roots: [{ uri: "file:///work", name: "work" }] } as never,
+    );
+    await authorizeInFrontend(
+      { type: "streamable-http", url: "https://example.com/mcp" },
+      undefined,
+    );
+    const withRoots = clientCtorSpy.mock.calls[0]?.[1] as { roots?: unknown };
+    const without = clientCtorSpy.mock.calls[1]?.[1] as { roots?: unknown };
+    expect(withRoots.roots).toEqual([{ uri: "file:///work", name: "work" }]);
+    // Passed even when empty: that is what negotiates the capability.
+    expect(without.roots).toEqual([]);
   });
 
   it("names the CLI's timeout knobs, not the web's Server Settings (#2615)", async () => {

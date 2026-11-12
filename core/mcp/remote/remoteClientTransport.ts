@@ -81,6 +81,12 @@ export interface RemoteTransportOptions {
    */
   settings?: InspectorServerSettings;
 
+  /**
+   * The server's display name, sent in the /api/mcp/connect body so the
+   * backend's session list can say which server a session is for (#2831).
+   */
+  serverName?: string;
+
   /** Mid-session auth recovery (handle challenge on command-scoped send). */
   authRecovery?: AuthRecoveryHandlers;
 
@@ -468,6 +474,7 @@ export class RemoteClientTransport implements Transport {
       config: this.config,
       ...(authState && { authState }),
       ...(this.options.settings && { settings: this.options.settings }),
+      ...(this.options.serverName && { serverName: this.options.serverName }),
     };
 
     const res = await this.fetchFn(`${this.baseUrl}/api/mcp/connect`, {

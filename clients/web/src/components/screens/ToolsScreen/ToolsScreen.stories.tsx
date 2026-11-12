@@ -125,6 +125,43 @@ export const WithResult: Story = {
   },
 };
 
+// The result beside the form, with the tool's run history under it (#2830).
+export const WithRunHistory: Story = {
+  args: {
+    tools: sampleTools,
+    callState: {
+      ...resultState,
+      durationMs: 184,
+      args: { title: "New Record", count: 5, enabled: true },
+    },
+    ui: { ...EMPTY_TOOLS_UI, selectedToolKey: "1:create_record" },
+    runHistory: {
+      create_record: [
+        {
+          id: "run-2",
+          sequence: 2,
+          toolName: "create_record",
+          args: { title: "New Record", count: 5, enabled: true },
+          startedAt: Date.UTC(2026, 10, 5, 14, 2),
+          durationMs: 184,
+          status: "ok",
+          result: resultState.result,
+        },
+        {
+          id: "run-1",
+          sequence: 1,
+          toolName: "create_record",
+          args: { title: "Old Record", count: 3 },
+          startedAt: Date.UTC(2026, 10, 5, 14, 1),
+          durationMs: 97,
+          status: "ok",
+          result: { content: [{ type: "text", text: "Created Old Record" }] },
+        },
+      ],
+    },
+  },
+};
+
 export const LongToolName: Story = {
   args: {
     tools: [

@@ -7,7 +7,6 @@ import {
   Collapse,
   Divider,
   Group,
-  ScrollArea,
   Stack,
   Table,
   Text,
@@ -28,6 +27,8 @@ import { MethodBadge } from "../../elements/MethodBadge/MethodBadge";
 import { CategoryBadge } from "../../elements/CategoryBadge/CategoryBadge";
 import { maskSecretsInBody } from "../../../utils/maskSecrets";
 import { useValueChange } from "../../../hooks/useValueChange";
+import { useOpenedOnce } from "../../../hooks/useOpenedOnce";
+import { useKeepRowMounted } from "../../../hooks/useKeepRowMounted";
 import {
   oauthNetworkPhase,
   oauthNetworkPhaseLabel,
@@ -81,12 +82,16 @@ const UrlText = Text.withProps({
   truncate: "end",
 });
 
-// Compact-header URL: never wraps, so a long URL scrolls horizontally inside its
-// ScrollArea instead of wrapping to many lines.
+// Compact-header URL: never wraps, so a long URL scrolls horizontally in place
+// instead of wrapping to many lines. It has no focusable child, so the scroller
+// itself is focusable to keep it keyboard-scrollable (WCAG SC 2.1.1).
 const UrlScroll = Text.withProps({
   size: "sm",
   fw: 500,
-  variant: "nowrap",
+  variant: "hscroll",
+  flex: 1,
+  miw: 0,
+  tabIndex: 0,
 });
 
 // The wide header's right-hand cluster.
@@ -270,16 +275,6 @@ const CompactUrlRow = Group.withProps({
   justify: "space-between",
 });
 
-const UrlScrollArea = ScrollArea.withProps({
-  scrollbarSize: 6,
-  flex: 1,
-  miw: 0,
-  // The URL scrolls horizontally but has no focusable child, so make the
-  // viewport itself keyboard-scrollable (WCAG SC 2.1.1). Scrollbar auto-hides
-  // via the `type="scroll"` theme default.
-  viewportProps: { tabIndex: 0 },
-});
-
 // Wide-header left cluster: timestamp + badges + URL, shrinking to truncate.
 const WideHeaderCluster = Group.withProps({
   gap: "sm",
@@ -417,6 +412,9 @@ function BodyPreview({
   // `<BodyPreview>` by both (remounting on swap), so a previously-revealed view
   // never persists across a content (or masking) change.
   const [revealed, setRevealed] = useState(false);
+  // A revealed body would be masked again if its lazy row unmounted on a
+  // scroll away (#2932), so the reveal keeps the row mounted.
+  useKeepRowMounted(revealed);
 
   const tooLarge = body.length > MAX_INLINE_BODY_CHARS;
 
@@ -529,6 +527,12 @@ export function NetworkEntry({
   useValueChange(revealed, (nextRevealed) => {
     if (nextRevealed) setIsExpanded(true);
   });
+  // The body (headers tables, body previews) mounts on first expand, not with
+  // the row — see `useOpenedOnce` (#2928).
+  const bodyMounted = useOpenedOnce(isExpanded);
+  // In a lazy list a row unmounts when scrolled away and remounts from its
+  // props (#2932); an expansion the props cannot restore keeps it mounted.
+  useKeepRowMounted(isExpanded !== isListExpanded);
 
   // "Reveal in Network" one-shot, part 2: scroll the entry into view, then
   // clear the signal. The scroll runs in a rAF so it lands after
@@ -604,9 +608,7 @@ export function NetworkEntry({
             </CompactHeaderLine>
             <CompactUrlRow>
               <CopyButton value={entry.url} />
-              <UrlScrollArea>
-                <UrlScroll>{entry.url}</UrlScroll>
-              </UrlScrollArea>
+              <UrlScroll>{entry.url}</UrlScroll>
               {expandToggle}
             </CompactUrlRow>
           </Stack>
@@ -631,63 +633,66 @@ export function NetworkEntry({
         )}
 
         <Collapse in={isExpanded}>
-          <Stack gap="sm">
-            <Divider />
-            {aborted && (
-              <CancellationAlert>
-                <Text size="xs">
-                  Cancellation appears as a connection abort — the modern
-                  transport aborts the request stream instead of sending a{" "}
-                  <MonoSpan>notifications/cancelled</MonoSpan> frame (SEP-2575).
-                </Text>
-              </CancellationAlert>
-            )}
-            <Stack gap="xs">
-              <SectionLabel>Request Headers</SectionLabel>
-              <HeadersTable
-                headers={entry.requestHeaders}
-                consistency={headerConsistency}
-              />
-            </Stack>
-            {entry.requestBody && (
+          {bodyMounted && (
+            <Stack gap="sm">
+              <Divider />
+              {aborted && (
+                <CancellationAlert>
+                  <Text size="xs">
+                    Cancellation appears as a connection abort — the modern
+                    transport aborts the request stream instead of sending a{" "}
+                    <MonoSpan>notifications/cancelled</MonoSpan> frame
+                    (SEP-2575).
+                  </Text>
+                </CancellationAlert>
+              )}
               <Stack gap="xs">
-                <SectionLabel>Request Body</SectionLabel>
-                <BodyPreview
-                  key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
-                  body={entry.requestBody}
-                  contentType={entry.requestHeaders["content-type"]}
-                  label="Request body"
+                <SectionLabel>Request Headers</SectionLabel>
+                <HeadersTable
+                  headers={entry.requestHeaders}
+                  consistency={headerConsistency}
                 />
               </Stack>
-            )}
-            {entry.responseHeaders && (
-              <Stack gap="xs">
-                <SectionLabel>Response Headers</SectionLabel>
-                <HeadersTable headers={entry.responseHeaders} />
-              </Stack>
-            )}
-            {entry.responseStatus !== undefined && (
-              <Stack gap="xs">
-                <SectionLabel>Response Body</SectionLabel>
-                {entry.responseBody ? (
+              {entry.requestBody && (
+                <Stack gap="xs">
+                  <SectionLabel>Request Body</SectionLabel>
                   <BodyPreview
-                    key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
-                    body={entry.responseBody}
-                    contentType={entry.responseHeaders?.["content-type"]}
-                    label="Response body"
+                    key={`${entry.requestHeaders["content-type"] ?? ""}|${entry.requestBody}`}
+                    body={entry.requestBody}
+                    contentType={entry.requestHeaders["content-type"]}
+                    label="Request body"
                   />
-                ) : (
-                  <DimmedNote>{uncapturedBodyNote(entry)}</DimmedNote>
-                )}
-              </Stack>
-            )}
-            {entry.error && (
-              <Stack gap="xs">
-                <SectionLabel c="red">Error</SectionLabel>
-                <ErrorText>{entry.error}</ErrorText>
-              </Stack>
-            )}
-          </Stack>
+                </Stack>
+              )}
+              {entry.responseHeaders && (
+                <Stack gap="xs">
+                  <SectionLabel>Response Headers</SectionLabel>
+                  <HeadersTable headers={entry.responseHeaders} />
+                </Stack>
+              )}
+              {entry.responseStatus !== undefined && (
+                <Stack gap="xs">
+                  <SectionLabel>Response Body</SectionLabel>
+                  {entry.responseBody ? (
+                    <BodyPreview
+                      key={`${entry.responseHeaders?.["content-type"] ?? ""}|${entry.responseBody}`}
+                      body={entry.responseBody}
+                      contentType={entry.responseHeaders?.["content-type"]}
+                      label="Response body"
+                    />
+                  ) : (
+                    <DimmedNote>{uncapturedBodyNote(entry)}</DimmedNote>
+                  )}
+                </Stack>
+              )}
+              {entry.error && (
+                <Stack gap="xs">
+                  <SectionLabel c="red">Error</SectionLabel>
+                  <ErrorText>{entry.error}</ErrorText>
+                </Stack>
+              )}
+            </Stack>
+          )}
         </Collapse>
       </Stack>
     </EntryContainer>

@@ -9,8 +9,8 @@ disable-model-invocation: false
 Private vulnerability reporting is enabled on this repo and
 [`SECURITY.md`](../../../SECURITY.md) routes every report to it — the issue
 chooser deliberately has no security template, because a vulnerability report
-must not open a public issue. So an advisory never arrives as an issue, and for
-most of its life it must **not** become one.
+must not open a public issue. So an advisory never arrives as an issue, and
+until its fix is ready to land it must **not** become one.
 
 Two steps in this flow are **outward-facing, and both stay human-gated**:
 **accepting** an advisory (the reporter sees it) and **publishing** it (it
@@ -26,20 +26,21 @@ reporter's credit especially, since nothing prompts for it — not because
 publishing performs them.
 
 Related: `/board-ops` (the card IDs and recipes) and `/issue-create`, for the
-labels, milestone and board that public tracking takes — **after publication,
-never merely after the release**, since the release ships the fix while the
-advisory may still be private.
+labels, milestone and board that public tracking takes — **when the reviewed
+fix is ready to land** (step 5), since the fix lands through an ordinary public
+PR and that PR needs an issue to close.
 
 ⚠️ **How that tracking is created depends on the affected lines**, and only the
 v2 path is a conversion: a v2 issue is **converted** from the draft (filing one
 separately would duplicate both the issue and the card), while a v1 issue is
-**filed** on #11, because the draft is on #28 and cannot move there. Step 6 has
+**filed** on #11, because the draft is on #28 and cannot move there. Step 5 has
 the per-line sequence.
 
-⚠️ **`/pr-flow` does not apply to the fix itself.** It requires a public issue
-and a public PR against the release branch — the disclosure this flow exists to
-delay. The fix is reviewed inside the private fork (step 4), and `/pr-flow`
-becomes relevant only once the advisory is published.
+⚠️ **`/pr-flow` does not apply while the fix is in the private fork.** It
+requires a public issue and a public PR against the release branch — the
+disclosure this flow delays until the fix is ready. The fix is developed and
+reviewed inside the private fork (step 4); once it is ready, it lands through
+`/pr-flow` like any other change (step 5).
 
 ## The flow
 
@@ -49,8 +50,8 @@ becomes relevant only once the advisory is published.
 | 2 | **Verify the claim** — who owns the code path, and **which release lines are affected** | Judgment |
 | 3 | Valid → **accept** (`triage` → `draft`); invalid → close with a reason | **Human only** |
 | 4 | Create the **private fork**, fix and review there | Mechanical |
-| 5 | Merge **to every affected line**, release each, then **publish** the advisory | **Human only** |
-| 6 | **After publication**, turn the card into public tracking — per line: convert (v2), or file on #11 and delete the draft (v1) | Mechanical |
+| 5 | Turn the card into **public tracking** (convert for v2; file on #11 for v1), land the fix through an **ordinary public PR** on every affected line, release each, then **publish** the advisory | Mechanical, except **publishing: human only** |
+| 6 | **After publication**, bring the public issue(s) up to date with what the advisory disclosed | Mechanical |
 
 ### 1. Board it as a draft card
 
@@ -78,11 +79,11 @@ a real GitHub issue".
   access is ever widened** beyond the people handling advisories, the premise
   fails. Revisit this rule then, and go back to keeping only the link and the
   triage metadata on the card.
-  ⚠️ **None of this touches publication.** A card is private and a converted
-  issue is not. The public issue still waits for publication (step 6), and an
-  upstream finding still goes through the upstream's **private** channel
-  (step 2). A detailed card is a reason to review its body before converting,
-  not a reason to convert sooner.
+  ⚠️ **None of this touches disclosure.** A card is private and a converted
+  issue is not. The public issue still waits until the fix is ready to land
+  (step 5), and an upstream finding still goes through the upstream's
+  **private** channel (step 2). A detailed card is a reason to review its body
+  before converting, not a reason to convert sooner.
 - **Status `Incoming`**, plus a **provisional** Priority scored with the
   `/issue-triage` rubric. `Incoming` is correct even though somebody clearly
   triaged it to make the card: nobody has approved shipping a fix yet, and a
@@ -194,7 +195,7 @@ normally assigning a milestone, and a draft card cannot carry one — so for an
 advisory draft, **accepting the advisory is the approval**, and it is what
 licenses the card to leave `Incoming`. `AGENTS.md` records this as the
 advisory exemption to its `Incoming` ⇔ milestone invariant. The milestone
-arrives with the public issue in step 6, where the ordinary rule resumes.
+arrives with the public issue in step 5, where the ordinary rule resumes.
 
 **Invalid, out of scope, or upstream → close** with a comment saying which, and
 why. A reporter who is told nothing reasonably assumes they were ignored.
@@ -239,9 +240,11 @@ something you can quietly undo — it takes a re-scoped token or an admin in the
 UI. That asymmetry is the whole reason for the read-first rule above.
 
 Fix and review inside the fork. Its PRs and commits are private, so none of the
-normal public review flow applies; the diff comes back as an ordinary commit at
-merge time, **to the branch of each line step 2 found affected** — `v2/main`
-for v2, `v1/main` for v1.
+normal public review flow applies there. Cut each fix branch from the base of
+the line it targets (`v2/main` for v2, `v1/main` for v1), **one per line step 2
+found affected** — in step 5 that branch is pushed to the public repo unchanged
+and lands through an ordinary PR, so the fork's PRs are where the fix is
+_reviewed_, never where it is _merged_.
 
 ⚠️ **Move the card as the work moves.** `AGENTS.md`'s lifecycle applies to this
 card like any other: **`In Progress`** when the fix is started, **`In Review`**
@@ -252,7 +255,7 @@ work exists at all. A card that sits in `Incoming` until it jumps to `Done`
 reports "unreviewed, nobody committed to it" for the entire time somebody is
 actively fixing it.
 
-### 5. Merge to every affected line, release, publish
+### 5. Land the fix on every affected line, release, publish
 
 Publish **after** the fix has shipped in a release, never before — publishing
 discloses the vulnerability, so doing it while users have no upgrade available
@@ -264,51 +267,82 @@ about `v1-latest`. Publishing with one line still unpatched discloses a live
 vulnerability to the users who have no fix — and they are the users least able
 to move, since v1 is the deprecated line they are on because upgrading is hard.
 
-⚠️ **The patch stops being secret at MERGE, not at publish — and no release
-path changes that.** Merging the private fork puts an ordinary public commit on
-`v2/main` or `v1/main`, readable by anyone, and a v2 release then moves it
-through **two public PRs** on its way to `main`. So the window between merge and
-publish is not a period of secrecy to protect; it is a period of **exposure to
-anyone reading commits**, which is why it should be short. Merge close to the
-release rather than early, and publish as soon as the release is out.
+⚠️ **The patch stops being secret when it reaches the public repo, not at
+publish — and no path changes that.** Merging from the private fork would put
+the same commits on `v2/main` or `v1/main` at merge time, so going through the
+fork buys no secrecy. The public flow below exposes the fix a little earlier,
+when its branch is pushed and its PR opened, and the converted issue exposes
+the card's title and body then too. So the window between landing and publish
+is not a period of secrecy to protect; it is a period of **exposure to anyone
+reading commits**, which is why it should be short. Land the fix close to the
+release rather than early, and publish as soon as every release is out.
 
-#### Merging from the private fork
+#### Landing through an ordinary public PR
 
-Three things about the merge itself, all learned on 1.0.3 (#2753):
+The fix lands the way any other change does: a public issue, a public branch,
+a `/pr-flow` PR with normal CI, the required `DCO` / `build` checks, the
+Copilot loop and normal merge rules. **No ruleset is touched.** This replaced
+merging from the private fork (1.0.3, #2753), which needed the
+`required_status_checks` rule removed from the line's ruleset for the merge —
+private forks run no Actions, so `v2/main`'s required `DCO` and `v1/main`'s
+required `build` stay "Expected" forever there — left the commits unchecked by
+CI, and merged all of an advisory's fork PRs (v2 and v1) at once. v2.14.0 and
+1.0.4 shipped this way (#2872 / PR #2875, #2873 / PR #2876, #2874 / PR #2877
+with its v1 half #2878 / PR #2879).
 
-- ⚠️ **A fork PR can never satisfy a required Actions check.** Private advisory
-  forks do not run GitHub Actions, so `v2/main`'s required `DCO` check (the
-  `v2/main - DCO` ruleset) and `v1/main`'s required `build` check (the
-  `v1/main - full protection` ruleset) stay **"Expected"** forever, and the
-  advisory page offers no bypass. The workable path is to remove **only** the
-  `required_status_checks` rule from that ruleset for the merge, then restore
-  it from a snapshot taken first — never delete the ruleset, which also carries
-  the deletion and force-push protection:
+When the fork's review is done, per affected line:
 
-  ```sh
-  gh api repos/modelcontextprotocol/inspector/rulesets/<ID> > ruleset-<ID>.json   # snapshot
-  # PUT the ruleset back with its rules minus required_status_checks, merge,
-  # then PUT the snapshot's rules back and diff the result against the snapshot.
-  ```
+1. **Turn the card into public tracking.** Review the card body and **trim it
+   before converting** — it becomes the body of an issue on a public repo, along
+   with any analysis step 1 allowed onto it. The advisory is still private, so
+   keep the advisory link and the fix, and take out anything that would hand a
+   reader a working exploit (a PoC, reproduction steps, a reporter's details).
+   Then:
 
-  That leaves the fork's commits unchecked, so run the DCO check and the
-  line's gate on the fix branch yourself before merging. Changing a ruleset is
-  an admin act on a protected branch: say what you are about to change and get
-  the maintainer's go-ahead, and restore it in the same sitting.
-- ⚠️ **Merging an advisory merges all of its fork's PRs at once.** An advisory
-  with one PR per affected line (a v2 PR and a v1 PR) lands both together.
-  Plan any cross-advisory merge order around that: you cannot land one
-  advisory's v1 fix before another's and its v2 fix after.
-- **Use "Create a merge commit"** when several fix branches were chained on top
-  of each other in the fork. Squash or rebase rewrites the lower branches'
-  commits, so the branches stacked on them no longer share history with what
-  landed and their PRs show the lower fixes again, or conflict.
+   | Affected | Public issue | Labels | Milestone | Board |
+   | --- | --- | --- | --- | --- |
+   | v2 | **Convert** the draft card on #28 | `v2` + a type label | the release that will ship the fix | #28 — the converted card is already there |
+   | v1 | **File** through `/issue-create` | `v1` + a type label | **none** — every milestone is a v2 release bucket | **#11**, Status only (no Priority field) |
+   | both | **Convert** for v2 _and_ **file** for v1, as above | | | |
 
-**Do not hand this off to the release skill.** It is `disable-model-invocation:
-true`, so a pointer to it from here is a dead end for the model anyway — a
-maintainer invokes `/release` themselves. Say which lines need a release and
-stop there. A v1 fix takes no merge into `main` at all and publishes straight
-from `v1/main`, so it does not go through that procedure.
+   ⚠️ **Convert the v2 issue — never file it.** GitHub's "Convert to issue"
+   creates a **new** issue from the draft; there is no way to point an
+   existing card at an issue you filed separately. Filing the v2 issue by hand
+   and then converting produces two issues and two cards. Do **not** run
+   `/issue-create`'s add-card step for the converted card: it already exists.
+
+   **For an advisory affecting both lines**, v2 takes the conversion because
+   the draft is already on #28 and v2 is the line with a milestone to record.
+   The v1 issue is filed, which is not a contradiction: there is no second
+   draft to convert. **Cross-link the two** so neither reads as the whole
+   story.
+
+   **For a v1-only advisory** the draft is on the wrong board and cannot be
+   moved there by converting: file the `v1` issue on #11, then **delete** the
+   #28 draft rather than converting it — a converted card would put a `v1`
+   issue on #28, which the board audit reports as a wrong-board card.
+2. **Push the fork branch to the public repo** under the standard name,
+   `v2/fix/<N>-<slug>` or `v1/fix/<N>-<slug>`, where `<N>` is that line's issue
+   from (1). Push the fork's commits unchanged; they are already reviewed and
+   must already carry their DCO signoff.
+3. **Open an ordinary PR** against `v2/main` / `v1/main` with `Closes #<N>` as
+   the body's first line, and follow `/pr-flow` from its step 6 on: link the
+   issue, move the card to In Review, run the Copilot loop. Say in the body
+   that the fix was developed and reviewed in the advisory's private fork, and
+   keep the description to the fix — what the advisory will disclose is the
+   advisory's to say.
+   When several fix branches were chained on top of each other in the fork,
+   open them as **stacked** PRs (`/pr-flow`, step 2) rather than one combined
+   PR.
+4. **Merge, close the issue and move its card to `Done`** (`/pr-flow`, step 9),
+   then **close the fork's PRs unmerged**. The fix is on the line through the
+   public PR; merging the fork's copy would land it twice.
+
+**Then release on every affected line.** Do not hand this off to the release
+skill. It is `disable-model-invocation: true`, so a pointer to it from here is
+a dead end for the model anyway — a maintainer invokes `/release` themselves.
+Say which lines need a release and stop there. A v1 fix takes no merge into
+`main` at all and publishes straight from `v1/main`.
 
 ⚠️ **Publishing is irreversible and human-gated.** It makes the advisory
 public, and there is no undo. Same rule as accepting: recommend, never perform.
@@ -319,67 +353,14 @@ request the **CVE** (optional, and the advisory is the only place to ask) and
 person then has to accept, so an unadded reporter is simply never credited, and
 that is the failure nobody notices because nothing reports it.
 
-### 6. After publication, turn the card into public tracking
+### 6. After publication, bring the public issues up to date
 
-**The trigger is publication, not the release.** The release ships the fix
-while the advisory can still be private, and a public issue opened in that gap
-describes a vulnerability the advisory has not disclosed yet. Wait for step 5
-to finish.
-
-Once it has, the work becomes ordinary board history — by conversion for v2, by
-filing for v1.
-
-⚠️ **Convert FIRST — the order is not interchangeable.** GitHub's "Convert to
-issue" creates a **new** issue from the draft; there is no way to point an
-existing card at an issue you filed separately. Filing the issue by hand and
-then converting produces two issues and two cards, which is why this step reads
-the way it does:
-
-1. **Convert the draft card to an issue** on board #28 (the card keeps its
-   place and its field values; the issue is created from the card's title and
-   body).
-   ⚠️ **Converting makes the card's body public.** It becomes the body of an
-   issue on a public repo, along with any analysis step 1 allowed onto it.
-   Publication has already disclosed the vulnerability, but the advisory
-   discloses only what it chose to say. A card can still hold a working PoC,
-   a reporter's details, or notes that were never meant to go out. **Review
-   the body and trim it before converting.** Keep the advisory link, and
-   anything the published advisory already says.
-2. Apply a **type label** and the **version label of the line the fix shipped
-   on**, then a milestone — and those two are not independent:
-
-   | Affected | Version label | Milestone | Board |
-   | --- | --- | --- | --- |
-   | v2 | `v2` | the release the fix shipped in | #28 — the converted card is already there |
-   | v1 | `v1` | **none** — every milestone is a v2 release bucket | **#11**, which has no Priority field |
-   | both | **two issues**, one per line — see below | | |
-
-   Do **not** run `/issue-create`'s add-card step for the converted card: it
-   already exists.
-
-   **The draft converts exactly once, so "both" needs a stated order.** Every
-   issue carries exactly one version label and lives on one board, and there is
-   only ever one draft card — so one line inherits it and the other gets a
-   fresh issue:
-
-   1. **Convert the draft into the `v2` issue on #28.** v2 takes the
-      conversion because the draft is already on #28 and v2 is the line with a
-      milestone to record.
-   2. **File the `v1` issue separately** through `/issue-create` — `v1`, a type
-      label, **no milestone**, and a card on **#11** (Status only; that board
-      has no Priority field). This one *is* filed rather than converted, which
-      is not a contradiction of step 6: there is no second draft to convert.
-   3. Cross-link the two so neither reads as the whole story, then **close
-      both** and move both cards to `Done`.
-
-   **For a v1-only advisory** the draft is on the wrong board and cannot be
-   moved there by converting: file the `v1` issue on #11 as in (2), then
-   **delete** the #28 draft rather than converting it — a converted card would
-   put a `v1` issue on #28, which the board audit reports as a wrong-board
-   card.
-3. **Close it.** The work shipped before the issue existed.
-4. Move the card to **`Done`** — correct here, because the fix genuinely
-   shipped.
+The public tracking already exists — it was created in step 5 and its issues
+closed when the PRs merged — so there is nothing to convert or file here. What
+publication changes is what may be said: the issue bodies were trimmed to what
+was safe while the advisory was private. **Edit them only where that left them
+misleading**, typically to point at the published advisory and add what it now
+discloses. The cards stay in `Done`.
 
 ## API facts worth not re-deriving
 

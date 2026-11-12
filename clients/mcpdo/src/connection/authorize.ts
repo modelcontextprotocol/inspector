@@ -11,11 +11,15 @@ import {
   loadRunnerClientConfig,
 } from "@inspector/core/client/runner.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
+import { cleanRoots } from "@inspector/core/mcp/serverList.js";
 import {
-  createGuardedFetch,
   createProxyFetch,
   createTransportNode,
 } from "@inspector/core/mcp/node/index.js";
+import {
+  createCliOAuthFetch,
+  oauthDebugNavigationHook,
+} from "@inspector/core/cli/oauth-debug.js";
 import {
   eraToVersionNegotiation,
   type InspectorClientEnvironment,
@@ -26,12 +30,14 @@ import { readInspectorVersion } from "@inspector/core/node/version.js";
 import { CLI_CONNECTION_TIMEOUT_REMEDY } from "@inspector/core/cli/handlers/connect-timeout.js";
 import { createCliOAuthNavigation } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { connectInspectorWithOAuth } from "@inspector/core/cli/cliOAuth.js";
+import { warnOnFetchRefusals } from "@inspector/core/cli/fetchRefusalWarning.js";
 import {
   CliExitCodeError,
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import { isEmaClientNotConfiguredError } from "@inspector/core/auth/ema/clientConfigError.js";
 import type { CallbackNavigation } from "@inspector/core/auth/index.js";
+import type { FetchRefusal } from "@inspector/core/auth/fetchRefusal.js";
 import type { CliOAuthAutoOpenControl } from "@inspector/core/cli/cli-oauth-navigation.js";
 import { mcpdoEmaGuidance } from "./ema.js";
 
@@ -43,15 +49,25 @@ import { mcpdoEmaGuidance } from "./ema.js";
  * flow's interactive window arms it: the default prints the relay-worded
  * prompt line; the detached auth helper injects a navigation that reports
  * the raw URL over its stdout pipe instead (see auth-helper.ts).
+ *
+ * `oauthDebug` (`connect --oauth-debug`, #2844) traces every OAuth request
+ * this flow makes, and the authorize URL, to stderr.
+ *
+ * `onFetchRefusal` takes over reporting each destination-guard refusal
+ * (#2846), which otherwise prints a `Warning:` line to this process's stderr.
+ * The detached auth helper passes one because its stderr is discarded: it
+ * relays each refusal to the parent over its stdout protocol instead (#2905).
  */
 export async function authorizeInFrontend(
   serverConfig: MCPServerConfig,
   serverSettings: InspectorServerSettings | undefined,
   options?: {
     storedAuthOnly?: boolean;
+    oauthDebug?: boolean;
     makeNavigation?: (
       autoOpenControl: CliOAuthAutoOpenControl,
     ) => CallbackNavigation;
+    onFetchRefusal?: (refusal: FetchRefusal) => void;
   },
 ): Promise<void> {
   if (!isOAuthCapableServerConfig(serverConfig)) {
@@ -68,7 +84,7 @@ export async function authorizeInFrontend(
     fetch: createProxyFetch(),
     // OAuth on the destination-guarded base (#2749), which refuses link-local
     // and cloud-metadata targets; proxy-aware itself.
-    oauthFetch: createGuardedFetch(),
+    oauthFetch: createCliOAuthFetch(options?.oauthDebug === true),
   };
   const redirectUrlProvider = new MutableRedirectUrlProvider();
   const callbackUrlConfig = parseRunnerOAuthCallbackUrl(
@@ -93,6 +109,9 @@ export async function authorizeInFrontend(
       : createCliOAuthNavigation({
           autoOpenControl,
           disableAutoOpen: options?.storedAuthOnly,
+          onAuthorizationUrl: oauthDebugNavigationHook(
+            options?.oauthDebug === true,
+          ),
           promptMessage: (hrefDisplay, tty) =>
             tty
               ? `Please navigate to: ${hrefDisplay}`
@@ -120,12 +139,29 @@ export async function authorizeInFrontend(
     progress: false,
     sample: false,
     elicit: false,
+    // The configured roots, as the daemon's client advertises them
+    // (`daemon/connections.ts`). `connect --oauth-debug` runs this client
+    // ahead of the daemon's even for a server that needs no OAuth, so a
+    // server that asks for roots at `initialize` must see the same
+    // capability here (#2844).
+    roots: cleanRoots(serverSettings?.roots ?? []),
     serverSettings,
     ...(serverSettings?.protocolEra && {
       versionNegotiation: eraToVersionNegotiation(serverSettings.protocolEra),
     }),
     ...clientAuthOptions,
   });
+  // A destination-guard refusal discovery recovered from would otherwise be
+  // invisible, the later failure naming a different URL (#2846). Here and not
+  // in the daemon, which has no terminal: this front-end is where OAuth runs.
+  const onFetchRefusal = options?.onFetchRefusal;
+  if (onFetchRefusal) {
+    client.addEventListener("fetchRefused", (event) =>
+      onFetchRefusal(event.detail),
+    );
+  } else {
+    warnOnFetchRefusals(client);
+  }
 
   try {
     await connectInspectorWithOAuth(

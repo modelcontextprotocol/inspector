@@ -40,7 +40,12 @@ connection it never idles out. It does compare **release** versions: a daemon
 from another release (or one too old to report a version) is refused with
 `daemon_version_mismatch` and an instruction to run `mcpdo daemon stop`, which
 is what keeps an upgrade from talking to the previous release's daemon
-([#2870](https://github.com/modelcontextprotocol/inspector/issues/2870)). A
+([#2870](https://github.com/modelcontextprotocol/inspector/issues/2870)).
+Before any of that, the client checks that the daemon proves it holds the
+daemon token (a `hello` challenge on every connection) and sends nothing to a
+peer that does not; a daemon from a release that predates that check fails it
+with `daemon_unverified`, and `mcpdo daemon stop` cannot reach it either, so end
+it with `pkill mcpdod` (Task Manager on Windows). A
 rebuild within one release keeps its version, though, so a daemon started
 before your rebuild keeps running stale code indefinitely. It sets
 `process.title = "mcpdod"`, so a stray one is visible as `mcpdod` in
@@ -73,7 +78,9 @@ mcpdo servers/list --config path/to/mcp.json
 mcpdo servers/show test-stdio --config path/to/mcp.json
 mcpdo connect test-stdio --config path/to/mcp.json
 mcpdo connect my-http --config path/to/mcp.json --relogin   # (-r) ignore stored OAuth; login only if auth required
+mcpdo connect my-http --config path/to/mcp.json -r --oauth-debug   # trace each OAuth step to stderr
 mcpdo auth/list
+mcpdo auth/show https://example.com/mcp  # decoded access-token claims (issuer, audience, scopes, expiry) — never the token
 mcpdo auth/clear https://example.com/mcp
 mcpdo auth/clear hosted-everything        # or a catalog/connection name (from auth/list "known as")
 mcpdo auth/clear --all --yes
@@ -105,7 +112,9 @@ token. For a hard boundary, use OS-level isolation (separate user, container).
 
 **Output:** `--format text` (default) is human-readable (TTY ANSI unless `--plain` / `NO_COLOR`). `--format json` is pretty-printed payload with **no** `{ result }` envelope.
 
-**Auth:** shared `oauth.json` with other Inspector clients. Connect-time OAuth only on this CLI; mid-connection step-up remains on one-shot `mcp-inspector --cli`. `auth/list` annotates each stored URL with the catalog/connection names it is "known as" and marks `● live` when a connection currently holds it, so the raw store URLs correlate to the servers you actually use. EMA IdP login records (keyed `ema-idp:<issuer>` in the store) lead with their bare issuer URL and carry a trailing `enterprise IdP login` marker (parallel to `known as:`) rather than showing as unnamed servers. `auth/clear` accepts either a store URL **or** one of those friendly names (a name that maps to no URL — e.g. a stdio server — or to more than one URL is rejected with guidance); an EMA IdP login clears by its bare issuer URL (or its raw `ema-idp:` key). `--relogin` (`-r`) clears any URL-keyed store entry before connect (no-op for stdio). To force a clean logged-out state from an already-open connection, `disconnect <name> --clear-auth` (`-c`) tears the connection down **and** clears its stored tokens in one step, so the next plain `connect` re-triggers sign-in — no-op for stdio / servers with no stored entry. Non-TTY `connect` exits 0 with `pendingAuth: true` and an `authUrl` to relay; after the user signs in, any real command completes the connection, `connections/show` completes it too, and `connections/list` marks the entry `pendingAuthSignedIn` ("signed in — completing on next use") without dialing.
+**Auth:** shared `oauth.json` with other Inspector clients. Connect-time OAuth only on this CLI; mid-connection step-up remains on one-shot `mcp-inspector --cli`. `auth/list` annotates each stored URL with the catalog/connection names it is "known as" and marks `● live` when a connection currently holds it, so the raw store URLs correlate to the servers you actually use. EMA IdP login records (keyed `ema-idp:<issuer>` in the store) lead with their bare issuer URL and carry a trailing `enterprise IdP login` marker (parallel to `known as:`) rather than showing as unnamed servers. `auth/clear` accepts either a store URL **or** one of those friendly names (a name that maps to no URL — e.g. a stdio server — or to more than one URL is rejected with guidance); an EMA IdP login clears by its bare issuer URL (or its raw `ema-idp:` key). `auth/show` takes the same key forms as `auth/clear` and summarises the stored access token without printing it: for a JWT, its decoded claims (issuer, audience, subject, client, scopes, issued-at and expiry relative to now — the signature is **not** verified); for an opaque token, the `scope` and `expires_in` the token response carried. `--relogin` (`-r`) clears any URL-keyed store entry before connect (no-op for stdio). To force a clean logged-out state from an already-open connection, `disconnect <name> --clear-auth` (`-c`) tears the connection down **and** clears its stored tokens in one step, so the next plain `connect` re-triggers sign-in — no-op for stdio / servers with no stored entry. Non-TTY `connect` exits 0 with `pendingAuth: true` and an `authUrl` to relay; after the user signs in, any real command completes the connection, `connections/show` completes it too, and `connections/list` marks the entry `pendingAuthSignedIn` ("signed in — completing on next use") without dialing.
+
+**`connect --oauth-debug`** ([#2844](https://github.com/modelcontextprotocol/inspector/issues/2844)) prints each OAuth step to stderr in the same `[oauth]` format as the one-shot CLI's flag (see [Tracing OAuth](../cli/README.md#tracing-oauth---oauth-debug)): metadata URLs and statuses, the registration request and response, the authorization URL, and the token request and response, with tokens, codes, verifiers and client secrets redacted. The daemon's stderr is not your terminal, so with the flag `connect` runs the sign-in in the front-end **before** the daemon dials, and the daemon then connects on the tokens it stored. That makes the flow blocking even without a TTY (no `pendingAuth` hand-off), and costs one extra MCP connection to an HTTP/SSE server. A server whose stored token is still valid makes no OAuth requests; add `--relogin` to trace a fresh login. It traces `connect` only — a refresh the daemon makes later is not shown.
 
 See [`specification/v2_cli_v2.md`](../../specification/v2_cli_v2.md) for the as-built design and to-do list.
 
@@ -235,7 +244,7 @@ mcpdo connect https://example.com/mcp --elicit url
 connection ([#2744](https://github.com/modelcontextprotocol/inspector/issues/2744)).
 It calls one tool repeatedly and concurrently and prints a single summary in
 place of a result: `ok`, `toolErrors`, `errors`, `errorRate`, `throughput`
-and the success-only `okThroughput`, latency `min`/`mean`/`p50`/`p90`/`p99`/`max`
+and the success-only `okThroughput`, latency `min`/`mean`/`p50`/`p90`/`p95`/`p99`/`p999`/`max`
 of the successful calls (`latencyMs`) and of the failed ones
 (`errorLatencyMs`), the most frequent thrown messages (`errorMessages`) and
 `isError` texts (`toolErrorMessages`), and — with `--load-rate` —
@@ -255,16 +264,28 @@ mcpdo tools/call search query:=mcp --load --load-concurrency 20 --load-duration 
 mcpdo @prod tools/call search query:=mcp --load --load-requests 500 --load-rate 50 --format json
 ```
 
-| Flag                     | Meaning                                                                                                      |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `--load`                 | Load-test the tool instead of calling it once.                                                               |
-| `--load-concurrency <n>` | Most calls in flight at once (positive integer; default `10`).                                               |
-| `--load-duration <sec>`  | Stop starting calls after this many seconds; in-flight calls finish. Default `10` without `--load-requests`. |
-| `--load-requests <n>`    | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.         |
-| `--load-rate <n>`        | Start at most this many calls per second, spaced evenly (default: unlimited).                                |
-| `--load-connections <n>` | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`). |
-| `--load-max-error-rate <fraction>` | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`). |
-| `--load-max-p99 <ms>`    | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded. |
+| Flag                                                                                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--load`                                                                            | Load-test the tool instead of calling it once.                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--load-concurrency <n>`                                                            | Most calls in flight at once (positive integer; default `10`).                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--load-duration <sec>`                                                             | Stop starting calls after this many seconds; in-flight calls finish. Default `10` without `--load-requests`.                                                                                                                                                                                                                                                                                                                                                                                |
+| `--load-requests <n>`                                                               | Stop after starting this many calls. With `--load-duration` too, whichever comes first ends the run.                                                                                                                                                                                                                                                                                                                                                                                        |
+| `--load-rate <n>`                                                                   | Start at most this many calls per second, spaced evenly (default: unlimited).                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--load-connections <n>`                                                            | Spread the calls over this many independent sessions (HTTP/SSE only; at most `--load-concurrency`; default `1`).                                                                                                                                                                                                                                                                                                                                                                            |
+| _(no `--load-workers`)_                                                             | Multi-process generation ([#2914](https://github.com/modelcontextprotocol/inspector/issues/2914)) is the one-shot CLI's alone: mcpdo runs the engine inside its daemon, on the connection it holds, so there is no command to re-run as a worker. Use [`mcp-inspector --cli … --load-workers <n>`](../cli/README.md#multi-process-generation---load-workers) when the generator is the bottleneck.                                                                                          |
+| `--load-subscribe <uri>` / `--load-subscribers <n>` / `--load-subscribe-wait <sec>` | Notification fan-out: subscribe `n` sessions (default `1`; above `1` HTTP/SSE only) to `<uri>` and report delivery latency, misses and subscribe cost in `fanout`. With a tool name each successful call is a trigger (one at a time); without one the run listens for `--load-duration`. As in the [one-shot CLI](../cli/README.md#notification-fan-out---load-subscribe). A connection already subscribed to `<uri>` (a `resources/subscribe` stream) is listened on and left subscribed. |
+| `--load-churn` / `--load-churn-calls <n>`                                           | Session churn: each worker opens a session, makes `n` calls (default `1`), closes it and repeats; connect times and failures go to `churn`, apart from call latency. HTTP/SSE only; not with `--load-connections`. As in the [one-shot CLI](../cli/README.md#session-churn---load-churn).                                                                                                                                                                                                   |
+| `--load-scenario <file>`                                                            | Run a weighted mix of `tools/call`, `resources/read` and `prompts/get` steps from this JSON file in place of one tool, with a per-step `steps` breakdown. Give no tool name, arguments or `--tool-metadata` with it.                                                                                                                                                                                                                                                                        |
+| `--load-args-file <file>`                                                           | NDJSON argument objects, one per line; each call merges the next row over the tool arguments (row wins), cycling. Not with `--load-scenario`.                                                                                                                                                                                                                                                                                                                                               |
+| `--load-args-random`                                                                | With `--load-args-file`: pick each call's row at random.                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--load-open-loop`                                                                  | With `--load-rate`: keep every slot of the rate grid and time each call from its scheduled start, so queueing shows in the latency. As in the [one-shot CLI](../cli/README.md#open-loop---load-open-loop).                                                                                                                                                                                                                                                                                  |
+| `--load-interval <sec>` / `--load-warmup <sec>` / `--load-progress <sec>`           | A per-interval time series in `intervals`; a warm-up left out of the statistics; how often to print a progress line on stderr (default `5`). As in the [one-shot CLI](../cli/README.md#watching-a-run---load-progress---load-interval---load-warmup).                                                                                                                                                                                                                                       |
+| `--load-steps <list>` / `--load-ramp <from:to:sec>`                                 | Run consecutive stages at rising concurrency (or rate, with `--load-step-by rate`), each `--load-step-duration` seconds (default `10`), with one row per stage; `--load-stop-on-breach` ends the run at the first stage breaching a threshold.                                                                                                                                                                                                                                              |
+| `--load-max-error-rate <fraction>`                                                  | Exit `10` (`load_error_rate_exceeded`) when the share of failed calls is above this value (`0` to `1`).                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--load-max-p99 <ms>`                                                               | Exit `10` (`load_p99_exceeded`) when the p99 latency of the successful calls is above this many milliseconds, or no call succeeded.                                                                                                                                                                                                                                                                                                                                                         |
+| `--load-max-p50 <ms>` / `--load-max-p95 <ms>`                                       | The same check for p50 (`load_p50_exceeded`) and p95 (`load_p95_exceeded`).                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `--load-min-throughput <n>`                                                         | Exit `10` (`load_throughput_below`) when fewer than this many calls per second succeeded (`okThroughput`).                                                                                                                                                                                                                                                                                                                                                                                  |
+| `--load-baseline <file>` / `--load-max-regression <pct>`                            | Compare p50, p99, error rate and ok throughput against a summary saved with `--format json`, on stderr; with a budget, exit `10` (`load_regression`) when a figure is worse by more than that (percent; percentage points for the error rate). A differently shaped baseline exits `1` (`load_baseline_mismatch`). As in the [one-shot CLI](../cli/README.md#comparing-against-a-baseline---load-baseline); the file is read by the `mcpdo` process, so a relative path is yours.           |
 
 Each `--load-*` flag requires `--load`, and `--load` cannot be combined with
 `--app-info`. `--format json` prints the summary object itself, with no
@@ -278,6 +299,33 @@ by the `mcpdo` process after the summary has been printed, so a breached run
 still shows its numbers; the breach then follows as the usual error envelope,
 with the same `code` and exit code `10` the CLI uses.
 
+**Scenarios** (`--load-scenario`, [#2839](https://github.com/modelcontextprotocol/inspector/issues/2839))
+use the [one-shot CLI's file format](../cli/README.md#scenarios---load-scenario):
+`mcpdo tools/call --load --load-scenario scenario.json`. The file is read by the
+`mcpdo` process, so a relative path is relative to your working directory, not
+the daemon's; the parsed steps travel to the daemon with the run. The text
+summary lists each step under the totals.
+
+**Progress lines** ([#2838](https://github.com/modelcontextprotocol/inspector/issues/2838))
+are written by the daemon as one-way frames on the command's socket while the
+run is going, and printed on stderr by `mcpdo`. They show only with
+`--format text` (the default). `--format json` asks the daemon for none, since
+a machine reading the one payload has no use for them. The text summary also
+shows the warm-up and one line per `--load-interval` bucket.
+
+**Stepped and ramped load** ([#2841](https://github.com/modelcontextprotocol/inspector/issues/2841))
+works exactly as in the
+[one-shot CLI](../cli/README.md#stepped-and-ramped-load---load-steps---load-ramp).
+The stages run in the daemon as one command, so the connection is busy for
+the whole staircase. The text summary lists one line per stage.
+
+**Varying arguments** ([#2840](https://github.com/modelcontextprotocol/inspector/issues/2840)):
+`{{seq}}`, `{{worker}}`, `{{uuid}}` and `{{rand:<min>-<max>}}` in argument
+values are substituted per call, and `--load-args-file` supplies whole argument
+rows. Both behave exactly as in the
+[one-shot CLI](../cli/README.md#varying-the-arguments---load-args-file-placeholders).
+Like a scenario, the args file is read by the `mcpdo` process.
+
 **Multiple sessions** (`--load-connections`, #2800) open the extra sessions
 inside the daemon, before the clock starts, from the connection's stored server
 config and settings. They use stored credentials only — an extra never starts a
@@ -287,7 +335,8 @@ connection's own live client is always the first session. The extras belong to
 the run: they never appear in `connections/list`, they are closed when the run
 ends (or the daemon stops), and Ctrl-C cancels their in-flight calls too. Over
 stdio each session would spawn its own server process, so more than one is
-refused there.
+refused there. **Session churn** (`--load-churn`, #2912) opens its sessions the
+same way, one per worker at a time, and lets each go as soon as it is closed.
 
 How a run behaves on a shared daemon connection:
 
@@ -326,7 +375,7 @@ How a run behaves on a shared daemon connection:
 |               | One-shot                              | Connection (`mcpdo`)            |
 | ------------- | ------------------------------------- | ------------------------------- |
 | Entrypoint    | `mcp-inspector --cli`                 | `mcpdo`                         |
-| Package (dev) | `clients/cli`                         | `clients/mcpdo`            |
+| Package (dev) | `clients/cli`                         | `clients/mcpdo`                 |
 | Lifecycle     | Connect → one `--method` → disconnect | Connect once → many subcommands |
 
 One-shot docs: [`clients/cli/README.md`](../cli/README.md).

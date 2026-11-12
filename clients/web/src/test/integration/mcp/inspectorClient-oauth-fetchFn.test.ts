@@ -19,6 +19,11 @@ import type {
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 import { createOAuthClientConfig } from "../helpers/oauth-client-fixtures.js";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
+import { MAX_FETCH_REFUSALS } from "@inspector/core/mcp/inspectorClient.js";
+import {
+  FetchTargetError,
+  type FetchRefusal,
+} from "@inspector/core/auth/fetchRefusal.js";
 
 const oauthTestStatePath = path.join(
   os.tmpdir(),
@@ -313,6 +318,81 @@ describe("InspectorClient OAuth fetchFn", () => {
       await transportFetch("http://localhost:3000/custom/protected-resource");
       expect(oauthFetch).toHaveBeenCalledTimes(3);
       expect(plain).toHaveBeenCalledTimes(1);
+    });
+
+    // #2846: a refusal is recorded before any wrapper above can swallow it.
+    describe("destination-guard refusals", () => {
+      function refusingFetch(): typeof fetch {
+        return vi.fn<typeof fetch>((input) =>
+          Promise.reject(
+            new TypeError("fetch failed", {
+              cause: new FetchTargetError(
+                "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+                String(input),
+              ),
+            }),
+          ),
+        );
+      }
+
+      it("records a refusal on the auth chain, fires once per distinct one, and rethrows", async () => {
+        client = newClient({ fetch: vi.fn(), oauthFetch: refusingFetch() });
+        const heard: FetchRefusal[] = [];
+        client.addEventListener("fetchRefused", (e) => heard.push(e.detail));
+        await client.authenticate();
+        const authFetch = authFetchFromMockAuth();
+        const url = "http://169.254.169.254/token";
+
+        await expect(authFetch(url)).rejects.toThrow("fetch failed");
+        await expect(authFetch(url)).rejects.toThrow("fetch failed");
+
+        const expected = {
+          url,
+          reason:
+            "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+        };
+        expect(client.getFetchRefusals()).toEqual([expected]);
+        expect(heard).toEqual([expected]);
+      });
+
+      it("records a refusal on the transport base when there is no OAuth base", async () => {
+        client = newClient({ fetch: refusingFetch() });
+        await client.authenticate();
+        await expect(
+          authFetchFromMockAuth()("http://169.254.169.254/token"),
+        ).rejects.toThrow();
+        expect(client.getFetchRefusals()).toHaveLength(1);
+      });
+
+      it("ignores failures that are not refusals", async () => {
+        client = newClient({
+          fetch: vi.fn(),
+          oauthFetch: vi
+            .fn<typeof fetch>()
+            .mockRejectedValue(new Error("ECONNREFUSED")),
+        });
+        await client.authenticate();
+        await expect(
+          authFetchFromMockAuth()("http://as.example/token"),
+        ).rejects.toThrow("ECONNREFUSED");
+        expect(client.getFetchRefusals()).toEqual([]);
+      });
+
+      it("keeps only the most recent refusals, and hands out copies", async () => {
+        client = newClient({ fetch: vi.fn(), oauthFetch: refusingFetch() });
+        await client.authenticate();
+        const authFetch = authFetchFromMockAuth();
+        for (let i = 0; i <= MAX_FETCH_REFUSALS; i++) {
+          await expect(
+            authFetch(`http://169.254.169.254/${i}`),
+          ).rejects.toThrow();
+        }
+        const refusals = client.getFetchRefusals();
+        expect(refusals).toHaveLength(MAX_FETCH_REFUSALS);
+        expect(refusals[0]?.url).toBe("http://169.254.169.254/1");
+        refusals.pop();
+        expect(client.getFetchRefusals()).toHaveLength(MAX_FETCH_REFUSALS);
+      });
     });
   });
 });

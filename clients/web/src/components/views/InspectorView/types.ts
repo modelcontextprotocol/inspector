@@ -14,6 +14,7 @@
 //     the same locals and passes them down to the screens as before, so
 //     nothing below the view knows they exist.
 import type { Ref } from "react";
+import type { RunLoadTest } from "../../../lib/loadTest";
 import type {
   InitializeResult,
   LoggingLevel,
@@ -38,6 +39,7 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import type { ReplayParamsOverride } from "../../../lib/protocolReplay";
 import type { DeepLink, DeepLinkParseStatus } from "../../../utils/deepLink";
+import type { ToolRunHistory } from "../../../utils/toolRunHistory";
 import type { ListPaginationControlsProps } from "../../elements/ListPaginationControls/ListPaginationControls";
 import type {
   AppRendererHandle,
@@ -111,6 +113,8 @@ export interface ShellProps {
   onToggleTheme: () => void;
   /** Open install-level client settings (client.json / EMA IdP). */
   onOpenClientSettings: () => void;
+  /** Open the backend's active session list (#2831). */
+  onOpenActiveSessions: () => void;
 }
 
 /**
@@ -225,6 +229,8 @@ export interface ToolsPanelProps {
   toolsUi: ToolsUiState;
   /** Panel-level "operation in flight" state. */
   toolCallState?: ToolCallState;
+  /** Every completed tool call this session, per tool name (#2830). */
+  toolRunHistory?: ToolRunHistory;
   /** Pagination controls for the Tools list (#1721). */
   toolsPagination: ListPaginationControlsProps;
   /**
@@ -247,6 +253,8 @@ export interface ToolsPanelProps {
    * Returns the linked resource's contents so the result panel can inline them.
    */
   onReadResourceContents?: (uri: string) => Promise<ReadResourceResult>;
+  /** Run a load test over the current connection (#2911). */
+  onRunLoadTest?: RunLoadTest;
 }
 
 /** The Prompts screen: its list, lifted UI state, and actions. */

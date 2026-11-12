@@ -103,6 +103,18 @@ async function writeWebResponse(
   nodeStream.pipe(res);
 }
 
+/**
+ * A session-terminating `DELETE /mcp` the legacy Streamable HTTP leg received
+ * (#2924), with the headers it carried — so a test can assert the client both
+ * sent it and sent it with the session's own auth and custom headers.
+ */
+export interface RecordedSessionTermination {
+  sessionId: string;
+  headers: Record<string, string>;
+  /** HTTP status the server answered with. */
+  status: number;
+}
+
 export interface RecordedRequest {
   method: string;
   params?: Record<string, unknown>;
@@ -341,6 +353,9 @@ export class TestServerHttp {
    */
   private readonly stallRegistry: StallRegistry = createStallRegistry();
   private recordedRequests: RecordedRequest[] = [];
+  private sessionTerminations: RecordedSessionTermination[] = [];
+  /** Live legacy Streamable HTTP sessions, keyed by `Mcp-Session-Id`. */
+  private httpSessions?: Map<string, WebStandardStreamableHTTPServerTransport>;
   private httpServer?: HttpServer;
   private transport?:
     | WebStandardStreamableHTTPServerTransport
@@ -583,6 +598,7 @@ export class TestServerHttp {
     // Store transports and one McpServer per session (SDK allows only one transport per server)
     const transports: Map<string, WebStandardStreamableHTTPServerTransport> =
       new Map();
+    this.httpSessions = transports;
     this.mcpServersBySession = new Map();
 
     // Set up Express route to handle MCP requests
@@ -695,6 +711,39 @@ export class TestServerHttp {
         }
       }
     });
+
+    // Session termination (#2924): the spec's `DELETE` with `Mcp-Session-Id`.
+    // The SDK transport ends the session (firing `onsessionclosed`, which drops
+    // it from `transports`); every termination is recorded with its headers.
+    app.delete(
+      "/mcp",
+      ...mcpMiddleware,
+      async (req: Request, res: Response) => {
+        if (res.headersSent) return;
+        const headers = extractHeaders(req);
+        const sessionId = req.headers["mcp-session-id"] as string | undefined;
+        const transport = sessionId ? transports.get(sessionId) : undefined;
+        if (!sessionId || !transport) {
+          const status = sessionId ? 404 : 400;
+          this.sessionTerminations.push({
+            sessionId: sessionId ?? "",
+            headers,
+            status,
+          });
+          res.status(status).json({ error: "Session not found" });
+          return;
+        }
+        const webResponse = await transport.handleRequest(
+          toWebRequest(req, res),
+        );
+        this.sessionTerminations.push({
+          sessionId,
+          headers,
+          status: webResponse.status,
+        });
+        await writeWebResponse(res, webResponse);
+      },
+    );
 
     return this.listen(port);
   }
@@ -839,6 +888,21 @@ export class TestServerHttp {
    */
   getRecordedRequests(): RecordedRequest[] {
     return [...this.recordedRequests];
+  }
+
+  /**
+   * Every session-terminating `DELETE /mcp` received so far (#2924).
+   */
+  getSessionTerminations(): RecordedSessionTermination[] {
+    return [...this.sessionTerminations];
+  }
+
+  /**
+   * Ids of the legacy Streamable HTTP sessions the server still holds. A
+   * terminated session is gone from this list.
+   */
+  getActiveSessionIds(): string[] {
+    return [...(this.httpSessions?.keys() ?? [])];
   }
 
   /**

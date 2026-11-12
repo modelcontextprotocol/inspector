@@ -44,6 +44,7 @@ import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubsc
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
 import { useStderrLog } from "@inspector/core/react/useStderrLog.js";
+import { animationFrameScheduler } from "@inspector/core/react/notifyScheduler.js";
 import { usePaginatedList, type PaginatedListModel } from "./usePaginatedList";
 
 /**
@@ -354,11 +355,23 @@ export function useInspectorStores({
   } = useManagedSkills(inspectorClient, stores?.managedSkillsState ?? null);
   const { subscriptions, streamState: subscriptionStreamState } =
     useResourceSubscriptions(stores?.resourceSubscriptionsState ?? null);
-  const { messages } = useMessageLog(stores?.messageLogState ?? null);
+  // The three logs dispatch once per entry, and these lists are read by `App`,
+  // so each notification re-rendered the whole page — capping a load test at
+  // ~10 calls/s with the monitoring sidebar open (#2928). Coalescing to the
+  // animation frame makes a burst cost one render per frame instead of one per
+  // message; the hooks still re-read the live store, so no entry is lost.
+  const { messages } = useMessageLog(
+    stores?.messageLogState ?? null,
+    animationFrameScheduler,
+  );
   const { fetchRequests } = useFetchRequestLog(
     stores?.fetchRequestLogState ?? null,
+    animationFrameScheduler,
   );
-  const { stderrLogs } = useStderrLog(stores?.stderrLogState ?? null);
+  const { stderrLogs } = useStderrLog(
+    stores?.stderrLogState ?? null,
+    animationFrameScheduler,
+  );
 
   return {
     stores,

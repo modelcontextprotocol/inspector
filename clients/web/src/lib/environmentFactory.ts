@@ -39,11 +39,15 @@ export interface WebEnvironmentResult {
  * full-page redirect (see `BrowserNavigation`). The app uses it to flush the
  * pre-redirect Network log to backend storage so the auth handshake's first
  * half (discovery + Dynamic Client Registration) survives the navigation.
+ *
+ * `serverName` labels the backend session the transport opens, so the active
+ * session list can say which server each one is for (#2831).
  */
 export function createWebEnvironment(
   authToken: string | undefined,
   redirectUrlProvider: RedirectUrlProvider,
   onBeforeOAuthRedirect?: (authorizationUrl: URL) => void,
+  serverName?: string,
 ): WebEnvironmentResult {
   const baseUrl = `${window.location.protocol}//${window.location.host}`;
 
@@ -63,6 +67,7 @@ export function createWebEnvironment(
       baseUrl,
       authToken,
       fetchFn,
+      serverName,
     }),
     fetch: createRemoteFetch({
       baseUrl,

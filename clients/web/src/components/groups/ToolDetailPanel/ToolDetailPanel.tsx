@@ -18,7 +18,11 @@ import type {
   Tool,
   ToolAnnotations,
 } from "@modelcontextprotocol/client";
-import { resolveDisplayLabel } from "../../../utils/toolUtils";
+import {
+  effectiveRunAsTask,
+  getTaskSupport,
+  resolveDisplayLabel,
+} from "../../../utils/toolUtils";
 import {
   hasMissingRequiredFields,
   toFormSchema,
@@ -63,6 +67,14 @@ export interface ToolDetailPanelProps {
    * any caller whose list cannot repeat one.
    */
   resetKey?: string;
+  /**
+   * Open the load-test panel for this tool (#2911). The button shows only when
+   * it is set, so a host with no load engine to offer never renders it.
+   * `argsReady` says whether the form could send its arguments as they stand
+   * (Execute's own check): the panel opens regardless, since a scenario run
+   * does not use them, and refuses a tool run while they are not.
+   */
+  onLoadTest?: (argsReady: boolean) => void;
 }
 
 // Outer column: title/annotations pin at top, the Execute footer pins at the
@@ -142,6 +154,12 @@ const DescriptionText = Text.withProps({
   c: "dimmed",
 });
 
+// Secondary to Execute: a load run is many calls, not the one the form is for.
+const LoadTestButton = Button.withProps({
+  size: "md",
+  variant: "default",
+});
+
 const CancelButton = Button.withProps({
   variant: "subtle",
   color: "red",
@@ -186,13 +204,6 @@ const HeaderParamArrow = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
-// A tool's per-tool task support, defaulting to "forbidden" (the SDK default
-// when `execution` is absent) so tools that say nothing can't be run as tasks.
-type TaskSupport = "forbidden" | "optional" | "required";
-function getTaskSupport(tool: Tool): TaskSupport {
-  return tool.execution?.taskSupport ?? "forbidden";
-}
-
 function hasAnyAnnotation(annotations?: ToolAnnotations): boolean {
   return !!(
     annotations &&
@@ -215,6 +226,7 @@ export function ToolDetailPanel({
   onExecute,
   onCancel,
   resetKey,
+  onLoadTest,
 }: ToolDetailPanelProps) {
   const { name, title, description, icons, annotations, inputSchema } = tool;
   // Narrow the SDK protocol schema to the form renderer's schema type.
@@ -264,9 +276,12 @@ export function ToolDetailPanel({
   // value must not route through callToolStream when the toggle is hidden. A
   // tool's taskSupport is only considered when the server advertises
   // `tasks.requests.tools.call`.
-  const effectiveRunAsTask =
-    showRunAsTask &&
-    (taskSupport === "required" || (taskSupport === "optional" && runAsTask));
+  // `effectiveRunAsTask` already returns false whenever the toggle is hidden.
+  const runsAsTask = effectiveRunAsTask(
+    tool,
+    serverSupportsTaskToolCalls,
+    runAsTask,
+  );
 
   // Two distinct reasons the arguments aren't sendable, and this panel used to
   // check neither — Execute was gated on `isExecuting` alone, so a required
@@ -373,7 +388,7 @@ export function ToolDetailPanel({
       {showRunAsTask && (
         <TaskToggleRow>
           <RunAsTaskSwitch
-            checked={effectiveRunAsTask}
+            checked={runsAsTask}
             disabled={isExecuting || taskSupport === "required"}
             onChange={(event) => onRunAsTaskChange(event.currentTarget.checked)}
           />
@@ -383,13 +398,21 @@ export function ToolDetailPanel({
       <FooterRow>
         <Button
           size="md"
-          onClick={() => onExecute(effectiveRunAsTask)}
+          onClick={() => onExecute(runsAsTask)}
           disabled={executeDisabled}
           loading={isExecuting}
         >
           Execute Tool
         </Button>
         {isExecuting && <CancelButton onClick={onCancel}>Cancel</CancelButton>}
+        {onLoadTest && (
+          <LoadTestButton
+            onClick={() => onLoadTest(!executeDisabled)}
+            disabled={isExecuting}
+          >
+            Load test
+          </LoadTestButton>
+        )}
       </FooterRow>
     </PanelStack>
   );

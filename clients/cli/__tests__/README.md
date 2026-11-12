@@ -56,6 +56,7 @@ npm run validate          # format:check && lint && typecheck && test
 | `cli-oauth-navigation.test.ts`          | OSC 8, arm/disarm, `MCP_AUTO_OPEN_ENABLED`                                              |
 | `oauth-runner.test.ts`                  | Runner client-config / CIMD flags                                                       |
 | `oauth-interactive.test.ts`             | Loopback callback OAuth (in-process)                                                    |
+| `oauth-debug.test.ts`                   | `--oauth-debug` trace wiring + a traced interactive login (#2844)                       |
 | `stored-auth.test.ts`                   | `--use-stored-auth` / handoff / wait                                                    |
 | `clear-stored-auth-for-relogin.test.ts` | Dual-key `--relogin` clear                                                              |
 | `programmatic-ergonomics.test.ts`       | Flag conflicts, timeouts, ergonomics                                                    |

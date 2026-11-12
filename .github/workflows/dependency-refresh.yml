@@ -7,9 +7,10 @@
 # below): it runs `scripts/dependency-refresh.mjs` against `v2/main` once a
 # month and files or updates ONE tracking issue listing every outdated npm
 # package across the root install and each client, plus any workflow `uses:`
-# ref behind its action's highest released version. No PR is opened
-# automatically. A maintainer reviews the issue, picks what to bump, and opens
-# a normal PR against `v2/main`.
+# ref behind its action's highest released version, plus the Dockerfile's
+# digest-pinned base image when its tag has moved to a new digest (#2885). No
+# PR is opened automatically. A maintainer reviews the issue, picks what to
+# bump, and opens a normal PR against `v2/main`.
 #
 # Dependabot SECURITY updates are the other half, and #2233 turned their PRs
 # off too — they were enabled in repo settings rather than in a config file,
@@ -20,7 +21,9 @@
 #
 # `GITHUB_TOKEN` is sufficient: it only needs to read milestones and the public
 # release feeds of the actions we use, and to create/edit an issue
-# (`issues: write`). Board placement is intentionally NOT attempted here — that
+# (`issues: write`). The base-image lookup needs no secret at all — Docker Hub
+# hands out anonymous pull tokens for public images (see `currentImageDigest`
+# in the script). Board placement is intentionally NOT attempted here — that
 # needs an org-project PAT this token cannot have — so a filed-but-unboarded
 # issue is picked up by the next `/issue-triage` sweep, same as any other
 # maintainer-filed issue.
@@ -60,7 +63,7 @@ jobs:
       - name: Install dependencies (root + all clients)
         run: npm install
 
-      - name: Run the dependency sweep (npm packages + workflow actions)
+      - name: Run the dependency sweep (npm packages + workflow actions + base image)
         run: node scripts/dependency-refresh.mjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

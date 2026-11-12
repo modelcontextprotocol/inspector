@@ -40,6 +40,8 @@ export function ServerImportJsonModal({
         packages={vm.packages}
         envVars={vm.envVars}
         launchPreview={vm.launchPreview}
+        runtimeControlAcknowledged={vm.runtimeControlAcknowledged}
+        onRuntimeControlAcknowledgedChange={vm.setRuntimeControlAcknowledged}
         addDisabled={!vm.canAdd}
         fileContentsOpen={vm.fileContentsOpen}
         onFileContentsChange={vm.setFileContentsOpen}

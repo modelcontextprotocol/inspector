@@ -3,6 +3,7 @@ import {
   decodeFormValues,
   missingRequiredFields,
   schemaToForm,
+  selectionCountErrors,
 } from "../src/utils/schemaToForm.js";
 
 describe("schemaToForm", () => {
@@ -78,13 +79,13 @@ describe("schemaToForm", () => {
     });
   });
 
-  it("builds a select field from an array-of-enum on items.enum alone", () => {
+  it("builds a multi-select field from an array-of-enum on items.enum alone (#2904)", () => {
     const form = schemaToForm(
       {
         properties: {
           // Standard array-of-enums shape: options come from `items.enum` with
           // NO top-level `enum`. The array branch keys on `items.enum` alone
-          // (matching the web guard), so this renders as a select.
+          // (matching the web guard), so this renders as a multi-select.
           tags: {
             type: "array",
             items: { enum: ["a", "b"] },
@@ -94,15 +95,16 @@ describe("schemaToForm", () => {
       "arrayEnum",
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
-      type: "select",
+      type: "multiselect",
+      // Identified by enum index, which stays unique where String() would not.
       options: [
-        { label: "a", value: "a" },
-        { label: "b", value: "b" },
+        { label: "a", value: "0" },
+        { label: "b", value: "1" },
       ],
     });
   });
 
-  it("still builds a select for an array-of-enum that also carries a top-level enum", () => {
+  it("still builds a multi-select for an array-of-enum that also carries a top-level enum", () => {
     const form = schemaToForm(
       {
         properties: {
@@ -116,10 +118,10 @@ describe("schemaToForm", () => {
       "arrayEnumRedundant",
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
-      type: "select",
+      type: "multiselect",
       options: [
-        { label: "a", value: "a" },
-        { label: "b", value: "b" },
+        { label: "a", value: "0" },
+        { label: "b", value: "1" },
       ],
     });
   });
@@ -182,10 +184,10 @@ describe("schemaToForm", () => {
       "titledArrayEnum",
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
-      type: "select",
+      type: "multiselect",
       options: [
-        { label: "Cats", value: "pet-1" },
-        { label: "Dogs", value: "pet-2" },
+        { label: "Cats", value: "0" },
+        { label: "Dogs", value: "1" },
       ],
     });
   });
@@ -204,9 +206,56 @@ describe("schemaToForm", () => {
     );
     expect(form.sections[0]!.fields[0]).toMatchObject({
       options: [
-        { label: "pet-1", value: "pet-1" },
-        { label: "pet-2", value: "pet-2" },
+        { label: "pet-1", value: "0" },
+        { label: "pet-2", value: "1" },
       ],
+    });
+  });
+
+  it("carries an array-of-enum's bounds and array default onto the multi-select (#2904)", () => {
+    const form = schemaToForm(
+      {
+        properties: {
+          tags: {
+            type: "array",
+            items: { enum: [1, 2, 3] },
+            minItems: 1,
+            maxItems: 2,
+            default: [1, 3, 9],
+          },
+          loose: {
+            type: "array",
+            items: { enum: ["a"] },
+            default: "a",
+          },
+        },
+        required: ["tags"],
+      },
+      "boundedArrayEnum",
+    );
+    const [tags, loose] = form.sections[0]!.fields;
+    expect(tags).toEqual({
+      type: "multiselect",
+      name: "tags",
+      label: "tags",
+      required: true,
+      options: [
+        { label: "1", value: "0" },
+        { label: "2", value: "1" },
+        { label: "3", value: "2" },
+      ],
+      minItems: 1,
+      maxItems: 2,
+      // A default member the enum does not list cannot be shown, so is dropped.
+      initialValue: ["0", "2"],
+    });
+    // A non-array default cannot seed a selection, and no bounds means none.
+    expect(loose).toEqual({
+      type: "multiselect",
+      name: "loose",
+      label: "loose",
+      required: false,
+      options: [{ label: "a", value: "0" }],
     });
   });
 
@@ -274,7 +323,7 @@ describe("schemaToForm", () => {
       expect(fields[1]).toMatchObject({ min: 1, max: 9 });
     });
 
-    it("renders a select for a nullable array-of-enum argument", () => {
+    it("renders a multi-select for a nullable array-of-enum argument", () => {
       const form = schemaToForm(
         {
           properties: {
@@ -289,10 +338,10 @@ describe("schemaToForm", () => {
         "nullableArrayEnum",
       );
       expect(form.sections[0]!.fields[0]).toMatchObject({
-        type: "select",
+        type: "multiselect",
         options: [
-          { label: "a", value: "a" },
-          { label: "b", value: "b" },
+          { label: "a", value: "0" },
+          { label: "b", value: "1" },
         ],
       });
     });
@@ -986,5 +1035,154 @@ describe("schemaToForm", () => {
       expect(missingRequiredFields(schema, {})).toEqual(["message"]);
       expect(missingRequiredFields(schema, { message: "hi" })).toEqual([]);
     });
+  });
+});
+
+describe("multi-select decoding (#2904)", () => {
+  const schema = {
+    properties: {
+      counts: { type: "array", items: { enum: [1, 2, 3] } },
+      tags: { type: "array", items: { enum: ["a", "b"] } },
+      must: { type: "array", items: { enum: ["x"] } },
+      note: { type: "string" },
+    },
+    required: ["must"],
+  };
+
+  it("restores the schema's members from option ids, passing others through", () => {
+    expect(
+      decodeFormValues(schema, {
+        counts: ["0", "2", "9", "x"],
+        tags: ["1"],
+        note: "hi",
+      }),
+    ).toEqual({ counts: [1, 3, "9", "x"], tags: ["b"], note: "hi" });
+  });
+
+  it("matches an object default by value and leaves a const array alone (#2904 review)", () => {
+    const schema = JSON.parse(`{
+      "properties": {
+        "objs": { "type": "array", "items": { "enum": [{ "id": 1 }, { "id": 2 }] },
+                  "default": [{ "id": 2 }] },
+        "pinned": { "type": "array", "items": { "enum": ["1", "2"] }, "const": ["1"] }
+      },
+      "required": ["pinned"]
+    }`);
+    const [objs] = schemaToForm(schema, "objs").sections[0]!.fields;
+    expect(objs).toMatchObject({ initialValue: ["1"] });
+    expect(decodeFormValues(schema, { objs: ["1"], pinned: "1" })).toEqual({
+      objs: [{ id: 2 }],
+      pinned: ["1"],
+    });
+  });
+
+  it("keeps null and look-alike members distinct (#2904 review)", () => {
+    const tricky = {
+      properties: {
+        v: { type: "array", items: { enum: [null, 1, "1"] }, default: ["1"] },
+      },
+    };
+    const [field] = schemaToForm(tricky, "tricky").sections[0]!.fields;
+    expect(field).toMatchObject({
+      options: [
+        { label: "null", value: "0" },
+        { label: "1", value: "1" },
+        { label: "1", value: "2" },
+      ],
+      initialValue: ["2"],
+    });
+    expect(decodeFormValues(tricky, { v: ["0", "2"] })).toEqual({
+      v: [null, "1"],
+    });
+    expect(selectionCountErrors(tricky, { v: [null, "1"] })).toEqual([]);
+  });
+
+  it("drops an emptied optional selection but keeps a required one", () => {
+    expect(decodeFormValues(schema, { tags: [], must: [] })).toEqual({
+      must: [],
+    });
+  });
+
+  it("returns the values unchanged when no multi-select was answered", () => {
+    const values = { tags: "a", note: "hi" };
+    expect(decodeFormValues(schema, values)).toBe(values);
+  });
+
+  it("keeps an answer to a multi-select named __proto__", () => {
+    const protoSchema = {
+      properties: JSON.parse(
+        '{"__proto__": {"type": "array", "items": {"enum": [1]}}}',
+      ),
+    };
+    const decoded = decodeFormValues(
+      protoSchema,
+      JSON.parse('{"__proto__": ["0"]}'),
+    );
+    expect(Object.hasOwn(decoded, "__proto__")).toBe(true);
+    expect(JSON.stringify(decoded)).toBe('{"__proto__":[1]}');
+  });
+
+  it("restores a multi-select inside the chosen root-union branch", () => {
+    const union = {
+      type: "object",
+      oneOf: [
+        {
+          type: "object",
+          properties: {
+            kind: { type: "string", const: "a" },
+            ids: { type: "array", items: { enum: [7, 8] }, maxItems: 1 },
+          },
+          required: ["kind"],
+        },
+        {
+          type: "object",
+          properties: { kind: { type: "string", const: "b" } },
+          required: ["kind"],
+        },
+      ],
+    };
+    const raw = { __variant: "0", __b0__ids: ["1"] };
+    const decoded = decodeFormValues(union, raw);
+    expect(decoded).toEqual({ kind: "a", ids: [8] });
+    expect(selectionCountErrors(union, decoded, raw)).toEqual([]);
+    const tooMany = { __variant: "0", __b0__ids: ["0", "1"] };
+    expect(
+      selectionCountErrors(union, decodeFormValues(union, tooMany), tooMany),
+    ).toEqual(["ids: choose at most 1"]);
+  });
+});
+
+describe("selectionCountErrors (#2904)", () => {
+  const schema = {
+    properties: {
+      few: { type: "array", minItems: 2 },
+      many: { type: "array", maxItems: 1 },
+      free: { type: "array" },
+      nullable: {
+        anyOf: [{ type: "array", minItems: 1 }, { type: "null" }],
+      },
+    },
+  };
+
+  it("reports each array outside its bounds", () => {
+    expect(
+      selectionCountErrors(schema, {
+        few: ["a"],
+        many: ["a", "b"],
+        free: [],
+        nullable: [],
+      }),
+    ).toEqual([
+      "few: choose at least 2",
+      "many: choose at most 1",
+      "nullable: choose at least 1",
+    ]);
+  });
+
+  it("passes arrays inside their bounds, and ignores absent or non-array values", () => {
+    expect(
+      selectionCountErrors(schema, { few: ["a", "b"], many: "x" }),
+    ).toEqual([]);
+    expect(selectionCountErrors(null, { few: [] })).toEqual([]);
   });
 });

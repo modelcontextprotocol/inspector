@@ -380,6 +380,7 @@ export function InspectorView({
     onActiveTabChange,
     onToggleTheme,
     onOpenClientSettings,
+    onOpenActiveSessions,
   } = shell;
   const {
     activeServer,
@@ -418,6 +419,7 @@ export function InspectorView({
     toolsLoadError,
     toolsUi,
     toolCallState,
+    toolRunHistory,
     toolsPagination,
     serverSupportsTaskToolCalls,
     onToolsUiChange,
@@ -426,6 +428,7 @@ export function InspectorView({
     onClearToolResult,
     onRefreshTools,
     onReadResourceContents,
+    onRunLoadTest,
   } = toolsPanel;
   const {
     prompts,
@@ -1172,6 +1175,7 @@ export function InspectorView({
             onDisconnect={onDisconnect}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            onOpenActiveSessions={onOpenActiveSessions}
             monitorToggle={monitorToggle}
           />
         ) : (
@@ -1179,6 +1183,7 @@ export function InspectorView({
             connected={false}
             onToggleTheme={onToggleTheme}
             onOpenClientSettings={onOpenClientSettings}
+            onOpenActiveSessions={onOpenActiveSessions}
             monitorToggle={monitorToggle}
           />
         )}
@@ -1217,6 +1222,7 @@ export function InspectorView({
                 excludedTools={excludedTools}
                 malformedListItems={malformedListItems}
                 callState={toolCallState}
+                runHistory={toolRunHistory}
                 ui={toolsUi}
                 listChanged={toolsListChanged}
                 loadError={toolsLoadError}
@@ -1228,6 +1234,7 @@ export function InspectorView({
                 onCancelCall={onCancelToolCall}
                 onClearResult={onClearToolResult}
                 onReadResource={onReadResourceContents}
+                onRunLoadTest={onRunLoadTest}
               />
             </ScreenStage>
             <ScreenStage active={activeTab === "Apps"}>

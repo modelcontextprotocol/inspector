@@ -13,10 +13,13 @@ import type { InspectorClient } from "@inspector/core/mcp/inspectorClient.js";
 import { InspectorClientEventTarget } from "@inspector/core/mcp/inspectorClientEventTarget.js";
 import type { ConnectionStatus } from "@inspector/core/mcp/types.js";
 import type {
+  LoadProgress,
+  LoadProgressHook,
   LoadOptions,
   LoadSummary,
 } from "@inspector/core/cli/handlers/load-test.js";
-import type { RpcParams } from "../src/daemon/protocol.js";
+import type { LoadProgressFrame, RpcParams } from "../src/daemon/protocol.js";
+import type { ElicitationChannel } from "../src/daemon/ipc-glue.js";
 import type { MCPServerConfig } from "@inspector/core/mcp/types.js";
 
 /**
@@ -34,6 +37,8 @@ type LoadImpl = (
   run: {
     signal?: AbortSignal;
     openConnection?: () => Promise<InspectorClient>;
+    progress?: LoadProgressHook;
+    onConnectionClosed?: (connection: InspectorClient) => void;
   },
 ) => Promise<LoadSummary>;
 
@@ -41,7 +46,7 @@ const loadMock = vi.hoisted(() => {
   const state: { impl: LoadImpl } = {
     // A test that forgets to set `impl` fails here, by name.
     impl: async () => {
-      throw new Error("runToolLoad mock not configured");
+      throw new Error("runLoadTest mock not configured");
     },
   };
   return state;
@@ -52,10 +57,16 @@ vi.mock(
     ...(await importOriginal<
       typeof import("@inspector/core/cli/handlers/load-test.js")
     >()),
-    runToolLoad: (...args: Parameters<typeof loadMock.impl>) =>
+    runLoadTest: (...args: Parameters<typeof loadMock.impl>) =>
       loadMock.impl(...args),
   }),
 );
+// The daemon enters through `runLoadOrFanout` (#2913); the fan-out itself
+// is tested in the CLI's suite, so the run is the same stub either way.
+vi.mock("@inspector/core/cli/handlers/load-fanout.js", () => ({
+  runLoadOrFanout: (...args: Parameters<typeof loadMock.impl>) =>
+    loadMock.impl(...args),
+}));
 
 /**
  * Observes the daemon's OAuth storage handling (#2800) without changing it:
@@ -107,7 +118,16 @@ const SUMMARY: LoadSummary = {
   elapsedMs: 10,
   throughput: 400,
   okThroughput: 400,
-  latencyMs: { min: 1, mean: 2, p50: 2, p90: 3, p99: 3, max: 3 },
+  latencyMs: {
+    min: 1,
+    mean: 2,
+    p50: 2,
+    p90: 3,
+    p95: 3,
+    p99: 3,
+    p999: 3,
+    max: 3,
+  },
   errorLatencyMs: null,
   errorMessages: [],
   toolErrorMessages: [],
@@ -159,7 +179,7 @@ function fakeClient(status: ConnectionStatus = "connected") {
     // private members no test double can supply, so no single cast relates
     // the two. The double is sufficient because the load path calls only the
     // methods `FakeLoadClient` implements (checked above) plus the event
-    // target it inherits; `runToolLoad`, which needs the rest, is mocked.
+    // target it inherits; `runLoadTest`, which needs the rest, is mocked.
     client: fake as unknown as InspectorClient,
     ambient: () => fake.ambient,
     emitStatus: (detail: ConnectionStatus) =>
@@ -192,7 +212,11 @@ describe("daemon rpc with --load", () => {
     vi.restoreAllMocks();
   });
 
-  function rpc(params: Partial<RpcParams>, signal?: AbortSignal) {
+  function rpc(
+    params: Partial<RpcParams>,
+    signal?: AbortSignal,
+    channel?: ElicitationChannel,
+  ) {
     return server.handle(
       {
         id: "r1",
@@ -205,10 +229,58 @@ describe("daemon rpc with --load", () => {
           ...params,
         },
       },
-      undefined,
+      channel,
       signal,
     );
   }
+
+  describe("progress frames (#2838)", () => {
+    const PROGRESS: LoadProgress = {
+      phase: "run",
+      elapsedMs: 5000,
+      requests: 10,
+      ok: 10,
+      failed: 0,
+      throughput: 2,
+      latencyMs: { p50: 1, p99: 2 },
+    };
+    const channel = (notify?: (frame: LoadProgressFrame) => void) => ({
+      request: () => Promise.reject(new Error("not used")),
+      ...(notify && { notify }),
+    });
+
+    it("relays each report to the caller as a load-progress frame", async () => {
+      const frames: LoadProgressFrame[] = [];
+      loadMock.impl = async (_c, _a, _o, run) => {
+        expect(run.progress?.everyMs).toBe(250);
+        run.progress!.emit(PROGRESS);
+        return SUMMARY;
+      };
+      await rpc(
+        { load: { ...LOAD, progressMs: 250 } },
+        undefined,
+        channel((f) => frames.push(f)),
+      );
+      expect(frames).toEqual([
+        { id: "r1", kind: "load-progress", progress: PROGRESS },
+      ]);
+    });
+
+    it("asks for no progress without progressMs or a channel to send it on", async () => {
+      const hooks: unknown[] = [];
+      loadMock.impl = async (_c, _a, _o, run) => {
+        hooks.push(run.progress);
+        return SUMMARY;
+      };
+      await rpc(
+        {},
+        undefined,
+        channel(() => {}),
+      );
+      await rpc({ load: { ...LOAD, progressMs: 250 } }, undefined, channel());
+      expect(hooks).toEqual([undefined, undefined]);
+    });
+  });
 
   /** Start a run that settles only when its signal aborts. */
   function runUntilAborted(): Promise<AbortSignal> {
@@ -442,6 +514,79 @@ describe("daemon rpc with --load", () => {
         return SUMMARY;
       };
       expect((await rpc({ load: { ...MULTI, connections: 1 } })).ok).toBe(true);
+      expect(open).not.toHaveBeenCalled();
+    });
+
+    it("opens --load-churn sessions and releases each once the engine closes it (#2912)", async () => {
+      const { extra, open, release } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      const CHURN: LoadOptions = {
+        concurrency: 1,
+        requests: 2,
+        churn: { callsPerSession: 1 },
+      };
+      loadMock.impl = async (_client, _args, options, run) => {
+        expect(options).toEqual(CHURN);
+        const session = await run.openConnection!();
+        // Released as soon as it closes, not only when the run ends.
+        run.onConnectionClosed!(session);
+        expect(release).toHaveBeenCalledWith(extra.client);
+        expect(extra.ambient()).toBeUndefined();
+        // An unknown connection is ignored.
+        run.onConnectionClosed!(fake.client);
+        return SUMMARY;
+      };
+      expect((await rpc({ load: CHURN })).ok).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+      expect(release).toHaveBeenCalledTimes(1);
+    });
+
+    it("opens --load-subscribers sessions through the registry (#2913)", async () => {
+      const { extra, open } = useConnection({
+        type: "streamable-http",
+        url: "http://localhost:1/mcp",
+      });
+      const FANOUT: LoadOptions = {
+        concurrency: 1,
+        durationMs: 10,
+        fanout: { uri: "test://r", subscribers: 2, settleMs: 0 },
+      };
+      loadMock.impl = async (_client, _args, _options, run) => {
+        expect(await run.openConnection!()).toBe(extra.client);
+        return SUMMARY;
+      };
+      expect((await rpc({ load: FANOUT })).ok).toBe(true);
+      expect(open).toHaveBeenCalledTimes(1);
+    });
+
+    it("refuses --load-subscribers above 1 over stdio", async () => {
+      useConnection({ type: "stdio", command: "node" });
+      loadMock.impl = async () => SUMMARY;
+      const response = await rpc({
+        load: {
+          concurrency: 1,
+          durationMs: 10,
+          fanout: { uri: "test://r", subscribers: 2, settleMs: 0 },
+        },
+      });
+      expect(!response.ok && response.error.message).toContain(
+        "--load-subscribers above 1 requires an HTTP or SSE connection",
+      );
+    });
+
+    it("refuses --load-churn over stdio before the run starts", async () => {
+      const { open } = useConnection({ type: "stdio", command: "node" });
+      loadMock.impl = async () => SUMMARY;
+      const response = await rpc({
+        load: { concurrency: 1, requests: 1, churn: { callsPerSession: 1 } },
+      });
+      expect(response.ok).toBe(false);
+      expect(!response.ok && response.error.code).toBe("load_flag_conflict");
+      expect(!response.ok && response.error.message).toContain(
+        "--load-churn requires an HTTP or SSE connection",
+      );
       expect(open).not.toHaveBeenCalled();
     });
 
