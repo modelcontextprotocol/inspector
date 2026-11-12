@@ -452,6 +452,8 @@ The bump is an ordinary PR against **`v1/main`**, cut from `origin/v1/main`
 (the two lines have unrelated histories), labeled `v1` + `chore`, linked to a
 `v1` release issue on board **#11**. That issue takes **no milestone** — every
 milestone is a v2 bucket — and board #11 has no Priority field.
+List v1-6 (deprecate) in that issue's checklist, so the release issue is not
+closed until the new version carries the v1 notice.
 
 Edit the versions **by hand**. Don't use `npm run update-version`: its trailing
 bare `npm install` re-resolves the whole tree, turning a version bump into an
@@ -540,7 +542,75 @@ gh release list --repo modelcontextprotocol/inspector --limit 100 \
 
 (`gh release view` has no `isLatest` field; `gh release list` does.)
 
-### v1-6. Release notes for unpublished advisories
+### v1-6. Deprecate the version just published
+
+`npm deprecate` is a point-in-time write, not a standing rule, so every v1
+release lands on npm **un-deprecated** until someone runs it — 1.0.2 shipped
+that way and was fixed after the fact (#2080). Automating it in `v1/main`'s
+publish job would need a long-lived npm token (OIDC trusted publishing covers
+`npm publish` only), and maintainers chose not to keep one (#2104, closed not
+planned). So it is a manual step, and it comes after v1-5 has confirmed the
+publish actually landed.
+
+⚠️ **This is a maintainer-run step.** The publishing account requires 2FA for
+writes, so `npm deprecate` fails with `EOTP` without a one-time password. An
+agent driving the release **stops here** and hands the maintainer the four
+exact commands below (in Claude Code, as `! npm deprecate … --otp=<code>`
+lines) rather than attempting them. A TOTP code can expire between commands,
+so expect to supply a fresh code for each.
+
+First read the message back from the previous v1 version rather than retyping
+it — it must match what every earlier v1 version already carries:
+
+```sh
+npm view @modelcontextprotocol/inspector@<PREVIOUS> deprecated
+```
+
+Today that is, verbatim:
+
+```text
+v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.
+```
+
+Then deprecate the **exact** version, in all **four** packages. Each command
+carries the message inline, so any one of them can run on its own — a shell
+variable would be empty in a fresh `!` invocation and lift the notice instead:
+
+```sh
+npm deprecate @modelcontextprotocol/inspector@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-cli@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-client@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-server@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+```
+
+- ⚠️ **Never a range.** `<2.0.0` also matches `2.0.0-rc.1`/`-rc.2`/`-rc.3` —
+  a prerelease sorts below its release — so those v2 release candidates would
+  get a v1 notice. If a range is ever genuinely needed, the safe spelling is
+  `<2.0.0-0`.
+- ⚠️ **An empty message lifts deprecation.** `npm deprecate pkg@ver ""`
+  un-deprecates, so a quoting slip that drops the argument silently reverses
+  the step. That is why the verification below is
+  not optional.
+
+Verify each of the four carries the notice:
+
+```sh
+for p in inspector inspector-cli inspector-client inspector-server; do
+  echo "$p: $(npm view @modelcontextprotocol/$p@X.Y.Z deprecated --prefer-online)"
+done
+```
+
+Every line must print the message. Then confirm nothing outside v1 was caught —
+the v2 release candidates and the current `latest` must print nothing after
+the colon:
+
+```sh
+for v in 2.0.0-rc.1 2.0.0-rc.2 2.0.0-rc.3 latest; do
+  echo "$v: $(npm view @modelcontextprotocol/inspector@$v deprecated --prefer-online)"
+done
+```
+
+### v1-7. Release notes for unpublished advisories
 
 When the release ships fixes for advisories that are **not yet published**,
 keep the notes **neutral** at release time: say what changed in behavior, with
