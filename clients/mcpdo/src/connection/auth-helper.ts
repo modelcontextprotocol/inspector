@@ -8,8 +8,10 @@ import type {
   MCPServerConfig,
 } from "@inspector/core/mcp/types.js";
 import {
+  classifyError,
   CliExitCodeError,
   EXIT_CODES,
+  type ErrorEnvelope,
 } from "@inspector/core/cli/error-handler.js";
 import {
   writeFetchRefusalWarning,
@@ -40,6 +42,13 @@ import { sanitizeText } from "./sanitize.js";
  * must tell the user travels on the stdout protocol too: a destination-guard
  * refusal (#2846) arrives as a `fetch_refused` event, which the parent prints
  * as its own `Warning:` line before the URL or the error (#2905).
+ *
+ * A flow failure is classified **in the helper**, where the original error
+ * object still exists, and its exit code and envelope fields ride on the
+ * `error` event (#2962). The parent cannot classify the relayed text itself —
+ * a fetch-guard refusal is recognised by its error type, not its wording — so
+ * without this every pre-URL failure came out as `auth_required` / exit 3
+ * while the TTY path reported the same failure as, say, `fetch_refused` / 12.
  */
 
 /** Hidden subcommand name (see registerAuthCommands in mcp.ts). */
@@ -56,7 +65,88 @@ export type AuthHelperEvent =
   | { event: "auth_url"; url: string }
   | { event: "fetch_refused"; url: string; reason: string }
   | { event: "done" }
-  | { event: "error"; message: string };
+  | {
+      event: "error";
+      message: string;
+      /**
+       * The failure's classification, computed by the helper with
+       * `classifyError` (#2962). Present only when the failure classified as
+       * something more specific than the catch-all `error`; absent, the
+       * parent falls back to `auth_required`.
+       */
+      exitCode?: number;
+      envelope?: Partial<ErrorEnvelope>;
+    };
+
+/**
+ * Build the `error` event a helper emits for a failed flow, carrying the
+ * failure's classification when it has one (#2962). The catch-all `error`
+ * classification is left off: the parent's `auth_required` fallback is the
+ * better reading of an unclassified sign-in failure, and it is what the
+ * event meant before classification was relayed.
+ */
+export function helperErrorEvent(error: unknown): AuthHelperEvent {
+  const message = error instanceof Error ? error.message : String(error);
+  const { exitCode, envelope } = classifyError(error);
+  if (envelope.code === "error") return { event: "error", message };
+  // `message` travels once, at the top level; the envelope carries the rest.
+  const fields: Partial<ErrorEnvelope> = { ...envelope };
+  delete fields.message;
+  return { event: "error", message, exitCode, envelope: fields };
+}
+
+/** Every exit code a relayed classification may name — never `OK`. */
+const RELAYABLE_EXIT_CODES: ReadonlySet<number> = new Set(
+  Object.values(EXIT_CODES).filter((code) => code !== EXIT_CODES.OK),
+);
+
+/**
+ * Rebuild the classified error a helper relayed (#2962), or `undefined` when
+ * the event carries no usable classification. Every field is type-checked
+ * rather than trusted, and every string is sanitized: it is server-derived
+ * text on its way to a terminal, like the message.
+ */
+export function relayedHelperError(
+  event: Extract<AuthHelperEvent, { event: "error" }>,
+  message: string,
+): CliExitCodeError | undefined {
+  const { exitCode, envelope } = event;
+  if (
+    typeof exitCode !== "number" ||
+    !RELAYABLE_EXIT_CODES.has(exitCode) ||
+    typeof envelope !== "object" ||
+    envelope === null ||
+    typeof envelope.code !== "string"
+  ) {
+    return undefined;
+  }
+  const text = (value: unknown) =>
+    typeof value === "string" ? sanitizeText(value) : undefined;
+  const number = (value: unknown) =>
+    typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  const fields: Partial<ErrorEnvelope> = {
+    code: sanitizeText(envelope.code),
+    status: number(envelope.status),
+    url: text(envelope.url),
+    method: text(envelope.method),
+    retryAfter: text(envelope.retryAfter),
+    retryAfterMs: number(envelope.retryAfterMs),
+    oauthError: text(envelope.oauthError),
+    oauthErrorDescription: text(envelope.oauthErrorDescription),
+  };
+  // Drop absent fields rather than carrying `undefined` keys into the
+  // envelope, matching every other optional envelope field.
+  for (const key of Object.keys(fields) as (keyof ErrorEnvelope)[]) {
+    if (fields[key] === undefined) delete fields[key];
+  }
+  const relayed = new CliExitCodeError(exitCode, message, fields);
+  // `classifyError` reads a cause off the error itself, never off its
+  // envelope, so the relayed one goes back where it came from — otherwise a
+  // wrapped refusal (`fetch failed` caused by the guard) loses its reason.
+  const cause = text(envelope.cause);
+  if (cause !== undefined) relayed.cause = cause;
+  return relayed;
+}
 
 /**
  * Pending sign-in marker, one per flow key (a server URL, or an
@@ -240,10 +330,7 @@ export async function runAuthHelper(): Promise<void> {
     });
     emit({ event: "done" });
   } catch (error) {
-    emit({
-      event: "error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    emit(helperErrorEvent(error));
     throw error;
   } finally {
     if (markerPath !== undefined) removeOwnPendingAuthMarker(markerPath);
@@ -494,7 +581,12 @@ async function spawnAuthHelperForUrl(
             clearTimeout(timer);
             // The helper relays server-derived text; strip C0/C1 controls
             // before it reaches a terminal via the error envelope.
-            fail(`Sign-in helper failed: ${sanitizeText(event.message)}`);
+            const message = `Sign-in helper failed: ${sanitizeText(event.message)}`;
+            // Keep the helper's classification when it relayed one (#2962);
+            // `auth_required` is only the fallback for an unclassified one.
+            const relayed = relayedHelperError(event, message);
+            if (relayed !== undefined) reject(relayed);
+            else fail(message);
             return;
           }
         }
