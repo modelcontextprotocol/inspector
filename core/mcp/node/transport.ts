@@ -22,6 +22,7 @@ import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
 import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
+import { ConnectionCookieJar, createCookieJarFetch } from "./cookieJarFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -124,6 +125,16 @@ export function createTransportNode(
     ? createAuthChallengeInterceptFetch(trackedBase)
     : trackedBase;
 
+  // Opt-in cookie jar (#2936): one per transport, shared by every fetch the
+  // transport makes, so an affinity cookie learned on any response pins the
+  // whole session. It sits above the tracker so the Network log records the
+  // `Cookie` header actually sent (#2385) and the `Set-Cookie` the jar read —
+  // both redacted there. Off, the chains below are exactly what they were.
+  const cookieJar =
+    settings?.cookieJar === true ? new ConnectionCookieJar() : undefined;
+  const withCookieJar = (inner: typeof fetch, url: URL): typeof fetch =>
+    cookieJar ? createCookieJarFetch(inner, url, cookieJar) : inner;
+
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
     const transport = new StdioClientTransport({
@@ -170,7 +181,7 @@ export function createTransportNode(
     const eventSourceInit: Record<string, unknown> = {
       ...sseConfig.eventSourceInit,
       ...(headers && { headers }),
-      fetch: trackedFetch,
+      fetch: withCookieJar(trackedFetch, url),
     };
 
     const requestInit: RequestInit = {
@@ -182,7 +193,7 @@ export function createTransportNode(
       authProvider,
       eventSourceInit,
       requestInit,
-      fetch: fetchWithOptionalAuthIntercept,
+      fetch: withCookieJar(fetchWithOptionalAuthIntercept, url),
     });
 
     return { transport };
@@ -198,14 +209,14 @@ export function createTransportNode(
       ...(headers && { headers }),
     };
 
-    // Both wrappers sit above the tracker. Header stamping, so the tracker
-    // records the headers actually sent (#2385); stream suppression outermost
-    // of all, so a suppressed GET is answered before it reaches the tracker —
+    // Both wrappers sit above the tracker and the cookie jar. Header
+    // stamping, so the tracker records the headers actually sent (#2385);
+    // stream suppression outermost of all, so a suppressed GET is answered before it reaches the tracker —
     // it is never sent, and the Network log should not show a request the
     // server never saw (#2317). They touch disjoint requests (notification
     // POSTs vs. the endpoint's SSE GET), so their relative order is free.
     const stampedFetch = createNotificationHeadersFetch(
-      fetchWithOptionalAuthIntercept,
+      withCookieJar(fetchWithOptionalAuthIntercept, url),
     );
     const httpFetch =
       settings?.suppressNotificationStream === true

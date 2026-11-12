@@ -228,6 +228,11 @@ export function ServerSettingsModal({
     });
   }
 
+  function handleCookieJarChange(value: boolean) {
+    // Omit-when-off, like the stream suppression box above (#2936).
+    onSettingsChange({ ...settings, cookieJar: value ? true : undefined });
+  }
+
   function handleAdvertisedExtensionChange(key: string, checked: boolean) {
     const next = { ...settings.advertisedExtensions };
     const ext = ADVERTISABLE_EXTENSIONS.find((e) => e.key === key);
@@ -333,6 +338,7 @@ export function ServerSettingsModal({
             onSuppressNotificationStreamChange={
               handleSuppressNotificationStreamChange
             }
+            onCookieJarChange={handleCookieJarChange}
             onAdvertisedExtensionChange={handleAdvertisedExtensionChange}
             rendersApps={rendersApps}
             onMaxFetchRequestsChange={handleMaxFetchRequestsChange}

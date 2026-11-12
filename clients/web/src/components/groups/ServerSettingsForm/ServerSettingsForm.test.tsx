@@ -70,6 +70,7 @@ const baseHandlers = {
   onAutoRefreshChange: vi.fn(),
   onPaginatedListsChange: vi.fn(),
   onSuppressNotificationStreamChange: vi.fn(),
+  onCookieJarChange: vi.fn(),
   onAdvertisedExtensionChange: vi.fn(),
   onMaxFetchRequestsChange: vi.fn(),
   onSkillCatalogLimitChange: vi.fn(),
@@ -532,6 +533,69 @@ describe("ServerSettingsForm", () => {
         ).not.toBeInTheDocument();
       },
     );
+  });
+
+  describe("HTTP Cookie Jar (#2936)", () => {
+    const name = /Enable HTTP Cookie Jar/;
+
+    it("is unchecked by default and reflects an explicit true", () => {
+      const { rerender } = renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          settings={emptySettings}
+          expandedSections={["options"]}
+        />,
+      );
+      expect(screen.getByRole("checkbox", { name })).not.toBeChecked();
+      rerender(
+        <ServerSettingsForm
+          {...baseHandlers}
+          settings={{ ...emptySettings, cookieJar: true }}
+          expandedSections={["options"]}
+        />,
+      );
+      expect(screen.getByRole("checkbox", { name })).toBeChecked();
+    });
+
+    it("invokes onCookieJarChange when toggled", async () => {
+      const user = userEvent.setup();
+      const onCookieJarChange = vi.fn();
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          onCookieJarChange={onCookieJarChange}
+          settings={emptySettings}
+          expandedSections={["options"]}
+        />,
+      );
+      await user.click(screen.getByRole("checkbox", { name }));
+      expect(onCookieJarChange).toHaveBeenCalledWith(true);
+    });
+
+    it("is shown for an sse server", () => {
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          serverType="sse"
+          settings={emptySettings}
+          expandedSections={["options"]}
+        />,
+      );
+      expect(screen.getByRole("checkbox", { name })).toBeInTheDocument();
+    });
+
+    it("is hidden for a stdio server, which has no HTTP cookies", () => {
+      renderWithMantine(
+        <ServerSettingsForm
+          {...baseHandlers}
+          serverType="stdio"
+          isStdio
+          settings={emptySettings}
+          expandedSections={["options"]}
+        />,
+      );
+      expect(screen.queryByRole("checkbox", { name })).not.toBeInTheDocument();
+    });
   });
 
   it("renders the Advertised Extensions section with Tasks checked by default", () => {
