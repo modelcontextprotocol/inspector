@@ -572,14 +572,15 @@ Today that is, verbatim:
 v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.
 ```
 
-Then deprecate the **exact** version, in all **four** packages:
+Then deprecate the **exact** version, in all **four** packages. Each command
+carries the message inline, so any one of them can run on its own — a shell
+variable would be empty in a fresh `!` invocation and lift the notice instead:
 
 ```sh
-MSG='v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.'
-npm deprecate @modelcontextprotocol/inspector@X.Y.Z "$MSG" --otp=<code>
-npm deprecate @modelcontextprotocol/inspector-cli@X.Y.Z "$MSG" --otp=<code>
-npm deprecate @modelcontextprotocol/inspector-client@X.Y.Z "$MSG" --otp=<code>
-npm deprecate @modelcontextprotocol/inspector-server@X.Y.Z "$MSG" --otp=<code>
+npm deprecate @modelcontextprotocol/inspector@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-cli@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-client@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
+npm deprecate @modelcontextprotocol/inspector-server@X.Y.Z 'v1 is deprecated. Upgrade to v2: npm i @modelcontextprotocol/inspector@latest. v1 gets security fixes only, published under the v1-latest tag.' --otp=<code>
 ```
 
 - ⚠️ **Never a range.** `<2.0.0` also matches `2.0.0-rc.1`/`-rc.2`/`-rc.3` —
@@ -587,8 +588,8 @@ npm deprecate @modelcontextprotocol/inspector-server@X.Y.Z "$MSG" --otp=<code>
   get a v1 notice. If a range is ever genuinely needed, the safe spelling is
   `<2.0.0-0`.
 - ⚠️ **An empty message lifts deprecation.** `npm deprecate pkg@ver ""`
-  un-deprecates, so a quoting slip (an unset `MSG`, a shell that drops the
-  argument) silently reverses the step. That is why the verification below is
+  un-deprecates, so a quoting slip that drops the argument silently reverses
+  the step. That is why the verification below is
   not optional.
 
 Verify each of the four carries the notice:
