@@ -63,6 +63,27 @@ async function pipeBody(
   }
 }
 
+/** The only endpoints the fixture serves (`/mcp`, legacy `/sse`). */
+const ENDPOINT_PATHS = ["/mcp", "/sse"] as const;
+
+/**
+ * The replica URL for an incoming request. Built from the replica's fixed
+ * origin, a path picked from {@link ENDPOINT_PATHS}, and a validated legacy-SSE
+ * `sessionId`, so a request cannot steer the proxy anywhere else.
+ */
+function upstreamUrl(origin: string, requestUrl: string | undefined): URL {
+  const incoming = new URL(requestUrl ?? "/", "http://proxy.invalid");
+  const path =
+    ENDPOINT_PATHS.find((candidate) => candidate === incoming.pathname) ??
+    "/mcp";
+  const target = new URL(path, origin);
+  const sessionId = incoming.searchParams.get("sessionId");
+  if (sessionId && /^[\w-]+$/.test(sessionId)) {
+    target.searchParams.set("sessionId", sessionId);
+  }
+  return target;
+}
+
 interface AffinityProxy {
   url: string;
   /** The `cookie` header of every request the proxy received, in order. */
@@ -94,10 +115,7 @@ async function startAffinityProxy(
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
       const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
-      // Only the path and query are forwarded, appended after the replica's
-      // fixed origin, so a request cannot steer the proxy to another host.
-      const pathAndQuery = (req.url ?? "/").replace(/^\/+/, "");
-      fetch(`${replicas[index]}/${pathAndQuery}`, {
+      fetch(upstreamUrl(replicas[index], req.url), {
         method: req.method,
         headers,
         body,
