@@ -33,7 +33,22 @@ import type {
  *
  * The listeners exist only while `run` is pending, so a signal before or after
  * the run keeps Node's default behaviour, and an in-process caller (the
- * launcher, the test runner) is left with no stray listener.
+ * launcher, the test runner) is left with no stray listener — with one
+ * exception, below.
+ *
+ * ⚠️ **The re-raise can still be in flight when the run ends (#2973).** A
+ * signal a process sends itself is not handled synchronously: the kernel may
+ * hand it to any thread, and on a loaded machine that thread can wait several
+ * milliseconds to be scheduled — longer than the in-flight calls take to
+ * settle. Removing the last listener restores the default disposition, so a
+ * copy still pending at that moment killed the process by the signal, after
+ * the summary was out but before it could exit 130. So when the run ends
+ * without the copy having arrived, a one-shot listener is left to absorb it.
+ * Its removal is driven by the copy itself rather than by a timer, which is
+ * what makes it deterministic: however late the copy lands, it is swallowed,
+ * and the default disposition returns only after it. When nothing re-raises
+ * (a caller that invokes the listener directly), that one no-op listener is
+ * the stray left behind; it swallows one later signal and removes itself.
  */
 /** How long after the first signal a repeat of it is treated as a re-raise. */
 export const REPEAT_GRACE_MS = 500;
@@ -52,10 +67,13 @@ export async function withLoadInterrupt<T>(
   const exit = options.exit ?? ((code: number) => process.exit(code));
   const now = options.now ?? (() => performance.now());
   let first: { signal: NodeJS.Signals; at: number } | undefined;
+  // Whether the dependency's re-raise of `first` has been seen yet (#2973).
+  let echoed = false;
   const onSignal = (signal: NodeJS.Signals): void => {
     if (first !== undefined) {
       // A dependency's re-raise of the first signal, not a second press.
       if (signal === first.signal && now() - first.at < REPEAT_GRACE_MS) {
+        echoed = true;
         return;
       }
       exit(EXIT_CODES.INTERRUPTED);
@@ -78,10 +96,20 @@ export async function withLoadInterrupt<T>(
   try {
     return await run(controller.signal);
   } finally {
+    // Added BEFORE the `off` calls, so the signal never has zero listeners:
+    // the pending copy is delivered on whichever thread the kernel picks, not
+    // between two lines of this one, so even a synchronous gap with the
+    // default disposition restored would be a window it could land in.
+    if (first !== undefined && !echoed) {
+      process.once(first.signal, absorbReRaise);
+    }
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
   }
 }
+
+/** Swallows the in-flight re-raise of the first signal (#2973). */
+function absorbReRaise(): void {}
 
 /**
  * After the summary is printed: exit 130 (`interrupted`) when the run was
