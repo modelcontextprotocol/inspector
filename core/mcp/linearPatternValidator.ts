@@ -265,14 +265,7 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
 
   getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
     const engine = this.engineFor(declaredDialect(schema));
-    const id: unknown = (schema as { $id?: unknown }).$id;
-    // `getSchema` can compile too: Ajv compiles a schema registered by `$id`
-    // — including a `$defs` entry of an earlier schema — on first lookup.
-    const validate: ValidateFunction = this.tracked(
-      () =>
-        (typeof id === "string" ? engine.getSchema(id) : undefined) ??
-        engine.compile(schema),
-    );
+    const validate = this.validatorFor(engine, schema);
     const overBudget = this.overBudget.has(validate);
     return (input: unknown) => {
       this.ledger.reset();
@@ -305,16 +298,51 @@ export class LinearPatternJsonSchemaValidator implements jsonSchemaValidator {
   }
 
   /**
+   * The compiled validator for `schema` itself. A schema with a string `$id`
+   * is looked up by it first, since Ajv compiles a schema registered by `$id`
+   * — including a `$defs` entry of an earlier schema — only on that lookup.
+   * But what a `$id` names is whatever was registered under it FIRST, so the
+   * lookup is reused only when it is this very schema object (#2935). A
+   * different schema under the same `$id` — a tool's `outputSchema` changed
+   * after `tools/list_changed`, or a second tool reusing a generic `$id` —
+   * replaces the registration rather than being validated against the old
+   * one; removing it first is what keeps Ajv's "schema with key or id already
+   * exists" from throwing. A validator already compiled against the old
+   * registration keeps working: Ajv resolved its references when it compiled.
+   *
+   * Each Ajv entry point runs under its own {@link tracked} budget, so a
+   * lookup that compiles a schema this call then discards does not charge
+   * the replacement's budget.
+   */
+  private validatorFor(
+    engine: AjvEngine,
+    schema: JsonSchemaType,
+  ): ValidateFunction {
+    const id: unknown = (schema as { $id?: unknown }).$id;
+    if (typeof id !== "string") {
+      return this.tracked(() => engine.compile(schema));
+    }
+    const registered = this.tracked(() => engine.getSchema(id));
+    if (registered?.schema === schema) return registered;
+    // Ajv registers the `$id` normalized (its `normalizeId` drops a trailing
+    // `#` or `#/`) but removes by the key exactly as given.
+    engine.removeSchema(id.replace(/#\/?$/, ""));
+    return this.tracked(() => engine.compile(schema));
+  }
+
+  /**
    * Run an Ajv entry point with every pattern it compiles charged to one fresh
    * budget, and remember the function it returns if that budget ran out.
    */
-  private tracked(run: () => ValidateFunction): ValidateFunction {
+  private tracked<V extends ValidateFunction | undefined>(run: () => V): V {
     const outer = this.compileBudget;
     const budget = { ...SCHEMA_COMPILE_BUDGET };
     this.compileBudget = budget;
     try {
       const validate = run();
-      if (isCompileBudgetExhausted(budget)) this.overBudget.add(validate);
+      if (validate && isCompileBudgetExhausted(budget)) {
+        this.overBudget.add(validate);
+      }
       return validate;
     } finally {
       this.compileBudget = outer;
