@@ -94,7 +94,10 @@ async function startAffinityProxy(
         headers.set(name, Array.isArray(value) ? value.join(", ") : value);
       }
       const body = chunks.length > 0 ? Buffer.concat(chunks) : undefined;
-      fetch(new URL(req.url ?? "/", replicas[index]), {
+      // Only the path and query are forwarded, appended after the replica's
+      // fixed origin, so a request cannot steer the proxy to another host.
+      const pathAndQuery = (req.url ?? "/").replace(/^\/+/, "");
+      fetch(`${replicas[index]}/${pathAndQuery}`, {
         method: req.method,
         headers,
         body,
