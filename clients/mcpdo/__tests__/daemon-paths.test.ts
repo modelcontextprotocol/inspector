@@ -14,6 +14,20 @@ import {
 import { writeFormattedResult } from "@inspector/core/cli/handlers/format-output.js";
 import { isWindows } from "./helpers/platform.js";
 
+/** Run `fn` with `process.platform` reporting `platform`. */
+function withPlatform<T>(platform: NodeJS.Platform, fn: () => T): T {
+  const real = Object.getOwnPropertyDescriptor(
+    process,
+    "platform",
+  ) as PropertyDescriptor;
+  Object.defineProperty(process, "platform", { value: platform });
+  try {
+    return fn();
+  } finally {
+    Object.defineProperty(process, "platform", real);
+  }
+}
+
 describe("daemon paths", () => {
   const backup: Record<string, string | undefined> = {};
 
@@ -149,20 +163,52 @@ describe("daemon paths", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  // POSIX-only: `sun_path` bounds a socket FILE; Windows named pipes have no
-  // such limit, which the named-pipe case below asserts on every platform.
-  it.skipIf(isWindows)(
-    "assertSocketPathWithinLimit rejects paths over the sun_path limit",
-    () => {
-      expect(() =>
-        assertSocketPathWithinLimit("/tmp/short/mcpdod.sock"),
-      ).not.toThrow();
-      const long = "/" + "x".repeat(150) + "/mcpdod.sock";
-      expect(() => assertSocketPathWithinLimit(long)).toThrow(
-        /too long for this platform/,
-      );
+  // Each platform arm below is otherwise reached only on its own OS, and the
+  // per-file coverage gate runs on Linux, macOS and Windows alike (#2922), so
+  // the platform is faked rather than the case skipped.
+  it.each([
+    ["linux", 107],
+    ["darwin", 103],
+  ] as const)(
+    "assertSocketPathWithinLimit enforces the %s sun_path limit (%i bytes)",
+    (platform, limit) => {
+      withPlatform(platform, () => {
+        const at = "/" + "x".repeat(limit - 1);
+        expect(Buffer.byteLength(at)).toBe(limit);
+        expect(() => assertSocketPathWithinLimit(at)).not.toThrow();
+        expect(() => assertSocketPathWithinLimit(at + "x")).toThrow(
+          /too long for this platform/,
+        );
+      });
     },
   );
+
+  it("derives a socket file inside the daemon dir off Windows", () => {
+    withPlatform("linux", () => {
+      expect(getDaemonSocketPath("/some/daemon/dir")).toBe(
+        path.join("/some/daemon/dir", "mcpdod.sock"),
+      );
+    });
+  });
+
+  it("assertTrustedPrivateRoot rejects a non-directory and accepts a root it owns", () => {
+    // The checks run wherever `process.getuid` exists; Windows has none, so
+    // stand in the owner's uid there to reach them on every host.
+    const realGetuid = process.getuid;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-conn-trust-"));
+    try {
+      const root = path.join(tmp, "root");
+      fs.mkdirSync(root, { mode: 0o755 });
+      process.getuid = realGetuid ?? (() => fs.lstatSync(root).uid);
+      const file = path.join(tmp, "not-a-dir");
+      fs.writeFileSync(file, "");
+      expect(() => assertTrustedPrivateRoot(file)).toThrow(/not a directory/);
+      expect(() => assertTrustedPrivateRoot(root)).not.toThrow();
+    } finally {
+      process.getuid = realGetuid;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 
   it("uses a deterministic named-pipe path on Windows with no sun_path limit", () => {
     const realPlatform = Object.getOwnPropertyDescriptor(
