@@ -35,6 +35,7 @@ import type {
   ShapeOutput,
 } from "./composable-test-server.js";
 import { getTestServerControl } from "./test-server-control.js";
+import { setResourceText } from "./resource-update-broadcast.js";
 
 /** Build a CallToolResult from a text message (and optional isError). */
 function toToolResult(text: string, isError?: boolean): CallToolResult {
@@ -2378,37 +2379,26 @@ export function createUpdateResourceTool(): ToolDefinition {
         throw new Error("Server context not available");
       }
 
-      const { server, state } = context;
+      const { server, state, resourceUpdateBroadcast } = context;
+      const uri = params.uri as string;
+      const text = params.text as string;
 
-      // Find registered resource by URI
-      const resource = state.registeredResources.get(params.uri as string);
-      if (!resource) {
-        throw new Error(`Resource with URI ${params.uri} not found`);
+      if (!state.registeredResources.has(uri)) {
+        throw new Error(`Resource with URI ${uri} not found`);
       }
 
-      // Get the current resource metadata to preserve mimeType
-      const currentResource = state.registeredResources.get(
-        params.uri as string,
-      );
-      const mimeType = currentResource?.metadata?.mimeType || "text/plain";
+      // Broadcasting (#2964): every session's copy changes and every
+      // subscribed session is notified, not just this one.
+      if (resourceUpdateBroadcast) {
+        const notified = await resourceUpdateBroadcast.publish(uri, text);
+        return toToolResult(
+          `Resource ${uri} updated; notified ${notified} subscribed session(s)`,
+        );
+      }
 
-      // Update the resource's callback to return new content
-      resource.update({
-        callback: async () => {
-          return {
-            contents: [
-              {
-                uri: params.uri as string,
-                mimeType,
-                text: params.text as string,
-              },
-            ],
-          };
-        },
-      });
+      setResourceText(state.registeredResources, uri, text);
 
       // Send resource updated notification only if subscribed
-      const uri = params.uri as string;
       if (state.resourceSubscriptions.has(uri)) {
         await server.server.sendResourceUpdated({
           uri,
