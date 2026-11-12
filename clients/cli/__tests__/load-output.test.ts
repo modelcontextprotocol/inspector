@@ -456,6 +456,39 @@ describe("formatLoadSummaryHuman", () => {
     expect(text).not.toContain("connect p50");
   });
 
+  // A stepped run carries `--load-rate` on its stages only (#2965).
+  it("names a stepped-concurrency run's fixed rate in the header", () => {
+    const text = formatLoadSummaryHuman({
+      ...BASE,
+      concurrency: 4,
+      durationMs: 3000,
+      stages: [1, 2, 4].map((level, i) => ({
+        ...BASE,
+        stage: i + 1,
+        stepBy: "concurrency" as const,
+        level,
+        rate: 300,
+      })),
+    });
+    expect(text.split("\n")[0]).toBe(
+      "Load test `echo` (concurrency 4, duration 3s, rate 300/s)",
+    );
+  });
+
+  it("leaves the rate out of a stepped run's header when unset or stepped", () => {
+    const stage = (stepBy: "concurrency" | "rate", level: number) => ({
+      ...BASE,
+      stage: 1,
+      stepBy,
+      level,
+      ...(stepBy === "rate" && { rate: level }),
+    });
+    for (const stages of [[stage("concurrency", 2)], [stage("rate", 50)]]) {
+      const header = formatLoadSummaryHuman({ ...BASE, stages }).split("\n")[0];
+      expect(header).toBe("Load test `echo` (concurrency 2)");
+    }
+  });
+
   it("colors failures when styled", () => {
     const text = formatLoadSummaryHuman(
       {
