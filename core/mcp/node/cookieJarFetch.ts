@@ -163,6 +163,17 @@ export function createCookieJarFetch(
   };
 }
 
+/**
+ * One fresh jar for a transport, as a wrapper to apply to each of the
+ * transport's fetches — they all share it.
+ */
+export function createCookieJarWrapper(
+  serverUrl: URL,
+): (inner: typeof fetch) => typeof fetch {
+  const jar = new ConnectionCookieJar();
+  return (inner) => createCookieJarFetch(inner, serverUrl, jar);
+}
+
 function requestUrl(input: Parameters<typeof fetch>[0]): URL | undefined {
   const raw =
     input instanceof Request
