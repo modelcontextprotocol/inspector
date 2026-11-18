@@ -294,6 +294,7 @@ function harness(initial: HarnessProps = {}): Harness {
         resolve: (id: string) => p.persisted?.[id] ?? s.resolveSettings(id),
         lastWriteFailed: s.lastWriteFailed,
         isPending: () => false,
+        whenSettled: () => Promise.resolve(undefined),
       },
       applyLiveServerSettings: s.applyLiveServerSettings,
       updateServerSettings:

@@ -76,6 +76,7 @@ function harness(initial: ServerEntry[]): Harness {
       resolve: (serverId) => current().resolve(serverId),
       lastWriteFailed: (serverId) => current().lastWriteFailed(serverId),
       isPending: (serverId) => current().isPending(serverId),
+      whenSettled: (serverId) => current().whenSettled(serverId),
     },
     setServers: (next) => rerender(<Probe servers={next} />),
   };
@@ -221,6 +222,124 @@ describe("useLastPersistedSettings", () => {
     expect(api.isPending("A")).toBe(true);
     second.failed();
     expect(api.isPending("A")).toBe(false);
+  });
+
+  describe("whenSettled (#3007)", () => {
+    it("resolves at once with nothing when no write is in flight", async () => {
+      const { api } = harness([entry("A", settings())]);
+
+      await expect(api.whenSettled("A")).resolves.toBeUndefined();
+
+      // A write that landed before the wait began is not this wait's outcome.
+      api.begin("A").landed(settings({ requestTimeout: 5 }));
+      await expect(api.whenSettled("A")).resolves.toBeUndefined();
+    });
+
+    it("resolves with what the write in flight put on disk", async () => {
+      const { api, setServers } = harness([entry("A", settings())]);
+      const written = settings({ requestTimeout: 5 });
+
+      const write = api.begin("A");
+      const waited = api.whenSettled("A");
+      write.landed(written);
+      // A list re-read drops the record `resolve` answers from before the
+      // waiter's continuation runs; the wait still reports the write.
+      setServers([entry("A", settings())]);
+
+      await expect(waited).resolves.toBe(written);
+    });
+
+    it("waits for every write in flight and reports the latest-issued", async () => {
+      const { api } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      let released = false;
+      const waited = api.whenSettled("A").then((value) => {
+        released = true;
+        return value;
+      });
+
+      // The later-issued write finishes first; the straggler must not replace
+      // it, and the wait holds until the straggler has reported too.
+      second.landed(settings({ requestTimeout: 2 }));
+      await Promise.resolve();
+      expect(released).toBe(false);
+      first.landed(settings({ requestTimeout: 1 }));
+
+      expect((await waited)?.requestTimeout).toBe(2);
+    });
+
+    it("resolves with nothing when the write in flight fails", async () => {
+      const { api } = harness([entry("A", settings())]);
+      api.begin("A").landed(settings({ requestTimeout: 5 }));
+
+      const write = api.begin("A");
+      const waited = api.whenSettled("A");
+      write.failed();
+
+      await expect(waited).resolves.toBeUndefined();
+    });
+
+    it("reports the write that landed when a later one fails", async () => {
+      const { api } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      const waited = api.whenSettled("A");
+      const other = api.whenSettled("A");
+
+      first.landed(settings({ requestTimeout: 1 }));
+      second.failed();
+
+      expect((await waited)?.requestTimeout).toBe(1);
+      expect((await other)?.requestTimeout).toBe(1);
+    });
+
+    it("does not report a write that landed before the wait began", async () => {
+      const { api } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      // The later-issued write is already on disk — and may since have been
+      // superseded by a list read — when the wait starts on its older sibling.
+      second.landed(settings({ requestTimeout: 2 }));
+
+      const waited = api.whenSettled("A");
+      first.failed();
+
+      await expect(waited).resolves.toBeUndefined();
+    });
+
+    it("defers to a list read that overtook the landed write mid-wait", async () => {
+      const { api, setServers } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      const waited = api.whenSettled("A");
+
+      second.landed(settings({ requestTimeout: 2 }));
+      // A fresh read replaces the entry while the older write still holds the
+      // wait open, so the list — not the landed value — now describes disk.
+      setServers([entry("A", settings({ requestTimeout: 8 }))]);
+      first.failed();
+
+      await expect(waited).resolves.toBeUndefined();
+    });
+
+    it("is not released by another server's write", async () => {
+      const { api } = harness([entry("A", settings()), entry("B", settings())]);
+      const a = api.begin("A");
+      const b = api.begin("B");
+      let released = false;
+      const waited = api.whenSettled("A").then((value) => {
+        released = true;
+        return value;
+      });
+
+      b.landed(settings({ requestTimeout: 9 }));
+      await Promise.resolve();
+      expect(released).toBe(false);
+      a.landed(settings({ requestTimeout: 3 }));
+
+      expect((await waited)?.requestTimeout).toBe(3);
+    });
   });
 
   it("reports a failed last write per server, ordered by issue", () => {
