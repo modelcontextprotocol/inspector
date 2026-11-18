@@ -5,7 +5,7 @@
 //
 // The notes are four parts, in this order: GitHub's generated "What's
 // Changed" list (the same `releases/generate-notes` API the UI button uses),
-// the smoke-ledger line, a `## Known issue(s)` section from what the
+// the release-ledger line, a `## Known issue(s)` section from what the
 // maintainer passes in (a judgment call, so never generated), and a
 // `## Thanks for helping us improve` section crediting the community members
 // whose issues the listed PRs close. GitHub adds everyone `@`-mentioned in a
@@ -443,7 +443,7 @@ export function assembleNotes({
   knownIssues,
   thanks,
 }) {
-  const ledger = `**Smoke test ledger for milestone branch**: [${mergeBranch}](${ledgerUrl})`;
+  const ledger = `**Release ledger for milestone branch**: [${mergeBranch}](${ledgerUrl})`;
   const sections = [formatKnownIssues(knownIssues), thanks].filter(Boolean);
   return [`${generated.trimEnd()}\n${ledger}`, ...sections].join("\n\n") + "\n";
 }

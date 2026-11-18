@@ -330,7 +330,7 @@ test("assembleNotes lays the parts out as 2.9.0 shipped them", () => {
       "* x",
       "",
       "**Full Changelog**: c",
-      "**Smoke test ledger for milestone branch**: [mm](https://l)",
+      "**Release ledger for milestone branch**: [mm](https://l)",
       "",
       "## Known issue",
       "",
@@ -350,7 +350,7 @@ test("assembleNotes lays the parts out as 2.9.0 shipped them", () => {
       knownIssues: [],
       thanks: "",
     }),
-    "G\n**Smoke test ledger for milestone branch**: [mm](https://l)\n",
+    "G\n**Release ledger for milestone branch**: [mm](https://l)\n",
   );
 });
 
