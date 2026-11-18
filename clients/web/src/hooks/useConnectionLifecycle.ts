@@ -627,9 +627,19 @@ export function useConnectionLifecycle({
   // the callback effect inside `useOAuthRecovery` is passive — so this is
   // always published before its first read, without the render-phase ref
   // mutation the compiler rule (rightly) rejects.
+  //
+  // `latestSetupClientRef` is the same callback for `connectServer` below,
+  // which can resume from a wait several renders after it was created (#3007).
+  // Kept apart from the published ref because that one is typed for the OAuth
+  // path: nullable, and without the settings override.
+  const latestSetupClientRef = useRef(setupClientForServer);
   useLayoutEffect(() => {
     setupClientForServerRef.current = setupClientForServer;
+    latestSetupClientRef.current = setupClientForServer;
   }, [setupClientForServerRef, setupClientForServer]);
+  // Counts connect attempts, so one that waited on a settings write can tell
+  // whether a later attempt has replaced it in the meantime (#3007).
+  const connectAttemptRef = useRef(0);
 
   // Build a fresh client for `id` and connect it. The caller has already
   // waited on `initialConfigSettledRef` and torn down any session it replaces.
@@ -644,9 +654,16 @@ export function useConnectionLifecycle({
       // back nothing, and the client is built from what disk still holds.
       // Guarded rather than awaited unconditionally so a connect with nothing
       // in flight keeps its timing.
-      const flushedSettings = lastPersistedSettings.isPending(id)
-        ? await lastPersistedSettings.whenSettled(id)
-        : undefined;
+      const attempt = ++connectAttemptRef.current;
+      let flushedSettings: InspectorServerSettings | undefined;
+      if (lastPersistedSettings.isPending(id)) {
+        flushedSettings = await lastPersistedSettings.whenSettled(id);
+        // The controls stay live during the wait, so the user may have started
+        // another connect — to a different server, or to this one again. That
+        // attempt is the current intent; building a client here would replace
+        // its session, or stack a second construction on the same server.
+        if (connectAttemptRef.current !== attempt) return;
+      }
       // Read from the ref so a caller that already awaited an
       // addServer/updateServer in the same async tick (e.g. the deep-link
       // auto-connect IIFE) sees the freshly-mutated list, not the stale array
@@ -659,7 +676,16 @@ export function useConnectionLifecycle({
       // are picked up. Reusing the previous client object would freeze the
       // settings at the moment it was first constructed, which would be
       // surprising right after the user edited them in the settings modal.
-      const client = setupClientForServer(target, undefined, flushedSettings);
+      //
+      // Through the ref rather than this callback's own closure: after the wait
+      // above, the closed-over one reads the tracker as of the render that
+      // created it, which a list read committed during the wait has superseded
+      // — and when the write failed there is no flushed value to outrank it.
+      const client = latestSetupClientRef.current(
+        target,
+        undefined,
+        flushedSettings,
+      );
       if (id !== activeServerId) {
         setActiveServerId(id);
       }
@@ -863,7 +889,6 @@ export function useConnectionLifecycle({
       sessionRef,
       activeServerId,
       connectStartRef,
-      setupClientForServer,
       setActiveServerId,
       setFailedServerId,
       prepareOAuthRedirect,
