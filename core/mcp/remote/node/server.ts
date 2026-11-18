@@ -1937,6 +1937,7 @@ export function createRemoteApp(
     enterpriseManaged?: boolean;
     requestRefreshToken?: boolean;
     scopeOnRefresh?: boolean;
+    skipIssuerMetadataValidation?: boolean;
     revokeOnClear?: boolean;
   } => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
@@ -1977,6 +1978,13 @@ export function createRemoteApp(
     if (
       o.scopeOnRefresh !== undefined &&
       typeof o.scopeOnRefresh !== "boolean"
+    ) {
+      return false;
+    }
+    // #2983 — shape only; the read side keeps just an explicit `true`.
+    if (
+      o.skipIssuerMetadataValidation !== undefined &&
+      typeof o.skipIssuerMetadataValidation !== "boolean"
     ) {
       return false;
     }
@@ -2123,7 +2131,7 @@ export function createRemoteApp(
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
-          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, scopeOnRefresh?, revokeOnClear? }`.",
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, scopeOnRefresh?, skipIssuerMetadataValidation?, revokeOnClear? }`.",
         );
         delete valObj.oauth;
       }
@@ -2474,6 +2482,15 @@ export function createRemoteApp(
       };
     }
     if (
+      obj.oauthSkipIssuerMetadataValidation !== undefined &&
+      typeof obj.oauthSkipIssuerMetadataValidation !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.oauthSkipIssuerMetadataValidation must be a boolean",
+      };
+    }
+    if (
       obj.oauthRevokeOnClear !== undefined &&
       typeof obj.oauthRevokeOnClear !== "boolean"
     ) {
@@ -2630,6 +2647,10 @@ export function createRemoteApp(
     // #2805: the default is off, so only the opt-in travels.
     if (obj.oauthScopeOnRefresh === true) {
       value.oauthScopeOnRefresh = true;
+    }
+    // #2983: off by default, so only the opt-in travels.
+    if (obj.oauthSkipIssuerMetadataValidation === true) {
+      value.oauthSkipIssuerMetadataValidation = true;
     }
     // #2144: same shape — the default is on, so only the opt-out travels.
     if (obj.oauthRevokeOnClear === false) {

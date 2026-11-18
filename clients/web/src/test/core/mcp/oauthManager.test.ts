@@ -712,6 +712,55 @@ describe("OAuthManager", () => {
     });
   });
 
+  // #2983 — the per-server opt-out of the RFC 8414 §3.3 issuer check. The
+  // manager is the only thing between the setting and SDK `auth()`.
+  describe("skipIssuerMetadataValidation", () => {
+    it("forwards the opt-out on the redirect and the callback legs", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const params = createMockParams();
+      storageOf(params).getTokens.mockResolvedValue({
+        access_token: "AT",
+        token_type: "Bearer",
+      });
+      const manager = new OAuthManager(params);
+      manager.setOAuthConfig({ skipIssuerMetadataValidation: true });
+
+      // AUTHORIZED with no code is an error on this leg; the call is what
+      // matters here.
+      await expect(manager.authenticate()).rejects.toThrow();
+      await manager.completeOAuthFlow("code");
+
+      expect(mockedMcpAuth).toHaveBeenCalledTimes(2);
+      for (const [, options] of mockedMcpAuth.mock.calls) {
+        expect(options.skipIssuerMetadataValidation).toBe(true);
+      }
+    });
+
+    it("forwards the opt-out when answering an auth challenge", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const manager = new OAuthManager(createMockParams());
+      manager.setOAuthConfig({ skipIssuerMetadataValidation: true });
+
+      await manager.handleAuthChallenge({ reason: "unauthorized" });
+
+      expect(mockedMcpAuth).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ skipIssuerMetadataValidation: true }),
+      );
+    });
+
+    it("leaves the SDK's check on unless the setting is exactly true", async () => {
+      mockedMcpAuth.mockResolvedValue("AUTHORIZED");
+      const manager = new OAuthManager(createMockParams());
+
+      await expect(manager.authenticate()).rejects.toThrow();
+
+      expect(mockedMcpAuth.mock.calls[0]?.[1]).not.toHaveProperty(
+        "skipIssuerMetadataValidation",
+      );
+    });
+  });
+
   describe("completeOAuthFlow (quick, standard)", () => {
     it("completes via the quick path and dispatches complete", async () => {
       const tokens = { access_token: "QT", token_type: "Bearer" };

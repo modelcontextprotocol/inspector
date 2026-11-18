@@ -117,15 +117,28 @@ export async function discoverAuthorizationServerMetadataFromCandidates(
 /**
  * Discovers authorization server metadata for an MCP server, walking the
  * candidates above until one answers.
+ *
+ * `options.skipIssuerValidation` forwards the SDK's security-weakening opt-out
+ * of the RFC 8414 §3.3 issuer check — the per-server
+ * `oauth.skipIssuerMetadataValidation` setting (#2983). Off unless a caller
+ * passes `true`.
  */
 export async function discoverAuthorizationServerMetadataForServer(
   serverUrl: string,
   resourceMetadata?: OAuthProtectedResourceMetadata | null,
   fetchFn?: typeof fetch,
+  options?: { skipIssuerValidation?: boolean },
 ): Promise<AuthorizationServerMetadata> {
+  // Only an explicit `true` adds the key, so every other call is the request it
+  // always was.
+  const skip =
+    options?.skipIssuerValidation === true
+      ? { skipIssuerValidation: true }
+      : {};
   const found = await discoverAuthorizationServerMetadataFromCandidates(
     getAuthorizationServerUrlCandidates(serverUrl, resourceMetadata),
-    (candidate) => discoverAuthorizationServerMetadata(candidate, { fetchFn }),
+    (candidate) =>
+      discoverAuthorizationServerMetadata(candidate, { fetchFn, ...skip }),
   );
   return found?.metadata;
 }

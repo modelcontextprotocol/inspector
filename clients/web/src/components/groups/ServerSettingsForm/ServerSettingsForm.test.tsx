@@ -988,6 +988,7 @@ describe("ServerSettingsForm", () => {
       enterpriseManaged: false,
       requestRefreshToken: true,
       scopeOnRefresh: false,
+      skipIssuerMetadataValidation: false,
       revokeOnClear: true,
     });
   });
@@ -1073,6 +1074,56 @@ describe("ServerSettingsForm", () => {
     await user.click(screen.getByLabelText("Send scope on token refresh"));
     expect(onOAuthChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ scopeOnRefresh: true }),
+    );
+  });
+
+  // #2983 — the issuer-check opt-out. Off by default: it weakens a security
+  // check, so the form must never present it as already on.
+  it("renders Skip issuer metadata validation unchecked by default", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Skip issuer metadata validation"),
+    ).not.toBeChecked();
+    // The cost is stated where the choice is made.
+    expect(screen.getByText(/^Weakens security:/)).toBeInTheDocument();
+  });
+
+  it("renders Skip issuer metadata validation checked when the server opted in", () => {
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        settings={{
+          ...emptySettings,
+          oauthSkipIssuerMetadataValidation: true,
+        }}
+        expandedSections={["oauth"]}
+      />,
+    );
+    expect(
+      screen.getByLabelText("Skip issuer metadata validation"),
+    ).toBeChecked();
+  });
+
+  it("toggles Skip issuer metadata validation through onOAuthChange", async () => {
+    const user = userEvent.setup();
+    const onOAuthChange = vi.fn();
+    renderWithMantine(
+      <ServerSettingsForm
+        {...baseHandlers}
+        onOAuthChange={onOAuthChange}
+        settings={emptySettings}
+        expandedSections={["oauth"]}
+      />,
+    );
+    await user.click(screen.getByLabelText("Skip issuer metadata validation"));
+    expect(onOAuthChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ skipIssuerMetadataValidation: true }),
     );
   });
 
@@ -1622,6 +1673,7 @@ describe("ServerSettingsForm", () => {
       enterpriseManaged: true,
       requestRefreshToken: true,
       scopeOnRefresh: false,
+      skipIssuerMetadataValidation: false,
       revokeOnClear: true,
     });
   });
@@ -1785,6 +1837,7 @@ describe("ServerSettingsForm", () => {
       enterpriseManaged: false,
       requestRefreshToken: true,
       scopeOnRefresh: false,
+      skipIssuerMetadataValidation: false,
       revokeOnClear: true,
     });
   });

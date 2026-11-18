@@ -97,6 +97,14 @@ export function createTransportNode(
   // backend (`core/mcp/remote/node/server.ts`), which calls this directly,
   // and it routes OAuth through the destination guard (#2749).
   const baseFetch = optionsFetchFn ?? createBackendBaseFetch(config);
+  // #2983: the per-server, security-weakening opt-out of the RFC 8414 §3.3
+  // issuer check, for the `auth()` the SDK transport runs itself on a 401.
+  // Spread into the SSE and streamable-HTTP transports; absent unless the
+  // setting is explicitly `true`, which leaves the SDK's check on.
+  const skipIssuerMetadataValidation =
+    settings?.oauthSkipIssuerMetadataValidation === true
+      ? { skipIssuerMetadataValidation: true }
+      : {};
   // Purely passive, so — unlike proxying and interception — it is safe to
   // apply to any fetch, including a caller's explicit one.
   const withChallengeObserver = (inner: typeof fetch): typeof fetch =>
@@ -211,6 +219,7 @@ export function createTransportNode(
 
     const transport = new SSEClientTransport(url, {
       authProvider,
+      ...skipIssuerMetadataValidation,
       eventSourceInit,
       requestInit,
       // #3018: the SDK merges `requestInit` into the OAuth requests it makes
@@ -255,6 +264,7 @@ export function createTransportNode(
     // `Accept-Language` (#2987) — see languageMirroringTransport.ts.
     const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
+      ...skipIssuerMetadataValidation,
       requestInit,
       // #3018: the SDK merges `requestInit` into the OAuth requests it makes
       // itself; this takes the configured headers back off any that leave the

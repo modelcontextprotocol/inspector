@@ -1568,6 +1568,56 @@ describe("oauth.scopeOnRefresh (#2805)", () => {
   });
 });
 
+describe("oauth.skipIssuerMetadataValidation (#2983)", () => {
+  const baseSettings = {
+    headers: [],
+    env: [],
+    metadata: {},
+    connectionTimeout: 0,
+    requestTimeout: 0,
+    taskTtl: 60000,
+    maxFetchRequests: 1000,
+    roots: [],
+  };
+
+  it("lifts an explicit true to settings.oauthSkipIssuerMetadataValidation", () => {
+    const settings = storedFieldsToInspectorSettings({
+      oauth: { clientId: "cid", skipIssuerMetadataValidation: true },
+    });
+    expect(settings?.oauthSkipIssuerMetadataValidation).toBe(true);
+  });
+
+  it("leaves the setting unset when absent or false (default: off)", () => {
+    expect(
+      storedFieldsToInspectorSettings({ oauth: { clientId: "cid" } })
+        ?.oauthSkipIssuerMetadataValidation,
+    ).toBeUndefined();
+    expect(
+      storedFieldsToInspectorSettings({
+        oauth: { clientId: "cid", skipIssuerMetadataValidation: false },
+      })?.oauthSkipIssuerMetadataValidation,
+    ).toBeUndefined();
+  });
+
+  it("writes only the opt-in, and round-trips it", () => {
+    const stored = inspectorSettingsToStoredFields({
+      ...baseSettings,
+      oauthSkipIssuerMetadataValidation: true,
+    });
+    expect(stored.oauth?.skipIssuerMetadataValidation).toBe(true);
+    expect(
+      storedFieldsToInspectorSettings(stored)
+        ?.oauthSkipIssuerMetadataValidation,
+    ).toBe(true);
+    expect(
+      inspectorSettingsToStoredFields({
+        ...baseSettings,
+        oauthSkipIssuerMetadataValidation: false,
+      }).oauth,
+    ).toBeUndefined();
+  });
+});
+
 // #2144 — same inverted-default shape as `requestRefreshToken` above: on by
 // default, and only the opt-out is written, so an entry that never touched the
 // switch keeps a byte-stable round-trip.
