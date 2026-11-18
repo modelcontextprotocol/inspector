@@ -283,7 +283,7 @@ function hopFetchFor(
  * (`X-API-Key`). A redirect off that origin is a destination the server
  * chose, so everything not on this list stays behind.
  */
-const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
+export const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
   "accept",
   "accept-encoding",
   "accept-language",

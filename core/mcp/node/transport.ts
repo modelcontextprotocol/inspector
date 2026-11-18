@@ -24,6 +24,7 @@ import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 import { createCookieJarWrapper } from "./cookieJarFetch.js";
 import { createSseLineCapFetch } from "./sseLineCapFetch.js";
+import { createOriginScopedHeadersFetch } from "./originScopedHeadersFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -212,7 +213,14 @@ export function createTransportNode(
       authProvider,
       eventSourceInit,
       requestInit,
-      fetch: fetchWithOptionalAuthIntercept,
+      // #3018: the SDK merges `requestInit` into the OAuth requests it makes
+      // itself; this takes the configured headers back off any that leave the
+      // server's origin — see originScopedHeadersFetch.ts.
+      fetch: createOriginScopedHeadersFetch(
+        fetchWithOptionalAuthIntercept,
+        url.origin,
+        requestInit.headers,
+      ),
     });
 
     return { transport };
@@ -248,7 +256,14 @@ export function createTransportNode(
     const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
       requestInit,
-      fetch: httpFetch,
+      // #3018: the SDK merges `requestInit` into the OAuth requests it makes
+      // itself; this takes the configured headers back off any that leave the
+      // server's origin — see originScopedHeadersFetch.ts.
+      fetch: createOriginScopedHeadersFetch(
+        httpFetch,
+        url.origin,
+        requestInit.headers,
+      ),
       // SEP-2350: how the transport reacts to a `403 insufficient_scope`
       // challenge. Defaults to the SDK's `reauthorize` when unset.
       ...(settings?.oauthOnInsufficientScope && {
