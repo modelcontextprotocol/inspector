@@ -24,6 +24,7 @@ import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 import { createCookieJarWrapper } from "./cookieJarFetch.js";
 import { createSseLineCapFetch } from "./sseLineCapFetch.js";
+import { createOriginScopedHeadersFetch } from "./originScopedHeadersFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -197,22 +198,28 @@ export function createTransportNode(
 
     const headers = headersFromSettings(settings);
 
+    // #3018: the configured headers are scoped to the server's origin on the
+    // fetch rather than left in `requestInit`, which the SDK merges into the
+    // OAuth requests it makes itself — see originScopedHeadersFetch.ts. The
+    // EventSource GET runs on `eventSourceInit.fetch`, so both are wrapped.
+    const { headers: scopedHeaders, ...requestInit }: RequestInit = {
+      ...sseConfig.requestInit,
+      ...(headers && { headers }),
+    };
+    const scoped = (inner: typeof fetch): typeof fetch =>
+      createOriginScopedHeadersFetch(inner, url.origin, scopedHeaders);
+
     const eventSourceInit: Record<string, unknown> = {
       ...sseConfig.eventSourceInit,
       ...(headers && { headers }),
-      fetch: trackedFetch,
-    };
-
-    const requestInit: RequestInit = {
-      ...sseConfig.requestInit,
-      ...(headers && { headers }),
+      fetch: scoped(trackedFetch),
     };
 
     const transport = new SSEClientTransport(url, {
       authProvider,
       eventSourceInit,
       requestInit,
-      fetch: fetchWithOptionalAuthIntercept,
+      fetch: scoped(fetchWithOptionalAuthIntercept),
     });
 
     return { transport };
@@ -223,7 +230,10 @@ export function createTransportNode(
 
     const headers = headersFromSettings(settings);
 
-    const requestInit: RequestInit = {
+    // #3018: the configured headers are scoped to the server's origin on the
+    // fetch rather than left in `requestInit`, which the SDK merges into the
+    // OAuth requests it makes itself — see originScopedHeadersFetch.ts.
+    const { headers: scopedHeaders, ...requestInit }: RequestInit = {
       ...httpConfig.requestInit,
       ...(headers && { headers }),
     };
@@ -248,7 +258,12 @@ export function createTransportNode(
     const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
       requestInit,
-      fetch: httpFetch,
+      // Outermost, so every layer below sees the headers actually sent.
+      fetch: createOriginScopedHeadersFetch(
+        httpFetch,
+        url.origin,
+        scopedHeaders,
+      ),
       // SEP-2350: how the transport reacts to a `403 insufficient_scope`
       // challenge. Defaults to the SDK's `reauthorize` when unset.
       ...(settings?.oauthOnInsufficientScope && {
