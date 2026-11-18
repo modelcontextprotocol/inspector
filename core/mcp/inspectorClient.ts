@@ -279,6 +279,7 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { routeOAuthRequests } from "../auth/routeOAuthRequests.js";
+import { withServerOriginHeaders } from "../auth/serverOriginHeaders.js";
 import {
   withFetchRefusalReporting,
   type FetchRefusal,
@@ -939,9 +940,21 @@ export class InspectorClient extends InspectorClientEventTarget {
         : transportBase,
       getOverrides,
     );
-    const authWithOverrides = oauthBase
-      ? withOAuthEndpointOverrides(oauthBase, getOverrides)
-      : withOverrides;
+    // #2985: the server's custom headers reach the transport through its
+    // `requestInit`, which this chain never sees — so the OAuth requests the
+    // manager makes itself went out without them, and a header-routed
+    // deployment answered discovery, registration and the token request from
+    // the wrong environment. Applied to the auth chain only (the transport
+    // chain already carries them), to the MCP server's own origin only, and
+    // innermost, so the compat wrapper's probes carry them and the tracker
+    // records the headers actually sent. Read live, like the overrides.
+    const authWithOverrides = withServerOriginHeaders(
+      oauthBase
+        ? withOAuthEndpointOverrides(oauthBase, getOverrides)
+        : withOverrides,
+      () => this.getServerUrl(),
+      () => this.serverSettings?.headers,
+    );
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
     // the SDK validates as an OpenID provider document and rejects. Wraps the

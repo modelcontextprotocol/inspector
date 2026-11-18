@@ -82,6 +82,8 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
 ```
 
+Custom headers go to the MCP endpoint and to the OAuth requests the Inspector sends to **that server's own origin** — discovery, dynamic client registration, the token and revocation requests — so a deployment that routes by header (`X-Environment: staging`) is authorized against the same environment it is inspected in ([#2985](https://github.com/modelcontextprotocol/inspector/issues/2985)). They are never sent to an authorization server on another origin, a header the OAuth request sets itself is never replaced, and `Authorization` and `Cookie` are not copied. The browser's visit to the authorization page is a navigation and cannot carry them. This holds for every client.
+
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, OAuth, and `roots`) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
 The file is the only durable way to give a run its roots: there is no roots flag, and `--method roots/set` applies only to that one short-lived connection. Roots configured for a server (the same field the web UI's Server Settings writes) are advertised at connect, so a server that asks for `roots/list` — `@modelcontextprotocol/server-filesystem` does, to learn its allowed directories — gets them.

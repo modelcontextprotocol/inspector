@@ -128,6 +128,76 @@ describe("InspectorClient OAuth fetchFn", () => {
     );
   });
 
+  // #2985: the OAuth requests the manager makes itself carry the server's
+  // custom headers to the server's own origin — on the shared base (the
+  // browser) and on the dedicated OAuth base (the Node clients) alike — and
+  // never to an authorization server on another origin.
+  it.each([
+    ["the shared base fetch", false],
+    ["the environment's oauthFetch", true],
+  ])(
+    "sends custom headers to same-origin OAuth requests only, through %s",
+    async (_name, dedicated) => {
+      const respond = () => Promise.resolve(new Response("{}"));
+      const sharedFetch = vi.fn<typeof fetch>(respond);
+      const oauthFetch = vi.fn<typeof fetch>(respond);
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: "test-client",
+        redirectUrl: "http://localhost:3000/callback",
+      });
+
+      client = new InspectorClient(
+        { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            fetch: sharedFetch,
+            ...(dedicated && { oauthFetch }),
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: { clientId: oauthConfig.clientId, scope: oauthConfig.scope },
+          serverSettings: {
+            headers: [
+              { key: "X-Environment", value: "staging" },
+              { key: "Authorization", value: "Bearer static" },
+            ],
+            metadata: {},
+            env: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            taskTtl: 0,
+            maxFetchRequests: 0,
+            roots: [],
+          },
+        },
+      );
+
+      await client.authenticate();
+      const { fetchFn } = mockAuth.mock.calls[0]![1] as {
+        fetchFn: typeof fetch;
+      };
+      const base = dedicated ? oauthFetch : sharedFetch;
+      const headersSentTo = (url: string) => {
+        const call = base.mock.calls.find(([input]) => input === url);
+        return new Headers(call?.[1]?.headers);
+      };
+
+      await fetchFn("http://localhost:3000/register", { method: "POST" });
+      await fetchFn("http://auth.example.com/token", { method: "POST" });
+
+      const sameOrigin = headersSentTo("http://localhost:3000/register");
+      expect(sameOrigin.get("x-environment")).toBe("staging");
+      expect(sameOrigin.get("authorization")).toBeNull();
+      const crossOrigin = headersSentTo("http://auth.example.com/token");
+      expect([...crossOrigin.keys()]).toEqual([]);
+    },
+  );
+
   it("should pass fetchFn to auth() when not provided (uses default fetch)", async () => {
     const oauthConfig = createTestOAuthConfig({
       mode: "static",
