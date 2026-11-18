@@ -308,6 +308,21 @@ describe("useLastPersistedSettings", () => {
       await expect(waited).resolves.toBeUndefined();
     });
 
+    it("defers to a list read that overtook the landed write mid-wait", async () => {
+      const { api, setServers } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      const waited = api.whenSettled("A");
+
+      second.landed(settings({ requestTimeout: 2 }));
+      // A fresh read replaces the entry while the older write still holds the
+      // wait open, so the list — not the landed value — now describes disk.
+      setServers([entry("A", settings({ requestTimeout: 8 }))]);
+      first.failed();
+
+      await expect(waited).resolves.toBeUndefined();
+    });
+
     it("is not released by another server's write", async () => {
       const { api } = harness([entry("A", settings()), entry("B", settings())]);
       const a = api.begin("A");

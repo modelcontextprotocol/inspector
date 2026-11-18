@@ -270,11 +270,15 @@ export function useLastPersistedSettings(
         const waiters = waitersRef.current.get(serverId) ?? [];
         waiters.push(() => {
           const landed = landedRef.current.get(serverId);
-          resolveWait(
-            landed && landed.sequence > landedBefore
-              ? landed.written
-              : undefined,
-          );
+          // And only while its record is still believed. With overlapping
+          // writes one can land and then be overtaken by a fresh list read
+          // while a sibling keeps this wait open; the list is authoritative
+          // from there, exactly as it is for `resolve`.
+          const believed =
+            landed !== undefined &&
+            landed.sequence > landedBefore &&
+            recordsRef.current.get(serverId)?.written === landed.written;
+          resolveWait(believed ? landed.written : undefined);
         });
         waitersRef.current.set(serverId, waiters);
       });
