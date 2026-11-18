@@ -180,4 +180,22 @@ describe("authorization server metadata with a non-matching issuer (#2983)", () 
     expect(relaxed.getStatus()).toBe("connected");
     expect((await relaxed.getOAuthTokens())?.access_token).toBeDefined();
   });
+
+  it("refuses again once the setting is turned back off", async () => {
+    // Authorize with the opt-out, which caches the non-matching document…
+    const { client: relaxed } = createClient(true);
+    const authUrl = await relaxed.authenticate();
+    if (!authUrl) throw new Error("Expected authorization URL");
+    const { code } = await completeOAuthAuthorization(authUrl);
+    await relaxed.completeOAuthFlow(code);
+    await relaxed.disconnect();
+
+    // …then come back with the check on, over the same stored state. The SDK
+    // would reuse the cached document without validating it; the setting has
+    // to be revocable, so the cached copy must not stand in for a fresh check.
+    const { client: strict } = createClient(false);
+    await expect(strict.authenticate()).rejects.toThrow(
+      ISSUER_METADATA_MISMATCH_HINT,
+    );
+  });
 });

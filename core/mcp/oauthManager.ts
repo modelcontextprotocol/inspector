@@ -213,6 +213,10 @@ export class OAuthManager {
       // #2805: per-server opt-in to a `scope` on the refresh-token request.
       // Pure config, like the two above.
       scopeOnRefresh: this.oauthConfig.scopeOnRefresh,
+      // #2983: per-server opt-out of the issuer metadata check. The provider
+      // needs it to stop serving cached metadata the check would now reject.
+      skipIssuerMetadataValidation:
+        this.oauthConfig.skipIssuerMetadataValidation === true,
       // #2068: lets the provider tell an `offline_access` the user asked for
       // from one inherited from a previous grant's persisted scope.
       configuredScope: this.oauthConfig.scope,
