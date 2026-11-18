@@ -103,8 +103,8 @@ export interface LastPersistedSettings {
   /**
    * Resolves once no write for this server is in flight any more, with what
    * the writes it waited on put on disk: the settings of the latest-issued one
-   * that landed, or `undefined` when none did (nothing was pending, or every
-   * one failed) — in which case disk is whatever it was before and the caller
+   * that landed during the wait, or `undefined` when none did (nothing was
+   * pending, or every one failed) — in which case disk is whatever it was before and the caller
    * reads it the way it otherwise would.
    *
    * The value is handed over rather than left for the caller to read back
@@ -261,16 +261,19 @@ export function useLastPersistedSettings(
     (serverId: string): Promise<InspectorServerSettings | undefined> => {
       const pending = pendingRef.current.get(serverId);
       if (!pending || pending.size === 0) return Promise.resolve(undefined);
-      // Only a write that was in flight during the wait counts: an older one
-      // that landed before it describes disk as of then, and the list may have
-      // been re-read — or the file edited elsewhere — since.
-      const oldest = Math.min(...pending);
+      // Only a write that lands *during* the wait counts. One that landed
+      // before it — even a later-issued one whose older sibling is what is
+      // still in flight — describes disk as of then, and the list may have
+      // been re-read, or the file edited elsewhere, since.
+      const landedBefore = landedRef.current.get(serverId)?.sequence ?? 0;
       return new Promise((resolveWait) => {
         const waiters = waitersRef.current.get(serverId) ?? [];
         waiters.push(() => {
           const landed = landedRef.current.get(serverId);
           resolveWait(
-            landed && landed.sequence >= oldest ? landed.written : undefined,
+            landed && landed.sequence > landedBefore
+              ? landed.written
+              : undefined,
           );
         });
         waitersRef.current.set(serverId, waiters);

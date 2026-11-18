@@ -294,6 +294,20 @@ describe("useLastPersistedSettings", () => {
       expect((await other)?.requestTimeout).toBe(1);
     });
 
+    it("does not report a write that landed before the wait began", async () => {
+      const { api } = harness([entry("A", settings())]);
+      const first = api.begin("A");
+      const second = api.begin("A");
+      // The later-issued write is already on disk — and may since have been
+      // superseded by a list read — when the wait starts on its older sibling.
+      second.landed(settings({ requestTimeout: 2 }));
+
+      const waited = api.whenSettled("A");
+      first.failed();
+
+      await expect(waited).resolves.toBeUndefined();
+    });
+
     it("is not released by another server's write", async () => {
       const { api } = harness([entry("A", settings()), entry("B", settings())]);
       const a = api.begin("A");
