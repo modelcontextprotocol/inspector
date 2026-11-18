@@ -18,6 +18,11 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 import { createOAuthClientConfig } from "../helpers/oauth-client-fixtures.js";
+import {
+  createEchoTool,
+  createTestServerHttp,
+  createTestServerInfo,
+} from "@modelcontextprotocol/inspector-test-server";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 import { MAX_FETCH_REFUSALS } from "@inspector/core/mcp/inspectorClient.js";
 import {
@@ -212,6 +217,73 @@ describe("InspectorClient OAuth fetchFn", () => {
       );
     },
   );
+
+  // The transport keeps the headers it was built with until the next connect,
+  // so OAuth must not pick up a live settings save ahead of it — including the
+  // first save on a server that connected with no settings at all.
+  it("uses the open transport's headers, not a later settings save", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("oauth-headers-test", "1.0.0"),
+      tools: [createEchoTool()],
+    });
+    await server.start();
+    try {
+      const oauthFetch = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response("{}")),
+      );
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: "test-client",
+        redirectUrl: "http://localhost:3000/callback",
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: {
+            transport: createTransportNode,
+            oauthFetch,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: { clientId: oauthConfig.clientId, scope: oauthConfig.scope },
+        },
+      );
+      await client.connect();
+      client.setServerSettings({
+        headers: [{ key: "X-Environment", value: "staging" }],
+        metadata: {},
+        env: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+        taskTtl: 0,
+        maxFetchRequests: 0,
+        roots: [],
+      });
+
+      await client.authenticate();
+      const { fetchFn } = mockAuth.mock.calls[0]![1] as {
+        fetchFn: typeof fetch;
+      };
+      const registerUrl = new URL("/register", server.url).href;
+      const sentHeader = () =>
+        new Headers(oauthFetch.mock.calls.at(-1)?.[1]?.headers).get(
+          "x-environment",
+        );
+
+      await fetchFn(registerUrl, { method: "POST" });
+      expect(sentHeader()).toBeNull();
+
+      // With no transport, the saved settings are what the next one will use.
+      await client.disconnect();
+      await fetchFn(registerUrl, { method: "POST" });
+      expect(sentHeader()).toBe("staging");
+    } finally {
+      await server.stop();
+    }
+  });
 
   it("should pass fetchFn to auth() when not provided (uses default fetch)", async () => {
     const oauthConfig = createTestOAuthConfig({

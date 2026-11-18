@@ -961,7 +961,12 @@ export class InspectorClient extends InspectorClientEventTarget {
       withServerOriginHeaders(
         fetchFn,
         () => this.getServerUrl(),
-        () => (this.transportSettings ?? this.serverSettings)?.headers,
+        // Chosen on whether a transport exists, not on whether it has a
+        // snapshot: one built with no settings has none, and must not fall
+        // through to headers saved since.
+        () =>
+          (this.baseTransport ? this.transportSettings : this.serverSettings)
+            ?.headers,
       );
     const authWithOverrides = withCustomHeaders(
       oauthBase
