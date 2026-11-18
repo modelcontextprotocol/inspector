@@ -177,6 +177,12 @@ describe("InspectorClient OAuth fetchFn", () => {
         },
       );
 
+      const logged: { url: string; requestHeaders: Record<string, string> }[] =
+        [];
+      client.addEventListener("fetchRequest", (event) => {
+        logged.push(event.detail);
+      });
+
       await client.authenticate();
       const { fetchFn } = mockAuth.mock.calls[0]![1] as {
         fetchFn: typeof fetch;
@@ -195,6 +201,15 @@ describe("InspectorClient OAuth fetchFn", () => {
       expect(sameOrigin.get("authorization")).toBeNull();
       const crossOrigin = headersSentTo("http://auth.example.com/token");
       expect([...crossOrigin.keys()]).toEqual([]);
+
+      // The Network log records the headers that were sent, not the request
+      // as it stood before they were added.
+      const entry = logged.find(
+        (e) => e.url === "http://localhost:3000/register",
+      );
+      expect(new Headers(entry?.requestHeaders).get("x-environment")).toBe(
+        "staging",
+      );
     },
   );
 

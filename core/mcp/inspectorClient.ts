@@ -945,15 +945,25 @@ export class InspectorClient extends InspectorClientEventTarget {
     // manager makes itself went out without them, and a header-routed
     // deployment answered discovery, registration and the token request from
     // the wrong environment. Applied to the auth chain only (the transport
-    // chain already carries them), to the MCP server's own origin only, and
-    // innermost, so the compat wrapper's probes carry them and the tracker
-    // records the headers actually sent. Read live, like the overrides.
-    const authWithOverrides = withServerOriginHeaders(
+    // chain already carries them) and to the MCP server's own origin only.
+    // Read live, like the overrides.
+    //
+    // Applied twice, at both ends of the chain. Innermost, because the compat
+    // wrapper issues probe requests of its own from below everything above it.
+    // Outermost (where `effectiveAuthFetch` is assigned), because the tracker
+    // snapshots a request's headers as it receives them, and the Network log
+    // should show the headers that were sent. The second application is a
+    // pass-through: a header already on the request is never set again.
+    const withCustomHeaders = (fetchFn: typeof fetch) =>
+      withServerOriginHeaders(
+        fetchFn,
+        () => this.getServerUrl(),
+        () => this.serverSettings?.headers,
+      );
+    const authWithOverrides = withCustomHeaders(
       oauthBase
         ? withOAuthEndpointOverrides(oauthBase, getOverrides)
         : withOverrides,
-      () => this.getServerUrl(),
-      () => this.serverSettings?.headers,
     );
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
@@ -988,8 +998,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `storedAuthFetch`. It also passes no `isExempt`, unlike the transport
     // chain above: every request on this chain is OAuth work, so there is
     // nothing here to exempt.
-    this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
-      withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
+    this.effectiveAuthFetch = withCustomHeaders(
+      this.buildEffectiveAuthFetch(
+        withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
+      ),
     );
 
     this.sessionId = options.sessionId;

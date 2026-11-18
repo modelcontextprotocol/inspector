@@ -483,7 +483,7 @@ OAuth discovery, protected-resource metadata, token, client registration and rev
 
 - **Schemes:** `http:` and `https:` only.
 - **Refused addresses:** link-local and instance-metadata only — `169.254.0.0/16`, the metadata services at fixed addresses outside it (`100.100.100.200`, Alibaba Cloud; `192.0.0.192`, Oracle Cloud Classic), the IPv4-mapped IPv6 forms of all of those, `fe80::/10` and `fd00:ec2::254`. Loopback, private (RFC 1918) and CGNAT (`100.64.0.0/10`, which Tailscale uses) addresses stay reachable, since local, LAN and tailnet MCP and authorization servers are ordinary targets — the two out-of-range metadata addresses are refused exactly, not by their enclosing range.
-- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
+- **Redirects** are followed by the guard, which re-checks every hop, keeps only content-negotiation headers on a cross-origin hop (so neither `Authorization`/`Cookie` nor a server's custom headers follow one), and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
 - **DNS** is checked inside the connection's own lookup, so the socket connects to exactly the addresses that were checked — a name cannot resolve differently between check and connect.
 
 **What it covers.** OAuth traffic only — never the MCP endpoint you configured:

@@ -9,6 +9,10 @@ import {
   withServerOriginHeaders,
   type CustomHeaderRow,
 } from "@inspector/core/auth/serverOriginHeaders.js";
+import {
+  deadlineForRequestInit,
+  stampRequestDeadline,
+} from "@inspector/core/auth/requestTimeout.js";
 
 const SERVER = "https://mcp.example.com/mcp";
 const ROUTING: CustomHeaderRow[] = [{ key: "X-Environment", value: "staging" }];
@@ -98,6 +102,27 @@ describe("withServerOriginHeaders", () => {
     });
     expect(sent().get("x-environment")).toBe("from-request");
     expect(sent().get("x-tenant")).toBe("acme");
+  });
+
+  it("resolves a duplicated name the way the transport does: last row wins", async () => {
+    const { wrapped, sent } = setup({
+      rows: [
+        { key: "X-Environment", value: "production" },
+        { key: "x-environment", value: "staging" },
+      ],
+    });
+    await wrapped("https://mcp.example.com/token");
+    expect(sent().get("x-environment")).toBe("staging");
+  });
+
+  it("carries the request's stamped deadline onto the init it replaces", async () => {
+    const { base, wrapped } = setup();
+    const init: RequestInit = { method: "POST" };
+    stampRequestDeadline(init, 1234);
+    await wrapped("https://mcp.example.com/token", init);
+    const sentInit = base.mock.calls[0]![1];
+    expect(sentInit).not.toBe(init);
+    expect(deadlineForRequestInit(sentInit)).toBe(1234);
   });
 
   it.each([...RESERVED_HEADERS])(

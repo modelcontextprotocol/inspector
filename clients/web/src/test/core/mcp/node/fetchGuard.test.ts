@@ -141,15 +141,41 @@ describe("nextRedirectRequest", () => {
     expect(next.body).toBe("grant_type=refresh_token");
   });
 
-  it("drops credentials on a cross-origin hop", () => {
+  it("keeps only negotiation headers on a cross-origin hop", () => {
     const next = nextRedirectRequest(
-      hop({ method: "GET", body: undefined }),
+      hop({
+        method: "GET",
+        body: undefined,
+        headers: {
+          Authorization: "Bearer x",
+          Cookie: "c=1",
+          // #2985: a server's custom header, sent to its own origin — a
+          // credential under a name no fixed list could anticipate.
+          "X-API-Key": "secret",
+          Accept: "application/json",
+          "MCP-Protocol-Version": "2025-06-18",
+        },
+      }),
       302,
       "https://other.example/",
     );
-    expect(next.headers).not.toHaveProperty("Authorization");
-    expect(next.headers).not.toHaveProperty("Cookie");
-    expect(next.headers.Accept).toBe("application/json");
+    expect(next.headers).toEqual({
+      Accept: "application/json",
+      "MCP-Protocol-Version": "2025-06-18",
+    });
+  });
+
+  it("keeps a custom header on a same-origin hop", () => {
+    const next = nextRedirectRequest(
+      hop({
+        method: "GET",
+        body: undefined,
+        headers: { "X-API-Key": "secret" },
+      }),
+      302,
+      "/moved",
+    );
+    expect(next.headers).toEqual({ "X-API-Key": "secret" });
   });
 
   it("refuses a cross-origin hop that would still carry a body", () => {

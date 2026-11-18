@@ -33,11 +33,21 @@
  *    §2.3 forbids. The rest are framing and content negotiation that belong to
  *    each request.
  *
+ * A redirect is the one way a request leaves the origin it was sent to. The
+ * destination guard follows redirects itself and keeps only negotiation
+ * headers on a hop to another origin (`nextRedirectRequest` in
+ * `core/mcp/node/fetchGuard.ts`), so a header added here never follows one.
+ *
  * Isomorphic — it only decorates the `init` it passes on — so
  * `InspectorClient` uses it in the browser as well as in Node.
  */
 
-import { requestHeadersOf, requestUrlOf } from "./requestTimeout.js";
+import {
+  deadlineForRequestInit,
+  requestHeadersOf,
+  requestUrlOf,
+  stampRequestDeadline,
+} from "./requestTimeout.js";
 
 /** One custom-header row, as `InspectorServerSettings.headers` stores it. */
 export interface CustomHeaderRow {
@@ -125,17 +135,31 @@ export function withServerOriginHeaders(
       return fetchFn(input, init);
     }
 
-    const headers = requestHeadersOf(input, init);
-    let added = false;
+    // Collected first, last row winning, so a duplicated name resolves the way
+    // it does on the MCP request (the transport builds a record from the same
+    // rows) — and only then weighed against the request's own headers.
+    const custom = new Map<string, [name: string, value: string]>();
     for (const { key, value } of rows) {
       const name = key.trim();
       if (!HEADER_NAME.test(name) || FORBIDDEN_IN_VALUE.test(value)) continue;
-      if (RESERVED_HEADERS.has(name.toLowerCase()) || headers.has(name)) {
-        continue;
-      }
+      const lower = name.toLowerCase();
+      if (!RESERVED_HEADERS.has(lower)) custom.set(lower, [name, value]);
+    }
+    const headers = requestHeadersOf(input, init);
+    let added = false;
+    for (const [name, value] of custom.values()) {
+      if (headers.has(name)) continue;
       headers.set(name, value);
       added = true;
     }
-    return added ? fetchFn(input, { ...init, headers }) : fetchFn(input, init);
+    if (!added) return fetchFn(input, init);
+
+    const nextInit: RequestInit = { ...init, headers };
+    // The deadline `withOAuthRequestTimeout` stamped is keyed on the init
+    // object, which this replaces — carry it over, or the browser's proxy hop
+    // would lose its independent timeout.
+    const deadline = deadlineForRequestInit(init);
+    if (deadline !== undefined) stampRequestDeadline(nextInit, deadline);
+    return fetchFn(input, nextInit);
   };
 }
