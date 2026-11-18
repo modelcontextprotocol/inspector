@@ -1,30 +1,38 @@
 /**
- * Bounded line length for upstream Server-Sent Event streams.
+ * Bounded line and event size for upstream Server-Sent Event streams.
  *
  * The proxy hands every upstream SSE body to the MCP SDK, which parses it
  * with `eventsource-parser` (through `eventsource` for the `sse` transport and
  * through `EventSourceParserStream` for `streamable-http`). That parser buffers
- * the current line until it sees a line terminator, and neither caller sets its
- * opt-in `maxBufferSize`. An upstream that sends `data: ` followed by an endless
- * run of bytes with no CR or LF therefore grows the proxy's memory without
- * limit until the process runs out of heap, taking every session with it.
+ * without limit in two places, and neither caller sets its opt-in
+ * `maxBufferSize`:
  *
- * This module bounds that buffer at the layer the proxy controls: the fetch it
- * passes to the SDK. It counts the bytes since the last line terminator and
- * errors the stream once that count passes a fixed cap, so the one connection
- * fails visibly instead of the whole process falling over.
+ * - the current line, until it sees a line terminator, so `data: ` followed
+ *   by an endless run of bytes with no CR or LF grows it forever; and
+ * - the pending event, which every `data:` line is appended to and which is
+ *   only released at a blank line, so an endless run of short, terminated
+ *   `data:` lines with no blank line grows it forever.
+ *
+ * Either way the proxy's memory grows until the process runs out of heap,
+ * taking every session with it. This module bounds both at the layer the proxy
+ * controls: the fetch it passes to the SDK. It counts the bytes since the last
+ * line terminator and since the last blank line, and errors the stream once
+ * either count passes a fixed cap, so the one connection fails visibly instead
+ * of the whole process falling over.
  */
 
 /**
- * Longest single SSE line the proxy will pass to the SDK, in bytes (16 MiB).
+ * Largest single SSE line, and largest single SSE event, the proxy will pass
+ * to the SDK, in bytes (16 MiB). Both are counted against the same cap.
  *
- * A legitimate line can be large: a `data:` line carries a whole JSON-RPC
- * message, so a big tool result (embedded resources, base64 images) arrives as
- * one line. 16 MiB is four times the 4 MB request-body limit the SDK's own
- * reference server transports apply to an incoming message, and holds roughly
- * 12 MiB of binary content after base64 encoding. On the other side it bounds
- * what a hostile upstream can make the parser hold: at most this much per open
- * stream, again on each reconnect, rather than the whole heap.
+ * A legitimate line or event can be large: a `data:` line carries a whole
+ * JSON-RPC message, so a big tool result (embedded resources, base64 images)
+ * arrives as one line, in one event. 16 MiB is four times the 4 MB
+ * request-body limit the SDK's own reference server transports apply to an
+ * incoming message, and holds roughly 12 MiB of binary content after base64
+ * encoding. On the other side it bounds what a hostile upstream can make the
+ * parser hold: at most this much per open stream, again on each reconnect,
+ * rather than the whole heap.
  */
 export const MAX_SSE_LINE_BYTES = 16 * 1024 * 1024;
 
@@ -41,6 +49,20 @@ export class SseLineTooLongError extends Error {
   }
 }
 
+/**
+ * Thrown (as the stream's error) when an upstream SSE event, made of
+ * individually terminated lines, exceeds the cap without a blank line ending
+ * it.
+ */
+export class SseEventTooLargeError extends Error {
+  constructor(maxBytes: number) {
+    super(
+      `Upstream SSE event exceeds the ${maxBytes}-byte limit (MAX_SSE_LINE_BYTES) without a blank line ending it`,
+    );
+    this.name = "SseEventTooLargeError";
+  }
+}
+
 /** True when `contentType` names an event stream, as the SDK's parsers read it. */
 export function isEventStreamContentType(
   contentType: string | null | undefined,
@@ -48,12 +70,6 @@ export function isEventStreamContentType(
   return (contentType ?? "").toLowerCase().includes("text/event-stream");
 }
 
-/**
- * Returns a pass-through TransformStream that errors once more than `maxBytes`
- * arrive without a line terminator. CR and LF each end a line (so CRLF does
- * too), and the count carries across chunk boundaries. Chunks are passed on
- * unchanged.
- */
 /**
  * Whether the proxy must line-cap an upstream response body before the SDK
  * parses it as SSE:
@@ -83,21 +99,61 @@ export function shouldCapSseBody(options: {
   return method === "GET" && isEventStreamContentType(options.accept);
 }
 
+/**
+ * Returns a pass-through TransformStream that errors once either:
+ *
+ * - more than `maxBytes` arrive without a line terminator
+ *   ({@link SseLineTooLongError}); or
+ * - more than `maxBytes` of non-terminator bytes arrive without a blank line
+ *   ending the event ({@link SseEventTooLargeError}).
+ *
+ * CR, LF and CRLF each end a line, and CRLF counts as one terminator even
+ * when the CR and LF arrive in different chunks, so a CRLF split across chunks
+ * is never mistaken for a blank line. A blank line is a terminator that
+ * immediately follows another. Every count carries across chunk boundaries.
+ * Chunks are passed on unchanged.
+ *
+ * The parser holds at most one character per non-terminator byte of an event
+ * (plus a newline per line, which needs a non-terminator byte to exist), so
+ * counting non-terminator bytes bounds what it can buffer.
+ */
 export function createSseLineCapTransform(
   maxBytes: number = MAX_SSE_LINE_BYTES,
 ): TransformStream<Uint8Array | string, Uint8Array> {
   const encoder = new TextEncoder();
+  // Non-terminator bytes since the last line terminator.
   let lineBytes = 0;
+  // Non-terminator bytes since the last blank line.
+  let eventBytes = 0;
+  // The previous byte was a CR, so an LF now completes that CRLF rather than
+  // ending another (empty) line.
+  let afterCr = false;
   return new TransformStream<Uint8Array | string, Uint8Array>({
     transform(chunk, controller) {
       const bytes = typeof chunk === "string" ? encoder.encode(chunk) : chunk;
       for (let i = 0; i < bytes.length; i++) {
         const byte = bytes[i];
-        if (byte === LF || byte === CR) {
+        if (byte === LF && afterCr) {
+          afterCr = false;
+        } else if (byte === LF || byte === CR) {
+          if (lineBytes === 0) {
+            // An empty line ends the event.
+            eventBytes = 0;
+          }
           lineBytes = 0;
-        } else if (++lineBytes > maxBytes) {
-          controller.error(new SseLineTooLongError(maxBytes));
-          return;
+          afterCr = byte === CR;
+        } else {
+          afterCr = false;
+          lineBytes++;
+          eventBytes++;
+          if (lineBytes > maxBytes) {
+            controller.error(new SseLineTooLongError(maxBytes));
+            return;
+          }
+          if (eventBytes > maxBytes) {
+            controller.error(new SseEventTooLargeError(maxBytes));
+            return;
+          }
         }
       }
       controller.enqueue(bytes);

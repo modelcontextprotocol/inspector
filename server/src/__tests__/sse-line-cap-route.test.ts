@@ -9,7 +9,9 @@
  * `streamable-http` (an SSE response to a POST, parsed by
  * `EventSourceParserStream`), plus a Streamable HTTP standalone GET whose
  * stream is mislabelled with a non-SSE Content-Type (the SDK parses it as SSE
- * anyway). Without the cap none of the parsers ever reports an
+ * anyway), and an `sse` stream of short terminated `data:` lines with no blank
+ * line, which grows the parser's pending event rather than its line buffer.
+ * Without the cap none of the parsers ever reports an
  * error, so a call site that stops applying it fails here by timing out. The
  * upstream sends a bounded amount and then idles, so a regression cannot
  * exhaust the test worker.
@@ -78,12 +80,43 @@ function writeUnterminated(res: http.ServerResponse, total: number): void {
   pump();
 }
 
+// Writes terminated 1 KiB `data:` lines totalling at least `total` bytes,
+// with no blank line between them, honoring backpressure, then leaves the
+// response open.
+const DATA_LINES_CHUNK = Buffer.from(
+  ("data: " + "x".repeat(1017) + "\n").repeat(64),
+);
+function writeDataLinesWithoutBlank(
+  res: http.ServerResponse,
+  total: number,
+): void {
+  let remaining = total;
+  const pump = () => {
+    while (remaining > 0) {
+      remaining -= DATA_LINES_CHUNK.length;
+      if (!res.write(DATA_LINES_CHUNK)) {
+        res.once("drain", pump);
+        return;
+      }
+    }
+  };
+  pump();
+}
+
 describe("upstream SSE line cap", () => {
   // Paths whose oversize stream the proxy has torn down.
   const closedStreams = new Set<string>();
 
   const upstream = http.createServer((req, res) => {
     const path = req.url ?? "";
+    if (req.method === "GET" && path.startsWith("/sse-lines")) {
+      // Every line is terminated, but no blank line ever ends the event.
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("event: endpoint\ndata: /message?sessionId=s1\n\n");
+      writeDataLinesWithoutBlank(res, OVERSIZE_LINE_BYTES);
+      res.on("close", () => closedStreams.add("/sse-lines"));
+      return;
+    }
     if (req.method === "GET" && path.startsWith("/sse")) {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write("event: endpoint\ndata: /message?sessionId=s1\n\n");
@@ -316,6 +349,40 @@ describe("upstream SSE line cap", () => {
         },
         { timeout: WAIT_TIMEOUT_MS, interval: 100 },
       );
+    },
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails an sse-transport event of terminated lines that exceeds the cap",
+    async () => {
+      vi.mocked(console.error).mockClear();
+      const controller = new AbortController();
+      const target = new URL(`http://127.0.0.1:${proxyPort}/sse`);
+      target.searchParams.set("transportType", "sse");
+      target.searchParams.set(
+        "url",
+        `http://127.0.0.1:${upstreamPort}/sse-lines`,
+      );
+
+      try {
+        const response = await fetch(target, {
+          headers: proxyHeaders,
+          signal: controller.signal,
+        });
+        expect(response.status).toBe(200);
+
+        await vi.waitFor(
+          () => {
+            expect(errorOutput()).toContain(
+              `SSE event exceeds the ${MAX_SSE_LINE_BYTES}-byte limit (MAX_SSE_LINE_BYTES)`,
+            );
+            expect(closedStreams.has("/sse-lines")).toBe(true);
+          },
+          { timeout: WAIT_TIMEOUT_MS, interval: 100 },
+        );
+      } finally {
+        controller.abort();
+      }
     },
     TEST_TIMEOUT_MS,
   );
