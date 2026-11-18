@@ -41,7 +41,7 @@ other.
 | Branch | `v2/chore/<ISSUE>-bump-<X-Y-Z>`, cut from `origin/v2/main` | the milestone-merge branch, cut from `origin/main` |
 | Base | **`v2/main`** | **`main`** |
 | Carries | the `npm audit` report, **any fixes the audit forces**, and the **version bump** — all three, one PR | the milestone's work, arriving whole from `v2/main`. **No commits of its own.** |
-| Verified by | `npm run local:gate` | `npm run local:gate`, **plus** `npm run pack:verify` (not a gate stage), **plus** a hand-driven smoke of every contribution in the milestone, from the **production build**, written up as a **ledger artifact** |
+| Verified by | `npm run local:gate` | `npm run local:gate`, **plus** `npm run pack:verify` (not a gate stage), **plus** a hand-driven smoke of every contribution in the milestone, from the **production build**, written up as a **release ledger** artifact |
 | Merged when | reviewed and green | the ledger is reviewed by the maintainers and clean |
 
 Then, and only then, a maintainer tags and publishes the **GitHub Release**
@@ -171,7 +171,7 @@ is not evidence for this step; the gate already said that. For a change with no 
 evidence is the thing that holds it — a probe that makes the guard fire, a
 counted before/after, a resolved binary path.
 
-### 2b. The ledger artifact
+### 2b. The release ledger
 
 Write the results up as a **published artifact** for the maintainers to review,
 and link it from PR 2. Shape it like the
@@ -223,7 +223,7 @@ the artifact the maintainers approve the merge on.
 A release's notes have four parts, in this order:
 
 1. **What's Changed.** GitHub's generated list of every PR since the previous tag.
-2. **The smoke-ledger line**, linking the artifact from 2b.
+2. **The release-ledger line**, linking the artifact from 2b.
 3. **`## Known issue`** (or `issues`), only when there is one. It names the
    issue, who is affected and the workaround. Deciding what counts as a known
    issue is a maintainer judgment, so it is written by hand and passed in,
