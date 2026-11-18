@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { SSEClientTransport } from "@modelcontextprotocol/client";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { LanguageMirroringStreamableHTTPClientTransport } from "./languageMirroringTransport.js";
 import { createFetchTracker } from "../fetchTracking.js";
 import {
   createAuthChallengeInterceptFetch,
@@ -227,7 +227,9 @@ export function createTransportNode(
         ? createSuppressNotificationStreamFetch(stampedFetch, url)
         : stampedFetch;
 
-    const transport = new StreamableHTTPClientTransport(url, {
+    // SEP-2792: mirror each message's `_meta` language preference to
+    // `Accept-Language` (#2987) — see languageMirroringTransport.ts.
+    const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
       requestInit,
       fetch: httpFetch,
