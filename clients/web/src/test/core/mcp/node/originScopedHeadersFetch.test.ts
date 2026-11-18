@@ -18,6 +18,12 @@ const AS_ORIGIN = "https://auth.other.test";
 
 describe("createOriginScopedHeadersFetch", () => {
   const respond = () => Promise.resolve(new Response("{}"));
+  const CONFIGURED = {
+    "X-API-Key": "mcp-secret",
+    Authorization: "Bearer custom",
+    Accept: "application/json",
+    "Content-Type": "application/x-www-form-urlencoded",
+  };
   // Lower-cased by hand: happy-dom's `Headers` iterates names as written.
   const sentHeaders = (inner: ReturnType<typeof vi.fn<typeof fetch>>) =>
     Object.fromEntries(
@@ -26,76 +32,98 @@ describe("createOriginScopedHeadersFetch", () => {
       ),
     );
 
-  it("returns the fetch it was given when there is nothing to add", () => {
+  it("returns the fetch it was given when no headers are configured", () => {
     const inner = vi.fn<typeof fetch>(respond);
     expect(createOriginScopedHeadersFetch(inner, MCP_ORIGIN, undefined)).toBe(
       inner,
     );
-    expect(createOriginScopedHeadersFetch(inner, "null", { "X-A": "1" })).toBe(
+  });
+
+  it("passes a request to the server's origin through untouched", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const scoped = createOriginScopedHeadersFetch(
       inner,
+      MCP_ORIGIN,
+      CONFIGURED,
     );
-  });
+    const init = { method: "POST", headers: { ...CONFIGURED } };
 
-  it("adds the headers underneath a same-origin request's own", async () => {
-    const inner = vi.fn<typeof fetch>(respond);
-    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, {
-      "X-API-Key": "mcp-secret",
-      Authorization: "Bearer custom",
-      Accept: "text/plain",
-    });
-
-    await scoped(`${MCP_ORIGIN}/mcp`, {
-      method: "POST",
-      headers: { authorization: "Bearer oauth", accept: "application/json" },
-    });
-
-    expect(inner.mock.calls[0]?.[1]?.method).toBe("POST");
-    expect(sentHeaders(inner)).toEqual({
-      "x-api-key": "mcp-secret",
-      authorization: "Bearer oauth",
-      accept: "application/json",
-    });
-  });
-
-  it("reads a URL, and a Request's own headers when init has none", async () => {
-    const inner = vi.fn<typeof fetch>(respond);
-    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, {
-      "X-API-Key": "mcp-secret",
-      "X-Env": "default",
-    });
-
-    await scoped(new URL(`${MCP_ORIGIN}/mcp`));
-    expect(sentHeaders(inner)).toEqual({
-      "x-api-key": "mcp-secret",
-      "x-env": "default",
-    });
-
-    await scoped(
-      new Request(`${MCP_ORIGIN}/mcp`, { headers: { "X-Env": "staging" } }),
-    );
-    expect(sentHeaders(inner)).toEqual({
-      "x-api-key": "mcp-secret",
-      "x-env": "staging",
-    });
-  });
-
-  it("passes a request to any other origin through untouched", async () => {
-    const inner = vi.fn<typeof fetch>(respond);
-    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, {
-      "X-API-Key": "mcp-secret",
-    });
-    const init = { method: "POST", headers: { accept: "application/json" } };
-
-    await scoped(`${AS_ORIGIN}/token`, init);
-    expect(inner).toHaveBeenLastCalledWith(`${AS_ORIGIN}/token`, init);
-
-    // Same host, another port or scheme: a different origin.
-    await scoped("https://mcp.test:8443/token", init);
-    expect(inner).toHaveBeenLastCalledWith("https://mcp.test:8443/token", init);
+    await scoped(`${MCP_ORIGIN}/mcp`, init);
+    expect(inner).toHaveBeenLastCalledWith(`${MCP_ORIGIN}/mcp`, init);
 
     // Not an absolute URL: left for the underlying fetch to reject.
     await scoped("/relative", init);
     expect(inner).toHaveBeenLastCalledWith("/relative", init);
+  });
+
+  it("takes the configured headers off a request to another origin", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const scoped = createOriginScopedHeadersFetch(
+      inner,
+      MCP_ORIGIN,
+      CONFIGURED,
+    );
+
+    // As the SDK merges them: configured first, the request's own on top.
+    await scoped(`${AS_ORIGIN}/token`, {
+      method: "POST",
+      headers: { ...CONFIGURED, "MCP-Protocol-Version": "2025-11-25" },
+    });
+
+    expect(inner.mock.calls[0]?.[1]?.method).toBe("POST");
+    // Negotiation and framing stay; the rest is gone.
+    expect(sentHeaders(inner)).toEqual({
+      accept: "application/json",
+      "content-type": "application/x-www-form-urlencoded",
+      "mcp-protocol-version": "2025-11-25",
+    });
+
+    // Same host, another port: a different origin.
+    await scoped(new URL("https://mcp.test:8443/token"), {
+      headers: { ...CONFIGURED },
+    });
+    expect(sentHeaders(inner)["x-api-key"]).toBeUndefined();
+  });
+
+  it("keeps a header the request set for itself", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const scoped = createOriginScopedHeadersFetch(
+      inner,
+      MCP_ORIGIN,
+      CONFIGURED,
+    );
+
+    // The same name: the request's value replaced the configured one.
+    await scoped(`${AS_ORIGIN}/token`, {
+      headers: { ...CONFIGURED, Authorization: "Basic client-auth" },
+    });
+    expect(sentHeaders(inner).authorization).toBe("Basic client-auth");
+    expect(sentHeaders(inner)["x-api-key"]).toBeUndefined();
+
+    // The same name in another case: both keys survive the SDK's merge and
+    // `Headers` joins them, so only the configured part is cut off.
+    await scoped(`${AS_ORIGIN}/token`, {
+      headers: { ...CONFIGURED, authorization: "Basic client-auth" },
+    });
+    expect(sentHeaders(inner).authorization).toBe("Basic client-auth");
+  });
+
+  it("reads a Request's own headers, and leaves an unaffected request alone", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, {
+      "X-API-Key": "mcp-secret",
+    });
+
+    await scoped(
+      new Request(`${AS_ORIGIN}/token`, {
+        headers: { "X-API-Key": "mcp-secret", "X-Other": "kept" },
+      }),
+    );
+    expect(sentHeaders(inner)).toEqual({ "x-other": "kept" });
+
+    const init = { headers: { "X-Other": "kept" } };
+    await scoped(`${AS_ORIGIN}/token`, init);
+    expect(inner).toHaveBeenLastCalledWith(`${AS_ORIGIN}/token`, init);
   });
 });
 
@@ -204,6 +232,7 @@ describe.each(TRANSPORTS)(
         settings: headersToServerSettings({
           "X-API-Key": "mcp-secret",
           Authorization: "Bearer custom",
+          Accept: "application/vnd.example+json",
         }),
       });
       await transport.start();
@@ -232,7 +261,14 @@ describe.each(TRANSPORTS)(
       for (const { headers } of sameOrigin) {
         expect(headers.get("x-api-key")).toBe("mcp-secret");
       }
+      // The MCP requests are the SDK's own build of `requestInit.headers`:
+      // on streamable HTTP it unions a configured `Accept` with its own.
       const mcpPosts = sameOrigin.filter(({ method }) => method === "POST");
+      if (config.type === "streamable-http") {
+        expect(mcpPosts[0]?.headers.get("accept")).toBe(
+          "application/vnd.example+json, application/json, text/event-stream",
+        );
+      }
       expect(
         mcpPosts.map(({ headers }) => headers.get("authorization")),
       ).toEqual(["Bearer stale", "Bearer fresh"]);

@@ -1,82 +1,101 @@
 /**
- * Apply a transport's configured headers to requests for the MCP server's own
- * origin, and to no other (#3018).
+ * Keep a transport's configured headers on the MCP server's own origin
+ * (#3018).
  *
- * `createTransportNode` used to hand the server's custom headers to the SDK
- * transport as `requestInit.headers`. The transport reads them there for its
- * MCP requests — and also builds the fetch for the OAuth work it runs itself
- * (the discovery and token refresh behind a 401, when an `authProvider` is
+ * `createTransportNode` hands the server's custom headers to the SDK transport
+ * as `requestInit.headers`. The transport reads them there for its MCP
+ * requests — and also builds the fetch for the OAuth work it runs itself (the
+ * discovery and token refresh behind a 401, when an `authProvider` is
  * attached) by merging the whole `requestInit` into every request, whatever
  * its destination. An authorization server on another origin — one the server
  * under test named in its protected-resource metadata, not one the user
  * configured — therefore received headers that routinely hold credentials for
  * the MCP server (`X-API-Key`).
  *
- * So the headers are kept out of `requestInit` and added here instead, on the
- * fetch the transport is given, which every request it makes passes through.
- * This is the rule `core/auth/serverOriginHeaders.ts` set for the OAuth
- * requests the Inspector makes itself (#2985), applied to the ones the SDK
- * makes.
+ * This wrapper sits on the fetch the transport is given and takes those
+ * headers back off any request that leaves the server's origin. It is the rule
+ * `core/auth/serverOriginHeaders.ts` set for the OAuth requests the Inspector
+ * makes itself (#2985), applied to the ones the SDK makes.
  *
- * It deliberately does not reuse that helper, whose job is narrower: it adds
- * headers to OAuth requests only, and so never adds `Authorization` or
- * `Cookie`. This wrapper also carries the MCP requests themselves, where a
- * custom `Authorization` is exactly what must be sent. It reproduces what
- * `requestInit.headers` did for the server's origin and changes nothing else:
+ * **Why remove rather than add.** Leaving the headers out of `requestInit` and
+ * adding them here to same-origin requests would be the tidier shape, and it
+ * is wrong: the SDK does more with `requestInit.headers` than send them. It
+ * unions a configured `Accept` with the media types it requires, and deletes a
+ * configured `Mcp-Session-Id` from the handshake — neither of which a wrapper
+ * below the SDK can reproduce without mirroring its internals. So the MCP
+ * requests are left exactly as the SDK builds them, and only the requests that
+ * must not carry the headers are touched.
  *
- *  - **The request's own headers win**, case-insensitively. The SDK seeded its
- *    MCP request headers from `requestInit.headers` and then set its own on
- *    top (the OAuth token, `MCP-Protocol-Version`, `Mcp-Session-Id`, `Accept`,
- *    `Content-Type`); for its OAuth requests the per-request headers replaced
- *    the configured ones the same way. Laying the configured headers
- *    underneath the request's gives the same result in both cases.
- *  - **An illegal header still fails the request.** `new Headers` throws in
- *    Node on a name or value it rejects, as it did inside the SDK, so the user
- *    is still told on the MCP request rather than having the row dropped.
+ * **What is removed.** The SDK's merge is `{ ...configured, ...own }`, so by
+ * the time a request arrives here its own headers and the configured ones are
+ * one set. A configured header is taken off when the request still carries
+ * the configured value — that is, when the request did not set that name
+ * itself. Two cases need care:
  *
- * It belongs outermost on the transport's fetch chain, so every layer below —
- * the cookie jar, the Network tracker — sees the headers actually sent, as
- * they did when the SDK supplied them.
+ *  - **The request set the same name in another case** (`accept` against a
+ *    configured `Accept`). Both keys survive the SDK's merge and `Headers`
+ *    joins them, configured value first; the configured part is cut off and
+ *    the request's own value kept.
+ *  - **{@link CROSS_ORIGIN_HEADERS} and `Content-Type` are left alone.** These
+ *    are content negotiation and framing, which an OAuth request sets for
+ *    itself and which say nothing about the user — the same list the
+ *    destination guard keeps on a cross-origin redirect hop. Leaving them
+ *    means a request whose own `Content-Type` happens to equal a configured
+ *    one is never sent without it.
  */
 
-import { requestUrlOf } from "../../auth/requestTimeout.js";
+import { requestHeadersOf, requestUrlOf } from "../../auth/requestTimeout.js";
+import { CROSS_ORIGIN_HEADERS } from "./fetchGuard.js";
+
+/** Whether a configured header of this name stays on a request to another origin. */
+function staysCrossOrigin(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower === "content-type" || CROSS_ORIGIN_HEADERS.has(lower);
+}
 
 /**
- * Wrap `fetchFn` so a request to `origin` is sent with `headers` underneath
- * its own. A request to any other origin — or every request, when there are
- * no headers to add — is passed through untouched.
+ * Wrap `fetchFn` so a request to any origin other than `origin` is sent
+ * without the transport's configured `headers`. A request to `origin` — or
+ * every request, when no headers are configured — is passed through untouched.
  *
  * @param origin - the MCP server's origin (`new URL(serverUrl).origin`).
- * @param headers - the transport's configured headers, in any `HeadersInit`
- *   form; `undefined` disables the wrapper.
+ * @param headers - the transport's `requestInit.headers`, in any `HeadersInit`
+ *   form.
  */
 export function createOriginScopedHeadersFetch(
   fetchFn: typeof fetch,
   origin: string,
   headers: HeadersInit | undefined,
 ): typeof fetch {
-  // An opaque origin serializes as "null" and would compare equal to any
-  // other opaque origin; neither is an HTTP server, so it never matches.
-  if (headers === undefined || origin === "null") return fetchFn;
+  if (headers === undefined) return fetchFn;
 
   return async (input, init) => {
-    let requestOrigin: string | undefined;
+    let requestOrigin: string;
     try {
       requestOrigin = new URL(requestUrlOf(input)).origin;
     } catch {
       // Not an absolute URL: leave it for the underlying fetch to reject.
-      requestOrigin = undefined;
+      return fetchFn(input, init);
     }
-    if (requestOrigin !== origin) return fetchFn(input, init);
+    if (requestOrigin === origin) return fetchFn(input, init);
 
-    const merged = new Headers(headers);
-    // `init.headers` replaces a `Request`'s own, matching `fetch`.
-    const own = new Headers(
-      init?.headers ?? (input instanceof Request ? input.headers : undefined),
-    );
-    own.forEach((value, name) => {
-      merged.set(name, value);
+    const sent = requestHeadersOf(input, init);
+    let changed = false;
+    // Through `Headers`, so names compare case-insensitively and values are
+    // normalized the same way on both sides.
+    new Headers(headers).forEach((value, name) => {
+      if (staysCrossOrigin(name)) return;
+      const current = sent.get(name);
+      if (current === value) {
+        sent.delete(name);
+        changed = true;
+      } else if (current?.startsWith(`${value}, `)) {
+        sent.set(name, current.slice(value.length + 2));
+        changed = true;
+      }
     });
-    return fetchFn(input, { ...init, headers: merged });
+    return changed
+      ? fetchFn(input, { ...init, headers: sent })
+      : fetchFn(input, init);
   };
 }
