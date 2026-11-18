@@ -35,6 +35,7 @@ import {
   MAX_PROXIED_RESPONSE_BYTES,
   requestIdForSendWait,
   mcpParamHeadersOnly,
+  upstreamSendHeaders,
 } from "@inspector/core/mcp/remote/node/server.js";
 import {
   InMemorySecretStore,
@@ -149,6 +150,46 @@ describe("server.ts supplemental coverage", () => {
           method: "notifications/initialized",
         }),
       ).toBeUndefined();
+    });
+  });
+
+  describe("upstreamSendHeaders (SEP-2243 + SEP-2792 mirrors, #2979)", () => {
+    const withLanguage = (value: unknown) => ({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: { _meta: { "io.modelcontextprotocol/acceptLanguage": value } },
+    });
+
+    it("is undefined when neither mirror applies", () => {
+      expect(
+        upstreamSendHeaders({ jsonrpc: "2.0", id: 1, method: "ping" }, {}),
+      ).toBeUndefined();
+    });
+
+    it("derives Accept-Language from the message's own _meta", () => {
+      expect(
+        upstreamSendHeaders(withLanguage("es-MX, en;q=0.5"), undefined),
+      ).toEqual({ "Accept-Language": "es-MX, en;q=0.5" });
+    });
+
+    it("merges the language mirror with allowlisted Mcp-Param headers", () => {
+      expect(
+        upstreamSendHeaders(withLanguage("de"), { "Mcp-Param-City": "Berlin" }),
+      ).toEqual({ "Mcp-Param-City": "Berlin", "Accept-Language": "de" });
+    });
+
+    it("never takes Accept-Language from the client's header channel", () => {
+      expect(
+        upstreamSendHeaders(
+          { jsonrpc: "2.0", id: 1, method: "ping" },
+          { "Accept-Language": "fr" },
+        ),
+      ).toBeUndefined();
+      // The body wins even when the client also offers a conflicting header.
+      expect(
+        upstreamSendHeaders(withLanguage("ja"), { "Accept-Language": "fr" }),
+      ).toEqual({ "Accept-Language": "ja" });
     });
   });
 

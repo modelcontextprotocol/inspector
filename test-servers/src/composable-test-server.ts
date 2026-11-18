@@ -119,6 +119,13 @@ export interface HandlerExtra {
   inputResponses?: Record<string, unknown>;
   /** MRTR: the opaque `requestState` the client echoed on retry (resolved value). */
   requestState?: unknown;
+  /**
+   * The inbound HTTP request's headers, on an HTTP transport (`ctx.http.req`).
+   * Undefined on stdio. Lets a fixture report what actually arrived on the
+   * wire — e.g. whether a SEP-2792 `Accept-Language` mirror agrees with the
+   * request's `_meta` (#2979).
+   */
+  requestHeaders?: Headers;
 }
 
 /** Minimal structural view of `ctx.mcpReq` for building {@link HandlerExtra}. */
@@ -159,6 +166,7 @@ function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
     log: mcpReq?.log?.bind(mcpReq),
     inputResponses: mcpReq?.inputResponses,
     requestState: mcpReq?.requestState?.(),
+    requestHeaders: ctx?.http?.req?.headers,
   };
 }
 
@@ -1193,9 +1201,14 @@ export function createMcpServer(config: ServerConfig): McpServer {
                 },
               ];
             }
+            // Carry a handler's `isError` and result `_meta` through, so a
+            // fixture can return a tool-level error or report result metadata
+            // (e.g. SEP-2792 `contentLanguage`, #2979).
             return {
               content,
               ...(structuredContent !== undefined && { structuredContent }),
+              ...(result?.isError === true && { isError: true }),
+              ...(result?._meta != null && { _meta: result._meta }),
             };
           },
         );

@@ -33,8 +33,13 @@ import {
   getTestMcpServerCommand,
   createEchoTool,
   createGetWeatherTool,
+  createLocalizedGreetingTool,
   createTestServerInfo,
 } from "@modelcontextprotocol/inspector-test-server";
+import {
+  ACCEPT_LANGUAGE_META_KEY,
+  CONTENT_LANGUAGE_META_KEY,
+} from "@inspector/core/mcp/acceptLanguage.js";
 import {
   eraToVersionNegotiation,
   type MCPServerConfig,
@@ -565,6 +570,142 @@ describe("Remote transport e2e", () => {
           lowered[k.toLowerCase()] = v;
         }
         expect(lowered["mcp-param-city"]).toBe("London");
+      } finally {
+        await client.disconnect();
+      }
+    });
+
+    it("end-to-end: SEP-2792 _meta acceptLanguage is mirrored to the upstream Accept-Language header (#2979)", async () => {
+      // The generic Request Metadata setting stamps the preference on every
+      // request's `_meta`; the backend derives `Accept-Language` from it. The
+      // fixture reports both values it received and fails on a mismatch, so a
+      // localized greeting proves the header agreed with `_meta` on the wire.
+      mcpHttpServer = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createLocalizedGreetingTool()],
+        serverType: "streamable-http",
+      });
+      await mcpHttpServer.start();
+
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const preference = "fr-CA, en;q=0.5";
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: mcpHttpServer.url,
+      };
+      const client = new InspectorClient(config, {
+        environment: {
+          transport: createRemoteTransport({ baseUrl, authToken }),
+        },
+        defaultMetadata: { [ACCEPT_LANGUAGE_META_KEY]: preference },
+      });
+      const fetchRequestLogState = new FetchRequestLogState(client);
+
+      try {
+        await client.connect();
+        const { tools } = await client.listTools();
+        const greeting = tools.find((t) => t.name === "localized_greeting");
+        expect(greeting).toBeDefined();
+
+        const invocation = await client.callTool(greeting!, { name: "Ada" });
+        expect(invocation.success).toBe(true);
+        expect(invocation.result?.isError).toBeFalsy();
+        const text = JSON.stringify(invocation.result?.content);
+        expect(text).toContain("Bonjour, Ada!");
+        expect(text).toContain(`Accept-Language header: ${preference}`);
+        expect(invocation.result?._meta?.[CONTENT_LANGUAGE_META_KEY]).toBe(
+          "fr",
+        );
+
+        // The backend's upstream fetch log shows the exact mirrored value on
+        // every POST whose body carries the preference — discovery included.
+        const languageHeaderFor = (method: string): string | undefined => {
+          const entry = fetchRequestLogState
+            .getFetchRequests()
+            .find(
+              (r) =>
+                r.method === "POST" &&
+                (r.requestBody ?? "").includes(`"method":"${method}"`),
+            );
+          expect(entry).toBeDefined();
+          for (const [k, v] of Object.entries(entry?.requestHeaders ?? {})) {
+            if (k.toLowerCase() === "accept-language") return v;
+          }
+          return undefined;
+        };
+        expect(languageHeaderFor("tools/list")).toBe(preference);
+        expect(languageHeaderFor("tools/call")).toBe(preference);
+      } finally {
+        await client.disconnect();
+      }
+    });
+
+    it("end-to-end: the SEP-2792 mirror overrides a configured Accept-Language header (#2979)", async () => {
+      // A server configured with its own `Accept-Language` must still see a
+      // header exactly equal to the request's `_meta`, or a strict server
+      // rejects the mismatch. The per-send mirror wins over configured headers.
+      mcpHttpServer = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createLocalizedGreetingTool()],
+        serverType: "streamable-http",
+      });
+      await mcpHttpServer.start();
+
+      const { baseUrl, server, authToken } = await startRemoteServer(0);
+      remoteServer = server;
+
+      const config: MCPServerConfig = {
+        type: "streamable-http",
+        url: mcpHttpServer.url,
+      };
+      const client = new InspectorClient(config, {
+        environment: {
+          transport: createRemoteTransport({ baseUrl, authToken }),
+        },
+        serverSettings: {
+          headers: [
+            { key: "Accept-Language", value: "fr" },
+            { key: "X-Tenant", value: "acme" },
+          ],
+          env: [],
+          metadata: {},
+          connectionTimeout: 0,
+          requestTimeout: 0,
+          taskTtl: 0,
+          maxFetchRequests: 1000,
+          roots: [],
+        },
+        defaultMetadata: { [ACCEPT_LANGUAGE_META_KEY]: "de" },
+      });
+      const fetchRequestLogState = new FetchRequestLogState(client);
+
+      try {
+        await client.connect();
+        const { tools } = await client.listTools();
+        const greeting = tools.find((t) => t.name === "localized_greeting");
+        const invocation = await client.callTool(greeting!, {});
+        expect(invocation.result?.isError).toBeFalsy();
+        expect(JSON.stringify(invocation.result?.content)).toContain(
+          "Hallo, world!",
+        );
+
+        // The configured headers were applied (X-Tenant arrived), and the
+        // configured Accept-Language lost to the `_meta` mirror.
+        const toolCall = fetchRequestLogState
+          .getFetchRequests()
+          .find(
+            (r) =>
+              r.method === "POST" &&
+              (r.requestBody ?? "").includes('"method":"tools/call"'),
+          );
+        const lowered: Record<string, string> = {};
+        for (const [k, v] of Object.entries(toolCall?.requestHeaders ?? {})) {
+          lowered[k.toLowerCase()] = v;
+        }
+        expect(lowered["x-tenant"]).toBe("acme");
+        expect(lowered["accept-language"]).toBe("de");
       } finally {
         await client.disconnect();
       }
