@@ -82,22 +82,18 @@ describe("createSseLineCapStream", () => {
     // The reporter's shape in miniature: `data: ` then chunk after chunk with
     // no terminator.
     const { stream, state } = capped(
-      [
-        "event: endpoint\ndata: /m\n\n",
-        "data: ",
-        "a".repeat(10),
-        "a".repeat(10),
-      ],
+      ["data: /m\n\n", "data: ", "a".repeat(10), "a".repeat(10)],
       16,
       true,
     );
     const { text, error } = await drain(stream);
     expect(error).toBeInstanceOf(SseLineTooLongError);
     expect((error as SseLineTooLongError).limitBytes).toBe(16);
-    expect((error as Error).message).toContain("16-byte limit");
+    expect((error as SseLineTooLongError).kind).toBe("line");
+    expect((error as Error).message).toContain("16-byte line-length limit");
     // Everything before the overflowing chunk was delivered, the chunk that
     // crossed the cap was not.
-    expect(text).toBe("event: endpoint\ndata: /m\n\ndata: " + "a".repeat(10));
+    expect(text).toBe("data: /m\n\ndata: " + "a".repeat(10));
     // The pipe releases the connection: the source is cancelled with the
     // same error.
     await vi.waitFor(() => expect(state.cancelled).toBe(true));
@@ -130,23 +126,24 @@ describe("createSseLineCapStream", () => {
     ["LF", "\n"],
     ["CR", "\r"],
     ["CRLF", "\r\n"],
-  ])("resets the count on %s", async (_name, eol) => {
-    // Each line is at the cap; together they far exceed it.
+  ])("resets the line count on %s", async (_name, eol) => {
+    // Each line is at the cap and ends its own event; together they far
+    // exceed it.
     const line = "c".repeat(16);
-    const body = Array.from({ length: 5 }, () => line + eol).join("");
+    const body = Array.from({ length: 5 }, () => line + eol + eol).join("");
     const { text, error } = await drain(capped([body], 16).stream);
     expect(error).toBeUndefined();
     expect(text).toBe(body);
   });
 
   it.each([
-    ["LF", ["d".repeat(10), "d".repeat(6) + "\n", "d".repeat(16), "\n"]],
-    ["CR", ["d".repeat(16), "\r", "d".repeat(16), "\r"]],
+    ["LF", ["d".repeat(10), "d".repeat(6) + "\n", "\n" + "d".repeat(16), "\n"]],
+    ["CR", ["d".repeat(16), "\r", "\r", "d".repeat(16), "\r"]],
     [
       "CRLF split across chunks",
-      ["d".repeat(16) + "\r", "\n" + "d".repeat(16) + "\r", "\n"],
+      ["d".repeat(16) + "\r", "\n\r", "\n" + "d".repeat(16) + "\r", "\n"],
     ],
-    ["many short lines", ["a\nb\rc\r\nd\n".repeat(20)]],
+    ["many short lines in short events", ["a\nb\n\nc\r\rd\r\n\r\n".repeat(20)]],
   ])(
     "resets on a terminator arriving in a later chunk (%s)",
     async (_name, chunks) => {
@@ -155,6 +152,81 @@ describe("createSseLineCapStream", () => {
       expect(text).toBe(chunks.join(""));
     },
   );
+
+  it("errors on many terminated data lines with no blank line, naming the event-size limit", async () => {
+    // The bypass of a line-only cap: every line is short and terminated, but
+    // the parser appends each `data:` line to the pending event until a blank
+    // line arrives.
+    const { stream, state } = capped(
+      ["data: /m\n\n", "data: aa\n", "data: bb\n", "data: cc\n"],
+      16,
+      true,
+    );
+    const { text, error } = await drain(stream);
+    expect(error).toBeInstanceOf(SseLineTooLongError);
+    expect((error as SseLineTooLongError).kind).toBe("event");
+    expect((error as Error).message).toContain("16-byte event-size limit");
+    expect(text).toBe("data: /m\n\ndata: aa\n");
+    await vi.waitFor(() => expect(state.cancelled).toBe(true));
+  });
+
+  it.each([
+    ["LF LF", ["data: aaaaaa\n\n", "data: bbbbbb\n\n", "data: cccccc\n\n"]],
+    ["CR CR", ["data: aaaaaa\r\r", "data: bbbbbb\r\r", "data: cccccc\r\r"]],
+    [
+      "CRLF CRLF",
+      ["data: aaaaaa\r\n\r\n", "data: bbbbbb\r\n\r\n", "data: cccccc\r\n\r\n"],
+    ],
+    [
+      "LF LF split across chunks",
+      ["data: aaaaaa\n", "\ndata: bbbbbb\n", "\ndata: cccccc\n", "\n"],
+    ],
+    [
+      "CR CR split across chunks",
+      ["data: aaaaaa\r", "\rdata: bbbbbb\r", "\rdata: cccccc\r", "\r"],
+    ],
+    [
+      "CRLF CRLF split at every byte boundary",
+      ["data: aaaaaa\r", "\n", "\r", "\ndata: bbbbbb\r", "\n\r", "\n"],
+    ],
+  ])("resets the event count on a blank line (%s)", async (_name, chunks) => {
+    // Each event is 15 bytes with its terminators; three of them are 45.
+    const { text, error } = await drain(capped(chunks, 16).stream);
+    expect(error).toBeUndefined();
+    expect(text).toBe(chunks.join(""));
+  });
+
+  it("does not read a CRLF split across chunks as a blank line", async () => {
+    // `\r` | `\n` is one terminator, so the event keeps growing and errors.
+    const { error } = await drain(
+      capped(["data: aaa\r", "\ndata: bbb\r", "\ndata: ccc\r", "\n"], 16)
+        .stream,
+    );
+    expect(error).toBeInstanceOf(SseLineTooLongError);
+    expect((error as SseLineTooLongError).kind).toBe("event");
+  });
+
+  it("treats a terminator as the stream's first byte as a blank line", async () => {
+    const chunks = ["\n", "data: aaaaaa\n\n"];
+    const { text, error } = await drain(capped(chunks, 16).stream);
+    expect(error).toBeUndefined();
+    expect(text).toBe(chunks.join(""));
+  });
+
+  it("passes a legitimate many-event stream under the cap through intact", async () => {
+    const events = Array.from(
+      { length: 200 },
+      (_, i) => `id: ${i}\nevent: message\ndata: {"n":${i}}\n\n`,
+    ).join("");
+    const chunks = [
+      events.slice(0, 1000),
+      events.slice(1000, 3001),
+      events.slice(3001),
+    ];
+    const { text, error } = await drain(capped(chunks, 64).stream);
+    expect(error).toBeUndefined();
+    expect(text).toBe(events);
+  });
 
   it("counts a run continued across chunks against the cap", async () => {
     const { error } = await drain(
@@ -314,7 +386,55 @@ describe("createTransportNode applies the SSE line cap", () => {
     await transport.start();
     await vi.waitFor(() =>
       expect(errors.map((e) => e.message).join("\n")).toContain(
-        `${SSE_MAX_LINE_BYTES}-byte limit`,
+        `${SSE_MAX_LINE_BYTES}-byte line-length limit`,
+      ),
+    );
+    await transport.close();
+  });
+
+  it("errors the legacy SSE GET stream on terminated lines with no blank line, naming the event-size limit", async () => {
+    // 17 terminated 1 MiB `data:` lines: each is under the line cap, together
+    // they exceed the event cap.
+    const MIB_LINE = new Uint8Array(1024 * 1024).fill(0x61);
+    MIB_LINE.set(encoder.encode("data: "), 0);
+    MIB_LINE[MIB_LINE.length - 1] = 0x0a;
+    const fetchFn = vi.fn<typeof fetch>(async () =>
+      sseResponse([
+        "event: endpoint\ndata: /messages\n\n",
+        ...Array.from({ length: 17 }, () => MIB_LINE),
+      ]),
+    );
+    const { transport } = createTransportNode(
+      { type: "sse", url: URL_ },
+      { fetchFn },
+    );
+    const errors = errorsOf(transport);
+    await transport.start();
+    await vi.waitFor(() =>
+      expect(errors.map((e) => e.message).join("\n")).toContain(
+        `${SSE_MAX_LINE_BYTES}-byte event-size limit`,
+      ),
+    );
+    await transport.close();
+  });
+
+  it("errors a Streamable HTTP POST reply stream on terminated lines with no blank line, naming the event-size limit", async () => {
+    const MIB_LINE = new Uint8Array(1024 * 1024).fill(0x61);
+    MIB_LINE.set(encoder.encode("data: "), 0);
+    MIB_LINE[MIB_LINE.length - 1] = 0x0a;
+    const fetchFn = vi.fn<typeof fetch>(async () =>
+      sseResponse(Array.from({ length: 17 }, () => MIB_LINE)),
+    );
+    const { transport } = createTransportNode(
+      { type: "streamable-http", url: URL_ },
+      { fetchFn },
+    );
+    const errors = errorsOf(transport);
+    await transport.start();
+    await transport.send(REQUEST);
+    await vi.waitFor(() =>
+      expect(errors.map((e) => e.message).join("\n")).toContain(
+        `${SSE_MAX_LINE_BYTES}-byte event-size limit`,
       ),
     );
     await transport.close();
@@ -333,7 +453,7 @@ describe("createTransportNode applies the SSE line cap", () => {
     await transport.send(REQUEST);
     await vi.waitFor(() =>
       expect(errors.map((e) => e.message).join("\n")).toContain(
-        `${SSE_MAX_LINE_BYTES}-byte limit`,
+        `${SSE_MAX_LINE_BYTES}-byte line-length limit`,
       ),
     );
     await transport.close();
@@ -362,7 +482,7 @@ describe("createTransportNode applies the SSE line cap", () => {
     });
     await vi.waitFor(() =>
       expect(errors.map((e) => e.message).join("\n")).toContain(
-        `${SSE_MAX_LINE_BYTES}-byte limit`,
+        `${SSE_MAX_LINE_BYTES}-byte line-length limit`,
       ),
     );
     await transport.close();
@@ -385,7 +505,7 @@ describe("createTransportNode applies the SSE line cap", () => {
     await transport.start();
     await vi.waitFor(() =>
       expect(errors.map((e) => e.message).join("\n")).toContain(
-        `${SSE_MAX_LINE_BYTES}-byte limit`,
+        `${SSE_MAX_LINE_BYTES}-byte line-length limit`,
       ),
     );
     expect(sseFetch).toHaveBeenCalled();
