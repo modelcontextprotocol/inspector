@@ -1,7 +1,9 @@
 /**
  * SEP-2792 per-request language preference: mirror
  * `params._meta["io.modelcontextprotocol/acceptLanguage"]` into the upstream
- * `Accept-Language` header (#2979).
+ * `Accept-Language` header (#2979, #2987). Applied to every Streamable HTTP
+ * send by `node/languageMirroringTransport.ts`, the transport the CLI, the TUI
+ * and the web backend share.
  *
  * `_meta` is the canonical carrier on every transport; on Streamable HTTP a
  * client also mirrors it to `Accept-Language`, and a server MAY reject a
@@ -19,14 +21,14 @@
  * is the honest outcome for an unrepresentable value; the case that matters,
  * a well-formed preference, is always mirrored exactly.
  *
- * Why the Inspector derives the header rather than accepting it from the
- * browser: the web client's upstream request is issued by its Node backend,
- * whose per-send header channel is deliberately restricted to SEP-2243
- * `Mcp-Param-*` names (`mcpParamHeadersOnly`) so a page cannot inject arbitrary
- * upstream headers. Deriving `Accept-Language` from the JSON-RPC message itself
- * keeps that allowlist intact: the only value that can reach the header is the
- * one the request already carries in its body, which is what the spec requires
- * it to be anyway.
+ * Why the header is derived rather than accepted from a caller: the web
+ * client's upstream request is issued by its Node backend, whose per-send
+ * header channel is deliberately restricted to SEP-2243 `Mcp-Param-*` names
+ * (`mcpParamHeadersOnly`) so a page cannot inject arbitrary upstream headers.
+ * Deriving `Accept-Language` from the JSON-RPC message itself keeps that
+ * allowlist intact: the only value that can reach the header is the one the
+ * request already carries in its body, which is what the spec requires it to
+ * be anyway.
  */
 
 /** The SEP-2792 request `_meta` key carrying the language preference. */

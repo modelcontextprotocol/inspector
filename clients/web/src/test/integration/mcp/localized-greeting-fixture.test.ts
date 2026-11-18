@@ -18,10 +18,10 @@ import type { RequestMetadata } from "@inspector/core/mcp/types.js";
 
 /**
  * The `localized_greeting` showcase fixture (#2979), driven over a direct
- * (Node) Streamable HTTP connection. The direct transport does not mirror
- * `_meta` into `Accept-Language` — only the web backend does — so these cases
- * set the header through a wrapping `fetch` and observe how the fixture treats
- * agreement and mismatch. Node's `fetch` sends `Accept-Language: *` on any
+ * (Node) Streamable HTTP connection — the transport the CLI and TUI use, which
+ * mirrors `_meta` into `Accept-Language` itself (#2987). To put a header that
+ * *disagrees* with `_meta` on the wire, a case wraps `fetch` and overwrites it
+ * below the transport. Node's `fetch` sends `Accept-Language: *` on any
  * request that carries none, so "no header" is not reachable over HTTP here.
  */
 describe("localized_greeting fixture (SEP-2792)", () => {
@@ -116,14 +116,15 @@ describe("localized_greeting fixture (SEP-2792)", () => {
     expect(result.contentLanguage).toBeUndefined();
   });
 
-  it("flags Node fetch's default * against an unmirrored _meta preference", async () => {
-    // What a client that sets `_meta` but does not mirror it looks like on
-    // the wire: the runtime fills in `*`, which a strict server rejects.
+  it("mirrors a _meta preference on a direct connection (#2987)", async () => {
+    // Before #2987 the direct transport did not mirror, so Node's default
+    // `*` arrived beside `_meta` — the mismatch a strict server rejects.
     const result = await greet({
-      meta: { [ACCEPT_LANGUAGE_META_KEY]: "es-MX" },
+      meta: { [ACCEPT_LANGUAGE_META_KEY]: "es-MX, en;q=0.5" },
     });
-    expect(result.isError).toBe(true);
-    expect(result.text).toContain("Accept-Language header: *");
+    expect(result.isError).toBe(false);
+    expect(result.text).toContain("Accept-Language header: es-MX, en;q=0.5");
+    expect(result.contentLanguage).toBe("es");
   });
 
   it("uses a header-only preference when _meta carries none", async () => {

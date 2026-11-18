@@ -41,7 +41,7 @@ as a missing capability rather than an error.
 | `mrtr-showcase-http.json` **(modern era)**                 | Every MRTR preset in one server                    | [#1860](https://github.com/modelcontextprotocol/inspector/issues/1860) |
 | `modern-network-http.json` **(modern era)**                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
 | `xmcpheader-modern-http.json` **(modern era)**             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
-| `language-preference-http.json` **(legacy era)** | SEP-2792 language preference: `_meta` `acceptLanguage` mirrored to `Accept-Language` (web) | [#2979](https://github.com/modelcontextprotocol/inspector/issues/2979) |
+| `language-preference-http.json` **(legacy era)** | SEP-2792 language preference: `_meta` `acceptLanguage` mirrored to `Accept-Language` (all clients) | [#2979](https://github.com/modelcontextprotocol/inspector/issues/2979), [#2987](https://github.com/modelcontextprotocol/inspector/issues/2987) |
 | `pagination-http.json` **(legacy era)**                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
 | `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
@@ -364,9 +364,17 @@ Then, in the web client:
 3. Reconnect, then run `localized_greeting` from the Tools tab. The result reads `Bonjour, world!`, shows the same string for `_meta` and the header, and carries `contentLanguage: "fr"` in its `_meta`. Try `ja`, `de;q=0.2, es`, or `zh` (no match, so English).
 4. In the Network tab, any POST carrying the preference — `tools/list` included — shows `Accept-Language` with that exact value.
 
-The header is added by the web backend, **derived from the request's own `_meta`** (`core/mcp/acceptLanguage.ts`, applied in `core/mcp/remote/node/server.ts`), never accepted from the browser: the per-send header channel stays restricted to SEP-2243 `Mcp-Param-*` names. It overrides an `Accept-Language` configured in the server's custom headers, since anything else would be the mismatch the SEP forbids. Only a value HTTP can carry byte-for-byte is mirrored — a `_meta` string with surrounding whitespace, control or non-ASCII characters is not valid `Accept-Language` and gets no header.
+The header is **derived from each request's own `_meta`** by the Streamable HTTP transport every client shares (`core/mcp/node/languageMirroringTransport.ts`, using `core/mcp/acceptLanguage.ts`), so the CLI and TUI mirror it exactly as the web client does ([#2987](https://github.com/modelcontextprotocol/inspector/issues/2987)). On the web it is never accepted from the browser: the backend's per-send header channel stays restricted to SEP-2243 `Mcp-Param-*` names. The mirror overrides an `Accept-Language` configured in the server's custom headers, since anything else would be the mismatch the SEP forbids. Only a value HTTP can carry byte-for-byte is mirrored — a `_meta` string with surrounding whitespace, control or non-ASCII characters is not valid `Accept-Language` and gets no header.
 
-⚠️ **The CLI and TUI do not mirror yet.** Their connections are issued by Node's `fetch` directly, which sends `Accept-Language: *` on any request without one, so with an `acceptLanguage` set in metadata `localized_greeting` reports `HeaderMismatch` there — which is what a strict server would do too.
+From the CLI, pass the preference as metadata:
+
+```bash
+mcp-inspector --cli http://localhost:3240/mcp --transport http \
+  --method tools/call --tool-name localized_greeting \
+  --metadata "io.modelcontextprotocol/acceptLanguage=de-AT, de;q=0.9"
+```
+
+⚠️ Node's `fetch` sends `Accept-Language: *` on any request without one. That is harmless with no preference set, but it means a `_meta` value too malformed to mirror still arrives beside `*`, and `localized_greeting` (like a strict server) reports `HeaderMismatch`.
 
 ## Page-by-page fetching
 
