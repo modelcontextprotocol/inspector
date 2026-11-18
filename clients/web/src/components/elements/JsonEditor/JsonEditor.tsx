@@ -11,6 +11,7 @@ import "ace-builds/src-noconflict/theme-github_dark";
 // Without it Ace fetches `worker-json.js` from a path that does not exist in a
 // bundled app, silently loses its annotations, and logs a fetch error.
 import jsonWorkerUrl from "ace-builds/src-noconflict/worker-json.js?url";
+import { deferAceFontMetricsObserver } from "../../../lib/aceFontMetricsObserver";
 
 // Module scope: registering the worker URL is global to Ace and idempotent, so
 // it must not be repeated per mount.
@@ -283,6 +284,12 @@ export function JsonEditor({
           editorProps={{ $blockScrolling: Infinity }}
           onLoad={(editor) => {
             editorRef.current = editor;
+            // Ace re-lays the editor out from inside a `ResizeObserver`
+            // callback, which the browser reports as an unhandled "loop
+            // completed with undelivered notifications" error whenever the
+            // editor is revealed from a closed `Collapse` (#3002). The why,
+            // and why deferring is safe, are on the helper.
+            deferAceFontMetricsObserver(editor.renderer);
             // `textInputAriaLabel` alone is not enough: Ace composes the hidden
             // textarea's label as "<label>, Cursor at row N" inside
             // `TextInput.setAriaLabel`, and only recomputes it when the cursor
