@@ -275,6 +275,10 @@ usually looks like a missing capability rather than an error.
 
 - Presets live in `test-servers/src/preset-registry.ts`; configs in
   `test-servers/configs/*.json`.
+- The config file format — every key, the `oauth` block, the preset names and
+  their `params` — is the **Config reference** section of
+  `docs/test-servers.md`. A new config key, `oauth` option, preset or preset
+  param gets its row there in the same change.
 - A new showcase config gets a row in `docs/test-servers.md` saying what to do
   and what the broken build did — the "what it looked like broken" half is what
   makes the fixture reproducible later.
