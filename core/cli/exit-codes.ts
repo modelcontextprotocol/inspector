@@ -25,6 +25,7 @@
  *  - 10: a `--load` run breached a `--load-max-*` threshold
  *  - 11: the server rate limited the request (HTTP 429)
  *  - 12: the OAuth destination guard refused to fetch a URL
+ *  - 13: `--verify` had nothing to verify: `skills/list` returned no skills
  *  - 130: a `--load` run was interrupted by Ctrl+C / SIGTERM
  *
  * Note 6 is `SCHEMA_UNPORTABLE`, not "invalid": the whole premise of the lint
@@ -112,6 +113,18 @@ export const EXIT_CODES = {
    * response differs from every neighbour's.
    */
   FETCH_REFUSED: 12,
+  /**
+   * `--method skills/list --verify` was handed an empty catalog, so no skill
+   * was checked (#2986). The envelope `code` is `skills_empty`.
+   *
+   * Non-zero for the reason 8 is: "every skill verified" is vacuously true of
+   * no skills, and a catalog whose skills a server skipped at load (malformed
+   * frontmatter, say) arrives here as an empty listing — exiting 0 would turn
+   * that loss into a green CI gate. Its own code, also like 8, because the
+   * server broke no **MUST** by serving none: a job pointed at a server that
+   * legitimately has no skills can allow `13` and still fail on `7`.
+   */
+  SKILL_CATALOG_EMPTY: 13,
   /**
    * A `--load` run was interrupted by SIGINT or SIGTERM (#2834). The partial
    * summary has already been printed, marked `stoppedEarly.reason:

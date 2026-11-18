@@ -219,6 +219,7 @@ one-line `ErrorEnvelope` to **stderr**:
 | `7`–`10` | `--verify` and `--load` verdicts — see the CLI README |
 | `11` | The server rate limited the request (HTTP 429) |
 | `12` | The OAuth destination guard refused a URL (`fetch_refused`) |
+| `13` | `--verify` had nothing to verify: `skills/list` returned no skills |
 
 [`clients/cli/README.md`](../clients/cli/README.md#exit-codes--error-envelopes)
 owns this table; treat it as the source of truth if the two ever disagree.
