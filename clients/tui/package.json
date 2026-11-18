@@ -32,9 +32,9 @@
     "fsevents": false
   },
   "dependencies": {
-    "ink": "^6.0.0",
+    "ink": "^8.0.0",
     "ink-form": "^2.0.2",
-    "ink-scroll-view": "^0.3.6"
+    "ink-scroll-view": "^0.4.0"
   },
   "overrides": {
     "ink-select-input": "^6.2.0",

@@ -78,11 +78,13 @@ function stringEntries(
  * react-reconciler and yoga-layout come with it — plus a `createRequire` banner
  * for the inlined CJS. The smaller tarball won.
  *
- * The exemption is only tolerable because the root manifest keeps `react` open
- * to the whole major (`^19.0.0`), which lets npm dedupe our React with whatever
- * React 19 a consumer pins — so an external `ink` resolves the same copy the
- * bundle does. The test below pins that relationship: narrowing the root range
- * silently reopens #1952 for the renderer itself.
+ * The exemption is only tolerable because the root manifest's `react` range
+ * starts at the floor of `ink`'s own peer range and stays open to the rest of
+ * the major (`^19.3.0` against Ink 8's `>=19.3.0`), so any React 19 that npm
+ * may place `ink` beside is one our range admits too — an external `ink`
+ * resolves the same copy the bundle does. The test below pins that
+ * relationship: a root range that starts anywhere else silently reopens #1952
+ * for the renderer itself.
  */
 const EXTERNAL_BY_DESIGN = new Set(["ink"]);
 
@@ -133,15 +135,18 @@ describe("tui tsdown config", () => {
     }
   });
 
-  it("keeps the root react range open to the whole major, so npm can dedupe", () => {
+  it("starts the root react range at ink's peer floor, so npm can dedupe", () => {
     // This is what keeps the one exemption tolerable. `ink` is external, so it
     // resolves whatever React npm placed beside it — and npm can only place it
-    // beside *ours* if our range admits the consumer's React too. Pinning the
-    // root range above the major floor (say `^19.2.4`) means a consumer holding
-    // React 19.0 gets a second copy: `ink` renders through theirs, the bundle
-    // through ours, and the TUI dies at startup on a null dispatcher.
+    // beside *ours* if our range admits every React `ink`'s peer does. A root
+    // range starting ABOVE that floor means a consumer holding a React in the
+    // gap gets a second copy: `ink` renders through theirs, the bundle through
+    // ours, and the TUI dies at startup on a null dispatcher. One starting
+    // BELOW it lets our React dedupe to a consumer's older copy that `ink`
+    // cannot use, so `ink` is the one that nests — the same split, mirrored.
     //
     // So the root range must start at the same floor `ink`'s own peer does.
+    // Ink 6 declared `>=19.0.0`; Ink 8 declares `>=19.3.0` (#2984).
     const rootReact = (
       JSON.parse(
         readFileSync(path.join(clientDir, "..", "..", "package.json"), "utf8"),
@@ -149,12 +154,12 @@ describe("tui tsdown config", () => {
     ).dependencies.react;
     const inkPeerReact = readPackageJson("ink").peerDependencies?.react ?? "";
 
-    const floor = /^>=(\d+)\.0\.0$/.exec(inkPeerReact)?.[1];
+    const floor = /^>=(\d+\.\d+\.\d+)$/.exec(inkPeerReact)?.[1];
     expect(floor, `unexpected ink peer range: ${inkPeerReact}`).toBeDefined();
     expect(
       rootReact,
-      `root react must be ^${floor}.0.0 so npm can dedupe with any React ${floor} a consumer pins`,
-    ).toBe(`^${floor}.0.0`);
+      `root react must be ^${floor} so npm can dedupe with any React a consumer pins that ink accepts`,
+    ).toBe(`^${floor}`);
   });
 
   it("keeps each exempt package external, and declared for consumers", () => {

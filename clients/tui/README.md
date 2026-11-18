@@ -162,8 +162,9 @@ is looser than ours in every case here:
 
 | Package | Its `react` peer | Placed beside a different React when… |
 | --- | --- | --- |
-| `ink-form`, `ink-scroll-view` | `">=18"` | the consumer has React 18 |
-| `ink` | `">=19"` | the consumer pins React 19.0 (our `^19.2.4` then nests) |
+| `ink-form` | `">=18"` | the consumer has React 18 |
+| `ink-scroll-view` | `">=19.2.0"` | the consumer pins React 19.2 (our `^19.3.0` then nests) |
+| `ink` | `">=19.3.0"` | the consumer pins React 19.3.0 and our range starts higher (a `^19.3.1` then nests) |
 
 Either way the bundle renders through one React while the external package calls
 hooks on another, whose dispatcher is null — so opening a tool test form (or any
@@ -180,7 +181,7 @@ React-18-era v5 that `ink-form` asks for.
 
 #### Why `ink` itself is the exception
 
-`ink` is external for **cost**, not because its `">=19"` peer makes it safe — it
+`ink` is external for **cost**, not because its `">=19.3.0"` peer makes it safe — it
 does not, and an earlier revision of this section wrongly claimed it did.
 Bundling `ink` works (it was built and verified against both consumer repros)
 but adds ~1.4 MB, since `react-reconciler` and `yoga-layout` come with it, plus
@@ -190,18 +191,22 @@ interop shim throws `Dynamic require of "x" is not supported` without a real
 `require` in scope. A 602 KB bundle beat a 2 MB one.
 
 What makes the exemption tolerable is a **separate lever**: the root manifest
-declares `react: "^19.0.0"` — open to the whole major, rather than pinned at the
-version we happen to develop against. That lets npm satisfy our React and a
-consumer's pinned React 19.x with a single copy, so an external `ink` resolves
-*ours*. Verified against a consumer pinning `react@19.0.0` alongside `ink@6.8.0`
-— the case that splits under a narrower range:
+declares `react: "^19.3.0"` — starting at the floor of `ink`'s own peer range
+(Ink 8 declares `>=19.3.0`) and open to the rest of the major, rather than
+pinned at the version we happen to develop against. Any React npm may place
+`ink` beside is therefore one our range admits too, so an external `ink`
+resolves *ours*: a consumer on React 19.3 or later shares its copy with both,
+and one on an older React gets ours nested with `ink` beside it. Originally
+verified against a consumer pinning `react@19.0.0` alongside `ink@6.8.0` (when
+both floors were 19.0.0), and re-checked for `ink@8.0.0` against consumers
+pinning `react@19.0.0`, `19.2.0` and `19.3.0` (#2984):
 
 ```
 bundle react   node_modules/react/index.js
 ink -> react   node_modules/react/index.js   # same copy
 ```
 
-Narrow that range and the exemption turns straight back into #1952, one level
+Start that range anywhere else and the exemption turns straight back into #1952, one level
 up — breaking TUI startup rather than just its forms. `tsdownConfig.test.ts` pins
 the root range to `ink`'s own peer floor so it can't drift silently. The
 residual after all this is a React **20**-era consumer that also depends on
