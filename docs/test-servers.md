@@ -39,7 +39,8 @@ A config file is one JSON or YAML document describing one server. This section d
 ### Running a config
 
 ```bash
-npm run test-servers:build   # from clients/web
+# from the repository root
+(cd clients/web && npm run test-servers:build)
 node test-servers/build/server-composable.js --config path/to/my-server.json
 ```
 
@@ -195,7 +196,7 @@ Both paths must be origin-relative (`/custom/protected-resource`) with no query 
 | `jwksUri` | string | Where to fetch the signing keys. Omitted, it is discovered from the first authorization server's metadata (`jwks_uri`), and that document's `issuer` is accepted too. |
 | `resourceAudience` | string | When set, the JWT `aud` must match this value. Unset, `aud` is not checked. |
 
-A token's granted scopes are read from its `scope` claim, or failing that `scp` or `scopes`.
+A token's granted scopes are read from the first of these claims present in the accepted form: `scope` as a space-delimited string, then `scp` as an array of strings, then `scopes` as an array of strings. Any other shape — a space-delimited string `scp`, for one — is read as no scopes at all, so every `requiredScopes` check then fails with `insufficient_scope`.
 
 **Client registration (`combined` mode)**
 
@@ -213,7 +214,7 @@ A client is looked up in that order — static, then dynamically registered, the
 
 | Key | Type | What it does |
 | --- | --- | --- |
-| `tokenExpirationSeconds` | number | The access token lifetime. Default `3600`. |
+| `tokenExpirationSeconds` | number | The `expires_in` the token response reports. Default `3600`. **Advertised only** — the server does not expire the token itself, so a request carrying it still succeeds after that time. |
 | `supportRefreshTokens` | boolean | Issue a refresh token with each access token. Default `true`. |
 | `supportRevocation` | boolean | Serve and advertise the RFC 7009 revocation endpoint at `/oauth/revoke`. Default `true`. See [Revoking tokens on clear](#revoking-tokens-on-clear-rfc-7009). |
 
