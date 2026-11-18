@@ -18,6 +18,11 @@ import type {
 } from "@inspector/core/mcp/types.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/storage-node.js";
 import { createOAuthClientConfig } from "../helpers/oauth-client-fixtures.js";
+import {
+  createEchoTool,
+  createTestServerHttp,
+  createTestServerInfo,
+} from "@modelcontextprotocol/inspector-test-server";
 import type { InspectorClientOptions } from "@inspector/core/mcp/inspectorClient.js";
 import { MAX_FETCH_REFUSALS } from "@inspector/core/mcp/inspectorClient.js";
 import {
@@ -126,6 +131,158 @@ describe("InspectorClient OAuth fetchFn", () => {
         fetchFn: expect.any(Function),
       }),
     );
+  });
+
+  // #2985: the OAuth requests the manager makes itself carry the server's
+  // custom headers to the server's own origin — on the shared base (the
+  // browser) and on the dedicated OAuth base (the Node clients) alike — and
+  // never to an authorization server on another origin.
+  it.each([
+    ["the shared base fetch", false],
+    ["the environment's oauthFetch", true],
+  ])(
+    "sends custom headers to same-origin OAuth requests only, through %s",
+    async (_name, dedicated) => {
+      const respond = () => Promise.resolve(new Response("{}"));
+      const sharedFetch = vi.fn<typeof fetch>(respond);
+      const oauthFetch = vi.fn<typeof fetch>(respond);
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: "test-client",
+        redirectUrl: "http://localhost:3000/callback",
+      });
+
+      client = new InspectorClient(
+        { type: "sse", url: "http://localhost:3000/sse" } as MCPServerConfig,
+        {
+          environment: {
+            transport: createTransportNode,
+            fetch: sharedFetch,
+            ...(dedicated && { oauthFetch }),
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: { clientId: oauthConfig.clientId, scope: oauthConfig.scope },
+          serverSettings: {
+            headers: [
+              { key: "X-Environment", value: "staging" },
+              { key: "Authorization", value: "Bearer static" },
+            ],
+            metadata: {},
+            env: [],
+            connectionTimeout: 0,
+            requestTimeout: 0,
+            taskTtl: 0,
+            maxFetchRequests: 0,
+            roots: [],
+          },
+        },
+      );
+
+      const logged: { url: string; requestHeaders: Record<string, string> }[] =
+        [];
+      client.addEventListener("fetchRequest", (event) => {
+        logged.push(event.detail);
+      });
+
+      await client.authenticate();
+      const { fetchFn } = mockAuth.mock.calls[0]![1] as {
+        fetchFn: typeof fetch;
+      };
+      const base = dedicated ? oauthFetch : sharedFetch;
+      const headersSentTo = (url: string) => {
+        const call = base.mock.calls.find(([input]) => input === url);
+        return new Headers(call?.[1]?.headers);
+      };
+
+      await fetchFn("http://localhost:3000/register", { method: "POST" });
+      await fetchFn("http://auth.example.com/token", { method: "POST" });
+
+      const sameOrigin = headersSentTo("http://localhost:3000/register");
+      expect(sameOrigin.get("x-environment")).toBe("staging");
+      expect(sameOrigin.get("authorization")).toBeNull();
+      const crossOrigin = headersSentTo("http://auth.example.com/token");
+      expect([...crossOrigin.keys()]).toEqual([]);
+
+      // The Network log records the headers that were sent, not the request
+      // as it stood before they were added.
+      const entry = logged.find(
+        (e) => e.url === "http://localhost:3000/register",
+      );
+      expect(new Headers(entry?.requestHeaders).get("x-environment")).toBe(
+        "staging",
+      );
+    },
+  );
+
+  // The transport keeps the headers it was built with until the next connect,
+  // so OAuth must not pick up a live settings save ahead of it — including the
+  // first save on a server that connected with no settings at all.
+  it("uses the open transport's headers, not a later settings save", async () => {
+    const server = createTestServerHttp({
+      serverInfo: createTestServerInfo("oauth-headers-test", "1.0.0"),
+      tools: [createEchoTool()],
+    });
+    await server.start();
+    try {
+      const oauthFetch = vi.fn<typeof fetch>(() =>
+        Promise.resolve(new Response("{}")),
+      );
+      const oauthConfig = createTestOAuthConfig({
+        mode: "static",
+        clientId: "test-client",
+        redirectUrl: "http://localhost:3000/callback",
+      });
+      client = new InspectorClient(
+        { type: "streamable-http", url: server.url },
+        {
+          environment: {
+            transport: createTransportNode,
+            oauthFetch,
+            oauth: {
+              storage: oauthConfig.storage,
+              navigation: oauthConfig.navigation,
+              redirectUrlProvider: oauthConfig.redirectUrlProvider,
+            },
+          },
+          oauth: { clientId: oauthConfig.clientId, scope: oauthConfig.scope },
+        },
+      );
+      await client.connect();
+      client.setServerSettings({
+        headers: [{ key: "X-Environment", value: "staging" }],
+        metadata: {},
+        env: [],
+        connectionTimeout: 0,
+        requestTimeout: 0,
+        taskTtl: 0,
+        maxFetchRequests: 0,
+        roots: [],
+      });
+
+      await client.authenticate();
+      const { fetchFn } = mockAuth.mock.calls[0]![1] as {
+        fetchFn: typeof fetch;
+      };
+      const registerUrl = new URL("/register", server.url).href;
+      const sentHeader = () =>
+        new Headers(oauthFetch.mock.calls.at(-1)?.[1]?.headers).get(
+          "x-environment",
+        );
+
+      await fetchFn(registerUrl, { method: "POST" });
+      expect(sentHeader()).toBeNull();
+
+      // With no transport, the saved settings are what the next one will use.
+      await client.disconnect();
+      await fetchFn(registerUrl, { method: "POST" });
+      expect(sentHeader()).toBe("staging");
+    } finally {
+      await server.stop();
+    }
   });
 
   it("should pass fetchFn to auth() when not provided (uses default fetch)", async () => {

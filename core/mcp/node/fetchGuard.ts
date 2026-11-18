@@ -272,13 +272,23 @@ function hopFetchFor(
 // Redirect hops
 // ---------------------------------------------------------------------------
 
-/** Headers that carry credentials and must not cross an origin boundary. */
-const CREDENTIAL_HEADERS: ReadonlySet<string> = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "cookie2",
-  "www-authenticate",
+/**
+ * The only headers a hop to another origin keeps: content negotiation and
+ * protocol identification, none of which says anything about the user.
+ *
+ * An allowlist rather than a list of credential names, because a credential
+ * has no fixed name. `Authorization` and `Cookie` are the standard ones, but
+ * a server's custom headers ride OAuth requests to that server's own origin
+ * (#2985) and routinely hold one under a name of the user's choosing
+ * (`X-API-Key`). A redirect off that origin is a destination the server
+ * chose, so everything not on this list stays behind.
+ */
+const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "mcp-protocol-version",
+  "user-agent",
 ]);
 
 /**
@@ -317,13 +327,15 @@ export function normalizeFetchHeaders(raw: unknown): Record<string, string> {
   return headers;
 }
 
-function withoutHeaders(
+/** `headers` restricted to (`keep`) or stripped of (`!keep`) `names`. */
+function filterHeaders(
   headers: Record<string, string>,
   names: ReadonlySet<string>,
+  keep: boolean,
 ): Record<string, string> {
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
-    if (!names.has(name.toLowerCase())) kept[name] = value;
+    if (names.has(name.toLowerCase()) === keep) kept[name] = value;
   }
   return kept;
 }
@@ -345,7 +357,8 @@ function rewritesToGet(status: number, method: string): boolean {
  * library also took away:
  *
  *  - **Credentials stay with their origin.** A hop that changes scheme, host
- *    or port drops {@link CREDENTIAL_HEADERS}, compared case-insensitively.
+ *    or port keeps only {@link CROSS_ORIGIN_HEADERS}, compared
+ *    case-insensitively.
  *  - **Method and body** follow {@link rewritesToGet}; a dropped body takes
  *    {@link BODY_HEADERS} with it.
  *  - **A body never crosses an origin.** A cross-origin hop still carrying a
@@ -367,11 +380,11 @@ export function nextRedirectRequest(
   let headers = { ...current.headers };
   const crossOrigin = url.origin !== current.url.origin;
 
-  if (crossOrigin) headers = withoutHeaders(headers, CREDENTIAL_HEADERS);
+  if (crossOrigin) headers = filterHeaders(headers, CROSS_ORIGIN_HEADERS, true);
   if (rewritesToGet(status, method)) {
     method = "GET";
     body = undefined;
-    headers = withoutHeaders(headers, BODY_HEADERS);
+    headers = filterHeaders(headers, BODY_HEADERS, false);
   }
   // `!= null`: the body arrives as JSON, so "no body" can be null as well as
   // undefined. An empty string is still a body the caller chose to send.

@@ -38,6 +38,7 @@ import {
   type OutputFileFormat,
 } from "@inspector/core/cli/handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
+import { withServerOriginHeaders } from "@inspector/core/auth/serverOriginHeaders.js";
 import {
   createCliOAuthFetch,
   oauthDebugNavigationHook,
@@ -284,6 +285,7 @@ async function callMethod(
     // must not start failing because an authorization server is unreachable.
     const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
       revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
+      ...(serverSettings && { headers: serverSettings.headers }),
     });
     // A warning, not the result — `--quiet` drops it (#2435). The relogin
     // itself still happened; only the advisory line is suppressed.
@@ -714,6 +716,11 @@ export interface RefreshStoredAuthDeps {
   warn?: WarningSink;
   /** `--oauth-debug` (#2844): trace the discovery and refresh grant. */
   oauthDebug?: boolean;
+  /**
+   * The run's `--header` values (#2985), sent with the discovery and refresh
+   * requests that go to the server's own origin.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -756,13 +763,24 @@ export async function refreshStoredAuthToken(
   // can swallow one and fall back to the next URL. `--oauth-debug` (#2844)
   // traces just above that, as on the connect path, so each request is shown
   // as it goes on the wire.
+  //
+  // #2985: this path runs outside `InspectorClient` too, so the custom headers
+  // are added here — above the trace, so `--oauth-debug` shows them.
   const storedAuthFetch = withRfc8414OidcCompat(
     withOAuthRequestTimeout(
-      traceCliOAuthFetch(
-        withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
-          writeFetchRefusalWarning(refusal, deps.warn),
+      withServerOriginHeaders(
+        traceCliOAuthFetch(
+          withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
+            writeFetchRefusalWarning(refusal, deps.warn),
+          ),
+          deps.oauthDebug === true,
         ),
-        deps.oauthDebug === true,
+        () => serverUrl,
+        () =>
+          Object.entries(deps.headers ?? {}).map(([key, value]) => ({
+            key,
+            value,
+          })),
       ),
     ),
   );
@@ -2147,6 +2165,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
               // every other advisory line (#2435, #2846).
               ...(options.quiet === true && { warn: discardWarning }),
               oauthDebug: options.oauthDebug === true,
+              ...(options.header && {
+                headers: options.header as Record<string, string>,
+              }),
             },
           );
         } catch (err) {
