@@ -50,6 +50,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isFontMetricsInternals(value: unknown): value is FontMetricsInternals {
   return (
+    // Checked first, and by `typeof`: where the global does not exist at all —
+    // the environment in which Ace polls instead — a bare `instanceof` against
+    // it would throw rather than answer.
+    typeof ResizeObserver === "function" &&
     isRecord(value) &&
     value.$observer instanceof ResizeObserver &&
     value.$measureNode instanceof Element &&

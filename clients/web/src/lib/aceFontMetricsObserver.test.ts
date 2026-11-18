@@ -25,7 +25,11 @@ class FakeResizeObserver {
 /** A renderer shaped like Ace's, as far as the helper looks. */
 function fakeRenderer() {
   const original = new FakeResizeObserver(() => {});
-  const fontMetrics = {
+  const fontMetrics: {
+    $observer: FakeResizeObserver | undefined;
+    $measureNode: Element;
+    checkForSizeChanges: () => void;
+  } = {
     $observer: original,
     $measureNode: document.createElement("div"),
     checkForSizeChanges: vi.fn(),
@@ -91,6 +95,16 @@ describe("deferAceFontMetricsObserver", () => {
   ])("leaves %s alone", (_label, renderer) => {
     expect(deferAceFontMetricsObserver(renderer)).toBe(false);
     expect(FakeResizeObserver.instances).toHaveLength(0);
+  });
+
+  // The environment Ace polls in: the global is not merely unused, it does not
+  // exist, so even asking `instanceof` of it would throw.
+  it("leaves the editor alone where ResizeObserver does not exist", () => {
+    const { renderer, fontMetrics } = fakeRenderer();
+    fontMetrics.$observer = undefined;
+    vi.stubGlobal("ResizeObserver", undefined);
+
+    expect(deferAceFontMetricsObserver(renderer)).toBe(false);
   });
 
   // Ace falls back to polling where `ResizeObserver` is unavailable, and a
