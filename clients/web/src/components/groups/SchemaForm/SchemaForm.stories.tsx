@@ -89,6 +89,51 @@ export const TitledEnum: Story = {
   },
 };
 
+const MCP_METHODS = [
+  "initialize",
+  "ping",
+  "tools/list",
+  "tools/call",
+  "prompts/list",
+  "prompts/get",
+  "resources/list",
+  "resources/read",
+  "resources/subscribe",
+  "resources/unsubscribe",
+  "resources/templates/list",
+  "completion/complete",
+  "logging/setLevel",
+  "sampling/createMessage",
+  "elicitation/create",
+  "roots/list",
+];
+
+/**
+ * Enum pickers filter as you type (#2982): a long list is narrowed by any
+ * case-insensitive fragment of an option's label, in the single-select and the
+ * multi-select alike.
+ */
+export const SearchableEnums: Story = {
+  args: {
+    schema: {
+      type: "object",
+      properties: {
+        method: {
+          type: "string",
+          title: "Method",
+          enum: MCP_METHODS,
+        },
+        methods: {
+          type: "array",
+          title: "Methods",
+          items: { type: "string", enum: MCP_METHODS },
+        },
+      },
+    },
+    values: { methods: ["tools/call"] },
+  },
+};
+
 export const MixedTypes: Story = {
   args: {
     schema: {
