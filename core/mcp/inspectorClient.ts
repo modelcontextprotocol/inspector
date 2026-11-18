@@ -946,7 +946,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // deployment answered discovery, registration and the token request from
     // the wrong environment. Applied to the auth chain only (the transport
     // chain already carries them) and to the MCP server's own origin only.
-    // Read live, like the overrides.
+    // Read per request, from the settings the open transport was built with
+    // while there is one — a live settings save does not reach the transport
+    // until the next connect, and OAuth must not move to the new environment
+    // ahead of the MCP requests it authorizes.
     //
     // Applied twice, at both ends of the chain. Innermost, because the compat
     // wrapper issues probe requests of its own from below everything above it.
@@ -958,7 +961,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       withServerOriginHeaders(
         fetchFn,
         () => this.getServerUrl(),
-        () => this.serverSettings?.headers,
+        () => (this.transportSettings ?? this.serverSettings)?.headers,
       );
     const authWithOverrides = withCustomHeaders(
       oauthBase
