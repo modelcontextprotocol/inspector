@@ -193,6 +193,47 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  // #2983 — only the opt-in is written; unchecking clears the field.
+  it("persists the issuer-check opt-out only when checked", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={initialSettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /OAuth Settings/i }));
+    await user.click(screen.getByLabelText("Skip issuer metadata validation"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ oauthSkipIssuerMetadataValidation: true }),
+    );
+
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{
+          ...initialSettings,
+          oauthSkipIssuerMetadataValidation: true,
+        }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByLabelText("Skip issuer metadata validation"));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        oauthSkipIssuerMetadataValidation: undefined,
+      }),
+    );
+  });
+
   // #2317 — omit-when-off, so an untouched server writes no field.
   it("maps the notification-stream suppression into settings, and back to unset", async () => {
     const user = userEvent.setup();

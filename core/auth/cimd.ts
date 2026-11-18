@@ -22,6 +22,11 @@ export async function ensureCimdClientRegistration(params: {
   provider: BaseOAuthClientProvider;
   fetchFn?: typeof fetch;
   resourceMetadataUrl?: URL;
+  /**
+   * The per-server opt-out of the RFC 8414 §3.3 issuer check (#2983), so this
+   * probe accepts the same metadata document SDK `auth()` is about to.
+   */
+  skipIssuerMetadataValidation?: boolean;
 }): Promise<void> {
   const clientMetadataUrl = params.provider.clientMetadataUrl?.trim();
   if (!clientMetadataUrl) return;
@@ -58,6 +63,7 @@ export async function ensureCimdClientRegistration(params: {
         params.serverUrl,
         resourceMetadata,
         params.fetchFn,
+        { skipIssuerValidation: params.skipIssuerMetadataValidation === true },
       );
     } catch {
       // Pre-registration is an optimization over what SDK `auth()` does for

@@ -211,6 +211,57 @@ describe("ensureCimdClientRegistration", () => {
     expect(storage.saveClientInformation).not.toHaveBeenCalled();
   });
 
+  // #2983 — Entra's multi-tenant metadata shape: the issuer is not the URL the
+  // document was fetched for.
+  describe("an authorization server publishing a non-matching issuer", () => {
+    const fetchFn = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/.well-known/oauth-protected-resource")) {
+        return new Response(JSON.stringify({ resource: SERVER_URL }));
+      }
+      if (url.includes("/.well-known/oauth-authorization-server")) {
+        return new Response(
+          JSON.stringify({
+            issuer: "http://127.0.0.1:9999/{tenantid}",
+            authorization_endpoint: "http://127.0.0.1:9999/oauth/authorize",
+            token_endpoint: "http://127.0.0.1:9999/oauth/token",
+            response_types_supported: ["code"],
+            client_id_metadata_document_supported: true,
+          }),
+        );
+      }
+      return new Response("not found", { status: 404 });
+    });
+
+    it("is rejected by default, so nothing is pre-registered", async () => {
+      await ensureCimdClientRegistration({
+        serverUrl: SERVER_URL,
+        provider: createProvider(storage),
+        fetchFn,
+      });
+
+      expect(storage.saveClientInformation).not.toHaveBeenCalled();
+    });
+
+    it("is accepted when the server opted out of the issuer check", async () => {
+      await ensureCimdClientRegistration({
+        serverUrl: SERVER_URL,
+        provider: createProvider(storage),
+        fetchFn,
+        skipIssuerMetadataValidation: true,
+      });
+
+      expect(storage.saveClientInformation).toHaveBeenCalledWith(
+        SERVER_URL,
+        { client_id: METADATA_URL },
+        {
+          registrationKind: "cimd",
+          issuer: "http://127.0.0.1:9999/{tenantid}",
+        },
+      );
+    });
+  });
+
   it("no-ops when client information is already stored for the discovered issuer", async () => {
     // Dynamic slot only — a preregistered hit would short-circuit
     // `clientInformation()` before it ever reaches the issuer-keyed read.

@@ -89,7 +89,8 @@ export function buildRunnerClientAuthOptions(
       serverEndpointOverrides ||
       savedSettings.enterpriseManaged ||
       savedSettings.oauthRequestRefreshToken === false ||
-      savedSettings.oauthScopeOnRefresh === true)
+      savedSettings.oauthScopeOnRefresh === true ||
+      savedSettings.oauthSkipIssuerMetadataValidation === true)
       ? {
           ...(savedSettings.oauthClientId && {
             clientId: savedSettings.oauthClientId,
@@ -116,6 +117,11 @@ export function buildRunnerClientAuthOptions(
           // SDK's default refresh request (no `scope`) in place.
           ...(savedSettings.oauthScopeOnRefresh === true && {
             scopeOnRefresh: true,
+          }),
+          // #2983: only the opt-in is forwarded; omitting the key leaves the
+          // SDK's RFC 8414 §3.3 issuer check on.
+          ...(savedSettings.oauthSkipIssuerMetadataValidation === true && {
+            skipIssuerMetadataValidation: true,
           }),
         }
       : undefined;

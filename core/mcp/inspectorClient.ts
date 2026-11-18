@@ -6279,6 +6279,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     requestRefreshToken?: boolean;
     /** Send `scope` on the refresh-token request (#2805). */
     scopeOnRefresh?: boolean;
+    /** Skip the RFC 8414 §3.3 issuer check on AS metadata (#2983). */
+    skipIssuerMetadataValidation?: boolean;
   }): void {
     if (!this.oauthManager) {
       throw new Error(

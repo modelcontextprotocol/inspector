@@ -14,7 +14,11 @@ vi.mock("@modelcontextprotocol/client", async (importOriginal) => {
   };
 });
 
-import { mcpAuth } from "@inspector/core/auth/mcpAuth.js";
+import { IssuerMismatchError } from "@modelcontextprotocol/client";
+import {
+  ISSUER_METADATA_MISMATCH_HINT,
+  mcpAuth,
+} from "@inspector/core/auth/mcpAuth.js";
 
 function makeProvider(): OAuthClientProvider {
   return {
@@ -110,5 +114,69 @@ describe("mcpAuth", () => {
     await expect(
       mcpAuth(provider, { serverUrl: "https://mcp.example.com" }),
     ).rejects.toThrow("discovery failed");
+  });
+
+  // #2983 — Entra's multi-tenant metadata names a template issuer, and the
+  // SDK's error alone leaves the user with no way forward.
+  describe("metadata issuer mismatch hint", () => {
+    const EXPECTED = "https://login.microsoftonline.com/organizations/v2.0";
+    const RECEIVED = "https://login.microsoftonline.com/{tenantid}/v2.0";
+
+    it("names the per-server setting and keeps the SDK error as the cause", async () => {
+      const original = new IssuerMismatchError("metadata", EXPECTED, RECEIVED);
+      sdkAuth.mockRejectedValue(original);
+
+      const err: unknown = await mcpAuth(makeProvider(), {
+        serverUrl: "https://mcp.example.com",
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(Error);
+      const thrown = err as Error;
+      expect(thrown.message).toBe(
+        `${original.message}. ${ISSUER_METADATA_MISMATCH_HINT}`,
+      );
+      expect(thrown.message).toContain("Skip issuer metadata validation");
+      expect(thrown.message).toContain("oauth.skipIssuerMetadataValidation");
+      expect(thrown.message).toContain("weakens a security check");
+      expect(thrown.cause).toBe(original);
+    });
+
+    it("recognizes the error by name across a serialization boundary", async () => {
+      const serialized = Object.assign(new Error("Issuer mismatch"), {
+        name: "IssuerMismatchError",
+        kind: "metadata",
+      });
+      sdkAuth.mockRejectedValue(serialized);
+
+      await expect(
+        mcpAuth(makeProvider(), { serverUrl: "https://mcp.example.com" }),
+      ).rejects.toThrow(ISSUER_METADATA_MISMATCH_HINT);
+    });
+
+    it("adds no hint to an authorization-response (RFC 9207) mismatch", async () => {
+      // The setting does not relax this check, so suggesting it would be wrong
+      // — and this mismatch is the mix-up signal.
+      const original = new IssuerMismatchError(
+        "authorization_response",
+        EXPECTED,
+        "https://evil.example.com",
+      );
+      sdkAuth.mockRejectedValue(original);
+
+      await expect(
+        mcpAuth(makeProvider(), {
+          serverUrl: "https://mcp.example.com",
+          authorizationCode: "code",
+        }),
+      ).rejects.toBe(original);
+    });
+
+    it("passes a non-Error rejection through untouched", async () => {
+      sdkAuth.mockRejectedValue("boom");
+
+      await expect(
+        mcpAuth(makeProvider(), { serverUrl: "https://mcp.example.com" }),
+      ).rejects.toBe("boom");
+    });
   });
 });

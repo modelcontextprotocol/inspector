@@ -597,6 +597,23 @@ describe("useConnectionLifecycle", () => {
       expect(client.getServerSettings()?.oauthScopeOnRefresh).toBe(true);
     });
 
+    it("forwards the issuer-check opt-out on its own (#2983)", () => {
+      // Now the last operand of the "is there any per-server OAuth?" chain.
+      const settings: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        oauthSkipIssuerMetadataValidation: true,
+      };
+      const h = harness({
+        servers: [entry("a", { settings })],
+        persisted: { a: settings },
+      });
+
+      const client = h.published()!(entry("a", { settings }));
+      expect(
+        client.getServerSettings()?.oauthSkipIssuerMetadataValidation,
+      ).toBe(true);
+    });
+
     it("threads the per-server authorization params and endpoint overrides", () => {
       const settings: InspectorServerSettings = {
         ...EMPTY_SETTINGS,

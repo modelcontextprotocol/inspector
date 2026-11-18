@@ -1232,6 +1232,48 @@ describe("server.ts supplemental coverage", () => {
       expect(await readScopeOnRefresh()).toBeUndefined();
     });
 
+    it("rejects a non-boolean oauthSkipIssuerMetadataValidation (#2983)", async () => {
+      const res = await postSettings({
+        ...base,
+        oauthSkipIssuerMetadataValidation: "yes",
+      });
+      expect((await res.json()).error).toMatch(
+        /oauthSkipIssuerMetadataValidation/,
+      );
+    });
+
+    async function readSkipIssuerMetadataValidation(): Promise<unknown> {
+      const res = await fetch(`${h.baseUrl}/api/servers`);
+      const body = (await res.json()) as {
+        mcpServers: Record<string, { oauth?: Record<string, unknown> }>;
+      };
+      return body.mcpServers.srv?.oauth?.skipIssuerMetadataValidation;
+    }
+
+    it("persists the issuer-check opt-out through a save (#2983)", async () => {
+      expect(
+        (
+          await postSettings({
+            ...base,
+            oauthSkipIssuerMetadataValidation: true,
+          })
+        ).status,
+      ).toBe(200);
+      expect(await readSkipIssuerMetadataValidation()).toBe(true);
+    });
+
+    it("writes no issuer-check field when the setting is off", async () => {
+      expect(
+        (
+          await postSettings({
+            ...base,
+            oauthSkipIssuerMetadataValidation: false,
+          })
+        ).status,
+      ).toBe(200);
+      expect(await readSkipIssuerMetadataValidation()).toBeUndefined();
+    });
+
     it("rejects a non-boolean oauthRevokeOnClear (#2144)", async () => {
       const res = await postSettings({ ...base, oauthRevokeOnClear: "no" });
       expect((await res.json()).error).toMatch(/oauthRevokeOnClear/);
@@ -1532,6 +1574,30 @@ describe("server.ts supplemental coverage", () => {
               type: "streamable-http",
               url: "https://x.test/mcp",
               oauth: { scopeOnRefresh: "yes" },
+            },
+          },
+        }),
+      });
+      try {
+        const res = await fetch(`${h.baseUrl}/api/servers`);
+        const body = (await res.json()) as {
+          mcpServers: Record<string, Record<string, unknown>>;
+        };
+        expect(body.mcpServers.srv).not.toHaveProperty("oauth");
+      } finally {
+        await stop(h);
+      }
+    });
+
+    // #2983 — same all-or-nothing rule for the issuer-check opt-out.
+    it("drops oauth whose skipIssuerMetadataValidation is not a boolean", async () => {
+      const h = await start({
+        seedConfig: JSON.stringify({
+          mcpServers: {
+            srv: {
+              type: "streamable-http",
+              url: "https://x.test/mcp",
+              oauth: { skipIssuerMetadataValidation: "yes" },
             },
           },
         }),
