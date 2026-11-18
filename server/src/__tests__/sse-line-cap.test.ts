@@ -5,6 +5,7 @@ import {
   SseLineTooLongError,
   createSseLineCapTransform,
   isEventStreamContentType,
+  shouldCapSseBody,
 } from "../sse-line-cap.js";
 
 const encoder = new TextEncoder();
@@ -38,8 +39,8 @@ async function run(
 }
 
 describe("MAX_SSE_LINE_BYTES", () => {
-  it("is 32 MiB", () => {
-    expect(MAX_SSE_LINE_BYTES).toBe(32 * 1024 * 1024);
+  it("is 16 MiB", () => {
+    expect(MAX_SSE_LINE_BYTES).toBe(16 * 1024 * 1024);
   });
 });
 
@@ -138,4 +139,33 @@ describe("isEventStreamContentType", () => {
   ])("%s -> %s", (contentType, expected) => {
     expect(isEventStreamContentType(contentType)).toBe(expected);
   });
+});
+
+describe("shouldCapSseBody", () => {
+  const SSE = "text/event-stream";
+  const BOTH = "application/json, text/event-stream";
+  it.each([
+    // 2xx event streams are capped whatever the method.
+    [200, SSE, "GET", SSE, true],
+    [200, "text/event-stream; charset=utf-8", "POST", BOTH, true],
+    // A GET that asked for SSE is capped even when mislabelled.
+    [200, "text/plain", "GET", SSE, true],
+    [200, "application/octet-stream", undefined, SSE, true],
+    [200, null, "get", SSE, true],
+    // JSON POST replies are left alone.
+    [200, "application/json", "POST", BOTH, false],
+    // A GET that did not ask for SSE is left alone.
+    [200, "text/plain", "GET", "application/json", false],
+    // Error statuses are left alone, even with an SSE content type.
+    [401, SSE, "GET", SSE, false],
+    [404, "text/plain", "GET", SSE, false],
+    [199, SSE, "GET", SSE, false],
+  ] as const)(
+    "status %s, content-type %s, %s accepting %s -> %s",
+    (status, contentType, method, accept, expected) => {
+      expect(shouldCapSseBody({ status, contentType, method, accept })).toBe(
+        expected,
+      );
+    },
+  );
 });

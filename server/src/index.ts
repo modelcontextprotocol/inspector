@@ -17,10 +17,7 @@ import {
   readCappedBody,
   ProxyResponseTooLargeError,
 } from "./proxy-response.js";
-import {
-  createSseLineCapTransform,
-  isEventStreamContentType,
-} from "./sse-line-cap.js";
+import { createSseLineCapTransform, shouldCapSseBody } from "./sse-line-cap.js";
 
 // Type-compatible wrappers for node-fetch to work with browser-style types
 const fetch = nodeFetch;
@@ -416,7 +413,18 @@ const createCustomFetch = (headerHolder: ProxyHeaderHolder) => {
       // The SDK's SSE parser buffers a line until it sees a terminator and has
       // no limit of its own, so bound the line length here; an upstream that
       // never ends a line fails its connection instead of exhausting memory.
-      if (isEventStreamContentType(response.headers.get("content-type"))) {
+      // A GET that asked for SSE is capped whatever its Content-Type, since
+      // the SDK's Streamable HTTP GET parses any 2xx body as SSE.
+      const method =
+        init?.method ?? (input instanceof Request ? input.method : undefined);
+      if (
+        shouldCapSseBody({
+          status: response.status,
+          contentType: response.headers.get("content-type"),
+          method,
+          accept: acceptHeader,
+        })
+      ) {
         webStream = webStream.pipeThrough(createSseLineCapTransform());
       }
 

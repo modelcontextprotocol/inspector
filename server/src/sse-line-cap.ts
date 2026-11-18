@@ -16,15 +16,17 @@
  */
 
 /**
- * Longest single SSE line the proxy will pass to the SDK, in bytes (32 MiB).
+ * Longest single SSE line the proxy will pass to the SDK, in bytes (16 MiB).
  *
  * A legitimate line can be large: a `data:` line carries a whole JSON-RPC
  * message, so a big tool result (embedded resources, base64 images) arrives as
- * one line. 32 MiB leaves ample headroom for any such message while keeping
- * the worst case per connection a fixed, modest amount of memory rather than
- * the whole heap.
+ * one line. 16 MiB is four times the 4 MB request-body limit the SDK's own
+ * reference server transports apply to an incoming message, and holds roughly
+ * 12 MiB of binary content after base64 encoding. On the other side it bounds
+ * what a hostile upstream can make the parser hold: at most this much per open
+ * stream, again on each reconnect, rather than the whole heap.
  */
-export const MAX_SSE_LINE_BYTES = 32 * 1024 * 1024;
+export const MAX_SSE_LINE_BYTES = 16 * 1024 * 1024;
 
 const LF = 0x0a;
 const CR = 0x0d;
@@ -52,6 +54,35 @@ export function isEventStreamContentType(
  * too), and the count carries across chunk boundaries. Chunks are passed on
  * unchanged.
  */
+/**
+ * Whether the proxy must line-cap an upstream response body before the SDK
+ * parses it as SSE:
+ *
+ * - any 2xx response whose Content-Type is `text/event-stream`; and
+ * - any 2xx GET whose request asked for `text/event-stream`, whatever the
+ *   response Content-Type. The SDK's Streamable HTTP standalone GET
+ *   (`_startOrAuthSse`) parses a 2xx body as SSE without checking the header,
+ *   so a mislabelled stream would otherwise bypass the cap.
+ *
+ * Error statuses (including the 401 path) and JSON POST replies are left
+ * alone.
+ */
+export function shouldCapSseBody(options: {
+  status: number;
+  contentType: string | null | undefined;
+  method: string | undefined;
+  accept: string | null | undefined;
+}): boolean {
+  if (options.status < 200 || options.status >= 300) {
+    return false;
+  }
+  if (isEventStreamContentType(options.contentType)) {
+    return true;
+  }
+  const method = (options.method ?? "GET").toUpperCase();
+  return method === "GET" && isEventStreamContentType(options.accept);
+}
+
 export function createSseLineCapTransform(
   maxBytes: number = MAX_SSE_LINE_BYTES,
 ): TransformStream<Uint8Array | string, Uint8Array> {

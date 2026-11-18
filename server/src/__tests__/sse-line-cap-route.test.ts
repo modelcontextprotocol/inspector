@@ -7,7 +7,9 @@
  * longer than MAX_SSE_LINE_BYTES with no terminator, once over the `sse`
  * transport (GET stream, parsed by `eventsource`) and once over
  * `streamable-http` (an SSE response to a POST, parsed by
- * `EventSourceParserStream`). Without the cap neither parser ever reports an
+ * `EventSourceParserStream`), plus a Streamable HTTP standalone GET whose
+ * stream is mislabelled with a non-SSE Content-Type (the SDK parses it as SSE
+ * anyway). Without the cap none of the parsers ever reports an
  * error, so a call site that stops applying it fails here by timing out. The
  * upstream sends a bounded amount and then idles, so a regression cannot
  * exhaust the test worker.
@@ -28,6 +30,9 @@ const ALLOWED_ORIGIN = "http://localhost:6274";
 const CHUNK = Buffer.alloc(64 * 1024, "x");
 // Over the cap by a margin, and bounded.
 const OVERSIZE_LINE_BYTES = MAX_SSE_LINE_BYTES + 1024 * 1024;
+// Neither text/event-stream nor JSON: the SDK's standalone GET parses it as
+// SSE anyway.
+const MISLABELLED_CONTENT_TYPE = "application/octet-stream";
 const TEST_TIMEOUT_MS = 30_000;
 const WAIT_TIMEOUT_MS = 20_000;
 
@@ -85,6 +90,43 @@ describe("upstream SSE line cap", () => {
       res.write("data: ");
       writeUnterminated(res, OVERSIZE_LINE_BYTES);
       res.on("close", () => closedStreams.add("/sse"));
+      return;
+    }
+    if (path.startsWith("/mcp-get")) {
+      // A Streamable HTTP server whose standalone GET stream is mislabelled.
+      if (req.method === "GET") {
+        res.writeHead(200, { "content-type": MISLABELLED_CONTENT_TYPE });
+        res.write("data: ");
+        writeUnterminated(res, OVERSIZE_LINE_BYTES);
+        res.on("close", () => closedStreams.add("/mcp-get"));
+        return;
+      }
+      let raw = "";
+      req.setEncoding("utf8");
+      req.on("data", (chunk: string) => (raw += chunk));
+      req.on("end", () => {
+        const message = JSON.parse(raw) as { id?: number; method?: string };
+        if (message.method === "initialize") {
+          res.writeHead(200, {
+            "content-type": "application/json",
+            "mcp-session-id": "upstream-session-1",
+          });
+          res.end(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: message.id,
+              result: {
+                protocolVersion: "2025-06-18",
+                capabilities: {},
+                serverInfo: { name: "mislabelled", version: "0.0.0" },
+              },
+            }),
+          );
+          return;
+        }
+        // notifications/initialized: the SDK opens the standalone GET next.
+        res.writeHead(202).end();
+      });
       return;
     }
     if (req.method === "POST" && path.startsWith("/mcp")) {
@@ -215,6 +257,65 @@ describe("upstream SSE line cap", () => {
         controller.abort();
         await pending;
       }
+    },
+    TEST_TIMEOUT_MS,
+  );
+  it(
+    "fails a mislabelled streamable-http GET stream whose line exceeds the cap",
+    async () => {
+      vi.mocked(console.error).mockClear();
+      const target = new URL(`http://127.0.0.1:${proxyPort}/mcp`);
+      target.searchParams.set("transportType", "streamable-http");
+      target.searchParams.set(
+        "url",
+        `http://127.0.0.1:${upstreamPort}/mcp-get`,
+      );
+      const postHeaders = {
+        ...proxyHeaders,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+      };
+
+      const initialized = await fetch(target, {
+        method: "POST",
+        headers: postHeaders,
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "test", version: "0.0.0" },
+          },
+        }),
+      });
+      expect(initialized.status).toBe(200);
+      const sessionId = initialized.headers.get("mcp-session-id");
+      expect(sessionId).toBeTruthy();
+      await initialized.text();
+
+      // Forwarding notifications/initialized makes the SDK open its
+      // standalone GET stream, which the upstream answers mislabelled.
+      const notified = await fetch(target, {
+        method: "POST",
+        headers: { ...postHeaders, "mcp-session-id": sessionId ?? "" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+        }),
+      });
+      await notified.text();
+
+      await vi.waitFor(
+        () => {
+          expect(errorOutput()).toContain(
+            `exceeds the ${MAX_SSE_LINE_BYTES}-byte limit (MAX_SSE_LINE_BYTES)`,
+          );
+          expect(closedStreams.has("/mcp-get")).toBe(true);
+        },
+        { timeout: WAIT_TIMEOUT_MS, interval: 100 },
+      );
     },
     TEST_TIMEOUT_MS,
   );
