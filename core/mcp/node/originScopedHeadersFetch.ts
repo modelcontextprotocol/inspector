@@ -26,16 +26,23 @@
  * requests are left exactly as the SDK builds them, and only the requests that
  * must not carry the headers are touched.
  *
- * **What is removed.** The SDK's merge is `{ ...configured, ...own }`, so by
- * the time a request arrives here its own headers and the configured ones are
- * one set. A configured header is taken off when the request still carries
- * the configured value — that is, when the request did not set that name
- * itself. Two cases need care:
+ * **What is removed.** The SDK's merge is `{ ...configured, ...own }` over
+ * plain records, keyed by each name exactly as written, so by the time a
+ * request arrives here its own headers and the configured ones are one set. A
+ * configured header is taken off when the request still carries the
+ * configured value under the configured key — that is, when the request did
+ * not set it itself. The comparison follows the SDK's merge rather than
+ * `Headers`' rules, because the two disagree exactly where it matters:
  *
- *  - **The request set the same name in another case** (`accept` against a
- *    configured `Accept`). Both keys survive the SDK's merge and `Headers`
- *    joins them, configured value first; the configured part is cut off and
- *    the request's own value kept.
+ *  - **Each key is weighed on its own, as written.** A request that sets
+ *    `authorization` against a configured `Authorization` leaves both keys in
+ *    the merged record; the configured one still holds a configured value and
+ *    is removed, the request's own does not and is kept. Folding the names
+ *    together first would join the two values into one that matches neither.
+ *  - **Names match case-insensitively, against every value configured for
+ *    them** — each key's own, and the joined form `Headers` gives several
+ *    keys of one name — so a request whose headers reached here as a
+ *    `Headers` instance or a `Request` is covered too.
  *  - **{@link CROSS_ORIGIN_HEADERS} and `Content-Type` are left alone.** These
  *    are content negotiation and framing, which an OAuth request sets for
  *    itself and which say nothing about the user — the same list the
@@ -44,13 +51,23 @@
  *    one is never sent without it.
  */
 
-import { requestHeadersOf, requestUrlOf } from "../../auth/requestTimeout.js";
+import { requestUrlOf } from "../../auth/requestTimeout.js";
 import { CROSS_ORIGIN_HEADERS } from "./fetchGuard.js";
 
 /** Whether a configured header of this name stays on a request to another origin. */
 function staysCrossOrigin(name: string): boolean {
   const lower = name.toLowerCase();
   return lower === "content-type" || CROSS_ORIGIN_HEADERS.has(lower);
+}
+
+/**
+ * A header set as the record the SDK's merge works on: names as written, a
+ * repeated name resolved to its last value (`normalizeHeaders` in the SDK).
+ */
+function toRecord(headers: HeadersInit): Record<string, string> {
+  if (headers instanceof Headers) return Object.fromEntries(headers.entries());
+  if (Array.isArray(headers)) return Object.fromEntries(headers);
+  return { ...headers };
 }
 
 /**
@@ -69,6 +86,22 @@ export function createOriginScopedHeadersFetch(
 ): typeof fetch {
   if (headers === undefined) return fetchFn;
 
+  // Every value configured under each (lower-cased) name — each key's own, and
+  // the joined form `Headers` gives the name when several keys share it.
+  const configuredValues = new Map<string, Set<string>>();
+  for (const [key, value] of Object.entries(toRecord(headers))) {
+    if (staysCrossOrigin(key)) continue;
+    const lower = key.toLowerCase();
+    const values = configuredValues.get(lower) ?? new Set<string>();
+    values.add(value);
+    configuredValues.set(lower, values);
+  }
+  // Joined by hand rather than through `Headers`, which throws in Node on an
+  // illegal row — the transport reports that on the MCP request, not here.
+  for (const values of configuredValues.values()) {
+    if (values.size > 1) values.add([...values].join(", "));
+  }
+
   return async (input, init) => {
     let requestOrigin: string;
     try {
@@ -79,21 +112,19 @@ export function createOriginScopedHeadersFetch(
     }
     if (requestOrigin === origin) return fetchFn(input, init);
 
-    const sent = requestHeadersOf(input, init);
+    // `init.headers` replaces a `Request`'s own, matching `fetch`.
+    const sent = toRecord(
+      init?.headers ?? (input instanceof Request ? input.headers : {}),
+    );
     let changed = false;
-    // Through `Headers`, so names compare case-insensitively and values are
-    // normalized the same way on both sides.
-    new Headers(headers).forEach((value, name) => {
-      if (staysCrossOrigin(name)) return;
-      const current = sent.get(name);
-      if (current === value) {
-        sent.delete(name);
-        changed = true;
-      } else if (current?.startsWith(`${value}, `)) {
-        sent.set(name, current.slice(value.length + 2));
+    // Key by key, as the SDK's merge left them: a configured key the request
+    // did not overwrite still holds a configured value.
+    for (const [key, value] of Object.entries(sent)) {
+      if (configuredValues.get(key.toLowerCase())?.has(value)) {
+        delete sent[key];
         changed = true;
       }
-    });
+    }
     return changed
       ? fetchFn(input, { ...init, headers: sent })
       : fetchFn(input, init);

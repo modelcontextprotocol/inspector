@@ -93,19 +93,56 @@ describe("createOriginScopedHeadersFetch", () => {
       CONFIGURED,
     );
 
-    // The same name: the request's value replaced the configured one.
+    // The same key: the request's value replaced the configured one.
     await scoped(`${AS_ORIGIN}/token`, {
       headers: { ...CONFIGURED, Authorization: "Basic client-auth" },
     });
     expect(sentHeaders(inner).authorization).toBe("Basic client-auth");
     expect(sentHeaders(inner)["x-api-key"]).toBeUndefined();
 
-    // The same name in another case: both keys survive the SDK's merge and
-    // `Headers` joins them, so only the configured part is cut off.
+    // The same name in another case: both keys survive the SDK's merge, and
+    // only the configured one is removed.
     await scoped(`${AS_ORIGIN}/token`, {
       headers: { ...CONFIGURED, authorization: "Basic client-auth" },
     });
     expect(sentHeaders(inner).authorization).toBe("Basic client-auth");
+  });
+
+  it("removes a name configured under two spellings", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const twice = {
+      Authorization: "Bearer A",
+      authorization: "Bearer B",
+    };
+    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, twice);
+
+    // The request overwrote one spelling; the other still holds its value.
+    await scoped(`${AS_ORIGIN}/token`, {
+      headers: { ...twice, authorization: "Basic client-auth" },
+    });
+    expect(sentHeaders(inner)).toEqual({ authorization: "Basic client-auth" });
+
+    // Neither overwritten, and already joined by `Headers`.
+    await scoped(`${AS_ORIGIN}/token`, { headers: { ...twice } });
+    expect(sentHeaders(inner)).toEqual({});
+    await scoped(`${AS_ORIGIN}/token`, {
+      headers: new Headers([["authorization", "Bearer A, Bearer B"]]),
+    });
+    expect(sentHeaders(inner)).toEqual({});
+  });
+
+  it("resolves a repeated tuple to its last value, as the SDK does", async () => {
+    const inner = vi.fn<typeof fetch>(respond);
+    const tuples: [string, string][] = [
+      ["X-API-Key", "first"],
+      ["X-API-Key", "mcp-secret"],
+    ];
+    const scoped = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, tuples);
+
+    await scoped(`${AS_ORIGIN}/token`, {
+      headers: { "X-API-Key": "mcp-secret", "X-Other": "kept" },
+    });
+    expect(sentHeaders(inner)).toEqual({ "x-other": "kept" });
   });
 
   it("reads a Request's own headers, and leaves an unaffected request alone", async () => {
@@ -124,6 +161,10 @@ describe("createOriginScopedHeadersFetch", () => {
     const init = { headers: { "X-Other": "kept" } };
     await scoped(`${AS_ORIGIN}/token`, init);
     expect(inner).toHaveBeenLastCalledWith(`${AS_ORIGIN}/token`, init);
+
+    // No headers at all.
+    await scoped(`${AS_ORIGIN}/token`);
+    expect(inner).toHaveBeenLastCalledWith(`${AS_ORIGIN}/token`, undefined);
   });
 });
 
