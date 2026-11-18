@@ -41,6 +41,7 @@ as a missing capability rather than an error.
 | `mrtr-showcase-http.json` **(modern era)**                 | Every MRTR preset in one server                    | [#1860](https://github.com/modelcontextprotocol/inspector/issues/1860) |
 | `modern-network-http.json` **(modern era)**                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
 | `xmcpheader-modern-http.json` **(modern era)**             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
+| `language-preference-http.json` **(legacy era)** | SEP-2792 language preference: `_meta` `acceptLanguage` mirrored to `Accept-Language` (web) | [#2979](https://github.com/modelcontextprotocol/inspector/issues/2979) |
 | `pagination-http.json` **(legacy era)**                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
 | `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
@@ -344,6 +345,28 @@ Open the Network tab to see the mirrored `Mcp-*` headers highlighted, sentinel v
 Open the Tools tab: `get_weather`'s detail panel shows a **"Mirrored request headers (SEP-2243)"** section (`city → Mcp-Param-City`), and `invalid_header_tool` appears struck-through under an **"Excluded (SEP-2243)"** divider with the reason on hover. A conforming Streamable HTTP client MUST drop it from `tools/list`; the Inspector surfaces _why_.
 
 Under SDK v2 a `tools/call` rejecting with `-32602` renders as a distinct error panel rather than an `isError` result — headed **"Unknown Tool"** when the message names a missing tool, or **"Invalid Parameters"** otherwise (run `trigger_invalid_params`).
+
+## Language preferences (SEP-2792)
+
+[SEP-2792](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2792) carries a user's language preference on every request as `params._meta["io.modelcontextprotocol/acceptLanguage"]`, in `Accept-Language` syntax. On Streamable HTTP a client also mirrors it to the `Accept-Language` header, and the two must agree **exactly** — a server may reject a present header that differs (`400` / `HeaderMismatch`). The server reports the language it used in the result's `_meta["io.modelcontextprotocol/contentLanguage"]`.
+
+`language-preference-http.json` serves `localized_greeting` (plus `echo`) on port 3240. The tool answers in English, Spanish, French, German or Japanese — RFC 4647 lookup over the ranges in `q` order, falling back to English — and its text reports the `_meta` value and the `Accept-Language` header it actually received. A present header that does not equal `_meta` comes back as an `isError` result headed `HeaderMismatch`. An explicit `language` argument overrides the preference for that call.
+
+```bash
+npm run test-servers:build   # from clients/web
+node test-servers/build/server-composable.js --config test-servers/configs/language-preference-http.json
+```
+
+Then, in the web client:
+
+1. Add a Streamable HTTP server at `http://localhost:3240/mcp` and connect with the **default (legacy)** era.
+2. Open **Server Settings → Request Metadata** and enter `{ "io.modelcontextprotocol/acceptLanguage": "fr-CA, en;q=0.5" }`. No dedicated control exists: the generic editor stamps the key on every request's `_meta`, which is exactly the SEP's "send it on every request".
+3. Reconnect, then run `localized_greeting` from the Tools tab. The result reads `Bonjour, world!`, shows the same string for `_meta` and the header, and carries `contentLanguage: "fr"` in its `_meta`. Try `ja`, `de;q=0.2, es`, or `zh` (no match, so English).
+4. In the Network tab, any POST carrying the preference — `tools/list` included — shows `Accept-Language` with that exact value.
+
+The header is added by the web backend, **derived from the request's own `_meta`** (`core/mcp/acceptLanguage.ts`, applied in `core/mcp/remote/node/server.ts`), never accepted from the browser: the per-send header channel stays restricted to SEP-2243 `Mcp-Param-*` names. It overrides an `Accept-Language` configured in the server's custom headers, since anything else would be the mismatch the SEP forbids. Only a value HTTP can carry byte-for-byte is mirrored — a `_meta` string with surrounding whitespace, control or non-ASCII characters is not valid `Accept-Language` and gets no header.
+
+⚠️ **The CLI and TUI do not mirror yet.** Their connections are issued by Node's `fetch` directly, which sends `Accept-Language: *` on any request without one, so with an `acceptLanguage` set in metadata `localized_greeting` reports `HeaderMismatch` there — which is what a strict server would do too.
 
 ## Page-by-page fetching
 

@@ -61,6 +61,7 @@ import {
   writeOAuthSections,
 } from "../../../auth/node/oauth-persist-file.js";
 import { MCP_PARAM_HEADER_PREFIX } from "../../../json/xMcpHeader.js";
+import { acceptLanguageHeaderFor } from "../../acceptLanguage.js";
 import {
   DEFAULT_MAX_FETCH_REQUESTS,
   DEFAULT_TASK_TTL_MS,
@@ -693,6 +694,26 @@ export function mcpParamHeadersOnly(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/**
+ * The headers the backend applies to one upstream `transport.send`: the
+ * client's SEP-2243 `Mcp-Param-*` mirrors (allowlisted by
+ * {@link mcpParamHeadersOnly}), plus the SEP-2792 `Accept-Language` mirror
+ * derived from the message's own `_meta` (#2979). The language header is never
+ * taken from the client's header channel — only from the body it must agree
+ * with — so the allowlist is unchanged. Per-send headers override the server's
+ * configured `settings.headers`, which is what keeps the mirror exact when a
+ * configured `Accept-Language` is also present.
+ */
+export function upstreamSendHeaders(
+  message: unknown,
+  clientHeaders: unknown,
+): Record<string, string> | undefined {
+  const paramHeaders = mcpParamHeadersOnly(clientHeaders);
+  const languageHeader = acceptLanguageHeaderFor(message);
+  if (!paramHeaders && !languageHeader) return undefined;
+  return { ...paramHeaders, ...languageHeader };
+}
+
 /** Why a session ended, as its attached tab is told (#2831). */
 export const SESSION_TERMINATED_MESSAGE =
   "Session terminated from the Inspector's active session list";
@@ -1235,12 +1256,14 @@ export function createRemoteApp(
     try {
       // SEP-2243: apply the client's mirrored headers to the upstream request,
       // restricted to the `Mcp-Param-` prefix so a client can't inject other
-      // upstream headers. The StreamableHTTP transport merges these onto the
-      // outbound fetch; other transports ignore unknown send options.
-      const paramHeaders = mcpParamHeadersOnly(headers);
+      // upstream headers; SEP-2792: mirror the message's `_meta` language
+      // preference to `Accept-Language` (#2979). The StreamableHTTP transport
+      // merges these onto the outbound fetch; other transports ignore unknown
+      // send options.
+      const sendHeaders = upstreamSendHeaders(message, headers);
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
-        ...(paramHeaders && { headers: paramHeaders }),
+        ...(sendHeaders && { headers: sendHeaders }),
         requestSignal: upstreamAbort.signal,
       });
       if (responseWait) {

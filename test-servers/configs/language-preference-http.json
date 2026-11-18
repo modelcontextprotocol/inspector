@@ -1,0 +1,11 @@
+{
+  "serverInfo": {
+    "name": "language-preference-showcase",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "localized_greeting" }, { "preset": "echo" }],
+  "transport": {
+    "type": "streamable-http",
+    "port": 3240
+  }
+}

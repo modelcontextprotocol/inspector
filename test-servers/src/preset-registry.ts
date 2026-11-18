@@ -18,6 +18,7 @@ import {
   createGetSumTool,
   createDeadEndUnionTool,
   createGetWeatherTool,
+  createLocalizedGreetingTool,
   createInvalidHeaderTool,
   createSpecErrorTriggerTool,
   createWriteToStderrTool,
@@ -113,6 +114,8 @@ function resolveToolPreset(
       return createGetSumTool();
     case "get_weather":
       return createGetWeatherTool();
+    case "localized_greeting":
+      return createLocalizedGreetingTool();
     case "record_shipment_by":
       return createDeadEndUnionTool();
     case "invalid_header_tool":
