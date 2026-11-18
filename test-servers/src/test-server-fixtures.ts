@@ -316,7 +316,8 @@ export function selectGreetingLanguage(preference: string | undefined): string {
     const subtags = tag.split("-");
     while (subtags.length > 0) {
       const candidate = subtags.join("-");
-      if (candidate in GREETINGS) return candidate;
+      // Own keys only: `in` would also match `constructor`, `toString`, …
+      if (Object.hasOwn(GREETINGS, candidate)) return candidate;
       subtags.pop();
     }
   }

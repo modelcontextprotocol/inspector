@@ -158,6 +158,8 @@ describe("localized_greeting fixture (SEP-2792)", () => {
       ["*;q=0.9, fr;q=0.1", "en"],
       [" , ;q=1", "en"],
       ["de; level=1", "de"],
+      ["constructor", "en"],
+      ["toString, __proto__", "en"],
     ])("%j → %s", (preference, expected) => {
       expect(selectGreetingLanguage(preference)).toBe(expected);
     });
