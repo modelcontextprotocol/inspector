@@ -129,6 +129,16 @@ describe("createOriginScopedHeadersFetch", () => {
       headers: new Headers([["authorization", "Bearer A, Bearer B"]]),
     });
     expect(sentHeaders(inner)).toEqual({});
+
+    // Two spellings holding one value still join to two.
+    const same = createOriginScopedHeadersFetch(inner, MCP_ORIGIN, {
+      "X-API-Key": "secret",
+      "x-api-key": "secret",
+    });
+    await same(`${AS_ORIGIN}/token`, {
+      headers: new Headers([["x-api-key", "secret, secret"]]),
+    });
+    expect(sentHeaders(inner)).toEqual({});
   });
 
   it("resolves a repeated tuple to its last value, as the SDK does", async () => {

@@ -86,20 +86,20 @@ export function createOriginScopedHeadersFetch(
 ): typeof fetch {
   if (headers === undefined) return fetchFn;
 
-  // Every value configured under each (lower-cased) name — each key's own, and
-  // the joined form `Headers` gives the name when several keys share it.
-  const configuredValues = new Map<string, Set<string>>();
+  // Every value configured under each (lower-cased) name: each key's own, and
+  // the joined form `Headers` gives the name when several keys share it. That
+  // is joined from every key, before equal values collapse (`secret, secret`),
+  // and by hand rather than through `Headers`, which throws in Node on an
+  // illegal row — the transport reports that on the MCP request, not here.
+  const valuesByName = new Map<string, string[]>();
   for (const [key, value] of Object.entries(toRecord(headers))) {
     if (staysCrossOrigin(key)) continue;
     const lower = key.toLowerCase();
-    const values = configuredValues.get(lower) ?? new Set<string>();
-    values.add(value);
-    configuredValues.set(lower, values);
+    valuesByName.set(lower, [...(valuesByName.get(lower) ?? []), value]);
   }
-  // Joined by hand rather than through `Headers`, which throws in Node on an
-  // illegal row — the transport reports that on the MCP request, not here.
-  for (const values of configuredValues.values()) {
-    if (values.size > 1) values.add([...values].join(", "));
+  const configuredValues = new Map<string, Set<string>>();
+  for (const [name, values] of valuesByName) {
+    configuredValues.set(name, new Set([...values, values.join(", ")]));
   }
 
   return async (input, init) => {
