@@ -11,6 +11,7 @@ import {
   EXIT_CODES,
 } from "@inspector/core/cli/error-handler.js";
 import type { OutputFormat } from "@inspector/core/cli/handlers/format-output.js";
+import { skillVerificationEnvelopeCode } from "@inspector/core/cli/handlers/skills-verify.js";
 import type { CliAppInfo } from "@inspector/core/cli/handlers/method-types.js";
 import type { LoadSummary } from "@inspector/core/cli/handlers/load-test.js";
 import {
@@ -514,10 +515,7 @@ function applyExitCodes(payload: ConnectionWriteKind): void {
     // connection CLI's single exit path, same as the one-shot CLI's
     // `consumeMethodOutcome` (Copilot).
     throw new CliExitCodeError(payload.exitCode, payload.summary ?? "", {
-      code:
-        payload.exitCode === EXIT_CODES.SKILL_INCOMPLETE
-          ? "skills_incomplete"
-          : "skills_nonconformant",
+      code: skillVerificationEnvelopeCode(payload.exitCode),
     });
   }
   if (payload.kind === "rpc") {

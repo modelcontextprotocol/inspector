@@ -147,7 +147,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
 | `--advertise-apps`            | Advertise the MCP Apps UI extension (`io.modelcontextprotocol/ui`) at `initialize`. Off by default, because the CLI cannot render an App and a server decides whether to return one from that advertisement. Set it when a server only exposes its App tools to a client that claims App support — typically alongside `--app-info`. |
 | `--strict`                    | With `--method tools/list`: report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit `6` if any is error-severity. Without it, a one-line count is printed instead. See [Schema portability](#schema-portability---strict). |
-| `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
+| `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails (or `13` if `skills/list` returned none to check). See [Skill verification](#skill-verification---verify). |
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--skill-catalog-max-skills <n>` | With `--verify` (required; rejected without it, since it would bound nothing): the skills catalog budget, the most skills whose files one run reads (default `256`). Positive integer; anything else is rejected before connecting. Overrides the server's [`skillCatalogMaxSkills`](../../docs/mcp-server-configuration.md#inspector-specific-per-server-fields) from the catalog/config file — the same setting the web client exposes per server in Server Settings. Skills past the budget are reported `incomplete` (exit `8`). |
 | `--skill-catalog-max-bytes <n>`  | With `--verify` (required): the skills catalog budget, the most bytes one run reads across all skills (default `67108864`, 64 MiB). Positive integer. Overrides the server's [`skillCatalogMaxBytes`](../../docs/mcp-server-configuration.md#inspector-specific-per-server-fields). |
@@ -1195,6 +1195,16 @@ different answers:
 
 When a catalog mixes them, the exit code is the loudest: `7` over `8` over `9`.
 
+**An empty catalog is not a pass.** When `skills/list` returns no skills there
+is no report to give an outcome to, and "every skill verified" would be
+vacuously true — so the run prints `No skills to verify: skills/list returned
+an empty catalog, so nothing was checked.` and exits `13` (`skills_empty`)
+rather than `0` (#2986). This is the case a CI gate most needs caught: a server
+that skips every skill it cannot load (malformed frontmatter, a wrong root)
+serves an empty listing, not an error. The server broke no MUST by serving
+none, which is why it has a code of its own: a job pointed at a server that
+legitimately has no skills allows `13` and still fails on `7`.
+
 **The run is bounded, and says when a bound bit.** Three limits, all reported as
 `incomplete` (`8`) rather than as a pass or a failure, because an entry that was
 not read has not been cleared of anything:
@@ -1263,6 +1273,7 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
+| `13` | `--method skills/list --verify` had nothing to verify (`skills_empty` — the server returned an empty catalog, so no skill was checked). Not a violation; non-zero because "verified" over no skills would be a false pass. A job that expects an empty catalog can allow `13`. |
 | `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`, `load_regression` for `--load-max-regression`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 | `12` | The OAuth destination guard refused a URL (`fetch_refused` — a link-local or cloud-metadata address, a non-http(s) scheme, or a redirect it will not follow). A policy refusal rather than a network failure, so unlike `4` a retry repeats it. |

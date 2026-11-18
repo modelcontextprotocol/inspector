@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { runMethod } from "@inspector/core/cli/handlers/run-method.js";
 import {
+  skillVerificationEnvelopeCode,
   skillVerificationExitCode,
   summarizeSkillVerification,
 } from "@inspector/core/cli/handlers/skills-verify.js";
@@ -245,6 +246,21 @@ describe("runMethod skills dispatch (#2248)", () => {
     );
   });
 
+  it("exits 13 and never says Verified over an empty catalog (#2986)", async () => {
+    // `allSkillsVerified([])` is vacuously true, so a server whose skills were
+    // all dropped at load used to pass the gate with "Verified 0 skills".
+    const outcome = await runMethod(mockClient(), {
+      method: "skills/list",
+      verify: true,
+    });
+    if (outcome.kind !== "ndjson") throw new Error("unreachable");
+    expect(outcome.lines).toEqual([]);
+    expect(outcome.exitCode).toBe(EXIT_CODES.SKILL_CATALOG_EMPTY);
+    expect(outcome.summary).toBe(
+      "No skills to verify: skills/list returned an empty catalog, so nothing was checked.",
+    );
+  });
+
   describe("a dynamic skill (#2405)", () => {
     const dynamicEntry: SkillEntry = {
       uri: "skill://demo/SKILL.md",
@@ -415,6 +431,14 @@ describe("skillVerificationExitCode (#2405)", () => {
     [string, SkillVerifyReport["outcome"][], boolean, number | undefined]
   >([
     ["all verified", ["verified"], true, undefined],
+    // #2986: no reports is not "all verified", with or without the flag.
+    ["empty catalog, default", [], false, EXIT_CODES.SKILL_CATALOG_EMPTY],
+    [
+      "empty catalog, --require-digests",
+      [],
+      true,
+      EXIT_CODES.SKILL_CATALOG_EMPTY,
+    ],
     ["unverifiable, default", ["verified", "unverifiable"], false, undefined],
     [
       "unverifiable, --require-digests",
@@ -447,7 +471,19 @@ describe("skillVerificationExitCode (#2405)", () => {
         EXIT_CODES.SKILL_NONCONFORMANT,
         EXIT_CODES.SKILL_INCOMPLETE,
         EXIT_CODES.SKILL_UNVERIFIABLE,
+        EXIT_CODES.SKILL_CATALOG_EMPTY,
       ]).size,
-    ).toBe(3);
+    ).toBe(4);
+  });
+});
+
+describe("skillVerificationEnvelopeCode (#2986)", () => {
+  it.each([
+    [EXIT_CODES.SKILL_NONCONFORMANT, "skills_nonconformant"],
+    [EXIT_CODES.SKILL_INCOMPLETE, "skills_incomplete"],
+    [EXIT_CODES.SKILL_UNVERIFIABLE, "skills_unverifiable"],
+    [EXIT_CODES.SKILL_CATALOG_EMPTY, "skills_empty"],
+  ])("maps exit %i to %s", (exitCode, code) => {
+    expect(skillVerificationEnvelopeCode(exitCode)).toBe(code);
   });
 });
