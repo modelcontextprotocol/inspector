@@ -41,6 +41,7 @@ as a missing capability rather than an error.
 | `mrtr-showcase-http.json` **(modern era)**                 | Every MRTR preset in one server                    | [#1860](https://github.com/modelcontextprotocol/inspector/issues/1860) |
 | `modern-network-http.json` **(modern era)**                | Network tab: `Mcp-*` headers + error taxonomy      | [#1628](https://github.com/modelcontextprotocol/inspector/issues/1628) |
 | `xmcpheader-modern-http.json` **(modern era)**             | Tools tab: `x-mcp-header` mirroring and exclusions | [#1632](https://github.com/modelcontextprotocol/inspector/issues/1632) |
+| `language-preference-http.json` **(legacy era)** | SEP-2792 language preference: `_meta` `acceptLanguage` mirrored to `Accept-Language` (all clients) | [#2979](https://github.com/modelcontextprotocol/inspector/issues/2979), [#2987](https://github.com/modelcontextprotocol/inspector/issues/2987) |
 | `pagination-http.json` **(legacy era)**                    | Page-by-page list fetching                         | [#1721](https://github.com/modelcontextprotocol/inspector/issues/1721) |
 | `empty-cursor-http.json` **(legacy era)**                   | Pagination whose page-two cursor is `""`            | [#2220](https://github.com/modelcontextprotocol/inspector/issues/2220) |
 | `structured-output-http.json` **(legacy era)**             | Tools tab: a result's `structuredContent` section  | [#1908](https://github.com/modelcontextprotocol/inspector/issues/1908) |
@@ -60,6 +61,7 @@ as a missing capability rather than an error.
 | `oauth-stalled-{token,discovery}-http.json` **(legacy era)** | An OAuth endpoint that accepts the request and never answers, so the OAuth-path request timeouts fire against a real idle socket | [#2382](https://github.com/modelcontextprotocol/inspector/issues/2382) |
 | `logging-{legacy,modern}-http.json` **(era per file)** | Logging, both eras                                  | [#1629](https://github.com/modelcontextprotocol/inspector/issues/1629) |
 | `subscriptions-{legacy,modern}-http.json` **(era per file)** | Resource subscriptions, both eras                   | [#1630](https://github.com/modelcontextprotocol/inspector/issues/1630) |
+| `subscriptions-broadcast-http.json` **(legacy era)** | A resource update that reaches **every** subscribed session — the server for a `--load-subscribe` fan-out run | [#2964](https://github.com/modelcontextprotocol/inspector/issues/2964) |
 | `subscriptions-never-acknowledged-http.json` **(modern era)** | A `subscriptions/listen` answered with a bare result  | [#2097](https://github.com/modelcontextprotocol/inspector/issues/2097) |
 | `subscriptions-listen-refused-http.json` **(modern era)** | A `subscriptions/listen` refused with a bare HTTP 403 | [#2722](https://github.com/modelcontextprotocol/inspector/issues/2722) |
 | `tasks-{legacy,modern}-http.json` **(era per file)** | Tasks, both eras                                    | [#1631](https://github.com/modelcontextprotocol/inspector/issues/1631) |
@@ -343,6 +345,36 @@ Open the Network tab to see the mirrored `Mcp-*` headers highlighted, sentinel v
 Open the Tools tab: `get_weather`'s detail panel shows a **"Mirrored request headers (SEP-2243)"** section (`city → Mcp-Param-City`), and `invalid_header_tool` appears struck-through under an **"Excluded (SEP-2243)"** divider with the reason on hover. A conforming Streamable HTTP client MUST drop it from `tools/list`; the Inspector surfaces _why_.
 
 Under SDK v2 a `tools/call` rejecting with `-32602` renders as a distinct error panel rather than an `isError` result — headed **"Unknown Tool"** when the message names a missing tool, or **"Invalid Parameters"** otherwise (run `trigger_invalid_params`).
+
+## Language preferences (SEP-2792)
+
+[SEP-2792](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2792) carries a user's language preference on every request as `params._meta["io.modelcontextprotocol/acceptLanguage"]`, in `Accept-Language` syntax. On Streamable HTTP a client also mirrors it to the `Accept-Language` header, and the two must agree **exactly** — a server may reject a present header that differs (`400` / `HeaderMismatch`). The server reports the language it used in the result's `_meta["io.modelcontextprotocol/contentLanguage"]`.
+
+`language-preference-http.json` serves `localized_greeting` (plus `echo`) on port 3240. The tool answers in English, Spanish, French, German or Japanese — RFC 4647 lookup over the ranges in `q` order, falling back to English — and its text reports the `_meta` value and the `Accept-Language` header it actually received. A present header that does not equal `_meta` comes back as an `isError` result headed `HeaderMismatch`. An explicit `language` argument overrides the preference for that call.
+
+```bash
+npm run test-servers:build   # from clients/web
+node test-servers/build/server-composable.js --config test-servers/configs/language-preference-http.json
+```
+
+Then, in the web client:
+
+1. Add a Streamable HTTP server at `http://localhost:3240/mcp` and connect with the **default (legacy)** era.
+2. Open **Server Settings → Request Metadata** and enter `{ "io.modelcontextprotocol/acceptLanguage": "fr-CA, en;q=0.5" }`. No dedicated control exists: the generic editor stamps the key on every request's `_meta`, which is exactly the SEP's "send it on every request".
+3. Reconnect, then run `localized_greeting` from the Tools tab. The result reads `Bonjour, world!`, shows the same string for `_meta` and the header, and carries `contentLanguage: "fr"` in its `_meta`. Try `ja`, `de;q=0.2, es`, or `zh` (no match, so English).
+4. In the Network tab, any POST carrying the preference — `tools/list` included — shows `Accept-Language` with that exact value.
+
+The header is **derived from each request's own `_meta`** by the Streamable HTTP transport every client shares (`core/mcp/node/languageMirroringTransport.ts`, using `core/mcp/acceptLanguage.ts`), so the CLI and TUI mirror it exactly as the web client does ([#2987](https://github.com/modelcontextprotocol/inspector/issues/2987)). On the web it is never accepted from the browser: the backend's per-send header channel stays restricted to SEP-2243 `Mcp-Param-*` names. The mirror overrides an `Accept-Language` configured in the server's custom headers, since anything else would be the mismatch the SEP forbids. Only a value HTTP can carry byte-for-byte is mirrored — a `_meta` string with surrounding whitespace, control or non-ASCII characters is not valid `Accept-Language` and gets no header.
+
+From the CLI, pass the preference as metadata:
+
+```bash
+mcp-inspector --cli http://localhost:3240/mcp --transport http \
+  --method tools/call --tool-name localized_greeting \
+  --metadata "io.modelcontextprotocol/acceptLanguage=de-AT, de;q=0.9"
+```
+
+⚠️ Node's `fetch` sends `Accept-Language: *` on any request without one. That is harmless with no preference set, but it means a `_meta` value too malformed to mirror still arrives beside `*`, and `localized_greeting` (like a strict server) reports `HeaderMismatch`.
 
 ## Page-by-page fetching
 
@@ -716,6 +748,28 @@ That gating is faithful to the spec ("a server MUST NOT emit `notifications/mess
 The modern config deliberately **omits** `update_resource`. The SDK's modern leg is stateless/per-request (`createMcpHandler(() => createMcpServer(config))`), so the tool would run against a throwaway server instance — the content change wouldn't persist for the next `resources/read`, and its `resources/updated` wouldn't reach the separate listen stream. More confusing than useful.
 
 So the live update-notification round-trip is demonstrated on the legacy (stateful-session) server, and the modern server is for the subscribe/listen/badge behavior. The Inspector's _receive_ path is era-transparent, so a real stateful modern server that routes `resources/updated` onto the listen stream drives the subscribed tile the same way.
+
+## Resource updates fanned out to every session
+
+`subscriptions-broadcast-http.json` serves the same three `numbered_resources` and `update_resource` tool as `subscriptions-legacy-http.json`, plus `broadcastResourceUpdates: true`. It is the server to point `--load-subscribe` ([CLI README](../clients/cli/README.md#notification-fan-out---load-subscribe)) at by hand. Connect with the legacy era.
+
+Over Streamable HTTP each session of the composable server is its own server instance, so on the stock legacy config `update_resource` changes and notifies **only the session that called it**. A fan-out run against it reports every other subscriber as missed — correctly, since nothing was sent to them:
+
+```sh
+node test-servers/build/server-composable.js --config test-servers/configs/subscriptions-legacy-http.json
+mcp-inspector --cli http://127.0.0.1:3221/mcp --transport http --method tools/call \
+  --tool-name update_resource --tool-arg uri=test://resource_1 --tool-arg 'text=v{{seq}}' \
+  --load --load-requests 10 --load-subscribe test://resource_1 --load-subscribers 5 --format text
+#  Delivered:  10 of 50 notifications (10 updates × 5), 40 missed across 4 sessions, 0 unexpected
+```
+
+`broadcastResourceUpdates` gives the server one hub shared by every session (`test-servers/src/resource-update-broadcast.ts`). Each session joins it once initialized and leaves when its connection closes, and `update_resource` publishes through it: every session's copy of the resource takes the new text, and every session subscribed to it gets `notifications/resources/updated`. The same run against port `3225` delivers them all:
+
+```
+#  Delivered:  50 of 50 notifications (10 updates × 5), 0 missed across 0 sessions, 0 unexpected
+```
+
+The latest text per URI is kept, so a session opened after an update — a `resources/read` from a fresh CLI call, or a subscriber re-reading on notification — serves the updated content rather than the preset's. The tool's result says how many subscribed sessions it notified. In-process, pass `resourceUpdateBroadcast: createResourceUpdateBroadcast()` on the `ServerConfig` instead.
 
 ## A listen that is never acknowledged
 

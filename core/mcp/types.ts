@@ -193,6 +193,12 @@ export type StoredMCPServer = MCPServerConfig & {
    */
   suppressNotificationStream?: boolean;
   /**
+   * When true, an HTTP (Streamable HTTP or legacy SSE) connection keeps a
+   * connection-scoped cookie jar. See {@link InspectorServerSettings.cookieJar}.
+   * Inspector-specific. Omitted on disk when false (the default). (#2936)
+   */
+  cookieJar?: boolean;
+  /**
    * Per-extension overrides for which extensions the Inspector advertises to
    * this server (keyed by extension id; a present key wins over the registry
    * default). Inspector-specific. Omitted on disk when empty, keeping the file
@@ -1039,6 +1045,18 @@ export interface InspectorServerSettings {
    * transports. Default false.
    */
   suppressNotificationStream?: boolean;
+  /**
+   * When true, a Streamable HTTP or legacy SSE connection keeps an in-memory
+   * cookie jar for the server's origin: `Set-Cookie` from its responses is
+   * stored and replayed as `Cookie` on later requests to the same origin
+   * (#2936). For servers deployed as several replicas behind a load balancer
+   * that routes by cookie affinity — without it, every request after
+   * `initialize` may land on a replica that does not hold the MCP session and
+   * fail with `404 Session not found`. The jar lives for one connection (a
+   * reconnect starts empty), is never persisted, and never touches requests to
+   * another origin. Read at connect time; no effect on stdio. Default false.
+   */
+  cookieJar?: boolean;
   /**
    * Maximum number of HTTP fetch requests retained in the Network log for this
    * server. When exceeded, the oldest entries rotate out (and any deferred

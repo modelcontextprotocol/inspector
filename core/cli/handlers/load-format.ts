@@ -37,6 +37,15 @@ export function formatLoadSummaryHuman(
       : summary.steps !== undefined
         ? ` scenario (${summary.steps.length} ${summary.steps.length === 1 ? "step" : "steps"})`
         : "";
+  // A stepped run keeps its `--load-rate` figures on each stage, not the
+  // top level (#2841), so a run stepping concurrency at one fixed rate
+  // reads that rate back from its stages (#2965). Stepping the rate has no
+  // single target to show: each stage line names its own.
+  const targetRate =
+    summary.rate ??
+    (summary.stages?.[0]?.stepBy === "concurrency"
+      ? summary.stages[0].rate
+      : undefined);
   const bounds = [
     `concurrency ${summary.concurrency}`,
     ...(summary.durationMs !== undefined
@@ -45,7 +54,7 @@ export function formatLoadSummaryHuman(
     ...(summary.requestLimit !== undefined
       ? [`limit ${summary.requestLimit}`]
       : []),
-    ...(summary.rate !== undefined ? [`rate ${summary.rate}/s`] : []),
+    ...(targetRate !== undefined ? [`rate ${targetRate}/s`] : []),
     ...(summary.openLoop === true ? ["open loop"] : []),
     ...(summary.churn !== undefined ? ["churn"] : []),
     ...(summary.workers !== undefined

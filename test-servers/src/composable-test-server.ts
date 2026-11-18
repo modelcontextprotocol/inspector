@@ -13,6 +13,10 @@ import {
   isCompletable,
   isInputRequiredResult,
 } from "@modelcontextprotocol/server";
+import {
+  setResourceText,
+  type ResourceUpdateBroadcast,
+} from "./resource-update-broadcast.js";
 import type {
   Implementation,
   Tool,
@@ -115,6 +119,13 @@ export interface HandlerExtra {
   inputResponses?: Record<string, unknown>;
   /** MRTR: the opaque `requestState` the client echoed on retry (resolved value). */
   requestState?: unknown;
+  /**
+   * The inbound HTTP request's headers, on an HTTP transport (`ctx.http.req`).
+   * Undefined on stdio. Lets a fixture report what actually arrived on the
+   * wire — e.g. whether a SEP-2792 `Accept-Language` mirror agrees with the
+   * request's `_meta` (#2979).
+   */
+  requestHeaders?: Headers;
 }
 
 /** Minimal structural view of `ctx.mcpReq` for building {@link HandlerExtra}. */
@@ -155,6 +166,7 @@ function toHandlerExtra(ctx: ServerContext | undefined): HandlerExtra {
     log: mcpReq?.log?.bind(mcpReq),
     inputResponses: mcpReq?.inputResponses,
     requestState: mcpReq?.requestState?.(),
+    requestHeaders: ctx?.http?.req?.headers,
   };
 }
 
@@ -199,6 +211,8 @@ export interface TestServerContext {
   server: McpServer;
   state: ServerState;
   serverControl?: { isClosing(): boolean };
+  /** The cross-session hub, when {@link ServerConfig.resourceUpdateBroadcast} is set. */
+  resourceUpdateBroadcast?: ResourceUpdateBroadcast;
 }
 
 // ---------------------------------------------------------------------------
@@ -898,6 +912,15 @@ export interface ServerConfig {
    * collects the contexts here and sends to each.
    */
   onResourceSubscribe?: (uri: string, context: TestServerContext) => void;
+  /**
+   * Share resource updates across every session this config builds (#2964).
+   * Each session joins the hub and leaves when its connection closes, and
+   * `update_resource` publishes through it — so one call changes the resource
+   * in every session and notifies each one subscribed, the shape a
+   * `--load-subscribe` fan-out run needs. Pass one hub per server: a config
+   * file sets `broadcastResourceUpdates: true` and `resolveConfig` creates it.
+   */
+  resourceUpdateBroadcast?: ResourceUpdateBroadcast;
 }
 
 /**
@@ -1033,6 +1056,9 @@ export function createMcpServer(config: ServerConfig): McpServer {
     server: mcpServer,
     state,
     ...(config.serverControl && { serverControl: config.serverControl }),
+    ...(config.resourceUpdateBroadcast && {
+      resourceUpdateBroadcast: config.resourceUpdateBroadcast,
+    }),
   };
 
   // Set up logging handler if logging is enabled. `logging/setLevel` is a spec
@@ -1175,9 +1201,14 @@ export function createMcpServer(config: ServerConfig): McpServer {
                 },
               ];
             }
+            // Carry a handler's `isError` and result `_meta` through, so a
+            // fixture can return a tool-level error or report result metadata
+            // (e.g. SEP-2792 `contentLanguage`, #2979).
             return {
               content,
               ...(structuredContent !== undefined && { structuredContent }),
+              ...(result?.isError === true && { isError: true }),
+              ...(result?._meta != null && { _meta: result._meta }),
             };
           },
         );
@@ -1737,7 +1768,57 @@ export function createMcpServer(config: ServerConfig): McpServer {
     wireExtensionGatedTools(mcpServer, state, config.extensionGatedTools);
   }
 
+  // Cross-session resource updates (#2964). Wired after the resources are
+  // registered, so the hub's replay of earlier updates has copies to apply to.
+  if (config.resourceUpdateBroadcast) {
+    wireResourceUpdateBroadcast(
+      mcpServer,
+      state,
+      config.resourceUpdateBroadcast,
+    );
+  }
+
   return mcpServer;
+}
+
+/**
+ * Join `broadcast` as this session once the client completes initialization,
+ * and leave it when the connection closes. Joining on `initialized` rather
+ * than at construction keeps out a server that never becomes a session — a
+ * sessionless HTTP POST the transport rejects builds one, registers it
+ * nowhere and never closes it, so a hub joined at construction would hold it
+ * forever. Nothing can subscribe before `initialized`, and the hub replays
+ * the latest updates on join, so no update is lost by waiting. Chains any
+ * `oninitialized` / `onclose` already set rather than replacing them.
+ */
+function wireResourceUpdateBroadcast(
+  mcpServer: McpServer,
+  state: ServerState,
+  broadcast: ResourceUpdateBroadcast,
+): void {
+  let leave: (() => void) | undefined;
+  const previousOnInitialized = mcpServer.server.oninitialized;
+  mcpServer.server.oninitialized = () => {
+    leave ??= broadcast.join({
+      apply: (uri, text) => {
+        setResourceText(state.registeredResources, uri, text);
+      },
+      notify: async (uri) => {
+        if (!state.resourceSubscriptions.has(uri)) {
+          return false;
+        }
+        await mcpServer.server.sendResourceUpdated({ uri });
+        return true;
+      },
+    });
+    previousOnInitialized?.();
+  };
+  const previousOnClose = mcpServer.server.onclose;
+  mcpServer.server.onclose = () => {
+    leave?.();
+    leave = undefined;
+    previousOnClose?.();
+  };
 }
 
 /**

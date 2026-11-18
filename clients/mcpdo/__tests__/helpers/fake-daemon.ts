@@ -11,23 +11,23 @@
  */
 import * as fs from "node:fs";
 import type * as net from "node:net";
-import * as path from "node:path";
 import { computeDaemonProof } from "../../src/daemon/auth.js";
+import { getDaemonTokenPath } from "../../src/daemon/paths.js";
 
 /** Token the fakes hold, unless a test passes its own. */
 export const FAKE_DAEMON_TOKEN = "fake-daemon-token";
 
 /**
- * Publish `token` as `mcpdod.token` next to a fake's Unix socket, where a
- * client given only `socketPath` looks for it.
+ * Publish `token` as `mcpdod.token` in the fake's daemon directory, where a
+ * client passed that `dir` looks for it. Keyed by the directory rather than
+ * the endpoint: on Windows the endpoint is a named pipe, which has no
+ * directory to derive (see `helpers/daemon-endpoint.ts`).
  */
 export function publishFakeDaemonToken(
-  socketPath: string,
+  dir: string,
   token: string = FAKE_DAEMON_TOKEN,
 ): void {
-  fs.writeFileSync(path.join(path.dirname(socketPath), "mcpdod.token"), token, {
-    mode: 0o600,
-  });
+  fs.writeFileSync(getDaemonTokenPath(dir), token, { mode: 0o600 });
 }
 
 /** The proof a genuine daemon holding `token` returns for one hello line. */

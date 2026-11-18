@@ -263,6 +263,119 @@ describe("LinearPatternJsonSchemaValidator — bounded pattern compilation", () 
       'data must match pattern "^(a{9000}|z)$"',
     );
   });
+
+  it("does not carry a pattern declined for one schema's budget into a later schema (#2934)", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const heavy: JsonSchemaType = {
+      type: "object",
+      properties: {
+        ...properties,
+        late: { type: "string", pattern: "^[a-z]+$" },
+      },
+    };
+    expect(
+      provider.getValidator(heavy)({ late: "abc" }).errorMessage,
+    ).toContain(
+      'pattern "^[a-z]+$" was not evaluated (the patterns together exceed the compilation budget)',
+    );
+
+    const validate = provider.getValidator({
+      type: "string",
+      pattern: "^[a-z]+$",
+    });
+    expect(validate("abc")).toEqual({
+      valid: true,
+      data: "abc",
+      errorMessage: undefined,
+    });
+    expect(validate("ABC").errorMessage).toBe(
+      'data must match pattern "^[a-z]+$"',
+    );
+
+    // The heavy schema still reports its own decline.
+    expect(
+      provider.getValidator(heavy)({ late: "abc" }).errorMessage,
+    ).toContain(
+      'pattern "^[a-z]+$" was not evaluated (the patterns together exceed the compilation budget)',
+    );
+  });
+});
+
+describe("LinearPatternJsonSchemaValidator — schemas sharing a $id (#2935)", () => {
+  it("validates a changed schema that kept its $id against the new schema", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const before: JsonSchemaType = {
+      $id: "urn:example:weather-output",
+      type: "object",
+      properties: { temp: { type: "number" } },
+      required: ["temp"],
+    };
+    const after: JsonSchemaType = {
+      $id: "urn:example:weather-output",
+      type: "object",
+      properties: { temp: { type: "string", pattern: "^-?\\d+C$" } },
+      required: ["temp"],
+    };
+    expect(provider.getValidator(before)({ temp: 21 }).valid).toBe(true);
+    expect(provider.getValidator(after)({ temp: "21C" }).valid).toBe(true);
+    expect(provider.getValidator(after)({ temp: 21 }).errorMessage).toBe(
+      "data/temp must be string",
+    );
+  });
+
+  it("validates each of two schemas declaring the same $id against itself, in any order", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const a: JsonSchemaType = {
+      $id: "output",
+      type: "object",
+      required: ["a"],
+    };
+    const b: JsonSchemaType = {
+      $id: "output",
+      type: "object",
+      required: ["b"],
+    };
+    expect(provider.getValidator(a)({ a: 1 }).valid).toBe(true);
+    expect(provider.getValidator(b)({ b: 1 }).valid).toBe(true);
+    expect(provider.getValidator(a)({ b: 1 }).errorMessage).toBe(
+      "data must have required property 'a'",
+    );
+    expect(provider.getValidator(b)({ a: 1 }).errorMessage).toBe(
+      "data must have required property 'b'",
+    );
+  });
+
+  it("replaces a $id written with a trailing empty fragment", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    expect(
+      provider.getValidator({ $id: "urn:example:out#", type: "string" })("s")
+        .valid,
+    ).toBe(true);
+    expect(
+      provider.getValidator({ $id: "urn:example:out#", type: "number" })(1)
+        .valid,
+    ).toBe(true);
+  });
+
+  it("replaces a $id an earlier schema's $defs registered without breaking that schema", () => {
+    const provider = new LinearPatternJsonSchemaValidator();
+    const outer = provider.getValidator({
+      type: "object",
+      properties: { n: { $ref: "urn:example:n" } },
+      $defs: { n: { $id: "urn:example:n", type: "string" } },
+    });
+    expect(outer({ n: "s" }).valid).toBe(true);
+
+    const replacement = provider.getValidator({
+      $id: "urn:example:n",
+      type: "number",
+    });
+    expect(replacement(1).valid).toBe(true);
+    expect(replacement("s").valid).toBe(false);
+
+    expect(outer({ n: "s" }).valid).toBe(true);
+    expect(outer({ n: 1 }).errorMessage).toBe("data/n must be string");
+  });
 });
 
 describe("validateToolOutput with the bounded provider", () => {

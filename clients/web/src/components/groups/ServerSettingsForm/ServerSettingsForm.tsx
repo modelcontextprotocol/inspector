@@ -116,6 +116,8 @@ export interface ServerSettingsFormProps {
   onPaginatedListsChange: (value: boolean) => void;
   /** Toggle the standalone `GET` notification stream suppression (#2317). */
   onSuppressNotificationStreamChange: (value: boolean) => void;
+  /** Toggle the connection-scoped HTTP cookie jar (#2936). */
+  onCookieJarChange: (value: boolean) => void;
   /**
    * Toggle whether the Inspector advertises the extension `key` to this server.
    * `checked` is the new advertise state; the modal folds it into
@@ -506,6 +508,7 @@ export function ServerSettingsForm({
   onAutoRefreshChange,
   onPaginatedListsChange,
   onSuppressNotificationStreamChange,
+  onCookieJarChange,
   onAdvertisedExtensionChange,
   rendersApps = true,
   onMaxFetchRequestsChange,
@@ -564,6 +567,9 @@ export function ServerSettingsForm({
   // no-op there (#2317). `auto` keeps it, since it may resolve to legacy.
   const showSuppressNotificationStream =
     serverType === "streamable-http" && configuredEra !== "modern";
+  // Cookies only exist on the HTTP transports; stdio has no use for a jar.
+  const showCookieJar =
+    serverType === "streamable-http" || serverType === "sse";
   const showModernLogLevel =
     configuredEra === "modern" ||
     (configuredEra === "auto" && negotiatedEra !== "legacy");
@@ -778,6 +784,14 @@ export function ServerSettingsForm({
                 onChange={(e) =>
                   onSuppressNotificationStreamChange(e.currentTarget.checked)
                 }
+              />
+            ) : null}
+            {showCookieJar ? (
+              <Checkbox
+                label="Enable HTTP Cookie Jar (sticky sessions)"
+                description="When checked, cookies the server sets are stored for this connection and sent back on later requests to the same origin. Use it for a server running as several replicas behind a load balancer that routes by cookie affinity, where requests after initialize otherwise land on a replica without the session and fail with 404 Session not found. Cookies are kept in memory for one connection only, never saved, and never sent to another origin. Takes effect on the next connect."
+                checked={settings.cookieJar ?? false}
+                onChange={(e) => onCookieJarChange(e.currentTarget.checked)}
               />
             ) : null}
             <LogSizeInput

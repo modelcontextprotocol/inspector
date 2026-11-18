@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Box, Text, useInput, type Key } from "ink";
-import { Form } from "ink-form";
+import { GatedForm } from "./GatedForm.js";
 import { InspectorClient } from "@inspector/core/mcp/index.js";
 import { AuthRecoveryRequiredError } from "@inspector/core/auth/challenge.js";
 import type { Tool, CallToolResult } from "@modelcontextprotocol/client";
@@ -36,6 +36,7 @@ interface ToolTestModalProps {
   /**
    * False while a pending sampling/elicitation request (#2829) is open above
    * this overlay, so a key meant for that request does not also act here.
+   * Its form is unmounted meanwhile, draft kept (`GatedForm`, #2967).
    */
   inputActive?: boolean;
   onAuthRecoveryRequired?: (error: AuthRecoveryRequiredError) => void;
@@ -267,9 +268,6 @@ export function ToolTestModal({
   };
 
   const handleFormSubmit = async (rawValues: Record<string, JsonValue>) => {
-    // A pending sampling/elicitation request (#2829) is open above this
-    // modal: ink-form still sees its keys, so Enter must not submit here.
-    if (!inputActive) return;
     if (!inspectorClient || !tool) return;
 
     // A root union renders every alternative as its own section, under prefixed
@@ -409,8 +407,9 @@ export function ToolTestModal({
         <Box flexGrow={1} flexDirection="column" overflow="hidden">
           {state === "form" && (
             <Box flexGrow={1} width="100%">
-              <Form
+              <GatedForm
                 form={untitledForm(formStructure)}
+                active={inputActive}
                 customManagers={FORM_FIELD_MANAGERS}
                 onSubmit={(value: object) =>
                   void handleFormSubmit(value as Record<string, JsonValue>)

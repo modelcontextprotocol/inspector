@@ -35,6 +35,7 @@ import type {
   ShapeOutput,
 } from "./composable-test-server.js";
 import { getTestServerControl } from "./test-server-control.js";
+import { setResourceText } from "./resource-update-broadcast.js";
 
 /** Build a CallToolResult from a text message (and optional isError). */
 function toToolResult(text: string, isError?: boolean): CallToolResult {
@@ -268,6 +269,131 @@ export function createGetWeatherTool(): ToolDefinition {
     },
     handler: async (params: Record<string, unknown>) => {
       return toToolResult(`Weather in ${params.city as string}: sunny, 24°C`);
+    },
+  };
+}
+
+/** SEP-2792 request `_meta` key carrying the caller's language preference. */
+export const ACCEPT_LANGUAGE_META_KEY =
+  "io.modelcontextprotocol/acceptLanguage";
+/** SEP-2792 result `_meta` key reporting the language actually used. */
+export const CONTENT_LANGUAGE_META_KEY =
+  "io.modelcontextprotocol/contentLanguage";
+
+/** The greetings {@link createLocalizedGreetingTool} can answer in. */
+const GREETINGS: Readonly<Record<string, string>> = {
+  en: "Hello",
+  es: "Hola",
+  fr: "Bonjour",
+  de: "Hallo",
+  ja: "こんにちは",
+};
+const DEFAULT_GREETING_LANGUAGE = "en";
+
+/**
+ * Pick a catalog language for an `Accept-Language` value: ranges in descending
+ * `q` order (ties keep their written order, `q=0` means "not this one"), each
+ * resolved by RFC 4647 §3.4 lookup — try the range, then drop subtags from the
+ * end until one matches. `*` and an unmatched preference fall back to the
+ * server default without error, as SEP-2792 requires.
+ */
+export function selectGreetingLanguage(preference: string | undefined): string {
+  if (!preference) return DEFAULT_GREETING_LANGUAGE;
+  const ranges = preference
+    .split(",")
+    .map((part, index) => {
+      const [tag = "", ...params] = part.trim().split(";");
+      const qParam = params
+        .map((p) => p.trim())
+        .find((p) => p.toLowerCase().startsWith("q="));
+      const q = qParam === undefined ? 1 : Number(qParam.slice(2));
+      return { tag: tag.trim().toLowerCase(), q, index };
+    })
+    .filter((r) => r.tag !== "" && Number.isFinite(r.q) && r.q > 0)
+    .sort((a, b) => b.q - a.q || a.index - b.index);
+  for (const { tag } of ranges) {
+    if (tag === "*") return DEFAULT_GREETING_LANGUAGE;
+    const subtags = tag.split("-");
+    while (subtags.length > 0) {
+      const candidate = subtags.join("-");
+      // Own keys only: `in` would also match `constructor`, `toString`, …
+      if (Object.hasOwn(GREETINGS, candidate)) return candidate;
+      subtags.pop();
+    }
+  }
+  return DEFAULT_GREETING_LANGUAGE;
+}
+
+/**
+ * Create a tool that answers in the caller's SEP-2792 language preference
+ * (#2979), and reports what reached it so the mirroring is visible end to end.
+ *
+ * The preference is read from `_meta["io.modelcontextprotocol/acceptLanguage"]`
+ * (the canonical carrier) and compared with the `Accept-Language` header the
+ * HTTP request actually carried. A present header that is not exactly equal to
+ * the `_meta` value is the spec's `HeaderMismatch`; this fixture reports it as
+ * an `isError` result naming both values rather than failing the HTTP request,
+ * so the disagreement is readable in a client. A missing header is tolerated,
+ * as the spec allows. An explicit `language` argument takes precedence over the
+ * negotiated preference for the content it controls. The result's `_meta`
+ * carries `contentLanguage` with the language actually used.
+ */
+export function createLocalizedGreetingTool(): ToolDefinition {
+  return {
+    name: "localized_greeting",
+    description:
+      "Greet in the caller's SEP-2792 language preference (_meta acceptLanguage, mirrored to Accept-Language) and report what arrived",
+    inputSchema: {
+      name: z.string().optional().describe("Who to greet"),
+      language: z
+        .string()
+        .optional()
+        .describe(
+          "Explicit language tag; overrides the request's language preference",
+        ),
+    },
+    handler: async (params, _context, extra) => {
+      const metaValue = extra?._meta?.[ACCEPT_LANGUAGE_META_KEY];
+      const fromMeta = typeof metaValue === "string" ? metaValue : undefined;
+      const fromHeader =
+        extra?.requestHeaders?.get("accept-language") ?? undefined;
+      const report = [
+        `_meta acceptLanguage: ${fromMeta ?? "(none)"}`,
+        `Accept-Language header: ${fromHeader ?? "(none)"}`,
+      ];
+      if (fromMeta !== undefined && fromHeader !== undefined) {
+        if (fromMeta !== fromHeader) {
+          return toToolResult(
+            [
+              "HeaderMismatch: Accept-Language does not equal _meta",
+              ...report,
+            ].join("\n"),
+            true,
+          );
+        }
+      }
+      const explicit =
+        typeof params.language === "string" && params.language !== ""
+          ? params.language
+          : undefined;
+      const language = selectGreetingLanguage(
+        explicit ?? fromMeta ?? fromHeader,
+      );
+      const who = typeof params.name === "string" ? params.name : "world";
+      return {
+        content: [
+          {
+            type: "text",
+            text: [
+              `${GREETINGS[language]}, ${who}!`,
+              "",
+              ...report,
+              `Content-Language: ${language}`,
+            ].join("\n"),
+          },
+        ],
+        _meta: { [CONTENT_LANGUAGE_META_KEY]: language },
+      };
     },
   };
 }
@@ -2378,37 +2504,26 @@ export function createUpdateResourceTool(): ToolDefinition {
         throw new Error("Server context not available");
       }
 
-      const { server, state } = context;
+      const { server, state, resourceUpdateBroadcast } = context;
+      const uri = params.uri as string;
+      const text = params.text as string;
 
-      // Find registered resource by URI
-      const resource = state.registeredResources.get(params.uri as string);
-      if (!resource) {
-        throw new Error(`Resource with URI ${params.uri} not found`);
+      if (!state.registeredResources.has(uri)) {
+        throw new Error(`Resource with URI ${uri} not found`);
       }
 
-      // Get the current resource metadata to preserve mimeType
-      const currentResource = state.registeredResources.get(
-        params.uri as string,
-      );
-      const mimeType = currentResource?.metadata?.mimeType || "text/plain";
+      // Broadcasting (#2964): every session's copy changes and every
+      // subscribed session is notified, not just this one.
+      if (resourceUpdateBroadcast) {
+        const notified = await resourceUpdateBroadcast.publish(uri, text);
+        return toToolResult(
+          `Resource ${uri} updated; notified ${notified} subscribed session(s)`,
+        );
+      }
 
-      // Update the resource's callback to return new content
-      resource.update({
-        callback: async () => {
-          return {
-            contents: [
-              {
-                uri: params.uri as string,
-                mimeType,
-                text: params.text as string,
-              },
-            ],
-          };
-        },
-      });
+      setResourceText(state.registeredResources, uri, text);
 
       // Send resource updated notification only if subscribed
-      const uri = params.uri as string;
       if (state.resourceSubscriptions.has(uri)) {
         await server.server.sendResourceUpdated({
           uri,

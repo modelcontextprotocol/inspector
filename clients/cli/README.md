@@ -658,6 +658,14 @@ mcp-inspector --cli https://example.com/mcp --method tools/call --load \
   fails. More than one subscriber needs an HTTP or SSE server, for the reason
   `--load-connections` does, and the extra sessions open with stored
   credentials only.
+- To try it without writing a server, run the
+  `subscriptions-broadcast-http.json` test server
+  ([docs](../../docs/test-servers.md#resource-updates-fanned-out-to-every-session)),
+  whose `update_resource` notifies every subscribed session:
+  `--tool-name update_resource --tool-arg uri=test://resource_1
+  --tool-arg 'text=v{{seq}}' --load-subscribe test://resource_1`. The stock
+  composable server notifies only the calling session, so a run against it
+  reports the other subscribers as missed.
 - Not combined with `--load-connections`, `--load-churn`, `--load-steps` /
   `--load-ramp`, `--load-warmup` or `--load-open-loop` (which would time each
   trigger from its scheduled start). The CLI's own connection is subscribed too,

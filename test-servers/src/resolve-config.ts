@@ -12,6 +12,7 @@ import type {
 } from "./composable-test-server.js";
 import { createTestServerInfo } from "./test-server-fixtures.js";
 import { resolvePreset } from "./preset-registry.js";
+import { createResourceUpdateBroadcast } from "./resource-update-broadcast.js";
 import type { ConfigFile, PresetRef } from "./load-config.js";
 
 function mergeRequiredScopes<T extends { requiredScopes?: string[] }>(
@@ -88,6 +89,11 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     logging: config.logging,
     listChanged: config.listChanged,
     subscriptions: config.subscriptions,
+    // One hub per resolved config: every session is built from this object,
+    // so they all share it (#2964).
+    ...(config.broadcastResourceUpdates && {
+      resourceUpdateBroadcast: createResourceUpdateBroadcast(),
+    }),
     tasks: config.tasks,
     tasksExtension: config.tasksExtension,
     skills: config.skills,
