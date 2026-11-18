@@ -3385,11 +3385,11 @@ describe("App paginated list pagination toggle (#1721)", () => {
     expect(lastPush?.paginatedLists).toBe(true);
   });
 
-  it("applies a settled write to the current client, not the one it started on (#2089)", async () => {
-    // A write can outlive a disconnect/reconnect to the *same* server: the id
-    // guard still passes, but the client captured when the write was issued has
-    // been destroyed and replaced by one built from the stale list entry. The
-    // settled value has to reach the live instance.
+  it("holds a reconnect until the write in flight settles, and builds from it (#2089, #3007)", async () => {
+    // A write can outlive a disconnect/reconnect to the *same* server. The
+    // reconnect used to build its client straight away from the stale list
+    // entry and rely on the settled write being pushed into it afterwards; it
+    // now waits for the write and is constructed with what it saved.
     const user = userEvent.setup();
     let landWrite: (() => void) | undefined;
     const write = new Promise<void>((resolve) => {
@@ -3409,22 +3409,16 @@ describe("App paginated list pagination toggle (#1721)", () => {
       clientInstances[0].dispatchEvent(new Event("disconnect"));
     });
     await user.click(screen.getByText("connect"));
-    await waitFor(() => expect(clientInstances).toHaveLength(2));
-    const replacement = clientInstances[1] as EventTarget & {
-      setServerSettings: ReturnType<typeof vi.fn>;
-    };
-    replacement.setServerSettings.mockClear();
+    expect(clientInstances).toHaveLength(1);
 
     await act(async () => {
       landWrite?.();
       await write;
     });
 
-    await waitFor(() =>
-      expect(replacement.setServerSettings).toHaveBeenCalledWith(
-        expect.objectContaining({ paginatedLists: true }),
-      ),
-    );
+    await waitFor(() => expect(clientInstances).toHaveLength(2));
+    const options = vi.mocked(McpIndex.InspectorClient).mock.calls.at(-1)?.[1];
+    expect(options?.serverSettings?.paginatedLists).toBe(true);
   });
 
   it("reconciles after a modal save fails onto a write that landed first (#2089)", async () => {

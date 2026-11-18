@@ -146,7 +146,10 @@ export interface UseConnectionLifecycleOptions {
   ) => void;
   destroyStores: () => void;
   /** What each settings write actually put on disk, per server (#2089). */
-  lastPersistedSettings: Pick<LastPersistedSettings, "resolve">;
+  lastPersistedSettings: Pick<
+    LastPersistedSettings,
+    "resolve" | "isPending" | "whenSettled"
+  >;
   /** Install-level client config — the EMA idp and CIMD URL come from it. */
   clientConfig: ClientConfig;
   /**
@@ -399,7 +402,15 @@ export function useConnectionLifecycle({
   // when the user switches targets. Returns the new client so the toggle
   // can call `connect()` against it before React re-renders.
   const setupClientForServer = useCallback(
-    (server: ServerEntry, sessionId?: string): InspectorClient => {
+    (
+      server: ServerEntry,
+      sessionId?: string,
+      // What a settings write the caller just waited out put on disk (#3007).
+      // It outranks the tracker below: the wait resumes before React has
+      // rendered the write's outcome, so the `resolve` this callback closed
+      // over may still answer for the list as it stood before the write.
+      flushedSettings?: InspectorServerSettings,
+    ): InspectorClient => {
       // Tear down the previous session's managers before building the new
       // client — each destroy() unsubscribes from the old client's events, and
       // doing it here (rather than leaving it to `createStores` below, which
@@ -425,7 +436,9 @@ export function useConnectionLifecycle({
       // the one place the whole connection is configured, so every construction
       // path (connect, reconnect, OAuth resume) goes through it (#2089).
       const savedSettings =
-        lastPersistedSettings.resolve(server.id) ?? server.settings;
+        flushedSettings ??
+        lastPersistedSettings.resolve(server.id) ??
+        server.settings;
       const activeIdp = getActiveEnterpriseManagedAuthIdp(clientConfig);
       const activeCimdUrl = getActiveCimdClientMetadataUrl(clientConfig);
       // Flatten the persisted settings into the InspectorClient options shape.
@@ -622,6 +635,18 @@ export function useConnectionLifecycle({
   // waited on `initialConfigSettledRef` and torn down any session it replaces.
   const connectServer = useCallback(
     async (id: string) => {
+      // Closing the settings modal only *issues* its save; the server list —
+      // and the tracker `setupClientForServer` reads — describe the previous
+      // settings until that write's round trip completes. A connect started
+      // inside that window waits for it and builds the client from what it
+      // wrote, so the connection uses the settings the user just saved rather
+      // than the ones from before the edit (#3007). A write that failed hands
+      // back nothing, and the client is built from what disk still holds.
+      // Guarded rather than awaited unconditionally so a connect with nothing
+      // in flight keeps its timing.
+      const flushedSettings = lastPersistedSettings.isPending(id)
+        ? await lastPersistedSettings.whenSettled(id)
+        : undefined;
       // Read from the ref so a caller that already awaited an
       // addServer/updateServer in the same async tick (e.g. the deep-link
       // auto-connect IIFE) sees the freshly-mutated list, not the stale array
@@ -634,7 +659,7 @@ export function useConnectionLifecycle({
       // are picked up. Reusing the previous client object would freeze the
       // settings at the moment it was first constructed, which would be
       // surprising right after the user edited them in the settings modal.
-      const client = setupClientForServer(target);
+      const client = setupClientForServer(target, undefined, flushedSettings);
       if (id !== activeServerId) {
         setActiveServerId(id);
       }
@@ -843,6 +868,7 @@ export function useConnectionLifecycle({
       setFailedServerId,
       prepareOAuthRedirect,
       setReAuthBanner,
+      lastPersistedSettings,
     ],
   );
 
