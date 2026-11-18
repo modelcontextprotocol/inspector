@@ -23,6 +23,7 @@ import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 import { createCookieJarWrapper } from "./cookieJarFetch.js";
+import { createSseLineCapFetch } from "./sseLineCapFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -120,7 +121,17 @@ export function createTransportNode(
   // someone debugging an OAuth challenge needs. Below it, the tracker records
   // the real response and reads its body (bounded) before the interceptor
   // cancels it.
-  const trackedBase = withTracking(withChallengeObserver(baseFetch));
+  //
+  // The SSE line cap sits innermost, directly on the base fetch, so every
+  // stream any layer above sees is already bounded: the tracker's watcher
+  // reads a clone of the capped body (a tee, so the cap's error ends both
+  // branches and releases the connection), and the SDK's parser can never be
+  // handed an unterminated line longer than the cap. It wraps a caller's own
+  // fetch too — the Node clients pass theirs as `fetchFn` — because the
+  // parser it protects is the SDK's, whichever fetch fed it.
+  const trackedBase = withTracking(
+    withChallengeObserver(createSseLineCapFetch(baseFetch)),
+  );
 
   // Opt-in cookie jar (#2936): one per transport, shared by every fetch the
   // transport makes, so an affinity cookie learned on any response pins the
@@ -167,7 +178,8 @@ export function createTransportNode(
     const url = new URL(sseConfig.url);
 
     // A caller-supplied eventSourceInit.fetch wins as-is (explicit fetch is not
-    // re-wrapped for proxying); the default path uses fetchWithOptionalAuthIntercept
+    // re-wrapped for proxying, though it is still line-capped — the cap guards
+    // the SDK's parser, not the network path); the default path uses fetchWithOptionalAuthIntercept
     // (the proxy-aware baseFetch plus the optional auth-challenge intercept).
     // The challenge observer is applied either way: it is passive, and without
     // it a first-time legacy SSE authorization through an explicit fetch would
@@ -176,7 +188,11 @@ export function createTransportNode(
       | typeof fetch
       | undefined;
     const trackedFetch = configuredSseFetch
-      ? withCookieJar(withTracking(withChallengeObserver(configuredSseFetch)))
+      ? withCookieJar(
+          withTracking(
+            withChallengeObserver(createSseLineCapFetch(configuredSseFetch)),
+          ),
+        )
       : fetchWithOptionalAuthIntercept;
 
     const headers = headersFromSettings(settings);

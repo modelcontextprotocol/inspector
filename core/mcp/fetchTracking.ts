@@ -671,6 +671,121 @@ export function longLivedStreamFraming(
 }
 
 /**
+ * How much of one line the long-lived stream watcher keeps, in characters.
+ *
+ * The watcher only classifies lines — blank, a `data` field, or anything else
+ * (and, for NDJSON, blank or not) — and that is decided by a line's first few
+ * characters. So it never needs a long line whole, and keeping only a head
+ * bounds its memory against a server that streams one endless line: without
+ * this the partial line grew without limit, alongside the SDK parser's copy
+ * of the same bytes (`sseLineCapFetch.ts` bounds that one). 64 is far more
+ * than the five characters `data:` needs.
+ */
+export const WATCHED_LINE_HEAD_CHARS = 64;
+
+/** A line splitter's surface; see {@link createLineSplitter}. */
+export interface LineSplitter {
+  /** Feed decoded text; every line it completes is handed to `onLine`. */
+  push(text: string): void;
+  /** End of stream: complete a held-back CR; drop any partial line. */
+  end(): void;
+  /** Characters currently held for the partial line. */
+  readonly buffered: number;
+}
+
+/**
+ * Split a text stream into lines the way the SSE grammar (and the SDK's
+ * parser) does — LF, CRLF and a bare CR each end a line — while holding at
+ * most `maxLineChars` of any one line.
+ *
+ * A line longer than that is reported by its head: the first `maxLineChars`
+ * characters, plus one `x` if anything beyond the head was not whitespace, so
+ * a line that is blank only in its head is still reported as non-blank. The
+ * rest of it is discarded as it arrives rather than buffered. A CR that is the
+ * last character so far is held back, since the LF of a CRLF pair may still
+ * be in flight in the next chunk.
+ */
+export function createLineSplitter(
+  onLine: (line: string) => void,
+  maxLineChars: number = WATCHED_LINE_HEAD_CHARS,
+): LineSplitter {
+  let pending = "";
+  // Set while the current line has outgrown the head and its tail is being
+  // discarded; `tailNonBlank` remembers whether that tail held anything.
+  let truncated = false;
+  let tailNonBlank = false;
+
+  const firstTerminator = (text: string): number => {
+    const cr = text.indexOf("\r");
+    const lf = text.indexOf("\n");
+    return cr === -1 ? lf : lf === -1 ? cr : Math.min(cr, lf);
+  };
+
+  const consumeCompleteLines = (): void => {
+    for (;;) {
+      const end = firstTerminator(pending);
+      if (end === -1) break;
+      if (pending[end] === "\r") {
+        if (end === pending.length - 1) {
+          // The line is complete but its CR may be half a CRLF. Hold it by
+          // its head, like a partial line, so the hold stays bounded too.
+          if (end > maxLineChars) {
+            const cut = pending.slice(maxLineChars, end);
+            pending =
+              pending.slice(0, maxLineChars) +
+              (/\S/.test(cut) ? "x" : "") +
+              "\r";
+          }
+          return;
+        }
+        const width = pending[end + 1] === "\n" ? 2 : 1;
+        onLine(pending.slice(0, end));
+        pending = pending.slice(end + width);
+      } else {
+        onLine(pending.slice(0, end));
+        pending = pending.slice(end + 1);
+      }
+    }
+    // No terminator left: whatever remains is one partial line. Past the
+    // head, keep only the head and start discarding.
+    if (pending.length > maxLineChars) {
+      if (/\S/.test(pending.slice(maxLineChars))) tailNonBlank = true;
+      pending = pending.slice(0, maxLineChars);
+      truncated = true;
+    }
+  };
+
+  return {
+    push(text: string): void {
+      if (truncated) {
+        const end = firstTerminator(text);
+        const tail = end === -1 ? text : text.slice(0, end);
+        if (!tailNonBlank && /\S/.test(tail)) tailNonBlank = true;
+        if (end === -1) return;
+        // The overlong line ends here: rejoin its head (marked non-blank if
+        // its tail was) to the terminator and whatever follows it.
+        pending += (tailNonBlank ? "x" : "") + text.slice(end);
+        truncated = false;
+        tailNonBlank = false;
+      } else {
+        pending += text;
+      }
+      consumeCompleteLines();
+    },
+    end(): void {
+      // A CR held back as a possible half of a CRLF is, at end-of-stream, a
+      // whole line ending — `data: x\r\r` is a complete event. Anything after
+      // it is a partial line and is dropped.
+      if (pending.endsWith("\r")) onLine(pending.slice(0, -1));
+      pending = "";
+    },
+    get buffered(): number {
+      return pending.length;
+    },
+  };
+}
+
+/**
  * Count the events on a long-lived stream without buffering it, and report
  * when it ends.
  *
@@ -682,7 +797,10 @@ export function longLivedStreamFraming(
  * keepalive comments (`: ping`) and bare `event:`/`id:` lines are not; a
  * partial block at end-of-stream is dropped, exactly as the SSE spec and the
  * SDK's `EventSourceParserStream` (which has no flush) drop it. For NDJSON
- * every non-blank line is one event.
+ * every non-blank line is one event. Lines are split by
+ * {@link createLineSplitter}, which keeps only a line's head, so a server
+ * streaming one endless unterminated line costs this watcher a bounded amount
+ * of memory however long the line runs.
  *
  * Reports once as soon as watching starts (zero events, open), once per event,
  * and once more on every exit from the read loop — a clean end-of-stream, a
@@ -728,7 +846,6 @@ function watchLongLivedStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let eventCount = 0;
-  let pending = "";
   let blockHasData = false;
   // A moving count is reported at most once per interval (see
   // `streamUpdateIntervalMs`); the open and the close go out at once.
@@ -769,40 +886,16 @@ function watchLongLivedStream(
     if (line === "data" || line.startsWith("data:")) blockHasData = true;
   };
 
-  // Split off every complete line in `pending`. The SSE grammar (and the
-  // SDK's parser) accept LF, CRLF and a bare CR as a line ending, so all three
-  // end a line here; a CR that is the last byte so far is held back, since
-  // the LF of a CRLF pair may still be in flight in the next chunk.
-  const consumeCompleteLines = (): void => {
-    for (;;) {
-      const cr = pending.indexOf("\r");
-      const lf = pending.indexOf("\n");
-      const end = cr === -1 ? lf : lf === -1 ? cr : Math.min(cr, lf);
-      if (end === -1) return;
-      if (pending[end] === "\r") {
-        if (end === pending.length - 1) return;
-        const width = pending[end + 1] === "\n" ? 2 : 1;
-        consumeLine(pending.slice(0, end));
-        pending = pending.slice(end + width);
-      } else {
-        consumeLine(pending.slice(0, end));
-        pending = pending.slice(end + 1);
-      }
-    }
-  };
+  const lines = createLineSplitter(consumeLine);
 
   const pump = async (): Promise<void> => {
     try {
       for (;;) {
         const { value, done } = await reader.read();
         if (done) break;
-        pending += decoder.decode(value, { stream: true });
-        consumeCompleteLines();
+        lines.push(decoder.decode(value, { stream: true }));
       }
-      // A CR held back as a possible half of a CRLF is, at end-of-stream, a
-      // whole line ending — `data: x\r\r` is a complete event. Anything after
-      // it is a partial block and is dropped, as above.
-      if (pending.endsWith("\r")) consumeLine(pending.slice(0, -1));
+      lines.end();
     } catch {
       // An errored or aborted stream has still ended — fall through to report
       // the close; the entry's `error` field is for a fetch that never got a

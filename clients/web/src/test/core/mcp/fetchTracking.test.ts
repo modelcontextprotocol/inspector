@@ -4,8 +4,10 @@ import {
   CHALLENGE_BODY_READ_MS,
   TRACKED_BODY_MAX_BYTES,
   TRUNCATED_BODY_SUFFIX,
+  WATCHED_LINE_HEAD_CHARS,
   WITHHELD_TRUNCATED_JSON_BODY,
   createFetchTracker,
+  createLineSplitter,
   findHeader,
   redactSensitiveHeaders,
   redactBody,
@@ -1505,6 +1507,46 @@ describe("createFetchTracker long-lived stream watching (#2318)", () => {
     expect(updates.map((u) => u.stream.eventCount)).toEqual([0, 1, 2]);
   });
 
+  it("counts an overlong data line without buffering it, and keeps counting after it", async () => {
+    // The attack shape: `data: ` then a line that never ends in one chunk.
+    const server = controlledStream();
+    const { updates } = await trackStream(server.stream);
+    server.push("data: ");
+    for (let i = 0; i < 50; i++) server.push("a".repeat(8192));
+    await flush();
+    expect(updates.map((u) => u.stream.eventCount)).toEqual([0]);
+    // When it does end it is still a data line, so the block is one event;
+    // an overlong non-data line in the next block is not.
+    server.push("a\n\n");
+    server.push("id: " + "7".repeat(500) + "\n\ndata: x\n\n");
+    await flush();
+    expect(updates.map((u) => u.stream.eventCount)).toEqual([0, 1, 2]);
+  });
+
+  it("classifies an overlong NDJSON line by whether any of it is non-blank", async () => {
+    const server = controlledStream();
+    const updates: Array<{ id: string; stream: FetchStreamState }> = [];
+    const fetcher = createFetchTracker(
+      (async () =>
+        new Response(server.stream, {
+          headers: { "content-type": "application/x-ndjson" },
+        })) as typeof fetch,
+      {
+        updateStream: (id, state) => updates.push({ id, stream: state }),
+        streamUpdateIntervalMs: 0,
+      },
+    );
+    await fetcher("https://example.com/mcp", { method: "GET" });
+    // Blank throughout its head, non-blank only far past it: an event.
+    server.push(" ".repeat(500));
+    server.push(" ".repeat(500) + "{}\n");
+    // Whitespace only, however long: not an event.
+    server.push(" ".repeat(500));
+    server.push(" ".repeat(500) + "\n");
+    await flush();
+    expect(updates.map((u) => u.stream.eventCount)).toEqual([0, 1]);
+  });
+
   it("classifies the content type and the method case-insensitively", async () => {
     const server = controlledStream();
     const updates: unknown[] = [];
@@ -1747,5 +1789,66 @@ describe("createFetchTracker long-lived stream watching (#2318)", () => {
     await fetcher("https://example.com/mcp", { method: "GET" });
     await flush();
     expect(updates).toEqual([]);
+  });
+});
+
+describe("createLineSplitter", () => {
+  function collect(max?: number) {
+    const lines: string[] = [];
+    const splitter = createLineSplitter((line) => lines.push(line), max);
+    return { lines, splitter };
+  }
+
+  it("holds no more than the head of an endless unterminated line", () => {
+    const { lines, splitter } = collect();
+    splitter.push("data: ");
+    for (let i = 0; i < 200; i++) {
+      splitter.push("a".repeat(8192));
+      expect(splitter.buffered).toBeLessThanOrEqual(WATCHED_LINE_HEAD_CHARS);
+    }
+    expect(lines).toEqual([]);
+    splitter.push("tail\nnext\n");
+    expect(lines).toEqual([
+      "data: " + "a".repeat(WATCHED_LINE_HEAD_CHARS - 6) + "x",
+      "next",
+    ]);
+  });
+
+  it("splits on LF, CR and CRLF, holding a trailing CR until the next chunk", () => {
+    const { lines, splitter } = collect(8);
+    splitter.push("a\nb\rc\r");
+    expect(lines).toEqual(["a", "b"]);
+    splitter.push("\nd");
+    expect(lines).toEqual(["a", "b", "c"]);
+    splitter.push("\r");
+    splitter.end();
+    expect(lines).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("bounds a held-back CR on an overlong line, and keeps its classification", () => {
+    const { lines, splitter } = collect(8);
+    splitter.push("data: " + "z".repeat(100) + "\r");
+    expect(splitter.buffered).toBeLessThanOrEqual(10);
+    splitter.push("\n");
+    splitter.push(" ".repeat(100) + "\r");
+    expect(splitter.buffered).toBeLessThanOrEqual(10);
+    splitter.push("x");
+    expect(lines).toEqual(["data: zz" + "x", " ".repeat(8)]);
+  });
+
+  it("ends an overlong line on a terminator inside a later chunk, mid-chunk", () => {
+    const { lines, splitter } = collect(4);
+    splitter.push("abcdefgh");
+    splitter.push("   ");
+    splitter.push("ij\r\nk\n");
+    expect(lines).toEqual(["abcdx", "k"]);
+  });
+
+  it("drops a partial line at end-of-stream", () => {
+    const { lines, splitter } = collect(4);
+    splitter.push("abc\npartial");
+    splitter.end();
+    expect(lines).toEqual(["abc"]);
+    expect(splitter.buffered).toBe(0);
   });
 });
