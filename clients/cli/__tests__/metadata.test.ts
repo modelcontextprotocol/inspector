@@ -268,6 +268,42 @@ describe("Metadata Tests", () => {
       }
     });
 
+    it("mirrors a SEP-2792 acceptLanguage preference to Accept-Language (#2987)", async () => {
+      // `_meta` is the canonical carrier; on Streamable HTTP the client must
+      // also send it as `Accept-Language`, exactly equal. Without the mirror
+      // Node's fetch sends `*`, which a strict server rejects as a mismatch.
+      const preference = "fr-CA, en;q=0.5";
+      const server = createTestServerHttp({
+        serverInfo: createTestServerInfo(),
+        tools: [createEchoTool()],
+      });
+
+      try {
+        await server.start();
+        const result = await runCli([
+          server.url,
+          "--cli",
+          "--method",
+          "tools/list",
+          "--metadata",
+          `io.modelcontextprotocol/acceptLanguage=${preference}`,
+          "--transport",
+          "http",
+        ]);
+
+        expectCliSuccess(result);
+        const toolsList = server
+          .getRecordedRequests()
+          .find((r) => r.method === "tools/list");
+        expect(toolsList?.metadata).toEqual({
+          "io.modelcontextprotocol/acceptLanguage": preference,
+        });
+        expect(toolsList?.headers?.["accept-language"]).toBe(preference);
+      } finally {
+        await server.stop();
+      }
+    });
+
     it("should work with complex tool", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),

@@ -91,6 +91,12 @@ export interface ConfigFile {
     prompts?: boolean;
   };
   subscriptions?: boolean;
+  /**
+   * Share resource updates across sessions, so `update_resource` changes and
+   * notifies every session rather than only its caller — see
+   * {@link ServerConfig.resourceUpdateBroadcast} (#2964).
+   */
+  broadcastResourceUpdates?: boolean;
   tasks?: {
     list?: boolean;
     cancel?: boolean;

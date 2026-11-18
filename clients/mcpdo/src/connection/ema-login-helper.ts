@@ -18,6 +18,7 @@ import {
 import { CallbackNavigation } from "@inspector/core/auth/index.js";
 import { NodeOAuthStorage } from "@inspector/core/auth/node/index.js";
 import {
+  helperErrorEvent,
   obtainPendingUrlForKey,
   pendingAuthMarkerPath,
   removeOwnPendingAuthMarker,
@@ -135,10 +136,7 @@ export async function runEmaLoginHelper(): Promise<void> {
     );
     emit({ event: "done" });
   } catch (error) {
-    emit({
-      event: "error",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    emit(helperErrorEvent(error));
     throw error;
   } finally {
     if (markerPath !== undefined) removeOwnPendingAuthMarker(markerPath);

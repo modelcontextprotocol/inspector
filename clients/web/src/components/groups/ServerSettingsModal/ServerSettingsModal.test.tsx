@@ -229,6 +229,42 @@ describe("ServerSettingsModal", () => {
     );
   });
 
+  // #2936 — omit-when-off, like the stream suppression box.
+  it("maps the cookie jar into settings, and back to unset", async () => {
+    const user = userEvent.setup();
+    const onSettingsChange = vi.fn();
+    const { rerender } = renderWithMantine(
+      <ServerSettingsModal
+        opened
+        settings={emptySettings}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    const name = /Enable HTTP Cookie Jar/;
+    await user.click(screen.getByRole("checkbox", { name }));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cookieJar: true }),
+    );
+
+    rerender(
+      <ServerSettingsModal
+        opened
+        settings={{ ...emptySettings, cookieJar: true }}
+        serverType="streamable-http"
+        isStdio={false}
+        onClose={vi.fn()}
+        onSettingsChange={onSettingsChange}
+      />,
+    );
+    await user.click(screen.getByRole("checkbox", { name }));
+    expect(onSettingsChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cookieJar: undefined }),
+    );
+  });
+
   // #2144 — same omit-the-default shape as the refresh-token pair above.
   it("maps the revoke-on-clear opt-out into settings, and back to unset", async () => {
     const user = userEvent.setup();

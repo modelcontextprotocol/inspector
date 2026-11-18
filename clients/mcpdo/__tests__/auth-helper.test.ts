@@ -4,6 +4,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { PassThrough } from "node:stream";
 import type { CallbackNavigation } from "@inspector/core/auth/index.js";
+import { FetchTargetError } from "@inspector/core/auth/fetchRefusal.js";
+import {
+  classifyError,
+  EXIT_CODES,
+} from "@inspector/core/cli/error-handler.js";
 
 const authorizeInFrontend = vi.fn();
 
@@ -21,9 +26,11 @@ vi.mock("../src/connection/authorize.js", () => ({
 
 import {
   AUTH_HELPER_COMMAND,
+  helperErrorEvent,
   obtainPendingAuthUrl,
   pendingAuthMarkerPath,
   readLivePendingAuthMarker,
+  relayedHelperError,
   removeOwnPendingAuthMarker,
   runAuthHelper,
   type PendingAuthMarker,
@@ -192,6 +199,40 @@ describe("auth-helper", () => {
       ).rejects.toMatchObject({
         envelope: { code: "auth_required" },
         message: expect.stringContaining("no AS metadata"),
+      });
+    });
+
+    it("keeps a helper's relayed classification instead of auth_required (#2962)", async () => {
+      const script = writeHelperScript(`
+        process.stdin.resume();
+        process.stdin.on("end", () => {
+          process.stdout.write(
+            JSON.stringify({
+              event: "error",
+              message: "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+              exitCode: 12,
+              envelope: {
+                code: "fetch_refused",
+                url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+              },
+            }) + "\\n",
+          );
+        });
+      `);
+      await expect(
+        obtainPendingAuthUrl(
+          { type: "streamable-http", url: SERVER_URL },
+          undefined,
+          { helperArgv1: script },
+        ),
+      ).rejects.toMatchObject({
+        exitCode: EXIT_CODES.FETCH_REFUSED,
+        message:
+          "Sign-in helper failed: Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+        envelope: {
+          code: "fetch_refused",
+          url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+        },
       });
     });
 
@@ -687,6 +728,42 @@ describe("auth-helper", () => {
       expect(fs.readdirSync(dir).filter((f) => f.includes("auth"))).toEqual([]);
     });
 
+    it("relays the failure's classification on the error event (#2962)", async () => {
+      authorizeInFrontend.mockRejectedValueOnce(
+        new TypeError("fetch failed", {
+          cause: new FetchTargetError(
+            "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+            "http://169.254.169.254/.well-known/oauth-authorization-server",
+          ),
+        }),
+      );
+      const restoreStdin = stubStdin(
+        JSON.stringify({
+          serverConfig: { type: "streamable-http", url: SERVER_URL },
+        }),
+      );
+      const stdout = captureStdout();
+      try {
+        await expect(runAuthHelper()).rejects.toThrow("fetch failed");
+      } finally {
+        stdout.restore();
+        restoreStdin();
+      }
+      expect(stdout.lines().map((l) => JSON.parse(l) as unknown)).toEqual([
+        {
+          event: "error",
+          message: "fetch failed",
+          exitCode: EXIT_CODES.FETCH_REFUSED,
+          envelope: {
+            code: "fetch_refused",
+            cause:
+              "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+            url: "http://169.254.169.254/.well-known/oauth-authorization-server",
+          },
+        },
+      ]);
+    });
+
     it("stringifies a non-Error flow failure in the error event", async () => {
       authorizeInFrontend.mockRejectedValueOnce("string boom");
       const restoreStdin = stubStdin(
@@ -757,6 +834,120 @@ describe("auth-helper", () => {
         stdout.restore();
         restoreStdin();
       }
+    });
+  });
+
+  describe("helperErrorEvent", () => {
+    it("omits the classification of an unclassified failure", () => {
+      expect(helperErrorEvent(new Error("no AS metadata"))).toEqual({
+        event: "error",
+        message: "no AS metadata",
+      });
+    });
+
+    it("carries a classified failure's exit code and envelope, minus message", () => {
+      const refusal = new FetchTargetError(
+        "refused",
+        "http://169.254.169.254/x",
+      );
+      expect(helperErrorEvent(refusal)).toEqual({
+        event: "error",
+        message: "refused",
+        exitCode: EXIT_CODES.FETCH_REFUSED,
+        envelope: { code: "fetch_refused", url: "http://169.254.169.254/x" },
+      });
+    });
+  });
+
+  describe("relayedHelperError", () => {
+    const message = "Sign-in helper failed: x";
+    type RelayEvent = Parameters<typeof relayedHelperError>[0];
+
+    it.each<[string, unknown]>([
+      ["no exit code", { event: "error", message: "x" }],
+      [
+        "exit code OK",
+        { event: "error", message: "x", exitCode: 0, envelope: { code: "ok" } },
+      ],
+      [
+        "an unknown exit code",
+        { event: "error", message: "x", exitCode: 99, envelope: { code: "z" } },
+      ],
+      ["no envelope", { event: "error", message: "x", exitCode: 12 }],
+      [
+        "a null envelope",
+        { event: "error", message: "x", exitCode: 12, envelope: null },
+      ],
+      [
+        "a non-string code",
+        { event: "error", message: "x", exitCode: 12, envelope: { code: 12 } },
+      ],
+    ])("returns undefined for %s", (_label, event) => {
+      // Decoded wire input: the shape is exactly what is under test.
+      expect(relayedHelperError(event as RelayEvent, message)).toBeUndefined();
+    });
+
+    it("keeps well-typed fields, sanitizes strings, and drops the rest", () => {
+      const error = relayedHelperError(
+        {
+          event: "error",
+          message: "x",
+          exitCode: EXIT_CODES.AUTH_REQUIRED,
+          envelope: {
+            code: "oauth_error",
+            status: 400,
+            url: "https://as.example/token\u001b[2J",
+            oauthError: "invalid_grant",
+            oauthErrorDescription: "expired",
+            method: "tools/list",
+            retryAfter: "5",
+            retryAfterMs: 5000,
+            cause: "token endpoint said no\u001b[2J",
+          },
+        },
+        message,
+      );
+      expect(error?.exitCode).toBe(EXIT_CODES.AUTH_REQUIRED);
+      expect(error?.message).toBe(message);
+      expect(error?.envelope).toEqual({
+        code: "oauth_error",
+        status: 400,
+        url: "https://as.example/token\u241b[2J",
+        oauthError: "invalid_grant",
+        oauthErrorDescription: "expired",
+        method: "tools/list",
+        retryAfter: "5",
+        retryAfterMs: 5000,
+      });
+      // The cause goes back onto the error, where classifyError reads it.
+      expect(error?.cause).toBe("token endpoint said no\u241b[2J");
+    });
+
+    it("round-trips a wrapped refusal to the envelope the TTY path prints", () => {
+      const original = new TypeError("fetch failed", {
+        cause: new FetchTargetError(
+          "Refusing to fetch from a link-local or metadata address (169.254.169.254)",
+          "http://169.254.169.254/.well-known/oauth-authorization-server",
+        ),
+      });
+      // Through the wire, exactly as the parent decodes it.
+      const event = JSON.parse(
+        JSON.stringify(helperErrorEvent(original)),
+      ) as RelayEvent;
+      const relayed = relayedHelperError(event, event.message);
+      expect(classifyError(relayed)).toEqual(classifyError(original));
+    });
+
+    it("drops mistyped optional fields rather than coercing them", () => {
+      const event: unknown = {
+        event: "error",
+        message: "x",
+        exitCode: EXIT_CODES.FETCH_REFUSED,
+        envelope: { code: "fetch_refused", status: "500", url: 42 },
+      };
+      // Decoded wire input: the mistyped fields are what is under test.
+      const error = relayedHelperError(event as RelayEvent, message);
+      expect(error?.envelope).toEqual({ code: "fetch_refused" });
     });
   });
 });

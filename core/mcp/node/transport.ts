@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { SSEClientTransport } from "@modelcontextprotocol/client";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import { LanguageMirroringStreamableHTTPClientTransport } from "./languageMirroringTransport.js";
 import { createFetchTracker } from "../fetchTracking.js";
 import {
   createAuthChallengeInterceptFetch,
@@ -22,6 +22,8 @@ import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
 import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
+import { createCookieJarWrapper } from "./cookieJarFetch.js";
+import { createSseLineCapFetch } from "./sseLineCapFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -119,10 +121,33 @@ export function createTransportNode(
   // someone debugging an OAuth challenge needs. Below it, the tracker records
   // the real response and reads its body (bounded) before the interceptor
   // cancels it.
-  const trackedBase = withTracking(withChallengeObserver(baseFetch));
+  //
+  // The SSE line cap sits innermost, directly on the base fetch, so every
+  // stream any layer above sees is already bounded: the tracker's watcher
+  // reads a clone of the capped body (a tee, so the cap's error ends both
+  // branches and releases the connection), and the SDK's parser can never be
+  // handed an unterminated line longer than the cap. It wraps a caller's own
+  // fetch too — the Node clients pass theirs as `fetchFn` — because the
+  // parser it protects is the SDK's, whichever fetch fed it.
+  const trackedBase = withTracking(
+    withChallengeObserver(createSseLineCapFetch(baseFetch)),
+  );
+
+  // Opt-in cookie jar (#2936): one per transport, shared by every fetch the
+  // transport makes, so an affinity cookie learned on any response pins the
+  // whole session. It sits above the tracker, so the Network log records the
+  // `Cookie` header actually sent (#2385) and the `Set-Cookie` the jar read —
+  // both redacted there — and below the auth-challenge interceptor, so a
+  // 401/403 that the interceptor turns into a throw still updates the jar
+  // before the OAuth retry. Off, the chains below are exactly what they were.
+  const withCookieJar =
+    settings?.cookieJar === true && "url" in config
+      ? createCookieJarWrapper(new URL(config.url))
+      : (inner: typeof fetch): typeof fetch => inner;
+  const jarredBase = withCookieJar(trackedBase);
   const fetchWithOptionalAuthIntercept = interceptAuthChallenges
-    ? createAuthChallengeInterceptFetch(trackedBase)
-    : trackedBase;
+    ? createAuthChallengeInterceptFetch(jarredBase)
+    : jarredBase;
 
   if (serverType === "stdio") {
     const stdioConfig = config as StdioServerConfig;
@@ -153,7 +178,8 @@ export function createTransportNode(
     const url = new URL(sseConfig.url);
 
     // A caller-supplied eventSourceInit.fetch wins as-is (explicit fetch is not
-    // re-wrapped for proxying); the default path uses fetchWithOptionalAuthIntercept
+    // re-wrapped for proxying, though it is still line-capped — the cap guards
+    // the SDK's parser, not the network path); the default path uses fetchWithOptionalAuthIntercept
     // (the proxy-aware baseFetch plus the optional auth-challenge intercept).
     // The challenge observer is applied either way: it is passive, and without
     // it a first-time legacy SSE authorization through an explicit fetch would
@@ -162,7 +188,11 @@ export function createTransportNode(
       | typeof fetch
       | undefined;
     const trackedFetch = configuredSseFetch
-      ? withTracking(withChallengeObserver(configuredSseFetch))
+      ? withCookieJar(
+          withTracking(
+            withChallengeObserver(createSseLineCapFetch(configuredSseFetch)),
+          ),
+        )
       : fetchWithOptionalAuthIntercept;
 
     const headers = headersFromSettings(settings);
@@ -198,12 +228,13 @@ export function createTransportNode(
       ...(headers && { headers }),
     };
 
-    // Both wrappers sit above the tracker. Header stamping, so the tracker
-    // records the headers actually sent (#2385); stream suppression outermost
-    // of all, so a suppressed GET is answered before it reaches the tracker —
-    // it is never sent, and the Network log should not show a request the
-    // server never saw (#2317). They touch disjoint requests (notification
-    // POSTs vs. the endpoint's SSE GET), so their relative order is free.
+    // Both wrappers sit above the tracker and the cookie jar. Header
+    // stamping, so the tracker records the headers actually sent (#2385);
+    // stream suppression outermost of all, so a suppressed GET is answered
+    // before it reaches the tracker — it is never sent, and the Network log
+    // should not show a request the server never saw (#2317). They touch
+    // disjoint requests (notification POSTs vs. the endpoint's SSE GET), so
+    // their relative order is free.
     const stampedFetch = createNotificationHeadersFetch(
       fetchWithOptionalAuthIntercept,
     );
@@ -212,7 +243,9 @@ export function createTransportNode(
         ? createSuppressNotificationStreamFetch(stampedFetch, url)
         : stampedFetch;
 
-    const transport = new StreamableHTTPClientTransport(url, {
+    // SEP-2792: mirror each message's `_meta` language preference to
+    // `Accept-Language` (#2987) — see languageMirroringTransport.ts.
+    const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
       requestInit,
       fetch: httpFetch,

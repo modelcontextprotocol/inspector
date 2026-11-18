@@ -118,6 +118,10 @@ function InteractiveRender(args: ServerSettingsFormProps) {
           settings: { ...args.settings, suppressNotificationStream: value },
         });
       }}
+      onCookieJarChange={(value) => {
+        args.onCookieJarChange(value);
+        updateArgs({ settings: { ...args.settings, cookieJar: value } });
+      }}
       onAdvertisedExtensionChange={(key, checked) => {
         args.onAdvertisedExtensionChange(key, checked);
         updateArgs({
@@ -189,6 +193,7 @@ const meta: Meta<typeof ServerSettingsForm> = {
     onAutoRefreshChange: fn(),
     onPaginatedListsChange: fn(),
     onSuppressNotificationStreamChange: fn(),
+    onCookieJarChange: fn(),
     onAdvertisedExtensionChange: fn(),
     onMaxFetchRequestsChange: fn(),
     onSkillCatalogLimitChange: fn(),

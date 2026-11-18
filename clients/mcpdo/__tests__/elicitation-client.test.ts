@@ -8,7 +8,7 @@ import type {
   ElicitationRequestFrame,
   ElicitationResponseFrame,
 } from "../src/daemon/protocol.js";
-import { unixDaemonOnly } from "./helpers/platform.js";
+import { daemonEndpoint } from "./helpers/daemon-endpoint.js";
 import {
   FAKE_DAEMON_TOKEN,
   answerHelloLine,
@@ -21,8 +21,7 @@ import {
  * response, answered via `onElicitation` (or auto-cancelled without one),
  * with the connect timeout cleared once the exchange starts.
  */
-// Skipped on win32: needs a live daemon / Unix socket (helpers/platform.ts, #2748).
-describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
+describe("callDaemon elicitation duplex", () => {
   let dir: string | undefined;
   let server: net.Server | undefined;
   const sockets = new Set<net.Socket>();
@@ -42,7 +41,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
 
   function freshSock(): string {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "mcp-elicit-client-"));
-    return path.join(dir, "mcpdod.sock");
+    return daemonEndpoint(dir);
   }
 
   async function listen(
@@ -56,7 +55,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
       onSocket(socket);
     });
     await new Promise<void>((resolve) => server!.listen(sock, resolve));
-    publishFakeDaemonToken(sock);
+    publishFakeDaemonToken(dir!);
   }
 
   /** The client's opening `hello`, answered before its real request. */
@@ -109,6 +108,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
       { method: "tools/call" },
       {
         socketPath: sock,
+        dir,
         timeoutMs: 5000,
         onElicitation: async (frame) => {
           seenFrames.push(frame);
@@ -172,7 +172,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
     const result = await callDaemon<{ done: boolean }>(
       "rpc",
       { method: "tools/call" },
-      { socketPath: sock, timeoutMs: 5000 },
+      { socketPath: sock, dir, timeoutMs: 5000 },
     );
 
     expect(result).toEqual({ done: true });
@@ -229,7 +229,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
     const result = await callDaemon<{ done: boolean }>(
       "rpc",
       { method: "tools/call" },
-      { socketPath: sock, timeoutMs: 5000, onElicitation },
+      { socketPath: sock, dir, timeoutMs: 5000, onElicitation },
     );
     expect(result).toEqual({ done: true });
   });
@@ -271,6 +271,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
         { method: "tools/call" },
         {
           socketPath: sock,
+          dir,
           timeoutMs: 5000,
           onElicitation: async () => {
             throw new Error("prompt blew up");
@@ -291,7 +292,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
     const promise = callDaemon(
       "rpc",
       { method: "tools/call" },
-      { socketPath: sock, timeoutMs: 60_000, signal: ac.signal },
+      { socketPath: sock, dir, timeoutMs: 60_000, signal: ac.signal },
     );
     ac.abort();
     await expect(promise).rejects.toThrow("cancelled");
@@ -326,7 +327,7 @@ describe.skipIf(unixDaemonOnly)("callDaemon elicitation duplex", () => {
     const result = await callDaemon<{ done: boolean }>(
       "rpc",
       { method: "tools/call" },
-      { socketPath: sock, timeoutMs: 5000 },
+      { socketPath: sock, dir, timeoutMs: 5000 },
     );
     expect(result).toEqual({ done: true });
     // Force a client-side 'error' after the call already settled; the

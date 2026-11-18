@@ -1236,7 +1236,9 @@ export function createRemoteApp(
       // SEP-2243: apply the client's mirrored headers to the upstream request,
       // restricted to the `Mcp-Param-` prefix so a client can't inject other
       // upstream headers. The StreamableHTTP transport merges these onto the
-      // outbound fetch; other transports ignore unknown send options.
+      // outbound fetch; other transports ignore unknown send options. The
+      // SEP-2792 `Accept-Language` mirror is not taken from the client at all:
+      // the transport derives it from the message itself (#2987).
       const paramHeaders = mcpParamHeadersOnly(headers);
       await session.transport.send(message, {
         relatedRequestId: relatedRequestId as string | number | undefined,
@@ -2388,6 +2390,13 @@ export function createRemoteApp(
         error: "settings.suppressNotificationStream must be a boolean",
       };
     }
+    // Optional on the wire; boolean when present, else unset (off) (#2936).
+    if (obj.cookieJar !== undefined && typeof obj.cookieJar !== "boolean") {
+      return {
+        ok: false,
+        error: "settings.cookieJar must be a boolean",
+      };
+    }
     // maxFetchRequests is optional on the wire (older clients won't send it);
     // when present it must be a non-negative number (0 = unlimited), otherwise
     // it defaults below.
@@ -2558,6 +2567,8 @@ export function createRemoteApp(
       ...(obj.suppressNotificationStream === true && {
         suppressNotificationStream: true,
       }),
+      // Absent → unset (off); only an explicit true is carried (#2936).
+      ...(obj.cookieJar === true && { cookieJar: true }),
       // Absent → product default, matching the read side. The default is the
       // omit-sentinel in inspectorSettingsToStoredFields, so a client that
       // didn't send one writes no spurious maxFetchRequests to disk.
