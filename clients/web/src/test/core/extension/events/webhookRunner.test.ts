@@ -399,4 +399,28 @@ describe("WebhookRunner (#3031)", () => {
     );
     r.stop();
   });
+
+  it("schedules nothing more when a listener refreshes from a result or a failure", async () => {
+    const ok = runner([granted(), "hang"]);
+    ok.cb.update.mockImplementationOnce(() => {
+      ok.r.refreshNow();
+    });
+    ok.r.start();
+    await flush();
+    expect(ok.subscribe).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(ok.subscribe).toHaveBeenCalledTimes(2);
+    ok.r.stop();
+
+    const failing = runner([new Error("x"), "hang"]);
+    failing.cb.reconnect.mockImplementationOnce(() => {
+      failing.r.refreshNow();
+    });
+    failing.r.start();
+    await flush();
+    expect(failing.subscribe).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(failing.subscribe).toHaveBeenCalledTimes(2);
+    failing.r.stop();
+  });
 });

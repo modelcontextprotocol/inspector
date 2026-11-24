@@ -720,6 +720,8 @@ export class WebhookRunner implements SubscriptionRunner {
   }
 
   private schedule(delayMs: number): void {
+    // Never two timers: a listener may already have scheduled or sent.
+    if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = setTimeout(
       () => {
         this.timer = undefined;
@@ -772,7 +774,9 @@ export class WebhookRunner implements SubscriptionRunner {
     if (this.stopped) return;
     // As for poll: a type with no replay has no position to have skipped.
     if (result.truncated && this.cursor !== null) callbacks.gap(this.cursor);
-    if (this.stopped) return;
+    // A listener may have stopped it, or sent a refresh of its own (whose
+    // result schedules the next one).
+    if (this.stopped || this.current) return;
     if (delay !== undefined) {
       this.schedule(delay);
     } else if (result.refreshBefore !== null) {
@@ -797,7 +801,7 @@ export class WebhookRunner implements SubscriptionRunner {
     callbacks.error(rpc ?? transportErrorInfo(err));
     callbacks.update({ status: "reconnecting" });
     callbacks.reconnect(`subscribe failed: ${describeFailure(err)}`);
-    if (this.stopped) return;
+    if (this.stopped || this.current) return;
     this.schedule(
       backoffDelay(this.failures, MIN_WEBHOOK_REFRESH_DELAY_MS, this.timing),
     );
