@@ -435,6 +435,34 @@ describe("events-modern-http.json (#3027)", () => {
       });
     });
 
+    it("limits a gap scoped by name to that type", async () => {
+      await start();
+      const email = await result("events/poll", {
+        name: "email.received",
+        cursor: null,
+      });
+      await callTool("emit_event", { name: "email.received" });
+      await callTool("emit_event", { name: "incident.created" });
+      await callTool("inject_event_failure", {
+        preset: "gap",
+        name: "incident.created",
+      });
+      const res = await result("events/poll", {
+        name: "email.received",
+        cursor: email.cursor,
+      });
+      expect(res.truncated).toBe(false);
+      expect((res.events as Json[]).map((e) => e.eventId)).toEqual(["evt_0"]);
+    });
+
+    it("rejects maxEvents: 0, which could never drain a backlog", async () => {
+      await start();
+      expect(
+        (await errorOf("events/poll", { name: "email.received", maxEvents: 0 }))
+          .code,
+      ).toBe(-32602);
+    });
+
     it("filters by arguments that name payload keys", async () => {
       await start();
       const { cursor } = await result("events/poll", {

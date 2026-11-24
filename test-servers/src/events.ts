@@ -780,8 +780,13 @@ export class EventsRuntime {
   private readonly maxWebhookSubscriptions: number;
   private readonly types = new Map<string, EventType>();
   private readonly log: Occurrence[] = [];
-  /** Sequence numbers below this were "lost" (a `gap` preset). */
-  private floor = 0;
+  /**
+   * Retention floors set by the `gap` preset: sequence numbers below one were
+   * "lost". `allFloor` applies to every type; `typeFloors` to one type, for a
+   * `gap` scoped by `name`.
+   */
+  private allFloor = 0;
+  private readonly typeFloors = new Map<string, number>();
   private readonly streams = new Set<PushStream>();
   private readonly listens = new Set<ListenStream>();
   private readonly webhooks = new Map<string, WebhookSubscription>();
@@ -966,8 +971,12 @@ export class EventsRuntime {
       throw invalidParams(`Cursor is ahead of the server: ${cursor}`);
     }
     let truncated = false;
-    if (position < this.floor) {
-      position = this.floor;
+    const floor = Math.max(
+      this.allFloor,
+      this.typeFloors.get(type.descriptor.name) ?? 0,
+    );
+    if (position < floor) {
+      position = floor;
       truncated = true;
     }
     return {
@@ -1013,9 +1022,13 @@ export class EventsRuntime {
     return { occurrences, next: at, truncated, hasMore: false };
   }
 
-  /** The `gap` preset: drop all history, and tell open push streams. */
+  /**
+   * The `gap` preset: drop history (of one type when `name` is given, else of
+   * all of them), and tell the affected push streams.
+   */
   gap(name?: string): void {
-    this.floor = this.head();
+    if (name === undefined) this.allFloor = this.head();
+    else this.typeFloors.set(name, this.head());
     for (const stream of this.streams) {
       if (name !== undefined && stream.name !== name) continue;
       const type = this.types.get(stream.name);
@@ -1139,6 +1152,9 @@ export class EventsRuntime {
     const args = validateArguments(type, params.arguments);
     const maxAgeMs = optionalNonNegativeInt(params.maxAgeMs, "maxAgeMs");
     const requested = optionalNonNegativeInt(params.maxEvents, "maxEvents");
+    // Zero would return an empty batch with `hasMore: true` forever, so a
+    // client draining the backlog would never make progress.
+    if (requested === 0) throw invalidParams("maxEvents must be at least 1");
     const maxEvents = Math.min(requested ?? DEFAULT_MAX_EVENTS, MAX_MAX_EVENTS);
     const cursor = optionalCursor(params.cursor);
     const start = this.startPosition(type, cursor, maxAgeMs);
