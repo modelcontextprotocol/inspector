@@ -180,6 +180,13 @@ export type EventLogEntry =
       occurrence: EventOccurrence;
       /** Set when `data` failed the type's `payloadSchema`. */
       payloadError?: string;
+      /**
+       * The payload check as it ran when the occurrence arrived: `unchecked`
+       * when validation is off, the type has no schema, or the schema would
+       * not compile — so a badge never claims a check that did not happen,
+       * and a later re-list cannot rewrite an earlier verdict (#3030).
+       */
+      payload: "valid" | "invalid" | "unchecked";
     })
   | (EventLogEntryBase & { kind: "gap"; cursor: string | null })
   | (EventLogEntryBase & { kind: "error"; error: EventsErrorInfo })
@@ -565,10 +572,11 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         // set is non-empty here, having just grown past the window.
         entry.seen.delete(entry.seen.values().next().value!);
       }
-      const payloadError = this.validatePayload?.(
+      const check = this.validatePayload?.(
         entry.snapshot.eventType,
         occurrence.data,
-      );
+      ) ?? { status: "unchecked" as const };
+      const payloadError = check.status === "invalid" ? check.error : undefined;
       const { counts } = entry.snapshot;
       this.patch(entry, {
         counts: {
@@ -582,6 +590,7 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
       this.append(entry, {
         kind: "event",
         occurrence,
+        payload: check.status,
         ...(payloadError !== undefined && { payloadError }),
       });
     }

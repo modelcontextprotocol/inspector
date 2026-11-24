@@ -6,6 +6,7 @@
 
 import {
   EMPTY_APPS_UI,
+  EMPTY_EVENTS_UI,
   EMPTY_PROTOCOL_UI,
   EMPTY_LOGS_UI,
   EMPTY_NETWORK_UI,
@@ -22,6 +23,7 @@ import type { NetworkUiState } from "../components/screens/NetworkScreen/Network
 import type { PromptsUiState } from "../components/screens/PromptsScreen/PromptsScreen.js";
 import type { ResourcesUiState } from "../components/screens/ResourcesScreen/ResourcesScreen.js";
 import type { SkillsUiState } from "../components/screens/SkillsScreen/SkillsScreen.js";
+import type { EventsUiState } from "../components/screens/EventsScreen/EventsScreen.js";
 import type { TasksUiState } from "../components/screens/TasksScreen/TasksScreen.js";
 import type { ToolsUiState } from "../components/screens/ToolsScreen/ToolsScreen.js";
 import {
@@ -80,6 +82,7 @@ export interface LiftedTabUiState {
   resourcesUi: ResourcesUiState;
   appsUi: AppsUiState;
   skillsUi: SkillsUiState;
+  eventsUi: EventsUiState;
   tasksUi: TasksUiState;
   logsUi: LogsUiState;
   protocolUi: ProtocolUiState;
@@ -92,6 +95,7 @@ export interface TabUiSetters {
   setResourcesUi: (next: ResourcesUiState) => void;
   setAppsUi: (next: AppsUiState) => void;
   setSkillsUi: (next: SkillsUiState) => void;
+  setEventsUi: (next: EventsUiState) => void;
   setTasksUi: (next: TasksUiState) => void;
   setLogsUi: (next: LogsUiState) => void;
   setProtocolUi: (next: ProtocolUiState) => void;
@@ -107,6 +111,7 @@ export function buildTabUiSnapshot(
     Prompts: state.promptsUi,
     Resources: state.resourcesUi,
     Skills: state.skillsUi,
+    Events: state.eventsUi,
     Tasks: state.tasksUi,
     Logs: state.logsUi,
     Protocol: state.protocolUi,
@@ -163,6 +168,11 @@ export function restoreTabUiFromSnapshot(
       case "Skills":
         setters.setSkillsUi(
           (value as SkillsUiState | undefined) ?? EMPTY_SKILLS_UI,
+        );
+        break;
+      case "Events":
+        setters.setEventsUi(
+          (value as EventsUiState | undefined) ?? EMPTY_EVENTS_UI,
         );
         break;
       case "Tasks":

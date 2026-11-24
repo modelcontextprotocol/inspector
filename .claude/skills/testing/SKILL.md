@@ -50,8 +50,8 @@ ways to depend on one, and they need different halves of that skill:
     override, so if the case needs a specific tool set it is an in-process HTTP
     test instead.
   - **A config-driven web smoke, or `pack:verify` → spawned composable HTTP.**
-    `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs` and `pack:verify`
-    all spawn `server-composable.js --config <name>.json`. **The showcase-config
+    `smoke:web:elicitation`, `smoke:web:app`, `smoke:web:tabs`,
+    `smoke:web:events` and `pack:verify` all spawn `server-composable.js --config <name>.json`. **The showcase-config
     and protocol-era guidance applies to you in full** — being automated does
     not exempt a smoke from it.
 
@@ -189,7 +189,7 @@ Storybook play functions (`test:storybook`) → the published-tarball check
 across the tiers rather than along them.** Needing `test-servers/`: the web
 integration tests **that drive one**, the out-of-process CLI tests, the smokes
 that connect (`smoke:cli`, `smoke:web:app`, `smoke:web:elicit`,
-`smoke:web:tabs`), `pack:verify`, and **`smoke:tui`** — which never asserts a
+`smoke:web:tabs`, `smoke:web:events`), `pack:verify`, and **`smoke:tui`** — which never asserts a
 round trip but calls `ensureTestServers({ requires: ["stdio"] })` and hands the
 built fixture to the TUI as its catalog's stdio command. Not needing it: the
 pure tests inside the same integration project, the connecting tests that

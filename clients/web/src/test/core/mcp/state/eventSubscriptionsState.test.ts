@@ -201,6 +201,9 @@ describe("EventSubscriptionsState (#3029)", () => {
         /payloadSchema/,
       );
       expect(log[0]!.kind === "event" && log[0]!.payloadError).toBeUndefined();
+      // The verdict is recorded with the entry (#3030).
+      expect(log[0]!.kind === "event" && log[0]!.payload).toBe("valid");
+      expect(invalid.kind === "event" && invalid.payload).toBe("invalid");
       expect(log.map((e) => e.seq)).toEqual([1, 2, 3]);
     });
 
@@ -582,6 +585,8 @@ describe("EventSubscriptionsState (#3029)", () => {
         log.map((e) => (e.kind === "event" ? e.occurrence.eventId : "")),
       ).toEqual(["b", "c"]);
       expect(log[0]!.kind === "event" && log[0]!.payloadError).toBeUndefined();
+      // Validation off: nothing checked it.
+      expect(log[0]!.kind === "event" && log[0]!.payload).toBe("unchecked");
       expect(entries).toHaveBeenCalledTimes(3);
       expect(capped.getLog("other")).toEqual([]);
       expect(capped.getLog(sub.id)).toHaveLength(2);

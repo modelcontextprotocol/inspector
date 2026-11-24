@@ -3,6 +3,7 @@ import type { ConsoleUiState } from "../components/screens/ConsoleScreen/Console
 import {
   EMPTY_APPS_UI,
   EMPTY_CONSOLE_UI,
+  EMPTY_EVENTS_UI,
   EMPTY_LOGS_UI,
   EMPTY_NETWORK_UI,
   EMPTY_PROMPTS_UI,
@@ -69,6 +70,7 @@ export function useTabUiState(): TabUiStateResult {
   const [resourcesUi, setResourcesUi] = useState(EMPTY_RESOURCES_UI);
   const [appsUi, setAppsUi] = useState(EMPTY_APPS_UI);
   const [skillsUi, setSkillsUi] = useState(EMPTY_SKILLS_UI);
+  const [eventsUi, setEventsUi] = useState(EMPTY_EVENTS_UI);
   const [tasksUi, setTasksUi] = useState(EMPTY_TASKS_UI);
   const [logsUi, setLogsUi] = useState(EMPTY_LOGS_UI);
   const [protocolUi, setProtocolUi] = useState(EMPTY_PROTOCOL_UI);
@@ -88,6 +90,7 @@ export function useTabUiState(): TabUiStateResult {
       resourcesUi,
       appsUi,
       skillsUi,
+      eventsUi,
       tasksUi,
       logsUi,
       protocolUi,
@@ -100,6 +103,7 @@ export function useTabUiState(): TabUiStateResult {
       resourcesUi,
       appsUi,
       skillsUi,
+      eventsUi,
       tasksUi,
       logsUi,
       protocolUi,
@@ -117,6 +121,7 @@ export function useTabUiState(): TabUiStateResult {
       setResourcesUi,
       setAppsUi,
       setSkillsUi,
+      setEventsUi,
       setTasksUi,
       setLogsUi,
       setProtocolUi,
@@ -145,6 +150,7 @@ export function useTabUiState(): TabUiStateResult {
     setResourcesUi(EMPTY_RESOURCES_UI);
     setAppsUi(EMPTY_APPS_UI);
     setSkillsUi(EMPTY_SKILLS_UI);
+    setEventsUi(EMPTY_EVENTS_UI);
     setTasksUi(EMPTY_TASKS_UI);
     setLogsUi(EMPTY_LOGS_UI);
     setProtocolUi(EMPTY_PROTOCOL_UI);

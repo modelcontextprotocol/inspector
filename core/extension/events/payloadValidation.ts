@@ -22,11 +22,24 @@ import type {
 } from "@modelcontextprotocol/client";
 import type { EventType } from "./schemas.js";
 
-/** Returns a message when `data` violates the type's schema, else `undefined`. */
+/**
+ * The outcome of checking one occurrence. `unchecked` covers both a type with
+ * no `payloadSchema` and one whose schema will not compile, so a renderer
+ * never reports a payload as valid when nothing checked it (#3030).
+ */
+export type EventPayloadCheck =
+  | { status: "valid" }
+  | { status: "invalid"; error: string }
+  | { status: "unchecked" };
+
+/** Checks `data` against the type's `payloadSchema`. */
 export type EventPayloadValidator = (
   eventType: EventType,
   data: unknown,
-) => string | undefined;
+) => EventPayloadCheck;
+
+const UNCHECKED: EventPayloadCheck = Object.freeze({ status: "unchecked" });
+const VALID: EventPayloadCheck = Object.freeze({ status: "valid" });
 
 /** A schema the provider failed to compile: never flags. */
 const UNCHECKABLE = Symbol("uncheckable");
@@ -40,7 +53,7 @@ export function createEventPayloadValidator(
   >();
   return (eventType, data) => {
     const schema = eventType.payloadSchema;
-    if (!schema) return undefined;
+    if (!schema) return UNCHECKED;
     let validate = cache.get(schema);
     if (validate === undefined) {
       try {
@@ -53,10 +66,13 @@ export function createEventPayloadValidator(
       }
       cache.set(schema, validate);
     }
-    if (validate === UNCHECKABLE) return undefined;
+    if (validate === UNCHECKABLE) return UNCHECKED;
     const result = validate(data);
     return result.valid
-      ? undefined
-      : `Payload does not match the payloadSchema of "${eventType.name}": ${result.errorMessage}`;
+      ? VALID
+      : {
+          status: "invalid",
+          error: `Payload does not match the payloadSchema of "${eventType.name}": ${result.errorMessage}`,
+        };
   };
 }

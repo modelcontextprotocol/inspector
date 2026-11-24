@@ -45,6 +45,7 @@ import {
   EMPTY_PROTOCOL_UI,
   EMPTY_NETWORK_UI,
   EMPTY_CONSOLE_UI,
+  EMPTY_EVENTS_UI,
 } from "../../screens/screenUiState";
 
 // Stub bridge factory — AppsScreen mounts the inner iframe and invokes
@@ -1451,6 +1452,83 @@ describe("InspectorView", () => {
     const radios = await screen.findAllByRole("radio");
     const labels = radios.map((r) => r.getAttribute("value"));
     expect(labels).toContain("Skills");
+  });
+
+  describe("the Events tab (SEP-3415, #3030)", () => {
+    const eventsCapabilities = initWithCapabilities({
+      tools: {},
+      extensions: { "io.modelcontextprotocol/events": { listChanged: true } },
+    });
+    const eventsBundle: NonNullable<InspectorViewProps["events"]> = {
+      eventTypes: [
+        {
+          name: "email.received",
+          delivery: ["poll"],
+          inputSchema: { type: "object" },
+        },
+      ],
+      eventsListChanged: false,
+      eventsPagination: noopPagination,
+      eventSubscriptions: [],
+      eventLog: [],
+      eventsUi: EMPTY_EVENTS_UI,
+      onEventsUiChange: vi.fn(),
+      onRefreshEvents: vi.fn(),
+      onSubscribeEvent: vi.fn(),
+      onStopEventSubscription: vi.fn(),
+      onResumeEventSubscription: vi.fn(),
+      onRemoveEventSubscription: vi.fn(),
+      onClearEventLog: vi.fn(),
+    };
+    const connected = (protocolEra: "modern" | "legacy") =>
+      makeProps({
+        connection: {
+          activeServer: "alpha",
+          connectionStatus: "connected",
+          protocolEra,
+          initializeResult: eventsCapabilities,
+        },
+        servers: { servers: [sampleServer] },
+      });
+
+    it("shows the tab on a modern connection that advertises Events, and renders the screen", async () => {
+      const props = connected("modern");
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...props}
+          shell={{ ...props.shell, activeTab: "Events" }}
+          events={eventsBundle}
+        />,
+      );
+      const radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).toContain("Events");
+      expect(screen.getByTestId("events-screen")).toHaveAttribute(
+        "data-event-count",
+        "1",
+      );
+    });
+
+    it("hides the tab on a legacy connection, even when the key is declared", async () => {
+      renderWithMantine(
+        <StatefulInspectorViewHost
+          {...connected("legacy")}
+          events={eventsBundle}
+        />,
+      );
+      const radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).not.toContain(
+        "Events",
+      );
+    });
+
+    it("hides the tab when the host supplies no Events surface", async () => {
+      renderWithMantine(<StatefulInspectorViewHost {...connected("modern")} />);
+      const radios = await screen.findAllByRole("radio");
+      expect(radios.map((r) => r.getAttribute("value"))).not.toContain(
+        "Events",
+      );
+      expect(screen.queryByTestId("events-screen")).not.toBeInTheDocument();
+    });
   });
 
   it("shows the Tasks tab when the server advertises tasks even with no tasks yet", async () => {
