@@ -26,6 +26,15 @@ describe("eventSubscriptionKey (#3029)", () => {
     expect(eventSubscriptionKey("t", { a: 1 }, "poll")).not.toBe(
       eventSubscriptionKey("t", { a: 1 }, "push"),
     );
+    // A JSON argument named `__proto__` is part of the identity.
+    const proto = JSON.parse('{"__proto__":{"region":"west"}}') as Record<
+      string,
+      unknown
+    >;
+    expect(eventSubscriptionKey("t", proto, "poll")).not.toBe(
+      eventSubscriptionKey("t", {}, "poll"),
+    );
+    expect(canonicalJson(proto)).toBe('{"__proto__":{"region":"west"}}');
     expect(eventSubscriptionKey("t", undefined, "poll")).toBe(
       eventSubscriptionKey("t", {}, "poll"),
     );

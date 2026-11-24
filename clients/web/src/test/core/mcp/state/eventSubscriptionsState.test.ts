@@ -445,6 +445,14 @@ describe("EventSubscriptionsState (#3029)", () => {
       expect(() => state.resubscribe("missing")).toThrow(
         /No event subscription/,
       );
+
+      // An explicit null restarts from now rather than from the saved cursor.
+      state.stop(resumed.id);
+      state.subscribe(typed, { mode: "poll", cursor: null });
+      await flush();
+      expect(client.pollEvents.mock.calls[2]![1]).toMatchObject({
+        cursor: null,
+      });
     });
 
     it("aborts a push stream on stop and remove", () => {

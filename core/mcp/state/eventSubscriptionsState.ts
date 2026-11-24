@@ -350,7 +350,12 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
           heartbeatMs: options.heartbeatMs,
         }),
       status: "starting",
-      cursor: options.cursor ?? existing?.snapshot.cursor ?? null,
+      // An explicit `null` ("start from now") wins over a saved cursor; only
+      // an omitted one resumes from where a stopped subscription left off.
+      cursor:
+        options.cursor !== undefined
+          ? options.cursor
+          : (existing?.snapshot.cursor ?? null),
       startedAt: new Date(),
       counts: existing?.snapshot.counts ?? {
         events: 0,

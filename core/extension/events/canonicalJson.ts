@@ -19,11 +19,14 @@ function sortKeys(_key: string, value: unknown): unknown {
     return value;
   }
   const record = value as Record<string, unknown>;
-  const sorted: Record<string, unknown> = {};
-  for (const key of Object.keys(record).sort()) {
-    sorted[key] = record[key];
-  }
-  return sorted;
+  // `Object.fromEntries` defines each key as an own property, so a JSON
+  // argument named `__proto__` is kept rather than hitting the prototype
+  // setter that a plain assignment onto `{}` would invoke.
+  return Object.fromEntries(
+    Object.keys(record)
+      .sort()
+      .map((key) => [key, record[key]]),
+  );
 }
 
 /** `value` as JSON with every object's keys sorted, recursively. */
