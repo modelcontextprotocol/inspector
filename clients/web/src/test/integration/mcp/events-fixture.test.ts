@@ -159,8 +159,7 @@ interface OpenStream {
   abort: () => void;
 }
 
-async function openStream(params: Json): Promise<OpenStream> {
-  const id = nextId++;
+async function openStream(params: Json, id = nextId++): Promise<OpenStream> {
   const controller = new AbortController();
   const res = await fetch(server!.url, {
     method: "POST",
@@ -197,9 +196,28 @@ async function openStream(params: Json): Promise<OpenStream> {
         if (data) queue.push(JSON.parse(data.slice(6)) as Json);
         continue;
       }
-      if (Date.now() > deadline)
+      // Race the read against what is left of the deadline, so a silent
+      // stream fails here — naming the wait — rather than at the test timeout.
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        controller.abort();
         throw new Error("timed out waiting for a frame");
-      const chunk = await reader.read();
+      }
+      const read = reader.read();
+      // The abort below rejects the pending read; it must not go unhandled.
+      read.catch(() => {});
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const chunk = await Promise.race([
+        read,
+        new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), remaining);
+        }),
+      ]);
+      clearTimeout(timer);
+      if (chunk === "timeout") {
+        controller.abort();
+        throw new Error("timed out waiting for a frame");
+      }
       if (chunk.done) throw new Error("stream ended");
       buffer += decoder.decode(chunk.value, { stream: true });
     }
@@ -399,6 +417,24 @@ describe("events-modern-http.json (#3027)", () => {
       expect((res.events as Json[]).map((e) => e.eventId)).toEqual(["evt_1"]);
     });
 
+    it("applies maxAgeMs to every occurrence, not just a leading run", async () => {
+      await start();
+      const { cursor } = await result("events/poll", {
+        name: "incident.created",
+        cursor: null,
+      });
+      await callTool("emit_event", { name: "incident.created" });
+      await callTool("emit_event", { name: "incident.created", ageMs: 60_000 });
+      const res = await result("events/poll", {
+        name: "incident.created",
+        cursor,
+        maxAgeMs: 10_000,
+      });
+      expect(res.truncated).toBe(true);
+      expect((res.events as Json[]).map((e) => e.eventId)).toEqual(["evt_0"]);
+      expect(res.cursor).toBe("cur_2");
+    });
+
     it("reports truncated after a gap preset drops history", async () => {
       await start();
       const { cursor } = await result("events/poll", {
@@ -416,6 +452,34 @@ describe("events-modern-http.json (#3027)", () => {
         truncated: true,
         cursor: "cur_1",
       });
+    });
+
+    it("limits a gap scoped by name to that type", async () => {
+      await start();
+      const email = await result("events/poll", {
+        name: "email.received",
+        cursor: null,
+      });
+      await callTool("emit_event", { name: "email.received" });
+      await callTool("emit_event", { name: "incident.created" });
+      await callTool("inject_event_failure", {
+        preset: "gap",
+        name: "incident.created",
+      });
+      const res = await result("events/poll", {
+        name: "email.received",
+        cursor: email.cursor,
+      });
+      expect(res.truncated).toBe(false);
+      expect((res.events as Json[]).map((e) => e.eventId)).toEqual(["evt_0"]);
+    });
+
+    it("rejects maxEvents: 0, which could never drain a backlog", async () => {
+      await start();
+      expect(
+        (await errorOf("events/poll", { name: "email.received", maxEvents: 0 }))
+          .code,
+      ).toBe(-32602);
     });
 
     it("filters by arguments that name payload keys", async () => {
@@ -629,6 +693,29 @@ describe("events-modern-http.json (#3027)", () => {
       stream.abort();
     });
 
+    it("applies maxAgeMs to the replayed backlog and reports it on active", async () => {
+      await start();
+      await callTool("emit_event", { name: "incident.created" });
+      await callTool("emit_event", { name: "incident.created", ageMs: 60_000 });
+      const stream = await openStream({
+        name: "incident.created",
+        cursor: "cur_0",
+        maxAgeMs: 10_000,
+      });
+      expect(await stream.next()).toMatchObject({
+        method: "notifications/events/active",
+        params: { truncated: true },
+      });
+      expect(await stream.next()).toMatchObject({
+        params: { eventId: "evt_0" },
+      });
+      await callTool("emit_event", { name: "incident.created" });
+      expect(await nextOf(stream, "notifications/events/event")).toMatchObject({
+        params: { eventId: "evt_2" },
+      });
+      stream.abort();
+    });
+
     it("omits every cursor for the emit-only push type", async () => {
       await start();
       const stream = await openStream({
@@ -671,6 +758,26 @@ describe("events-modern-http.json (#3027)", () => {
       await waitForStats((s) => s.openStreams === 0);
     });
 
+    it("ignores notifications/cancelled for a request id two streams share", async () => {
+      await start();
+      const a = await openStream({ name: "incident.created" }, 9001);
+      const b = await openStream({ name: "incident.created" }, 9001);
+      await a.next();
+      await b.next();
+      await fetch(server!.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "notifications/cancelled",
+          params: { requestId: 9001, _meta: ENVELOPE },
+        }),
+      });
+      expect((await stats()).openStreams).toBe(2);
+      a.abort();
+      b.abort();
+    });
+
     it("sends a transient error and keeps the stream open (stream_error)", async () => {
       await start();
       const stream = await openStream({ name: "incident.created" });
@@ -698,7 +805,7 @@ describe("events-modern-http.json (#3027)", () => {
       });
       expect(await stream.next()).toMatchObject({
         method: "notifications/events/active",
-        params: { truncated: true, cursor: "cur_0" },
+        params: { truncated: true, cursor: "cur_0", heartbeatMs: 30_000 },
       });
       stream.abort();
     });
@@ -981,6 +1088,48 @@ describe("events-modern-http.json (#3027)", () => {
       }
     });
 
+    it("fails a silent stream at the helper's own deadline", async () => {
+      await start();
+      const stream = await openStream({
+        name: "incident.created",
+        heartbeatMs: 60_000,
+      });
+      await stream.next();
+      await expect(stream.next(200)).rejects.toThrow(
+        "timed out waiting for a frame",
+      );
+    });
+
+    it("leaves no subscription behind when the cursor is rejected", async () => {
+      await start();
+      for (const cursor of ["garbage", "cur_99"]) {
+        const error = await errorOf("events/subscribe", {
+          name: "incident.created",
+          delivery: delivery("https://hooks.example.com/c"),
+          cursor,
+        });
+        expect(error.code).toBe(-32602);
+      }
+      expect((await stats()).webhookSubscriptions).toBe(0);
+    });
+
+    it("keys subscriptions by the caller's credential", async () => {
+      await start();
+      const params = {
+        name: "incident.created",
+        delivery: delivery("https://hooks.example.com/p"),
+      };
+      const ids: unknown[] = [];
+      for (const token of ["Bearer one", "Bearer two"]) {
+        const reply = await rpc("events/subscribe", params, {
+          headers: { authorization: token },
+        });
+        ids.push(reply.body.result!.id);
+      }
+      expect(ids[0]).not.toBe(ids[1]);
+      expect((await stats()).webhookSubscriptions).toBe(2);
+    });
+
     it("validates url, secret, mode and TTL with InvalidParams", async () => {
       await start();
       const name = "incident.created";
@@ -990,6 +1139,8 @@ describe("events-modern-http.json (#3027)", () => {
         { name, delivery: delivery("https://localhost/x") },
         { name, delivery: delivery("https://192.168.1.4/x") },
         { name, delivery: delivery("https://[::1]/x") },
+        { name, delivery: delivery("https://[::ffff:127.0.0.1]/x") },
+        { name, delivery: delivery("https://[::ffff:192.168.1.4]/x") },
         { name, delivery: delivery("not a url") },
         { name, delivery: delivery("https://hooks.example.com/x", "secret") },
         {
@@ -1249,6 +1400,30 @@ describe("events-legacy-http.json (#3027)", () => {
     expect(tool.body.result!.structuredContent).toMatchObject({
       legacyRequests: 1,
       requests: {},
+    });
+  });
+
+  it("refuses events/* on the legacy leg even with a modern envelope", async () => {
+    await start(LEGACY_CONFIG);
+    const reply = await rpc("events/list");
+    expect(reply.body.error!.code).toBe(-32601);
+    const listen = await rpc("subscriptions/listen", {
+      notifications: { eventsListChanged: true },
+    });
+    expect(listen.body.result).toBeUndefined();
+    const init = await legacyRpc("initialize", {
+      protocolVersion: "2025-11-25",
+      capabilities: {},
+      clientInfo: { name: "events-fixture-test", version: "1.0.0" },
+    });
+    const tool = await legacyRpc(
+      "tools/call",
+      { name: "get_event_stats", arguments: {} },
+      init.sessionId!,
+    );
+    expect(tool.body.result!.structuredContent).toMatchObject({
+      legacyRequests: 1,
+      listenStreams: 0,
     });
   });
 

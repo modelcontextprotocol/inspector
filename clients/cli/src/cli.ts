@@ -56,6 +56,7 @@ import {
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
   parseProtocolEra,
+  resolveCatalogPath,
   skillCatalogLimitParser,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
@@ -2071,19 +2072,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     return { shortCircuit: true };
   }
 
-  // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
+  // Honour MCP_CATALOG_PATH only when no other source is named. Applying it
   // unconditionally meant a homespace that exports the env var could never run
-  // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
+  // `--server-url …` (#1573) or `--config <file>` (#3021): serverSourceConflict
+  // rejects catalog + ad-hoc and catalog + config.
   const adHoc =
     targetArgs.length > 0 ||
     Boolean(options.transport) ||
     Boolean(options.serverUrl?.trim());
-  const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
 
   const serverOptions = {
-    // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
-    // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
-    catalogPath: options.catalog?.trim() || envCatalog,
+    catalogPath: resolveCatalogPath({
+      catalog: options.catalog?.trim(),
+      config: options.config,
+      adHoc,
+    }),
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,

@@ -369,7 +369,7 @@ Cursors are `cur_<n>`, and a cursor the server never issued is `InvalidParams`.
 ### Methods
 
 - **`events/poll`:** a `null` or absent cursor returns no events and the
-  current cursor. `maxEvents` (default 10, max 100) caps a page and sets
+  current cursor. `maxEvents` (default 10, 1–100) caps a page and sets
   `hasMore`. `maxAgeMs` skips older occurrences and reports `truncated: true`.
 - **`events/stream`:** an SSE response. `notifications/events/active` comes
   first, with the granted `heartbeatMs` (default 30000, clamped to 100–60000).
@@ -431,7 +431,7 @@ Pass these as `inject_event_failure`'s `preset`. They are exported as
 | `terminate_forbidden` | Open push streams (for `name`, or all of them) get `notifications/events/terminated` with `Forbidden`, then the final frame. The next poll fails with `Forbidden`. |
 | `terminate_schema_changed` | The same, with `Unsupported` `{feature:"payloadSchema", reason:"schema_changed"}`. |
 | `stream_error` | Open push streams get a transient `notifications/events/error` (`-32603`) and stay open. |
-| `gap` | History is dropped. Open push streams get a fresh `active` with `truncated: true`, and a poll from an older cursor returns `truncated: true`. |
+| `gap` | History is dropped, for `name` only when it is given and otherwise for every type. The affected push streams get a fresh `active` with `truncated: true`, and a poll from an older cursor returns `truncated: true`. |
 | `backlog` | Emit `count` (default 25) occurrences of `name` (default `incident.created`), so a poll with `maxEvents` drains through `hasMore`. |
 
 `NotFound` after removal comes from `remove_event_type`, not from a preset.

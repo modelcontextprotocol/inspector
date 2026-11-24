@@ -571,7 +571,7 @@ export class TestServerHttp {
 
     // Events extension (SEP-3415): `events/*`, plus a listen that opts into
     // `eventsListChanged`, are served ahead of the SDK handler — see events.ts.
-    const eventsInterceptor = this.createEventsInterceptor();
+    const eventsInterceptor = this.createEventsInterceptor("modern");
     if (eventsInterceptor) extraMiddleware.push(eventsInterceptor);
 
     app.post("/mcp", ...mcpMiddleware, ...extraMiddleware, route);
@@ -585,10 +585,13 @@ export class TestServerHttp {
    * The Events interceptor for this server's config, or `undefined` when the
    * extension is off. One per HTTP leg, sharing the config's runtime.
    */
-  private createEventsInterceptor(): express.RequestHandler | undefined {
+  private createEventsInterceptor(
+    era: "legacy" | "modern",
+  ): express.RequestHandler | undefined {
     const runtime = getEventsRuntime(this.configWithCallback);
     if (!runtime) return undefined;
     return createEventsInterceptor(() => runtime, {
+      era,
       describeServer: () => {
         const probe = createMcpServer(this.configWithCallback, "modern");
         const described = {
@@ -637,7 +640,7 @@ export class TestServerHttp {
 
     // Events extension: on this 2025 leg the interceptor only refuses (and
     // counts) `events/*`, which is what the legacy showcase config asserts.
-    const eventsInterceptor = this.createEventsInterceptor();
+    const eventsInterceptor = this.createEventsInterceptor("legacy");
     const legacyMiddleware = eventsInterceptor
       ? [...mcpMiddleware, eventsInterceptor]
       : mcpMiddleware;

@@ -8,11 +8,13 @@ export {
   getNamedServerConfigs,
   resolveServerSource,
   serverSourceConflict,
+  resolveCatalogPath,
   hasAdHocServerOptions,
   readServerListFile,
   type ServerConfigOptions,
   type ResolveServerConfigsMode,
   type ServerSourceFlags,
+  type CatalogPathFlags,
 } from "./config.js";
 export {
   headersToServerSettings,
