@@ -325,7 +325,7 @@ describe("WebhookRunner (#3031)", () => {
     r.stop();
   });
 
-  it("aborts an in-flight subscribe on stop and ignores its outcome", async () => {
+  it("lets an in-flight subscribe finish on stop, ignores it, and reports idle", async () => {
     let signal: AbortSignal | undefined;
     let settle: (result: SubscribeEventsResult) => void = () => {};
     const cb = callbacks();
@@ -338,14 +338,28 @@ describe("WebhookRunner (#3031)", () => {
       },
       callbacks: cb,
     });
+    await expect(r.whenIdle()).resolves.toBeUndefined();
     r.start();
     r.stop();
-    expect(signal?.aborted).toBe(true);
+    // Not aborted: the server may still apply it, so the caller waits.
+    expect(signal?.aborted).toBe(false);
+    let idle = false;
+    void r.whenIdle().then(() => (idle = true));
+    await flush();
+    expect(idle).toBe(false);
     settle(granted());
     await flush();
+    expect(idle).toBe(true);
     expect(cb.update).not.toHaveBeenCalled();
     r.start(); // a stopped runner does not start again
     expect(r.cursor).toBe("c0");
+  });
+
+  it("reports idle after a failed subscribe too", async () => {
+    const { r } = runner([new Error("x")]);
+    r.start();
+    r.stop();
+    await expect(r.whenIdle()).resolves.toBeUndefined();
   });
 
   it("stops reporting once a callback stops it", async () => {

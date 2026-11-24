@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventSubscriptionsState } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { EVENTS_ERROR_CODES } from "@inspector/core/extension/events/constants.js";
-import type { EventType } from "@inspector/core/extension/events/schemas.js";
+import type {
+  EventType,
+  SubscribeEventsResult,
+} from "@inspector/core/extension/events/schemas.js";
 import { eventSubscriptionKey } from "@inspector/core/extension/events/canonicalJson.js";
 import {
   isWebhookSecret,
@@ -222,6 +225,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       expect(state.getSubscription(sub.id)?.webhook?.unsubscribe).toEqual({
         status: "pending",
       });
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledWith(hooked, {
         arguments: { a: 1 },
         delivery: { url: URL_A },
@@ -350,6 +354,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
 
       state.remove(live.id);
       expect(state.getSubscription(live.id)).toBeUndefined();
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
       await flush();
 
@@ -360,6 +365,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       await flush();
       state.stop(stopped.id);
       state.remove(stopped.id);
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(2);
     });
 
@@ -433,6 +439,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       expect(() =>
         state.subscribe(hooked, { mode: "webhook", webhook: { url: URL_A } }),
       ).toThrow(/still being unsubscribed/);
+      await Promise.resolve(); // the teardown is sent a microtask later
       settle();
       await flush();
       expect(
@@ -454,12 +461,14 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
         "failed",
       );
       state.stop(sub.id); // retry
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(2);
       await flush();
       expect(state.getSubscription(sub.id)?.webhook?.unsubscribe?.status).toBe(
         "failed",
       );
       state.remove(sub.id); // still not torn down: one more attempt
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(3);
       await flush();
     });
@@ -485,6 +494,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       await flush();
       expect(state.getSubscription(sub.id)?.status).toBe("terminated");
       state.remove(sub.id);
+      await Promise.resolve(); // the teardown is sent a microtask later
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
       await flush();
     });
@@ -497,5 +507,36 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       state.stop("nope");
       expect(client.unsubscribeEvents).not.toHaveBeenCalled();
     });
+  });
+
+  describe("review round 2", () => {
+    it.each(["stop", "remove"] as const)(
+      "on %s, waits for an in-flight subscribe before unsubscribing",
+      async (action) => {
+        let settle: (result: SubscribeEventsResult) => void = () => {};
+        client.subscribeEvents.mockImplementationOnce(
+          () => new Promise((resolve) => (settle = resolve)),
+        );
+        const sub = state.subscribe(hooked, {
+          mode: "webhook",
+          webhook: { url: URL_A, ttlMs: null },
+        });
+        state[action](sub.id);
+        await flush();
+        expect(client.unsubscribeEvents).not.toHaveBeenCalled();
+        settle({
+          id: "sub_late",
+          refreshBefore: null,
+          cursor: null,
+          truncated: false,
+        });
+        await flush();
+        expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
+        // The late grant does not revive the subscription.
+        expect(state.getSubscription(sub.id)?.status).toBe(
+          action === "stop" ? "stopped" : undefined,
+        );
+      },
+    );
   });
 });

@@ -534,14 +534,15 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     if (!entry.runner) {
       // A teardown that failed is retried: the server may still hold it.
       if (entry.snapshot.webhook?.unsubscribe?.status === "failed") {
-        this.unsubscribeWebhook(entry);
+        this.unsubscribeWebhook(entry, Promise.resolve());
       }
       return;
     }
+    const idle = whenIdle(entry.runner);
     entry.runner.stop();
     entry.runner = undefined;
     this.patch(entry, { status: "stopped" });
-    if (entry.snapshot.mode === "webhook") this.unsubscribeWebhook(entry);
+    if (entry.snapshot.mode === "webhook") this.unsubscribeWebhook(entry, idle);
   }
 
   /**
@@ -555,10 +556,11 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     const entry = this.entries.get(id);
     if (!entry) return;
     const unsubscribe = needsTeardown(entry);
+    const idle = whenIdle(entry.runner);
     entry.runner?.stop();
     entry.runner = undefined;
     this.entries.delete(id);
-    if (unsubscribe) this.unsubscribeWebhook(entry);
+    if (unsubscribe) this.unsubscribeWebhook(entry, idle);
     this.dispatchSubscriptions();
   }
 
@@ -592,9 +594,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   /**
    * Send `events/unsubscribe` for a webhook entry the caller has just stopped
    * or removed, reporting the outcome on the entry while it is still the
-   * registry's.
+   * registry's. Sent once `idle` settles — after any subscribe still in
+   * flight — so the server cannot apply a late grant after the teardown.
    */
-  private unsubscribeWebhook(entry: Entry): void {
+  private unsubscribeWebhook(entry: Entry, idle: Promise<void>): void {
     const client = this.client;
     const { webhook } = entry.snapshot;
     /* v8 ignore next -- callers pass only webhook entries of a live store, whose client `subscribe` checked */
@@ -613,16 +616,14 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
       this.tearingDown.delete(key);
       report(unsubscribe);
     };
-    let pending: Promise<void>;
-    try {
-      pending = client.unsubscribeEvents(entry.snapshot.eventType, {
+    const unsubscribeEvents = client.unsubscribeEvents.bind(client);
+    const send = (): Promise<void> =>
+      unsubscribeEvents(entry.snapshot.eventType, {
         arguments: entry.snapshot.arguments,
         delivery: { url: webhook.url },
       });
-    } catch (err) {
-      pending = Promise.reject(err);
-    }
-    pending.then(
+    // `then(send)` also turns a synchronous throw into a rejection.
+    idle.then(send).then(
       () => settle({ status: "done" }),
       (err: unknown) => {
         const rpc = eventsErrorOf(err);
@@ -958,6 +959,13 @@ function checkWebhookOptions(
   // Normalized, so equivalent spellings (`https://h.example` and
   // `https://h.example/`) are one registry key, as they are one server key.
   return { ...options, url: url.href };
+}
+
+/** What a stopping runner's teardown must wait for: a webhook subscribe. */
+function whenIdle(runner: SubscriptionRunner | undefined): Promise<void> {
+  return runner instanceof WebhookRunner
+    ? runner.whenIdle()
+    : Promise.resolve();
 }
 
 /**

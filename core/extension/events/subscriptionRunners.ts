@@ -662,6 +662,8 @@ export interface WebhookRunnerOptions extends RunnerTiming {
  */
 export class WebhookRunner implements SubscriptionRunner {
   private current: AbortController | undefined;
+  /** Settles (never rejects) once the in-flight subscribe has. */
+  private inflight: Promise<void> = Promise.resolve();
   private timer: ReturnType<typeof setTimeout> | undefined;
   private failures = 0;
   private refreshes = 0;
@@ -685,13 +687,23 @@ export class WebhookRunner implements SubscriptionRunner {
     this.send();
   }
 
+  /**
+   * Stop refreshing. An in-flight subscribe is **not** aborted: aborting it
+   * locally does not stop the server from creating or refreshing the
+   * subscription, so the caller waits on {@link whenIdle} and only then sends
+   * `events/unsubscribe` — otherwise the unsubscribe could be processed first
+   * and a late grant left delivering. Its outcome is ignored.
+   */
   stop(): void {
     this.stopped = true;
     if (this.timer !== undefined) clearTimeout(this.timer);
     this.timer = undefined;
-    const current = this.current;
     this.current = undefined;
-    current?.abort();
+  }
+
+  /** Resolves once no subscribe is in flight; it never rejects. */
+  whenIdle(): Promise<void> {
+    return this.inflight;
   }
 
   /**
@@ -720,7 +732,7 @@ export class WebhookRunner implements SubscriptionRunner {
   private send(): void {
     const controller = new AbortController();
     this.current = controller;
-    this.options
+    this.inflight = this.options
       .subscribe(
         { ...this.options.request, cursor: this.cursor },
         controller.signal,
