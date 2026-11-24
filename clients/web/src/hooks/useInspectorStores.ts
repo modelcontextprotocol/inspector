@@ -14,7 +14,14 @@ import type {
   StderrLogEntry,
 } from "@inspector/core/mcp/types.js";
 import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
+import type { EventType } from "@inspector/core/extension/events/schemas.js";
+import type { ExcludedEventType } from "@inspector/core/extension/events/headers.js";
+import type {
+  EventLogEntry,
+  EventSubscription,
+} from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
+import type { InspectorClientProtocol } from "@inspector/core/mcp/inspectorClientProtocol.js";
 import { ManagedToolsState } from "@inspector/core/mcp/state/managedToolsState.js";
 import { ManagedPromptsState } from "@inspector/core/mcp/state/managedPromptsState.js";
 import { ManagedResourcesState } from "@inspector/core/mcp/state/managedResourcesState.js";
@@ -24,6 +31,9 @@ import { PagedResourcesState } from "@inspector/core/mcp/state/pagedResourcesSta
 import { ManagedResourceTemplatesState } from "@inspector/core/mcp/state/managedResourceTemplatesState.js";
 import { ManagedRequestorTasksState } from "@inspector/core/mcp/state/managedRequestorTasksState.js";
 import { ManagedSkillsState } from "@inspector/core/mcp/state/managedSkillsState.js";
+import { ManagedEventsState } from "@inspector/core/mcp/state/managedEventsState.js";
+import { PagedEventsState } from "@inspector/core/mcp/state/pagedEventsState.js";
+import { EventSubscriptionsState } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { ResourceSubscriptionsState } from "@inspector/core/mcp/state/resourceSubscriptionsState.js";
 import { MessageLogState } from "@inspector/core/mcp/state/messageLogState.js";
 import {
@@ -40,6 +50,13 @@ import { usePagedResources } from "@inspector/core/react/usePagedResources.js";
 import { useManagedResourceTemplates } from "@inspector/core/react/useManagedResourceTemplates.js";
 import { useManagedRequestorTasks } from "@inspector/core/react/useManagedRequestorTasks.js";
 import { useManagedSkills } from "@inspector/core/react/useManagedSkills.js";
+import { useManagedEvents } from "@inspector/core/react/useManagedEvents.js";
+import { usePagedEvents } from "@inspector/core/react/usePagedEvents.js";
+import {
+  useEventLog,
+  useEventSubscriptions,
+} from "@inspector/core/react/useEventSubscriptions.js";
+import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useMessageLog } from "@inspector/core/react/useMessageLog.js";
 import { useFetchRequestLog } from "@inspector/core/react/useFetchRequestLog.js";
@@ -48,10 +65,10 @@ import { animationFrameScheduler } from "@inspector/core/react/notifyScheduler.j
 import { usePaginatedList, type PaginatedListModel } from "./usePaginatedList";
 
 /**
- * The thirteen per-session state managers. They are created together (one
+ * The per-session state managers. They are created together (one
  * `InspectorClient`, one set of stores) and torn down together, so they are
- * held as one slot rather than thirteen — a partially-replaced set would leave
- * some stores listening to a client the others had already left.
+ * held as one slot rather than one per store — a partially-replaced set would
+ * leave some stores listening to a client the others had already left.
  */
 export interface InspectorStores {
   managedToolsState: ManagedToolsState;
@@ -63,6 +80,11 @@ export interface InspectorStores {
   managedResourceTemplatesState: ManagedResourceTemplatesState;
   managedRequestorTasksState: ManagedRequestorTasksState;
   managedSkillsState: ManagedSkillsState;
+  /** Events (SEP-3415, #3030): the event types, all pages or one at a time. */
+  managedEventsState: ManagedEventsState;
+  pagedEventsState: PagedEventsState;
+  /** The client-owned poll/push subscription registry (#3029). */
+  eventSubscriptionsState: EventSubscriptionsState;
   resourceSubscriptionsState: ResourceSubscriptionsState;
   messageLogState: MessageLogState;
   fetchRequestLogState: FetchRequestLogState;
@@ -153,12 +175,55 @@ export interface UseInspectorStoresResult {
   skillsPageCount: number;
   skillsLoadError: Error | null;
   refreshSkills: () => Promise<unknown>;
+  // --- Events (SEP-3415, #3030) ---
+  eventsPagination: PaginatedListModel<EventType>;
+  /** Excluded for invalid `x-mcp-header`s, from whichever source is active. */
+  excludedEventTypes: ExcludedEventType[];
+  eventsListChanged: boolean;
+  clearEventsListChanged: () => void;
+  refreshEvents: () => Promise<unknown>;
+  loadEventsPage: (cursor?: string) => Promise<unknown>;
+  eventSubscriptions: EventSubscription[];
+  eventLog: EventLogEntry[];
   subscriptions: InspectorResourceSubscription[];
   subscriptionStreamState: ResourceSubscriptionStreamState;
   messages: MessageEntry[];
   fetchRequests: FetchRequestEntry[];
   stderrLogs: StderrLogEntry[];
 }
+
+/**
+ * The re-list a contract-changing termination triggers (#3029). The engine
+ * decides its resubscribe offer from the full list the managed store walks; in
+ * paginated mode the tab shows the paged store instead, so page 1 is reloaded
+ * too, or the sidebar and form would keep the stale descriptor the offer was
+ * not based on. That reload's failure is the paged store's to show; it does
+ * not fail the re-list.
+ */
+export async function relistEvents(
+  client: InspectorClient,
+  managed: ManagedEventsState,
+  paged: PagedEventsState,
+): Promise<EventType[]> {
+  const eventTypes = await managed.refresh();
+  if (client.getServerSettings()?.paginatedLists) {
+    // Cleared first: a Load-more still in flight would otherwise make this
+    // page-1 load a no-op under the store's in-flight guard and then commit
+    // its stale page. Clearing ends that load's generation.
+    paged.clear();
+    await paged.loadPage(undefined).catch(() => {});
+  }
+  return eventTypes;
+}
+
+/** Module scope: a `useStoreSnapshot` fallback and reader must be stable. */
+const NO_EXCLUDED_EVENT_TYPES: ExcludedEventType[] = [];
+// Typed by the protocol, where the Events surface is optional: a client
+// without it (an older implementation, a test double) has excluded nothing.
+const readExcludedEventTypes = (
+  client: InspectorClientProtocol,
+): ExcludedEventType[] =>
+  client.getExcludedEventTypes?.() ?? NO_EXCLUDED_EVENT_TYPES;
 
 /**
  * Owns the per-session state managers and the `core/react` hooks that read
@@ -203,6 +268,11 @@ export function useInspectorStores({
       // tile shows the server-supplied name/title), so it is handed the
       // freshly created state directly rather than read back from React.
       const managedResourcesState = new ManagedResourcesState(client);
+      // The subscription engine re-lists through the managed store on a
+      // contract-changing termination, so the list the Events tab shows is the
+      // one its resubscribe offer was based on.
+      const managedEventsState = new ManagedEventsState(client);
+      const pagedEventsState = new PagedEventsState(client);
       const fetchRequestLogState = new FetchRequestLogState(
         client,
         fetchLogOptions,
@@ -219,6 +289,12 @@ export function useInspectorStores({
         ),
         managedRequestorTasksState: new ManagedRequestorTasksState(client),
         managedSkillsState: new ManagedSkillsState(client),
+        managedEventsState,
+        pagedEventsState,
+        eventSubscriptionsState: new EventSubscriptionsState(client, {
+          relist: () =>
+            relistEvents(client, managedEventsState, pagedEventsState),
+        }),
         resourceSubscriptionsState: new ResourceSubscriptionsState(
           client,
           managedResourcesState,
@@ -353,6 +429,56 @@ export function useInspectorStores({
     error: skillsLoadError,
     refresh: refreshSkills,
   } = useManagedSkills(inspectorClient, stores?.managedSkillsState ?? null);
+  // Events (SEP-3415, #3030). The stores no-op unless the connection offers
+  // the extension, so these are unconditional too; the tab is what is gated.
+  const {
+    eventTypes: managedEventTypes,
+    error: eventsLoadError,
+    listChanged: eventsListChanged,
+    loaded: managedEventsLoaded,
+    refresh: refreshEvents,
+    clearListChanged: clearEventsListChanged,
+  } = useManagedEvents(inspectorClient, stores?.managedEventsState ?? null);
+  const {
+    eventTypes: pagedEventTypes,
+    excluded: pagedExcludedEventTypes,
+    nextCursor: pagedEventsCursor,
+    pageCount: pagedEventsPageCount,
+    error: pagedEventsLoadError,
+    loadPage: loadEventsPage,
+  } = usePagedEvents(inspectorClient, stores?.pagedEventsState ?? null);
+  const eventsPagination = usePaginatedList({
+    connected,
+    paginated: paginatedLists,
+    managedItems: managedEventTypes,
+    managedRefresh: refreshEvents,
+    managedError: eventsLoadError,
+    managedLoaded: managedEventsLoaded,
+    pagedItems: pagedEventTypes,
+    pagedNextCursor: pagedEventsCursor,
+    pagedPageCount: pagedEventsPageCount,
+    pagedError: pagedEventsLoadError,
+    loadPage: loadEventsPage,
+  });
+  // The aggregate walk reports its exclusions on the client; a paged walk
+  // collects them page by page in its own store.
+  const managedExcludedEventTypes = useStoreSnapshot(
+    inspectorClient,
+    "excludedEventTypesChange",
+    readExcludedEventTypes,
+    NO_EXCLUDED_EVENT_TYPES,
+  );
+  const excludedEventTypes = paginatedLists
+    ? pagedExcludedEventTypes
+    : managedExcludedEventTypes;
+  const eventSubscriptions = useEventSubscriptions(
+    stores?.eventSubscriptionsState ?? null,
+  );
+  // Coalesced like the other logs: a backlog drain appends many at once.
+  const eventLog = useEventLog(
+    stores?.eventSubscriptionsState ?? null,
+    animationFrameScheduler,
+  );
   const { subscriptions, streamState: subscriptionStreamState } =
     useResourceSubscriptions(stores?.resourceSubscriptionsState ?? null);
   // The three logs dispatch once per entry, and these lists are read by `App`,
@@ -404,6 +530,14 @@ export function useInspectorStores({
     skillsPageCount,
     skillsLoadError,
     refreshSkills,
+    eventsPagination,
+    excludedEventTypes,
+    eventsListChanged,
+    clearEventsListChanged,
+    refreshEvents,
+    loadEventsPage,
+    eventSubscriptions,
+    eventLog,
     subscriptions,
     subscriptionStreamState,
     messages,

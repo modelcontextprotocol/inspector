@@ -8,6 +8,7 @@ import type { PromptsUiState } from "./PromptsScreen/PromptsScreen";
 import type { ResourcesUiState } from "./ResourcesScreen/ResourcesScreen";
 import type { AppsUiState } from "./AppsScreen/AppsScreen";
 import type { SkillsUiState } from "./SkillsScreen/SkillsScreen";
+import type { EventsUiState } from "./EventsScreen/EventsScreen";
 import type { TasksUiState } from "./TasksScreen/TasksScreen";
 import type { LogsUiState } from "./LoggingScreen/LoggingScreen";
 import type { ProtocolUiState } from "./ProtocolScreen/ProtocolScreen";
@@ -49,6 +50,15 @@ export const EMPTY_SKILLS_UI: SkillsUiState = {
   search: "",
 };
 
+export const EMPTY_EVENTS_UI: EventsUiState = {
+  selectedEventName: undefined,
+  formValues: {},
+  search: "",
+  mode: undefined,
+  tuning: {},
+  logFilter: undefined,
+};
+
 export const EMPTY_TASKS_UI: TasksUiState = {
   search: "",
   statusFilter: undefined,
@@ -81,6 +91,7 @@ export const TAB_UI_REGISTRY = {
   Prompts: { empty: EMPTY_PROMPTS_UI },
   Resources: { empty: EMPTY_RESOURCES_UI },
   Skills: { empty: EMPTY_SKILLS_UI },
+  Events: { empty: EMPTY_EVENTS_UI },
   Tasks: { empty: EMPTY_TASKS_UI },
   Logs: { empty: EMPTY_LOGS_UI },
   Protocol: { empty: EMPTY_PROTOCOL_UI },

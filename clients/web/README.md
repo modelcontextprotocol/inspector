@@ -52,12 +52,23 @@ Components live under `src/components/` in four layers, smallest to largest:
 
 | Layer       | Count | What it is                                                                     |
 | ----------- | ----- | ------------------------------------------------------------------------------ |
-| `elements/` | ~48   | Leaf presentational pieces (badges, buttons, toggles) over Mantine primitives. |
-| `groups/`   | ~64   | Composite pieces (cards, panels, modals, control bars).                        |
-| `screens/`  | ~11   | Full tab screens (Tools, Resources, Servers, monitoring screens…).             |
+| `elements/` | ~51   | Leaf presentational pieces (badges, buttons, toggles) over Mantine primitives. |
+| `groups/`   | ~73   | Composite pieces (cards, panels, modals, control bars).                        |
+| `screens/`  | ~12   | Full tab screens (Tools, Resources, Servers, monitoring screens…).             |
 | `views/`    | 1     | `InspectorView` — the top-level layout that composes the screens.              |
 
-Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
+Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)).
+
+## The Events tab
+
+The **Events** tab ([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)) inspects a server's [Events extension](https://modelcontextprotocol.io/extensions/events/overview) (`io.modelcontextprotocol/events`, SEP-3415). It is shown only on a **modern-era** connection to a server that advertises the extension; a legacy connection never shows it, even when the server declares the key, because the client never sends `events/*` there.
+
+- **Event types** (`EventControls`): `events/list`, with each type's description and a badge per advertised delivery mode, following `notifications/events/list_changed` and the paginated-lists setting like the Tools list. Types excluded for invalid `x-mcp-header` annotations are listed below with the reason.
+- **Subscribe form** (`EventDetailPanel`): the type's `inputSchema` and `payloadSchema`, the `Mcp-Name` and `Mcp-Param-*` headers its requests carry, an argument form generated from `inputSchema` by the shared `SchemaForm`, a mode picker limited to the type's advertised modes, and `maxAgeMs` plus `maxEvents` (poll) or `heartbeatMs` (push).
+- **Subscriptions** (`EventSubscriptionCard`): mode, state (starting, active, reconnecting, terminated, stopped), current cursor, granted heartbeat or `nextPollMs`, tallies including gaps and errors, the last error and how a termination was handled, with Stop, Resume and Remove.
+- **Occurrences** (`EventLogPanel`): newest first, each occurrence's `data` rendered as **inert JSON text only** (payloads are untrusted), with a payload-schema validation badge, interleaved with the gap, error, reconnect and termination markers.
+
+The subscriptions and the log are the core subscription engine's (`EventSubscriptionsState`); the screen only renders them. **Webhook** management is a later phase ([#3031](https://github.com/modelcontextprotocol/inspector/issues/3031)): the mode picker is built from `SUBSCRIBABLE_DELIVERY_MODES` in `src/utils/eventsUtils.ts` (`poll`, `push`), so a webhook-only type still lists with its badge but explains that it cannot be subscribed to here yet. Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
 
 ## Load testing (`#2911`)
 
@@ -115,12 +126,14 @@ Nothing _enforces_ the boundary — no path alias keys off it, and the coverage 
 
 ## Core tab automation contract
 
-The Tools, Resources, Prompts and Skills screens each expose a `data-testid` plus a
+The Tools, Resources, Prompts, Skills and Events screens each expose a `data-testid` plus a
 small set of `data-*` attributes, so a headless driver can `waitForSelector` on
 a deterministic signal rather than on visible copy. `scripts/smoke-web-tabs.mjs`
 drives the first three of those four against `test-servers/configs/web-tabs-http.json`
 ([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)); Skills
 publishes the same contract but is not smoked yet ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)).
+`scripts/smoke-web-events.mjs` drives Events against `test-servers/configs/events-modern-http.json`
+([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)).
 Treat them as a public contract, for the same reason as the Apps ones below:
 
 | Attribute                            | Where              | Meaning                                                                                                                                                     |
@@ -142,6 +155,12 @@ Treat them as a public contract, for the same reason as the Apps ones below:
 | `data-skill-count`                   | on `skills-screen` | Entries accumulated from `skills/list`.                                                                                                                     |
 | `data-skill-page-count`              | on `skills-screen` | Pages the last `skills/list` walk took — a **separate** fact from the count, and the one that shows pagination actually happened.                            |
 | `data-testid="skill-manifest"`       | detail pane        | The selected skill's resource manifest. Absent for a `resources: "dynamic"` skill, which has no manifest to render.                                          |
+| `data-testid="events-screen"`        | Events root        | The element carrying the three attributes below ([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)).                                    |
+| `data-event-count`                   | on `events-screen` | Event types listed (`events/list`, after exclusions).                                                                                                       |
+| `data-subscription-count`            | on `events-screen` | Subscriptions in the engine's registry, live or not.                                                                                                        |
+| `data-log-count`                     | on `events-screen` | Entries in the occurrence log, every subscription's.                                                                                                        |
+| `data-testid="event-subscription"`   | each subscription  | One per subscription, with `data-status` = `starting` / `active` / `reconnecting` / `terminated` / `stopped`.                                               |
+| `data-testid="event-log-entry"`      | each log entry     | One per log entry, with `data-kind` = `event` / `gap` / `error` / `reconnect` / `terminated`.                                                               |
 
 Why attributes rather than text: a smoke that waited on a label fails the next
 time the label is reworded, which is noise rather than signal — and it fails as

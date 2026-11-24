@@ -17,12 +17,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import {
   buildWebServerEnv,
   createTempCatalog,
+  seedTempCatalog,
   teardownWebServer,
 } from "./prod-web-server.mjs";
 import { hasExited, removeSafe } from "./child-cleanup.mjs";
@@ -54,6 +55,27 @@ test("createTempCatalog: does not create the catalog file itself", () => {
   const { dir, path } = createTempCatalog();
   try {
     assert.equal(existsSync(path), false);
+  } finally {
+    removeSafe(dir);
+  }
+});
+
+test("seedTempCatalog: writes the given catalog as JSON", () => {
+  // The Events smoke (#3030) starts the server on a catalog that already holds
+  // its server with `protocolEra: "modern"`; the backend reads it as written.
+  const { dir, path } = createTempCatalog();
+  const catalog = {
+    mcpServers: {
+      "deep-link": {
+        type: "streamable-http",
+        url: "http://127.0.0.1:3250/mcp",
+        protocolEra: "modern",
+      },
+    },
+  };
+  try {
+    seedTempCatalog(path, catalog);
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), catalog);
   } finally {
     removeSafe(dir);
   }

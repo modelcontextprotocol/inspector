@@ -15,6 +15,7 @@ import { isTerminalStatus } from "@inspector/core/mcp/types.js";
 import { isAppTool } from "@inspector/core/mcp/apps.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import { isSkillsExtensionSupported } from "@inspector/core/extension/skills/conformance.js";
+import { isEventsSupported } from "@inspector/core/extension/events/support.js";
 import { ViewHeader } from "../../groups/ViewHeader/ViewHeader";
 import { VersionBadge } from "../../elements/VersionBadge/VersionBadge";
 import { CopyrightBadge } from "../../elements/CopyrightBadge/CopyrightBadge";
@@ -25,6 +26,7 @@ import { PromptsScreen } from "../../screens/PromptsScreen/PromptsScreen";
 import { ResourcesScreen } from "../../screens/ResourcesScreen/ResourcesScreen";
 import { LoggingScreen } from "../../screens/LoggingScreen/LoggingScreen";
 import { SkillsScreen } from "../../screens/SkillsScreen/SkillsScreen";
+import { EventsScreen } from "../../screens/EventsScreen/EventsScreen";
 import { TasksScreen } from "../../screens/TasksScreen/TasksScreen";
 import { ProtocolScreen } from "../../screens/ProtocolScreen/ProtocolScreen";
 import { NetworkScreen } from "../../screens/NetworkScreen/NetworkScreen";
@@ -33,6 +35,7 @@ import type {
   AppsPanelProps,
   ConnectionProps,
   ConsolePanelProps,
+  EventsPanelProps,
   LogsPanelProps,
   NetworkPanelProps,
   PromptsPanelProps,
@@ -135,6 +138,7 @@ function screenHeadingText(activeTab: string): string {
   return `MCP Inspector: ${activeTab}`;
 }
 const SKILLS_TAB = "Skills";
+const EVENTS_TAB = "Events";
 const TASKS_TAB = "Tasks";
 const LOGS_TAB = "Logs";
 const PROTOCOL_TAB = "Protocol";
@@ -169,6 +173,7 @@ const ALL_TABS: string[] = [
   "Prompts",
   "Resources",
   SKILLS_TAB,
+  EVENTS_TAB,
   TASKS_TAB,
   LOGS_TAB,
   PROTOCOL_TAB,
@@ -347,6 +352,11 @@ export interface InspectorViewProps {
   resources: ResourcesPanelProps;
   apps: AppsPanelProps;
   skills: SkillsPanelProps;
+  /**
+   * Optional so a caller with no Events surface (most stories and tests) need
+   * not build one; the tab is hidden without it.
+   */
+  events?: EventsPanelProps;
   tasks: TasksPanelProps;
   logs: LogsPanelProps;
   protocol: ProtocolPanelProps;
@@ -363,6 +373,7 @@ export function InspectorView({
   resources: resourcesPanel,
   apps: appsPanel,
   skills: skillsPanel,
+  events: eventsPanel,
   tasks: tasksPanel,
   logs: logsPanel,
   protocol: protocolPanel,
@@ -673,6 +684,9 @@ export function InspectorView({
   // elicitation / roots) are inspector-offered, not server-advertised, so
   // they must not be gated here either. These memo dependencies make the tabs
   // recompute live as capabilities change (server switch, reconnect).
+  // A boolean rather than the bundle, so the memo below does not recompute on
+  // every render (the bundle is rebuilt each time).
+  const hasEventsSurface = eventsPanel !== undefined;
   const availableTabs = useMemo<string[]>(() => {
     if (connectionStatus !== "connected") return [SERVERS_TAB];
     const active = serversInput.find((s) => s.id === activeServer);
@@ -693,6 +707,11 @@ export function InspectorView({
     // is not era-gated: `skills/*` are not spec method names in either codec,
     // so a legacy-era server that declares the extension is serving it.
     const hasSkills = isSkillsExtensionSupported(capabilities);
+    // Events (SEP-3415) is a server-declared extension defined for the modern
+    // era only: a legacy connection never shows the tab, even when the server
+    // declares the key, because the client never sends `events/*` there.
+    const hasEvents =
+      hasEventsSurface && isEventsSupported(capabilities, protocolEra);
     return ALL_TABS.filter((t) => {
       if (t === NETWORK_TAB && isStdio) return false;
       // Console is the stdio process's stderr stream — shown only for stdio
@@ -703,6 +722,7 @@ export function InspectorView({
       if (t === "Prompts" && !hasPrompts) return false;
       if (t === "Resources" && !hasResources) return false;
       if (t === SKILLS_TAB && !hasSkills) return false;
+      if (t === EVENTS_TAB && !hasEvents) return false;
       if (t === "Tasks" && !hasTasks) return false;
       if (t === "Logs" && !hasLogging) return false;
       return true;
@@ -713,6 +733,8 @@ export function InspectorView({
     activeServer,
     initializeResult,
     appTools,
+    protocolEra,
+    hasEventsSurface,
   ]);
 
   // Monitoring sidebar, derived (#1616, #1621). The monitor group is pinned into
@@ -1299,6 +1321,27 @@ export function InspectorView({
             <ScreenStage active={activeTab === SKILLS_TAB}>
               <SkillsScreen {...skillsScreenProps} />
             </ScreenStage>
+            {eventsPanel && (
+              <ScreenStage active={activeTab === EVENTS_TAB}>
+                <EventsScreen
+                  eventTypes={eventsPanel.eventTypes}
+                  excludedEventTypes={eventsPanel.excludedEventTypes}
+                  listChanged={eventsPanel.eventsListChanged}
+                  loadError={eventsPanel.eventsLoadError}
+                  pagination={eventsPanel.eventsPagination}
+                  subscriptions={eventsPanel.eventSubscriptions}
+                  log={eventsPanel.eventLog}
+                  ui={eventsPanel.eventsUi}
+                  onUiChange={eventsPanel.onEventsUiChange}
+                  onRefreshList={eventsPanel.onRefreshEvents}
+                  onSubscribe={eventsPanel.onSubscribeEvent}
+                  onStopSubscription={eventsPanel.onStopEventSubscription}
+                  onResumeSubscription={eventsPanel.onResumeEventSubscription}
+                  onRemoveSubscription={eventsPanel.onRemoveEventSubscription}
+                  onClearLog={eventsPanel.onClearEventLog}
+                />
+              </ScreenStage>
+            )}
             <ScreenStage active={activeTab === TASKS_TAB}>
               <TasksScreen {...tasksScreenProps} />
             </ScreenStage>
