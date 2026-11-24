@@ -31,6 +31,7 @@ import type {
 } from "./types.js";
 import type { MalformedListItem } from "./listSalvage.js";
 import type { ExcludedEventType } from "../extension/events/headers.js";
+import type { EventsStreamNotificationMethod } from "../extension/events/constants.js";
 import type { FetchRefusal } from "../auth/fetchRefusal.js";
 import type { ConnectionDiagnostics } from "./connectionDiagnostics.js";
 import type {
@@ -219,6 +220,16 @@ export interface InspectorClientEventMap {
   tasksListChanged: void;
   /** `notifications/events/list_changed` arrived (SEP-3415, #3028). */
   eventsListChanged: void;
+  /**
+   * A push-stream notification arrived (`notifications/events/{active,event,
+   * heartbeat,error,terminated}`), undecoded beyond "an object". The
+   * subscription engine routes it by `_meta["io.modelcontextprotocol/
+   * subscriptionId"]` and decodes it itself (#3029).
+   */
+  eventsStreamNotification: {
+    method: EventsStreamNotificationMethod;
+    params: Record<string, unknown>;
+  };
   // Session persistence (dispatched by client; FetchRequestLogState listens and saves)
   saveSession: { sessionId: string };
   // OAuth events (#1302 — fired by the ported oauthManager / InspectorClient)

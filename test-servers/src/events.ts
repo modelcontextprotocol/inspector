@@ -381,6 +381,7 @@ export const EVENT_FAILURE_PRESETS = [
   "stream_error",
   "gap",
   "backlog",
+  "stall_stream",
 ] as const;
 export type EventFailurePreset = (typeof EVENT_FAILURE_PRESETS)[number];
 
@@ -737,6 +738,12 @@ interface PushStream {
   heartbeatMs: number;
   write: (method: string, params: Record<string, unknown>) => void;
   close: (error?: EventsRpcError) => void;
+  /**
+   * The `stall_stream` preset: go silent — no heartbeat, no event, no final
+   * frame — while leaving the response open, the way a stream behind a hung
+   * intermediary looks to the client. Only the client's abort releases it.
+   */
+  stall: () => void;
 }
 
 interface ListenStream {
@@ -1074,6 +1081,17 @@ export class EventsRuntime {
     for (const stream of [...this.streams]) {
       if (name !== undefined && stream.name !== name) continue;
       stream.close(presetError(preset));
+      count += 1;
+    }
+    return count;
+  }
+
+  /** Silence matching push streams without closing them (`stall_stream`). */
+  stall(name?: string): number {
+    let count = 0;
+    for (const stream of this.streams) {
+      if (name !== undefined && stream.name !== name) continue;
+      stream.stall();
       count += 1;
     }
     return count;
@@ -1481,6 +1499,7 @@ function serveStream(
   const subMeta = { [SUBSCRIPTION_ID_META_KEY]: id };
   let heartbeat: NodeJS.Timeout | undefined;
   let closed = false;
+  let stalled = false;
 
   const armHeartbeat = () => {
     if (heartbeat !== undefined) clearTimeout(heartbeat);
@@ -1489,7 +1508,7 @@ function serveStream(
     }, opened.heartbeatMs);
   };
   const write = (method: string, params: Record<string, unknown>) => {
-    if (closed) return;
+    if (closed || stalled) return;
     writeFrame({
       jsonrpc: "2.0",
       method,
@@ -1524,6 +1543,10 @@ function serveStream(
       });
       cleanup();
       res.end();
+    },
+    stall: () => {
+      stalled = true;
+      if (heartbeat !== undefined) clearTimeout(heartbeat);
     },
   };
 
@@ -1894,7 +1917,7 @@ export function createEventsControlTools(
     {
       name: EVENTS_CONTROL_TOOL_NAMES.injectFailure,
       description:
-        "Trigger a named failure mode. error_* fail the next matching events/* request once; terminate_* end open push streams (and fail the next poll); stream_error sends a transient error; gap drops history (truncated); backlog emits many events (hasMore)",
+        "Trigger a named failure mode. error_* fail the next matching events/* request once; terminate_* end open push streams (and fail the next poll); stream_error sends a transient error; stall_stream silences open push streams without closing them; gap drops history (truncated); backlog emits many events (hasMore)",
       inputSchema: {
         preset: z.enum(EVENT_FAILURE_PRESETS),
         name: z.string().optional().describe("Limit to one event type"),
@@ -1933,6 +1956,9 @@ export function createEventsControlTools(
         }
         if (preset === "stream_error") {
           return jsonResult({ preset, notified: runtime.streamError(name) });
+        }
+        if (preset === "stall_stream") {
+          return jsonResult({ preset, stalled: runtime.stall(name) });
         }
         if (preset === "gap") {
           runtime.gap(name);

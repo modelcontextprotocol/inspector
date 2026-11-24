@@ -41,6 +41,10 @@ import {
 } from "../../../auth/fetchRefusal.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
+import {
+  cancelledRequestIdOf,
+  isUnboundedStreamRequest,
+} from "../streamRequests.js";
 import { terminateSessionBestEffort } from "../../sessionTermination.js";
 import type {
   RemoteConnectRequest,
@@ -1198,9 +1202,22 @@ export function createRemoteApp(
     const requestId = requestIdForSendWait(message);
     let responseWait: Promise<void> | undefined;
     if (requestId !== undefined) {
-      responseWait = session.waitForRequestResponse(requestId);
+      // An `events/stream` is held open for as long as the subscription runs,
+      // so its wait has no timeout; the browser's abort, a cancellation or the
+      // server's final frame ends it (#3029).
+      responseWait = session.waitForRequestResponse(
+        requestId,
+        isUnboundedStreamRequest(message) ? 0 : undefined,
+      );
       // Auth errors may reject the wait via onerror while send() also throws.
       void responseWait.catch(() => {});
+    }
+    // A cancelled request gets no answer: release the `/api/mcp/send` still
+    // holding open for it, which for an unbounded stream would otherwise never
+    // return (#3029).
+    const cancelledId = cancelledRequestIdOf(message);
+    if (cancelledId !== undefined) {
+      session.releaseRequestWait(cancelledId);
     }
 
     // #2140: this route is held open for the whole call, so the browser
