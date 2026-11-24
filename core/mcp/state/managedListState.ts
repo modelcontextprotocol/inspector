@@ -58,8 +58,15 @@ export interface ManagedListConfig<T, M extends ManagedListEventMap> {
   changeEvent: keyof M;
   /** The client notification that signals the list changed. */
   listChangedEvent: keyof InspectorClientEventMap;
-  /** Server capability gating the list call (empty list when absent). */
-  capabilityKey: keyof ServerCapabilities;
+  /**
+   * What gates the list call (empty list when it fails). A top-level server
+   * capability key for the core primitives; a predicate for a list whose gate
+   * is not one — the Events extension, declared under
+   * `capabilities.extensions` and valid only on a modern era (#3028).
+   */
+  supported:
+    | keyof ServerCapabilities
+    | ((client: InspectorClientProtocol) => boolean);
   /**
    * Fetch the complete (all-page) list from the client. Delegates page walking
    * to the SDK's cache-aware high-level verb (via the client's `listAll*`
@@ -347,7 +354,7 @@ export abstract class ManagedListState<
   /**
    * Fetch the complete list (all pages, via the SDK's cache-aware verb), then
    * `applyItems` commits it (see `refresh`). Returns `null` when not connected,
-   * or `[]` when the server doesn't advertise the gating capability (calling
+   * or `[]` when the `supported` gate fails (calling
    * the list method there returns -32601 "Method not found", which would spam
    * the console; empty list is the right semantics).
    */
@@ -357,7 +364,12 @@ export abstract class ManagedListState<
   ): Promise<T[] | null> {
     const client = this.client;
     if (!client || client.getStatus() !== "connected") return null;
-    if (!client.getCapabilities()?.[this.config.capabilityKey]) return [];
+    const { supported } = this.config;
+    const isSupported =
+      typeof supported === "function"
+        ? supported(client)
+        : Boolean(client.getCapabilities()?.[supported]);
+    if (!isSupported) return [];
     const effectiveMetadata = metadata ?? this._metadata;
     return this.config.fetchAll(client, cacheMode, effectiveMetadata);
   }

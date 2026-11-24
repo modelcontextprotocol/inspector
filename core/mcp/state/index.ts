@@ -55,3 +55,13 @@ export type {
   ManagedSkillsStateEventMap,
   SkillsPaginationState,
 } from "./managedSkillsState.js";
+export {
+  ManagedEventsState,
+  clientSupportsEvents,
+} from "./managedEventsState.js";
+export type { ManagedEventsStateEventMap } from "./managedEventsState.js";
+export { PagedEventsState } from "./pagedEventsState.js";
+export type {
+  PagedEventsStateEventMap,
+  LoadEventsPageResult,
+} from "./pagedEventsState.js";

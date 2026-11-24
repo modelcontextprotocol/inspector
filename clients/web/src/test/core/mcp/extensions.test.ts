@@ -9,6 +9,7 @@ import {
 } from "@inspector/core/mcp/extensions.js";
 import { TASKS_EXTENSION_KEY } from "@inspector/core/extension/tasks/constants.js";
 import { SKILLS_EXTENSION_KEY } from "@inspector/core/extension/skills/schemas.js";
+import { EVENTS_EXTENSION_KEY } from "@inspector/core/extension/events/constants.js";
 
 // The `ui` extension carries a non-empty advertisement value; the others are
 // declared with `{}`. Spelled out here so the map assertions stay readable.
@@ -20,6 +21,7 @@ const ALL_REGISTRY_OFF = {
   [TASKS_EXTENSION_KEY]: false,
   [UI_EXTENSION_KEY]: false,
   [SKILLS_EXTENSION_KEY]: false,
+  [EVENTS_EXTENSION_KEY]: false,
 };
 
 describe("extensions (#1738, #1740, #2373, #2403)", () => {
@@ -62,6 +64,18 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
       expect(skills?.label).toContain("Skills");
     });
 
+    it("lists the Events extension, advertised by default with no settings (#3028)", () => {
+      // SEP-3415: a client MAY declare the identifier with an empty settings
+      // object in its per-request capabilities.
+      const events = ADVERTISABLE_EXTENSIONS.find(
+        (e) => e.key === EVENTS_EXTENSION_KEY,
+      );
+      expect(events).toBeDefined();
+      expect(events?.defaultAdvertised).toBe(true);
+      expect(events?.advertisement).toBeUndefined();
+      expect(events?.label).toContain("Events");
+    });
+
     it("does not list EMA (it follows the auth mode, not a toggle)", () => {
       expect(
         ADVERTISABLE_EXTENSIONS.some((e) => e.key === EMA_EXTENSION_KEY),
@@ -78,7 +92,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
   });
 
   describe("buildClientExtensions", () => {
-    it("advertises registry defaults with no overrides (tasks + ui + skills)", () => {
+    it("advertises registry defaults with no overrides (tasks + ui + skills + events)", () => {
       const map = buildClientExtensions({
         enterpriseManaged: false,
         rendersApps: true,
@@ -87,6 +101,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
         [SKILLS_EXTENSION_KEY]: {},
+        [EVENTS_EXTENSION_KEY]: {},
       });
     });
 
@@ -124,6 +139,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
         [SKILLS_EXTENSION_KEY]: {},
+        [EVENTS_EXTENSION_KEY]: {},
         [EMA_EXTENSION_KEY]: {},
       });
     });
@@ -154,7 +170,18 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
       expect(map).toEqual({
         [TASKS_EXTENSION_KEY]: {},
         [SKILLS_EXTENSION_KEY]: {},
+        [EVENTS_EXTENSION_KEY]: {},
       });
+    });
+
+    it("can disable just the Events extension, keeping the others (#3028)", () => {
+      const map = buildClientExtensions({
+        enterpriseManaged: false,
+        rendersApps: true,
+        advertised: { [EVENTS_EXTENSION_KEY]: false },
+      });
+      expect(map).not.toHaveProperty(EVENTS_EXTENSION_KEY);
+      expect(map).toHaveProperty(SKILLS_EXTENSION_KEY);
     });
 
     it("can disable just the Skills extension, keeping the others (#2373)", () => {
@@ -168,6 +195,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
       expect(map).toEqual({
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
+        [EVENTS_EXTENSION_KEY]: {},
       });
     });
 
@@ -202,6 +230,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
         [TASKS_EXTENSION_KEY]: {},
         [UI_EXTENSION_KEY]: UI_ADVERTISEMENT,
         [SKILLS_EXTENSION_KEY]: {},
+        [EVENTS_EXTENSION_KEY]: {},
       });
     });
 
@@ -240,6 +269,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
         TASKS_EXTENSION_KEY,
         UI_EXTENSION_KEY,
         SKILLS_EXTENSION_KEY,
+        EVENTS_EXTENSION_KEY,
       ]);
     });
 
@@ -274,6 +304,7 @@ describe("extensions (#1738, #1740, #2373, #2403)", () => {
       expect(map).toEqual({
         [TASKS_EXTENSION_KEY]: {},
         [SKILLS_EXTENSION_KEY]: {},
+        [EVENTS_EXTENSION_KEY]: {},
       });
     });
 

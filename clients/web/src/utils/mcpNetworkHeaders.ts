@@ -1,5 +1,6 @@
 import { ProtocolErrorCode } from "@modelcontextprotocol/client";
 import type { FetchRequestEntry } from "@inspector/core/mcp/types.js";
+import { EVENTS_ERROR_META } from "@inspector/core/extension/events/constants.js";
 
 /**
  * SEP-2243 / modern Streamable HTTP transport awareness for the monitoring tabs.
@@ -142,8 +143,12 @@ export interface McpSpecError {
   name: string;
   /** One-line explanation for the Network UI. */
   description: string;
-  /** HTTP status the spec pairs this code with. */
-  expectedHttpStatus: number;
+  /**
+   * HTTP status the spec pairs this code with. Absent for the general-purpose
+   * codes SEP-3415 allocates (`-32023`…`-32027`): those are ordinary in-band
+   * JSON-RPC errors, and the spec pairs them with no status.
+   */
+  expectedHttpStatus?: number;
   /** The actual HTTP status recorded on the entry, when present. */
   actualHttpStatus?: number;
   /**
@@ -168,10 +173,19 @@ const SPEC_ERROR_META: Record<
   {
     name: string;
     description: string;
-    expectedHttpStatus: number;
+    expectedHttpStatus?: number;
     httpRelevant: boolean;
   }
 > = {
+  // The general-purpose codes SEP-3415 allocates (#3028). Named wherever they
+  // appear — the spec reserves them for reuse across MCP, not just `events/*`.
+  // Protocol-only: delivered in-band, so the HTTP entry adds nothing.
+  ...Object.fromEntries(
+    Object.entries(EVENTS_ERROR_META).map(([code, meta]) => [
+      code,
+      { ...meta, httpRelevant: false },
+    ]),
+  ),
   [HEADER_MISMATCH_ERROR_CODE]: {
     name: "HeaderMismatch",
     description:
@@ -250,8 +264,8 @@ export function classifyMcpSpecError(
  * Classify a JSON-RPC error *code* (e.g. from a Protocol message's
  * `response.error`) as one of the modern spec errors, or `null`.
  *
- * `-32020`/`-32021`/`-32022` are SEP-reserved and unambiguous, so they're
- * recognised from the code alone. `-32601 MethodNotFound`, by contrast, is the
+ * `-32020`/`-32021`/`-32022`, and SEP-3415's `-32023`…`-32027`, are
+ * SEP-reserved and unambiguous, so they're recognised from the code alone. `-32601 MethodNotFound`, by contrast, is the
  * most generic standard JSON-RPC error — any server can return it *in-band* for
  * an unsupported method, which is not the modern transport taxonomy. So it's
  * treated as the modern marker only when the correlated fetch was an actual 404

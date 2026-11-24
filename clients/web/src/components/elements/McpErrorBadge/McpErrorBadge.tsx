@@ -18,6 +18,12 @@ const COLOR_BY_CODE: Record<number, string> = {
   [-32021]: "orange", // MissingRequiredClientCapability
   [-32022]: "grape", // UnsupportedProtocolVersion
   [-32601]: "yellow", // MethodNotFound (modern 404)
+  // SEP-3415's general-purpose codes (#3028).
+  [-32023]: "gray", // NotFound
+  [-32024]: "red", // Forbidden
+  [-32025]: "orange", // ResourceExhausted
+  [-32026]: "violet", // Unsupported
+  [-32027]: "indigo", // CallbackEndpointError
 };
 
 const SpecErrorBadge = Badge.withProps({
