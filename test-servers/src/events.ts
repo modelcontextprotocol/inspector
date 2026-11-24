@@ -726,6 +726,8 @@ interface PushStream {
   id: string | number;
   name: string;
   args: Args;
+  /** The granted interval, repeated on every `active` (spec §Lifecycle). */
+  heartbeatMs: number;
   write: (method: string, params: Record<string, unknown>) => void;
   close: (error?: EventsRpcError) => void;
 }
@@ -945,14 +947,17 @@ export class EventsRuntime {
 
   /**
    * Where delivery starts for a supplied cursor, and whether that skipped
-   * events: `null`/absent is "now"; a position below the retention floor or
-   * the `maxAgeMs` floor is advanced to it and reported as `truncated`.
+   * events: `null`/absent is "now"; a position below the retention floor is
+   * advanced to it and reported as `truncated`. `ageFloor` is the `maxAgeMs`
+   * cutoff, applied to **every** replayed occurrence by {@link replay} —
+   * `emit_event.ageMs` can append an old occurrence after a fresh one, so the
+   * log is not ordered by time and a prefix scan would miss it.
    */
   private startPosition(
     type: EventType,
     cursor: string | null | undefined,
     maxAgeMs: number | undefined,
-  ): { position: number; truncated: boolean } {
+  ): { position: number; truncated: boolean; ageFloor?: number } {
     if (cursor === null || cursor === undefined || !type.replay) {
       return { position: this.head(), truncated: false };
     }
@@ -965,16 +970,47 @@ export class EventsRuntime {
       position = this.floor;
       truncated = true;
     }
-    if (maxAgeMs !== undefined) {
-      const ageFloor = Date.now() - maxAgeMs;
-      let skipped = false;
-      while (position < this.head() && this.log[position]!.timeMs < ageFloor) {
-        if (this.log[position]!.name === type.descriptor.name) skipped = true;
-        position += 1;
+    return {
+      position,
+      truncated,
+      ...(maxAgeMs !== undefined ? { ageFloor: Date.now() - maxAgeMs } : {}),
+    };
+  }
+
+  /**
+   * The matching occurrences from `position` on, at most `limit` of them:
+   * those older than `ageFloor` are skipped and reported as `truncated`, and
+   * `next` is the position after the last one examined.
+   */
+  private replay(
+    type: EventType,
+    args: Args,
+    position: number,
+    ageFloor: number | undefined,
+    limit = Number.POSITIVE_INFINITY,
+  ): {
+    occurrences: Occurrence[];
+    next: number;
+    truncated: boolean;
+    hasMore: boolean;
+  } {
+    const occurrences: Occurrence[] = [];
+    let truncated = false;
+    let at = position;
+    for (; at < this.head(); at++) {
+      const occurrence = this.log[at]!;
+      if (occurrence.name !== type.descriptor.name) continue;
+      if (!matches(args, occurrence.data)) continue;
+      if (ageFloor !== undefined && occurrence.timeMs < ageFloor) {
+        truncated = true;
+        continue;
       }
-      truncated = truncated || skipped;
+      if (occurrences.length >= limit) {
+        return { occurrences, next: at, truncated, hasMore: true };
+      }
+      occurrences.push(occurrence);
     }
-    return { position, truncated };
+    return { occurrences, next: at, truncated, hasMore: false };
   }
 
   /** The `gap` preset: drop all history, and tell open push streams. */
@@ -987,6 +1023,7 @@ export class EventsRuntime {
       stream.write("notifications/events/active", {
         cursor: encodeCursor(this.head()),
         truncated: true,
+        heartbeatMs: stream.heartbeatMs,
       });
     }
   }
@@ -1104,25 +1141,19 @@ export class EventsRuntime {
     const requested = optionalNonNegativeInt(params.maxEvents, "maxEvents");
     const maxEvents = Math.min(requested ?? DEFAULT_MAX_EVENTS, MAX_MAX_EVENTS);
     const cursor = optionalCursor(params.cursor);
-    const { position, truncated } = this.startPosition(type, cursor, maxAgeMs);
-    const events: Record<string, unknown>[] = [];
-    let at = position;
-    let hasMore = false;
-    for (; at < this.head(); at++) {
-      const occurrence = this.log[at]!;
-      if (occurrence.name !== type.descriptor.name) continue;
-      if (!matches(args, occurrence.data)) continue;
-      if (events.length >= maxEvents) {
-        hasMore = true;
-        break;
-      }
-      events.push(this.toWire(occurrence, type, false));
-    }
+    const start = this.startPosition(type, cursor, maxAgeMs);
+    const { occurrences, next, truncated, hasMore } = this.replay(
+      type,
+      args,
+      start.position,
+      start.ageFloor,
+      maxEvents,
+    );
     return {
       resultType: "complete",
-      events,
-      ...(type.replay ? { cursor: encodeCursor(at) } : {}),
-      truncated: type.replay ? truncated : false,
+      events: occurrences.map((o) => this.toWire(o, type, false)),
+      ...(type.replay ? { cursor: encodeCursor(next) } : {}),
+      truncated: type.replay ? start.truncated || truncated : false,
       hasMore,
       nextPollMs: this.nextPollMs,
     };
@@ -1137,6 +1168,7 @@ export class EventsRuntime {
     args: Args;
     position: number;
     truncated: boolean;
+    ageFloor?: number;
     heartbeatMs: number;
   } {
     const type = this.requireType(params.name);
@@ -1151,7 +1183,7 @@ export class EventsRuntime {
         { limit: "subscriptions", max: this.maxStreams },
       );
     }
-    const { position, truncated } = this.startPosition(
+    const start = this.startPosition(
       type,
       optionalCursor(params.cursor),
       maxAgeMs,
@@ -1160,26 +1192,29 @@ export class EventsRuntime {
       Math.max(suggested ?? DEFAULT_HEARTBEAT_MS, MIN_HEARTBEAT_MS),
       MAX_HEARTBEAT_MS,
     );
-    return { type, args, position, truncated, heartbeatMs };
+    return { type, args, ...start, heartbeatMs };
   }
 
-  /** Backlog an opened stream replays right after its `active`. */
+  /**
+   * Backlog an opened stream replays right after its `active`, and whether
+   * the `maxAgeMs` cutoff skipped any of it (which that `active` reports).
+   */
   backlogFor(
     type: EventType,
     args: Args,
     position: number,
-  ): Record<string, unknown>[] {
-    const out: Record<string, unknown>[] = [];
-    for (let at = position; at < this.head(); at++) {
-      const occurrence = this.log[at]!;
-      if (
-        occurrence.name === type.descriptor.name &&
-        matches(args, occurrence.data)
-      ) {
-        out.push(this.toWire(occurrence, type, true));
-      }
-    }
-    return out;
+    ageFloor: number | undefined,
+  ): { events: Record<string, unknown>[]; truncated: boolean } {
+    const { occurrences, truncated } = this.replay(
+      type,
+      args,
+      position,
+      ageFloor,
+    );
+    return {
+      events: occurrences.map((o) => this.toWire(o, type, true)),
+      truncated,
+    };
   }
 
   headCursor(type: EventType): Record<string, unknown> {
@@ -1229,6 +1264,16 @@ export class EventsRuntime {
         { reason: failure },
       );
     }
+    // Validated before any state is touched, so a rejected cursor leaves no
+    // subscription behind.
+    const start = this.startPosition(
+      type,
+      optionalCursor(params.cursor),
+      maxAgeMs,
+    );
+    const truncated =
+      start.truncated ||
+      this.replay(type, args, start.position, start.ageFloor).truncated;
     const key = canonicalJson([
       principal,
       url.href,
@@ -1267,16 +1312,11 @@ export class EventsRuntime {
           refreshBefore,
         };
     this.webhooks.set(key, subscription);
-    const { position, truncated } = this.startPosition(
-      type,
-      optionalCursor(params.cursor),
-      maxAgeMs,
-    );
     return {
       resultType: "complete",
       id: subscription.id,
       refreshBefore,
-      ...(type.replay ? { cursor: encodeCursor(position) } : {}),
+      ...(type.replay ? { cursor: encodeCursor(start.position) } : {}),
       truncated: type.replay ? truncated : false,
       ...(existing
         ? { deliveryStatus: cannedDeliveryStatus(url, existing.createdAt) }
@@ -1344,6 +1384,16 @@ interface RpcBody {
   params?: Params;
 }
 
+/**
+ * The subscription-key principal: a digest of the bearer credential, so two
+ * authenticated callers never share a webhook subscription, or `"anonymous"`
+ * for an unauthenticated one (the fixture's documented deviation).
+ */
+function principalOf(authorization: string | undefined): string {
+  if (!authorization) return "anonymous";
+  return `bearer:${createHash("sha256").update(authorization).digest("hex").slice(0, 16)}`;
+}
+
 /** Whether a request carries a modern (2026-07-28+) per-request envelope. */
 function isModernRequest(params: Params | undefined): boolean {
   const meta = params?._meta;
@@ -1394,10 +1444,16 @@ function serveStream(
   runtime: EventsRuntime,
   res: Response,
   body: RpcBody,
-  streamsById: Map<string | number, PushStream>,
+  streamsById: Map<string | number, Set<PushStream>>,
 ): void {
   const id = body.id ?? 0;
   const opened = runtime.openStream(body.params ?? {});
+  const backlog = runtime.backlogFor(
+    opened.type,
+    opened.args,
+    opened.position,
+    opened.ageFloor,
+  );
   const writeFrame = openSse(res);
   const subMeta = { [SUBSCRIPTION_ID_META_KEY]: id };
   let heartbeat: NodeJS.Timeout | undefined;
@@ -1423,13 +1479,15 @@ function serveStream(
     closed = true;
     if (heartbeat !== undefined) clearTimeout(heartbeat);
     runtime.removeStream(stream);
-    // Ids are per client, so another client's stream may hold this one now.
-    if (streamsById.get(id) === stream) streamsById.delete(id);
+    const sharing = streamsById.get(id);
+    sharing?.delete(stream);
+    if (sharing?.size === 0) streamsById.delete(id);
   };
   const stream: PushStream = {
     id,
     name: opened.type.descriptor.name,
     args: opened.args,
+    heartbeatMs: opened.heartbeatMs,
     write,
     close: (error) => {
       if (closed) return;
@@ -1447,20 +1505,20 @@ function serveStream(
   };
 
   runtime.addStream(stream);
-  streamsById.set(id, stream);
+  // Request ids are chosen per client, so two clients can each hold a stream
+  // under the same id; `notifications/cancelled` acts only on an unambiguous one.
+  streamsById.set(id, (streamsById.get(id) ?? new Set()).add(stream));
   // A client abort (HTTP) closes the response; release the subscription.
   res.on("close", cleanup);
 
   write("notifications/events/active", {
     ...(opened.type.replay ? { cursor: `cur_${opened.position}` } : {}),
-    truncated: opened.truncated,
+    truncated: opened.type.replay
+      ? opened.truncated || backlog.truncated
+      : false,
     heartbeatMs: opened.heartbeatMs,
   });
-  for (const event of runtime.backlogFor(
-    opened.type,
-    opened.args,
-    opened.position,
-  )) {
+  for (const event of backlog.events) {
     write("notifications/events/event", event);
   }
 }
@@ -1569,6 +1627,13 @@ function serveListen(
 
 export interface EventsInterceptorOptions {
   /**
+   * The era of the HTTP leg this is mounted on. On the `"legacy"` (2025
+   * session-based) leg every `events/*` request is refused and counted
+   * whatever envelope it carries, and no listen is ever intercepted — the
+   * extension does not exist there. Default `"modern"`.
+   */
+  era?: "legacy" | "modern";
+  /**
    * The capabilities and identity of the server a modern request would reach,
    * for honoring a listen filter's core fields. Called once per intercepted
    * listen.
@@ -1588,7 +1653,8 @@ export function createEventsInterceptor(
   getRuntime: () => EventsRuntime,
   options: EventsInterceptorOptions,
 ): RequestHandler {
-  const streamsById = new Map<string | number, PushStream>();
+  const streamsById = new Map<string | number, Set<PushStream>>();
+  const legacyLeg = options.era === "legacy";
   return (req, res, next) => {
     const body = req.body as RpcBody | undefined;
     const method = body?.method;
@@ -1598,15 +1664,17 @@ export function createEventsInterceptor(
     // cancellation, accepted over HTTP too): close it with no final frame.
     if (method === "notifications/cancelled") {
       const requestId = body?.params?.requestId;
-      const stream =
+      const sharing =
         typeof requestId === "string" || typeof requestId === "number"
           ? streamsById.get(requestId)
           : undefined;
-      if (!stream) {
+      // Ambiguous (two clients reused the id) or unknown: not ours to close.
+      // An HTTP client releases its stream by aborting the response anyway.
+      if (!sharing || sharing.size !== 1) {
         next();
         return;
       }
-      stream.close();
+      [...sharing][0]!.close();
       res.status(202).end();
       return;
     }
@@ -1614,6 +1682,7 @@ export function createEventsInterceptor(
     if (method === "subscriptions/listen") {
       const filter = body?.params?.notifications;
       if (
+        legacyLeg ||
         !isModernRequest(body?.params) ||
         typeof filter !== "object" ||
         filter === null ||
@@ -1638,7 +1707,7 @@ export function createEventsInterceptor(
     }
     const id = body?.id;
     const params = body?.params ?? {};
-    const modern = isModernRequest(params);
+    const modern = !legacyLeg && isModernRequest(params);
     runtime.countRequest(method, modern);
     if (!modern) {
       runtime.countError();
@@ -1654,7 +1723,7 @@ export function createEventsInterceptor(
     }
     try {
       runtime.preflight(req, method, params);
-      const principal = req.header("authorization") ? "bearer" : "anonymous";
+      const principal = principalOf(req.header("authorization"));
       switch (method) {
         case "events/list":
           res.json({ jsonrpc: "2.0", id, result: runtime.list(params) });
