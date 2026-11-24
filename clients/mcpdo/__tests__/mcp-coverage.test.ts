@@ -462,6 +462,57 @@ describe("mcp.ts coverage", () => {
     await runMcp(["daemon", "stop", "--format", "json"], { env: e });
   });
 
+  it("ignores an exported MCP_CATALOG_PATH when --config is given (#3021)", async () => {
+    configPath = createSampleTestConfig();
+    const e = { ...env(), MCP_CATALOG_PATH: "/nonexistent/env-catalog.json" };
+
+    const listed = await runMcp(
+      ["servers/list", "--config", configPath, "--format", "json"],
+      { env: e },
+    );
+    expectCliSuccess(listed);
+    const names = (
+      JSON.parse(listed.stdout) as { servers: { name: string }[] }
+    ).servers.map((s) => s.name);
+    expect(names.sort()).toEqual(["test-http", "test-stdio"]);
+
+    const shown = await runMcp(
+      [
+        "servers/show",
+        "test-stdio",
+        "--config",
+        configPath,
+        "--format",
+        "json",
+      ],
+      { env: e },
+    );
+    expectCliSuccess(shown);
+    expect(JSON.parse(shown.stdout).source).toMatchObject({ kind: "config" });
+
+    const authList = await runMcp(
+      ["auth/list", "--config", configPath, "--format", "json"],
+      { env: e },
+    );
+    expectCliSuccess(authList);
+
+    // An explicit --catalog alongside --config is still a conflict.
+    const both = await runMcp(
+      [
+        "servers/list",
+        "--catalog",
+        configPath,
+        "--config",
+        configPath,
+        "--format",
+        "json",
+      ],
+      { env: e },
+    );
+    expectCliFailure(both);
+    expect(both.stderr).toMatch(/mutually exclusive/);
+  });
+
   it("treats a single path-like token as ad-hoc stdio, a bare word as a catalog name", async () => {
     configPath = createSampleTestConfig();
     const e = { ...env(), MCP_CATALOG_PATH: configPath };

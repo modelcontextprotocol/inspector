@@ -18,6 +18,7 @@ import {
   resolveServerConfigs,
   resolveServerSource,
   serverSourceConflict,
+  resolveCatalogPath,
   readServerListFile,
   getNamedServerConfigs,
   type ServerConfigOptions,
@@ -138,6 +139,54 @@ describe("resolveServerSource", () => {
     expect(
       resolveServerSource({ catalogPath: "  ", configPath: "  " }),
     ).toBeNull();
+  });
+});
+
+describe("resolveCatalogPath", () => {
+  const env = { MCP_CATALOG_PATH: "/env/catalog.json" };
+
+  it("returns an explicit --catalog, trimmed, over the env var", () => {
+    expect(resolveCatalogPath({ catalog: " /flag.json " }, env)).toBe(
+      "/flag.json",
+    );
+  });
+
+  it("keeps an explicit --catalog alongside --config, so the conflict still fires", () => {
+    expect(
+      resolveCatalogPath({ catalog: "/flag.json", config: "/cfg.json" }, env),
+    ).toBe("/flag.json");
+  });
+
+  it("falls back to MCP_CATALOG_PATH when no other source is named", () => {
+    expect(resolveCatalogPath({}, env)).toBe("/env/catalog.json");
+    // A blank --catalog / --config counts as absent.
+    expect(resolveCatalogPath({ catalog: "  ", config: " " }, env)).toBe(
+      "/env/catalog.json",
+    );
+  });
+
+  it("ignores MCP_CATALOG_PATH when --config is given (#3021)", () => {
+    expect(resolveCatalogPath({ config: "/cfg.json" }, env)).toBeUndefined();
+  });
+
+  it("ignores MCP_CATALOG_PATH for an ad-hoc target (#1573)", () => {
+    expect(resolveCatalogPath({ adHoc: true }, env)).toBeUndefined();
+  });
+
+  it("returns undefined when the env var is unset or blank", () => {
+    expect(resolveCatalogPath({}, {})).toBeUndefined();
+    expect(resolveCatalogPath({}, { MCP_CATALOG_PATH: "  " })).toBeUndefined();
+  });
+
+  it("reads process.env by default", () => {
+    const prev = process.env.MCP_CATALOG_PATH;
+    process.env.MCP_CATALOG_PATH = "/proc/env.json";
+    try {
+      expect(resolveCatalogPath({})).toBe("/proc/env.json");
+    } finally {
+      if (prev === undefined) delete process.env.MCP_CATALOG_PATH;
+      else process.env.MCP_CATALOG_PATH = prev;
+    }
   });
 });
 

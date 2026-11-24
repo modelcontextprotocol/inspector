@@ -144,6 +144,8 @@ A server flag the Inspector does not define needs no separator at all: `mcp-insp
 | `--skill-catalog-max-skills <n>` / `--skill-catalog-max-bytes <n>` | Skills catalog budget for a verification run; positive integer | **CLI/TUI only.** Set or override [`skillCatalogMaxSkills` / `skillCatalogMaxBytes`](#inspector-specific-per-server-fields) for every loaded server; web sets them per server in Server Settings instead |
 | `[target...]`            | Positional command or URL for one ad-hoc server     |                                                                                                                                                                                      |
 
+**`MCP_CATALOG_PATH` never conflicts with `--config`.** The env var only relocates the default catalog, so every client (web, CLI, TUI, mcpdo) ignores it when `--config <file>` is given and opens that file read-only (#3021). An explicit `--catalog` together with `--config` is still rejected as mutually exclusive.
+
 **`MCP_CATALOG_PATH` and ad-hoc targets differ by client.** The **CLI** ignores the env var when an ad-hoc target is given (a positional command, `--server-url`, or `--transport`), so a shell that exports it can still run one-off ad-hoc invocations without tripping the catalog/ad-hoc conflict. **Web and TUI read it unconditionally** — with it exported, an ad-hoc invocation such as `mcp-inspector --tui node build/index.js` is rejected as `--catalog cannot be combined with an ad-hoc server URL/command`. Unset the variable for that invocation on those two surfaces.
 
 ## File format

@@ -16,6 +16,7 @@ import {
   loadServerEntries,
   parseHeaderPair,
   parseKeyValuePair as parseEnvPair,
+  resolveCatalogPath,
   selectServerEntry,
 } from "@inspector/core/mcp/node/index.js";
 import { type LoggingLevel } from "@modelcontextprotocol/client";
@@ -427,9 +428,8 @@ export async function runMcp(argv?: string[]): Promise<void> {
     )
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
-      const envCatalog = process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath(opts),
         configPath: opts.config?.trim() || undefined,
       };
       const entries = await listServerEntries(serverOptions);
@@ -462,9 +462,8 @@ export async function runMcp(argv?: string[]): Promise<void> {
     )
     .action(async (name: string | undefined) => {
       const opts = program.opts<GlobalOpts>();
-      const envCatalog = process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath(opts),
         configPath: opts.config?.trim() || undefined,
       };
       const explicitName = stripAt(name?.trim() || undefined);
@@ -663,9 +662,8 @@ function registerConnect(program: CommandType): void {
         );
       }
 
-      const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath({ ...opts, adHoc }),
         configPath: opts.config?.trim() || undefined,
         target: adHoc ? (rest.length > 0 ? rest : undefined) : undefined,
         transport: cmdOpts.transport as "sse" | "http" | "stdio" | undefined,
@@ -817,9 +815,8 @@ function registerConnect(program: CommandType): void {
  * live marker, so `auth/list` / `auth/clear` keep working with the daemon down.
  */
 async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
-  const envCatalog = process.env.MCP_CATALOG_PATH;
   const serverOptions = {
-    catalogPath: opts.catalog?.trim() || envCatalog,
+    catalogPath: resolveCatalogPath(opts),
     configPath: opts.config?.trim() || undefined,
   };
   const entries = await listServerEntries(serverOptions);

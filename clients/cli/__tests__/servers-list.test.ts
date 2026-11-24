@@ -165,6 +165,36 @@ describe("listServerEntries / --method servers/list", () => {
       "test-stdio",
     ]);
   });
+
+  it("ignores an exported MCP_CATALOG_PATH when --config is given (#3021)", async () => {
+    configPath = createSampleTestConfig();
+    const result = await runCli(
+      ["--config", configPath, "--method", "servers/list", "--format", "json"],
+      { env: { MCP_CATALOG_PATH: "/nonexistent/env-catalog.json" } },
+    );
+    expectCliSuccess(result);
+    const body = JSON.parse(result.stdout) as {
+      result: { servers: { name: string }[] };
+    };
+    expect(body.result.servers.map((s) => s.name).sort()).toEqual([
+      "test-http",
+      "test-stdio",
+    ]);
+  });
+
+  it("still rejects an explicit --catalog with --config", async () => {
+    configPath = createSampleTestConfig();
+    const result = await runCli([
+      "--catalog",
+      configPath,
+      "--config",
+      configPath,
+      "--method",
+      "servers/list",
+    ]);
+    expectCliFailure(result);
+    expect(result.stderr).toMatch(/mutually exclusive/);
+  });
 });
 
 describe("showServerEntry / servers/show", () => {

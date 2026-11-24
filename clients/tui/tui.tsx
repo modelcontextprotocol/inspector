@@ -6,6 +6,7 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
   parseProtocolEra,
+  resolveCatalogPath,
   skillCatalogLimitParser,
 } from "@inspector/core/mcp/node/index.js";
 import type { ServerProtocolEra } from "@inspector/core/mcp/types.js";
@@ -117,7 +118,12 @@ export async function runTui(args?: string[]): Promise<void> {
   const targetArgs = program.args as string[];
 
   const serverOptions = {
-    catalogPath: options.catalog?.trim() || process.env.MCP_CATALOG_PATH,
+    // MCP_CATALOG_PATH only relocates the default catalog, so `--config` alone
+    // must not read it as an explicit `--catalog` (#3021).
+    catalogPath: resolveCatalogPath({
+      catalog: options.catalog,
+      config: options.config,
+    }),
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     cwd: options.cwd?.trim() || undefined,
