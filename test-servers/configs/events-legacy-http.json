@@ -1,0 +1,12 @@
+{
+  "serverInfo": {
+    "name": "events-legacy",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "events": { "advertiseOnLegacy": true },
+  "transport": {
+    "type": "streamable-http",
+    "port": 3251
+  }
+}

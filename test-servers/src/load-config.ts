@@ -111,6 +111,17 @@ export interface ConfigFile {
   /** With `skills`, refuse the skills methods to a client that did not declare
    * the extension — see {@link ServerConfig.skillsRequireClientExtension}. */
   skillsRequireClientExtension?: boolean;
+  /** Serve the Events extension (SEP-3415) and its control tools — see
+   * {@link ServerConfig.events} and `events.ts`. `true` takes every default. */
+  events?:
+    | boolean
+    | {
+        listChanged?: boolean;
+        nextPollMs?: number;
+        advertiseOnLegacy?: boolean;
+        maxStreams?: number;
+        maxWebhookSubscriptions?: number;
+      };
   /** Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the nested
    * `elicitation` setting — the server half of app-rendered form elicitation
    * (#1854). Pair with the `app_choose_option` tool + `choose_option_app` resource. */

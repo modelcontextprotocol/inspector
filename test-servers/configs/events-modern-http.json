@@ -1,0 +1,13 @@
+{
+  "serverInfo": {
+    "name": "events-modern",
+    "version": "1.0.0"
+  },
+  "tools": [{ "preset": "echo" }],
+  "events": true,
+  "transport": {
+    "type": "streamable-http",
+    "port": 3250,
+    "modern": true
+  }
+}
