@@ -39,6 +39,10 @@ interface EventsInternals {
   buildSubscriptionFilter: () => Record<string, unknown>;
   wantsModernStream: () => boolean;
   resetSubscriptionStream: () => void;
+  invokeMcpClient: (
+    operation: (attempt: number) => Promise<unknown>,
+    context: { method: string },
+  ) => Promise<unknown>;
 }
 
 /**
@@ -165,6 +169,41 @@ describe("InspectorClient events (#3028)", () => {
       advertise(client, {}, "legacy");
       await expect(client.listAllEvents()).rejects.toThrow(/modern-era/);
       expect(request).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the gate on an auth-recovery retry", () => {
+    /**
+     * `invokeMcpClient` runs its callback again after an auth-recovery
+     * reconnect. Simulate that: the first attempt fails, the "reconnect" lands
+     * on a connection without Events, and the retry must be refused locally.
+     */
+    function retryOntoLegacy(client: InspectorClient): void {
+      internals(client).invokeMcpClient = async (operation) => {
+        await operation(0).catch(() => {});
+        internals(client).protocolEra = "legacy";
+        return operation(1);
+      };
+    }
+
+    it("re-gates events/list on the retry", async () => {
+      const client = makeClient();
+      advertise(client);
+      const { request } = stubRequest(client, new Error("401"));
+      retryOntoLegacy(client);
+      await expect(client.listEvents()).rejects.toThrow(/must not be sent/);
+      expect(request).toHaveBeenCalledTimes(1);
+    });
+
+    it("re-gates a named events/* request on the retry", async () => {
+      const client = makeClient();
+      advertise(client);
+      const { request } = stubRequest(client, new Error("401"));
+      retryOntoLegacy(client);
+      await expect(client.pollEvents(REGION)).rejects.toThrow(
+        /events\/poll must not be sent/,
+      );
+      expect(request).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -5405,12 +5405,17 @@ export class InspectorClient extends InspectorClientEventTarget {
     let response: z.infer<typeof ListEventsResultSchema>;
     try {
       response = await this.invokeMcpClient(
-        () =>
-          this.client!.request(
+        () => {
+          // Re-checked inside the callback because `invokeMcpClient` runs it
+          // again after an auth-recovery reconnect, and the new connection may
+          // no longer offer the extension (or may have negotiated legacy).
+          this.assertEventsAllowed(EVENTS_LIST_METHOD);
+          return this.client!.request(
             { method: EVENTS_LIST_METHOD, params },
             ListEventsResultSchema,
             this.getRequestOptions(this.progressTokenOf(metadata)),
-          ),
+          );
+        },
         { method: EVENTS_LIST_METHOD },
       );
     } catch (err) {
@@ -5527,12 +5532,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     }
     try {
       return await this.invokeMcpClient(
-        () =>
-          this.client!.request(
+        () => {
+          // Re-gated on every attempt, as in `listEvents`: a retry after an
+          // auth-recovery reconnect must not reach a connection without Events.
+          this.assertEventsAllowed(method);
+          return this.client!.request(
             { method, params: requestParams },
             resultSchema,
             requestOptions,
-          ),
+          );
+        },
         { method },
       );
     } catch (err) {
