@@ -61,3 +61,36 @@ describe("runTui --skill-catalog-max-* forwarding (#2420)", () => {
     expect(options.skillCatalogMaxBytes).toBeUndefined();
   });
 });
+
+describe("runTui MCP_CATALOG_PATH vs --config (#3021)", () => {
+  async function withEnvCatalog<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = process.env.MCP_CATALOG_PATH;
+    process.env.MCP_CATALOG_PATH = "/env/catalog.json";
+    try {
+      return await fn();
+    } finally {
+      if (prev === undefined) delete process.env.MCP_CATALOG_PATH;
+      else process.env.MCP_CATALOG_PATH = prev;
+    }
+  }
+
+  it("ignores the env catalog when --config is given", async () => {
+    const options = await withEnvCatalog(() =>
+      loaderOptionsFor(["--config", "/cfg.json"]),
+    );
+    expect(options.catalogPath).toBeUndefined();
+    expect(options.configPath).toBe("/cfg.json");
+  });
+
+  it("uses the env catalog when no other source is named", async () => {
+    const options = await withEnvCatalog(() => loaderOptionsFor([]));
+    expect(options.catalogPath).toBe("/env/catalog.json");
+  });
+
+  it("keeps an explicit --catalog alongside --config", async () => {
+    const options = await withEnvCatalog(() =>
+      loaderOptionsFor(["--catalog", "/flag.json", "--config", "/cfg.json"]),
+    );
+    expect(options.catalogPath).toBe("/flag.json");
+  });
+});
