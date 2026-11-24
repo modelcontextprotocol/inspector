@@ -466,10 +466,13 @@ describe("eventStreamLine (#3032)", () => {
         data: {},
         type: "terminated",
         at: "spoofed",
+        payloadError: "spoofed",
       },
     });
     expect(line.type).toBe("event");
     expect(line.at).toBe(at.toISOString());
+    // No validation failure was reported, so none is claimed.
+    expect(JSON.parse(JSON.stringify(line))).not.toHaveProperty("payloadError");
   });
 
   it("keeps a payload validation failure on the event line", () => {
