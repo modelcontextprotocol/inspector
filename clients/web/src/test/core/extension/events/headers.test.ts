@@ -128,11 +128,13 @@ describe("createEventsMcpNameFetch (#3028)", () => {
     );
   });
 
-  it("keeps a header the caller already set", async () => {
+  it("overwrites a preset header that would disagree with params.name", async () => {
     const seen = await send(
-      post(request("events/poll", { name: "a" }), { "Mcp-Name": "preset" }),
+      post(request("events/poll", { name: "incident.created" }), {
+        "Mcp-Name": "preset",
+      }),
     );
-    expect(new Headers(seen?.headers).get("mcp-name")).toBe("preset");
+    expect(new Headers(seen?.headers).get("mcp-name")).toBe("incident.created");
   });
 
   it("leaves events/list alone — it has no params.name", async () => {

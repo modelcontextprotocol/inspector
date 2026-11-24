@@ -86,7 +86,10 @@ export function mcpParamHeadersForEvent(
  * only a single JSON-RPC **request** whose `_meta` claims a modern protocol
  * version is touched, so a legacy exchange never gains a 2026 header. The name
  * is encoded with the transport's Base64 sentinel when it is not a safe plain
- * header value. A header the caller already set is left alone. Anything else
+ * header value. Any `Mcp-Name` already on the request is overwritten: the
+ * header must equal `params.name`, and a server answers a disagreeing one with
+ * `400 HeaderMismatch`, so the body is the only source it may come from — the
+ * same reason the SDK treats `mcp-name` as transport-owned. Anything else
  * passes through untouched — a non-POST, a batch, a non-string body, a
  * notification, `events/list`, a method outside the extension.
  */
@@ -97,7 +100,6 @@ export function createEventsMcpNameFetch(
     const name = eventsRequestName(init);
     if (name === undefined) return baseFetch(input, init);
     const headers = new Headers(init?.headers);
-    if (headers.has("mcp-name")) return baseFetch(input, init);
     headers.set("mcp-name", encodeMcpParamValue(name));
     return baseFetch(input, { ...init, headers });
   };

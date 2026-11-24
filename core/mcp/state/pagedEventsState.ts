@@ -39,9 +39,17 @@ export class PagedEventsState extends TypedEventTarget<PagedEventsStateEventMap>
   private excluded: ExcludedEventType[] = [];
   private nextCursor: string | undefined = undefined;
   private pageCount = 0;
-  // Double-click guard: a second load while one is in flight would read the
-  // same cursor and append the same page twice.
-  private loading = false;
+  // Double-click guard, held as the generation whose load is in flight (or
+  // `null`): a second load while one is in flight would read the same cursor
+  // and append the same page twice. Keyed on the generation rather than a bare
+  // boolean so a load stranded by a reset cannot block the next session's.
+  private loadingGeneration: number | null = null;
+  // Session counter, advanced by every reset (`clear()`, a disconnect) and by
+  // `destroy()`. A load captures it and abandons its writes once it no longer
+  // matches, so a slow page cannot repopulate a cleared store or publish an
+  // error that belongs to a session that has ended — the ManagedSkillsState
+  // pattern.
+  private generation = 0;
   private error: Error | null = null;
   private client: InspectorClientProtocol | null = null;
   private unsubscribe: (() => void) | null = null;
@@ -100,6 +108,7 @@ export class PagedEventsState extends TypedEventTarget<PagedEventsStateEventMap>
   }
 
   private reset(): void {
+    this.generation += 1;
     this.eventTypes = [];
     this.excluded = [];
     this.nextCursor = undefined;
@@ -122,10 +131,12 @@ export class PagedEventsState extends TypedEventTarget<PagedEventsStateEventMap>
     if (!c || c.getStatus() !== "connected" || !clientSupportsEvents(c)) {
       return { events: [], nextCursor: undefined };
     }
-    if (this.loading) {
+    const generation = this.generation;
+    if (this.loadingGeneration === generation) {
       return { events: [], nextCursor: this.nextCursor };
     }
-    this.loading = true;
+    this.loadingGeneration = generation;
+    const isCurrent = () => this.generation === generation;
     try {
       // `clientSupportsEvents` checked `listAllEvents`; a client implements the
       // pair together, and a missing page method reads as an empty page.
@@ -133,6 +144,7 @@ export class PagedEventsState extends TypedEventTarget<PagedEventsStateEventMap>
         events: [],
         excluded: [],
       };
+      if (!isCurrent()) return { events: [], nextCursor: undefined };
       const first = cursor === undefined;
       this.eventTypes = first
         ? [...result.events]
@@ -147,15 +159,22 @@ export class PagedEventsState extends TypedEventTarget<PagedEventsStateEventMap>
       return { events: result.events, nextCursor: result.nextCursor };
     } catch (err) {
       // Recorded AND re-thrown: the state drives the panel's alert, the
-      // rejection drives a caller's auth recovery.
-      this.setError(err instanceof Error ? err : new Error(String(err)));
+      // rejection drives a caller's auth recovery. A stale session's failure
+      // is still re-thrown but leaves the live session's state alone.
+      if (isCurrent()) {
+        this.setError(err instanceof Error ? err : new Error(String(err)));
+      }
       throw err;
     } finally {
-      this.loading = false;
+      // Only the load that set the guard may clear it.
+      if (this.loadingGeneration === generation) {
+        this.loadingGeneration = null;
+      }
     }
   }
 
   destroy(): void {
+    this.generation += 1;
     this.unsubscribe?.();
     this.unsubscribe = null;
     this.eventTypes = [];

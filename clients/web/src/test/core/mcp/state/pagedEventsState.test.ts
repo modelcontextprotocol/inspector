@@ -128,6 +128,45 @@ describe("PagedEventsState (#3028)", () => {
     expect(partialState.getPagination().pageCount).toBe(1);
   });
 
+  it("abandons a load that a reset overtook, and does not block the next one", async () => {
+    client.setStatus("connected");
+    let release: (page: {
+      events: ReturnType<typeof eventType>[];
+      excluded: never[];
+    }) => void = () => {};
+    let fail: (err: Error) => void = () => {};
+    client.listEvents.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+    const stale = state.loadPage();
+    state.clear();
+    // The reset released the guard: a new session's load goes out at once.
+    client.eventPages.push({ events: [eventType("fresh")], excluded: [] });
+    await state.loadPage();
+    expect(state.getEventTypes().map((e) => e.name)).toEqual(["fresh"]);
+
+    release({ events: [eventType("stale")], excluded: [] });
+    expect(await stale).toEqual({ events: [], nextCursor: undefined });
+    expect(state.getEventTypes().map((e) => e.name)).toEqual(["fresh"]);
+
+    // A stale failure is re-thrown but not recorded.
+    client.listEvents.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    const failing = state.loadPage();
+    await client.disconnect();
+    fail(new Error("late"));
+    await expect(failing).rejects.toThrow("late");
+    expect(state.getError()).toBeNull();
+    expect(state.getEventTypes()).toEqual([]);
+  });
+
   it("clears on disconnect and on clear(), and destroy() is idempotent", async () => {
     client.setStatus("connected");
     client.eventPages.push({ events: [eventType("a")], excluded: [EXCLUDED] });
