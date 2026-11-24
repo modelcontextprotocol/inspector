@@ -497,6 +497,67 @@ describe("EventSubscriptionsState (#3029)", () => {
     });
   });
 
+  describe("re-entrant listeners", () => {
+    it("stops logging a batch once a listener removed the subscription", async () => {
+      client.pollResults.push(
+        polled({
+          truncated: true,
+          events: [occurrence("a"), occurrence("b"), occurrence("c")],
+        }),
+      );
+      const sub = state.subscribe(typed, { mode: "poll" });
+      state.addEventListener("logEntry", () => state.remove(sub.id));
+      await flush();
+      expect(kinds(state.getLog())).toEqual(["event"]);
+    });
+
+    it("does not repopulate a store destroyed by a listener", async () => {
+      client.pollResults.push(polled({ events: [occurrence("a")] }));
+      state.subscribe(typed, { mode: "poll" });
+      state.addEventListener("subscriptionsChange", () => state.destroy());
+      await flush();
+      expect(state.getLog()).toEqual([]);
+      expect(state.getSubscriptions()).toEqual([]);
+    });
+
+    it("drops later reports, and a termination, for a removed subscription", async () => {
+      // Errors and reconnects after a listener removed it on the error.
+      client.pollResults.push(new Error("down"));
+      const a = state.subscribe(typed, { mode: "poll" });
+      const removeA = () => state.remove(a.id);
+      state.addEventListener("subscriptionsChange", removeA);
+      await flush();
+      expect(state.getLog()).toEqual([]);
+      state.removeEventListener("subscriptionsChange", removeA);
+
+      // A termination whose patch lets a listener remove it logs nothing.
+      const b = state.subscribe(typed, { mode: "push" });
+      const removeB = () => {
+        if (state.getSubscription(b.id)?.status === "terminated") {
+          state.remove(b.id);
+        }
+      };
+      state.addEventListener("subscriptionsChange", removeB);
+      client.notify(EVENTS_TERMINATED_NOTIFICATION, client.lastStream().id, {
+        error: { code: EVENTS_ERROR_CODES.NotFound, message: "gone" },
+      });
+      expect(state.getLog()).toEqual([]);
+      expect(client.listAllEvents).not.toHaveBeenCalled();
+    });
+  });
+
+  it("does not log an occurrence once its count update let a listener remove it", async () => {
+    client.pollResults.push(polled({ events: [occurrence("a")] }));
+    const sub = state.subscribe(typed, { mode: "poll" });
+    state.addEventListener("subscriptionsChange", () => {
+      if ((state.getSubscription(sub.id)?.counts.events ?? 0) > 0) {
+        state.remove(sub.id);
+      }
+    });
+    await flush();
+    expect(state.getLog()).toEqual([]);
+  });
+
   describe("the log", () => {
     it("caps entries, filters by subscription, and clears", async () => {
       const capped = new EventSubscriptionsState(client, {

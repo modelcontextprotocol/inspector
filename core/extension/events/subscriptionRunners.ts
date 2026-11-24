@@ -52,9 +52,10 @@ import {
 export const DEFAULT_POLL_FLOOR_MS = 1000;
 /**
  * The heartbeat interval assumed before a stream's `active` grants one: the
- * spec's recommended server default. Until the grant arrives the liveness
- * check runs against three times this, so a server that never confirms a
- * stream is not waited on forever.
+ * spec's recommended server default. The client's own `heartbeatMs` is only a
+ * suggestion the server may clamp, so it never sets the deadline: until the
+ * grant arrives the stream is given three times this to be confirmed, so a
+ * server that never confirms it is not waited on forever.
  */
 export const DEFAULT_HEARTBEAT_MS = 30_000;
 /** The spec's liveness rule: dead after this many heartbeat intervals of silence. */
@@ -241,11 +242,14 @@ export class PollRunner implements SubscriptionRunner {
       nextPollMs: result.nextPollMs,
       lastMessageAt: new Date(),
     });
+    // Each callback may stop the runner (a store listener removing the
+    // subscription synchronously), so nothing more is reported once it has.
+    if (this.stopped) return;
     if (result.events.length > 0) callbacks.occurrences(result.events);
+    if (this.stopped) return;
     // A type with no replay has no position to have advanced past; the spec
     // says such a `truncated` SHOULD be false and clients SHOULD ignore it.
     if (result.truncated && this.cursor !== null) callbacks.gap(this.cursor);
-    // A callback may have stopped the runner (the registry removing it).
     if (this.stopped) return;
     this.schedule(
       result.hasMore ? 0 : Math.max(this.floorMs, result.nextPollMs),
@@ -313,8 +317,8 @@ export interface PushRunnerOptions extends RunnerTiming {
  * id, and the cursor advanced by every `active`, `event` and `heartbeat`.
  *
  * **Liveness.** Any message on the stream restarts a timer of three times the
- * granted `heartbeatMs` (before the first `active`, three times the suggestion
- * or the 30 s default). When it fires the stream is treated as dead: it is
+ * granted `heartbeatMs` (before the first `active`, three times the 30 s
+ * default, whatever was suggested). When it fires the stream is treated as dead: it is
  * aborted and a new one opened with the last cursor after a random jitter.
  *
  * **Reconnection.** Also after a transport failure, and after the server ends
@@ -387,6 +391,7 @@ export class PushRunner implements SubscriptionRunner {
           grantedHeartbeatMs: parsed.data.heartbeatMs,
           lastMessageAt: now,
         });
+        if (this.stopped) return;
         if (parsed.data.truncated && this.cursor !== null) {
           callbacks.gap(this.cursor);
         }
@@ -397,6 +402,7 @@ export class PushRunner implements SubscriptionRunner {
         if (!parsed.success) return this.malformed(method, parsed.error);
         this.cursor = normalizeCursor(parsed.data.cursor);
         callbacks.update({ cursor: this.cursor, lastMessageAt: now });
+        if (this.stopped) return;
         callbacks.occurrences([parsed.data]);
         return;
       }
@@ -412,6 +418,7 @@ export class PushRunner implements SubscriptionRunner {
         const parsed = EventsErrorNotificationParamsSchema.safeParse(params);
         if (!parsed.success) return this.malformed(method, parsed.error);
         callbacks.update({ lastMessageAt: now });
+        if (this.stopped) return;
         callbacks.error(parsed.data.error);
         return;
       }
@@ -449,10 +456,10 @@ export class PushRunner implements SubscriptionRunner {
 
   private armLiveness(): void {
     if (this.livenessTimer !== undefined) clearTimeout(this.livenessTimer);
-    const interval =
-      this.grantedHeartbeatMs ??
-      this.options.request.heartbeatMs ??
-      DEFAULT_HEARTBEAT_MS;
+    // Measured against the server's grant, never the client's suggestion,
+    // which the server may raise (spec, Lifecycle: "counted from
+    // notifications/events/active").
+    const interval = this.grantedHeartbeatMs ?? DEFAULT_HEARTBEAT_MS;
     const deadMs = interval * HEARTBEAT_LIVENESS_MULTIPLIER;
     this.livenessTimer = setTimeout(() => {
       this.livenessTimer = undefined;

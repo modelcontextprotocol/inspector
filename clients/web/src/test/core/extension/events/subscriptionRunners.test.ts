@@ -317,14 +317,47 @@ describe("PollRunner (#3029)", () => {
     expect(cb.error).not.toHaveBeenCalled();
   });
 
-  it("does not schedule another poll when a callback stopped the runner", async () => {
+  it("reports nothing more once the update callback stopped it", async () => {
     const cb = callbacks();
-    const poll = vi.fn(async () => pollResult({ events: [occurrence("x")] }));
+    const poll = vi.fn(async () =>
+      pollResult({ truncated: true, events: [occurrence("x")] }),
+    );
+    const r: PollRunner = new PollRunner({
+      request: { arguments: {} },
+      cursor: null,
+      poll,
+      callbacks: { ...cb, update: () => r.stop() },
+    });
+    r.start();
+    await flush();
+    expect(cb.occurrences).not.toHaveBeenCalled();
+    expect(cb.gap).not.toHaveBeenCalled();
+  });
+
+  it("does not report a gap once the occurrences callback stopped it", async () => {
+    const cb = callbacks();
+    const poll = vi.fn(async () =>
+      pollResult({ truncated: true, events: [occurrence("x")] }),
+    );
     const r: PollRunner = new PollRunner({
       request: { arguments: {} },
       cursor: null,
       poll,
       callbacks: { ...cb, occurrences: () => r.stop() },
+    });
+    r.start();
+    await flush();
+    expect(cb.gap).not.toHaveBeenCalled();
+  });
+
+  it("does not schedule another poll when a callback stopped the runner", async () => {
+    const cb = callbacks();
+    const poll = vi.fn(async () => pollResult({ truncated: true }));
+    const r: PollRunner = new PollRunner({
+      request: { arguments: {} },
+      cursor: null,
+      poll,
+      callbacks: { ...cb, gap: () => r.stop() },
     });
     r.start();
     await flush();
@@ -567,20 +600,41 @@ describe("PushRunner (#3029)", () => {
     r.stop();
   });
 
-  it("uses 3x the suggested heartbeat before the first active, else the 30 s default", async () => {
-    const suggested = setup({ arguments: {}, heartbeatMs: 100 });
-    suggested.r.start();
-    await vi.advanceTimersByTimeAsync(300);
-    expect(suggested.cb.reconnect).toHaveBeenCalledTimes(1);
-    suggested.r.stop();
-
-    const unsuggested = setup();
-    unsuggested.r.start();
+  it("gives an unconfirmed stream 3x the 30 s default, ignoring a shorter suggestion", async () => {
+    // The suggestion is the client's; the server may grant longer, and the
+    // spec counts silence from `active` against the grant.
+    const { r, cb } = setup({ arguments: {}, heartbeatMs: 100 });
+    r.start();
     await vi.advanceTimersByTimeAsync(DEFAULT_HEARTBEAT_MS * 3 - 1);
-    expect(unsuggested.cb.reconnect).not.toHaveBeenCalled();
+    expect(cb.reconnect).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(unsuggested.cb.reconnect).toHaveBeenCalledTimes(1);
-    unsuggested.r.stop();
+    expect(cb.reconnect).toHaveBeenCalledTimes(1);
+    r.stop();
+  });
+
+  it("reports nothing more once a callback has stopped it", () => {
+    const meta = { _meta: { "io.modelcontextprotocol/subscriptionId": 100 } };
+    for (const [method, params, next] of [
+      [
+        EVENTS_ACTIVE_NOTIFICATION,
+        { cursor: "c", truncated: true, heartbeatMs: 100 },
+        "gap",
+      ],
+      [EVENTS_EVENT_NOTIFICATION, occurrence("e"), "occurrences"],
+      [
+        EVENTS_ERROR_NOTIFICATION,
+        { error: { code: -32603, message: "x" } },
+        "error",
+      ],
+    ] as const) {
+      const { r, cb } = setup();
+      cb.update.mockImplementation((update) => {
+        if (update.subscriptionId === undefined) r.stop();
+      });
+      r.start();
+      r.handleNotification(method, { ...params, ...meta });
+      expect(cb[next]).not.toHaveBeenCalled();
+    }
   });
 
   it("reconnects after a server close with no terminated, with growing backoff reset by active", async () => {

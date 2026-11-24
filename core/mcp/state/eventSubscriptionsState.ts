@@ -509,32 +509,52 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   }
 
   /**
-   * The callbacks one runner reports through, bound to its entry. A runner
-   * never reports after it is stopped, and an entry's runner is stopped before
-   * the entry is replaced or removed, so these always speak for a live entry.
+   * Whether `entry` is still the registry's running entry for its key. Every
+   * dispatch runs listeners synchronously, and a listener may stop or remove
+   * the subscription, or destroy the store, in the middle of a report — so
+   * each report checks this before it touches the entry or the log.
    */
+  private isLive(entry: Entry): boolean {
+    return (
+      this.entries.get(entry.snapshot.id) === entry &&
+      entry.runner !== undefined
+    );
+  }
+
+  /** The callbacks one runner reports through, bound to its entry. */
   private callbacksFor(entry: Entry): RunnerCallbacks {
     return {
-      update: (update) => this.patch(entry, update),
+      update: (update) => {
+        if (this.isLive(entry)) this.patch(entry, update);
+      },
       occurrences: (occurrences) => this.deliver(entry, occurrences),
       gap: (cursor) => {
+        if (!this.isLive(entry)) return;
         this.bump(entry, "gaps");
-        this.append(entry, { kind: "gap", cursor });
+        if (this.isLive(entry)) this.append(entry, { kind: "gap", cursor });
       },
       error: (error) => {
+        if (!this.isLive(entry)) return;
         this.bump(entry, "errors", { lastError: error });
-        this.append(entry, { kind: "error", error });
+        if (this.isLive(entry)) this.append(entry, { kind: "error", error });
       },
       reconnect: (reason) => {
+        if (!this.isLive(entry)) return;
         this.bump(entry, "reconnects");
-        this.append(entry, { kind: "reconnect", reason });
+        if (this.isLive(entry))
+          this.append(entry, { kind: "reconnect", reason });
       },
-      terminated: (error) => this.terminate(entry, error),
+      terminated: (error) => {
+        if (this.isLive(entry)) this.terminate(entry, error);
+      },
     };
   }
 
   private deliver(entry: Entry, occurrences: EventOccurrence[]): void {
     for (const occurrence of occurrences) {
+      // Re-checked per occurrence: a listener on the previous one's dispatch
+      // may have ended the subscription.
+      if (!this.isLive(entry)) return;
       if (entry.seen.has(occurrence.eventId)) {
         this.bump(entry, "duplicates");
         continue;
@@ -549,8 +569,16 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         entry.snapshot.eventType,
         occurrence.data,
       );
-      this.bump(entry, "events");
-      if (payloadError !== undefined) this.bump(entry, "invalidPayloads");
+      const { counts } = entry.snapshot;
+      this.patch(entry, {
+        counts: {
+          ...counts,
+          events: counts.events + 1,
+          invalidPayloads:
+            counts.invalidPayloads + (payloadError === undefined ? 0 : 1),
+        },
+      });
+      if (!this.isLive(entry)) return;
       this.append(entry, {
         kind: "event",
         occurrence,
@@ -573,6 +601,8 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         canResubscribe: false,
       },
     });
+    // A `subscriptionsChange` listener may have removed it meanwhile.
+    if (this.entries.get(entry.snapshot.id) !== entry) return;
     this.append(entry, { kind: "terminated", reason, error });
     if (relist) this.relistAfter(entry);
   }
