@@ -559,7 +559,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   remove(id: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
-    const unsubscribe = needsTeardown(entry);
+    // A teardown already reserved for this key (a listener removing it from
+    // `stop`'s own notification) is the one to let run: a second request
+    // would outlive the reservation and could delete a re-created grant.
+    const unsubscribe = needsTeardown(entry) && !this.tearingDown.has(id);
     const idle = whenIdle(entry.runner);
     entry.runner?.stop();
     entry.runner = undefined;

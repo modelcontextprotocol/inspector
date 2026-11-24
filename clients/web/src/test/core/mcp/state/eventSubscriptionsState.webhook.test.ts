@@ -598,4 +598,34 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       expect(client.unsubscribeEvents).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("sends one teardown when a listener removes it from stop's notification (round 4)", async () => {
+    let settle: () => void = () => {};
+    client.unsubscribeEvents.mockImplementationOnce(
+      () => new Promise<void>((resolve) => (settle = resolve)),
+    );
+    const sub = state.subscribe(hooked, {
+      mode: "webhook",
+      webhook: { url: URL_A },
+    });
+    await flush();
+    state.addEventListener("subscriptionsChange", () => {
+      if (state.getSubscription(sub.id)?.status === "stopped") {
+        state.remove(sub.id);
+      }
+    });
+    state.stop(sub.id);
+    await flush();
+    expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
+    // Still reserved until that one teardown settles.
+    expect(() =>
+      state.subscribe(hooked, { mode: "webhook", webhook: { url: URL_A } }),
+    ).toThrow(/still being unsubscribed/);
+    settle();
+    await flush();
+    expect(
+      state.subscribe(hooked, { mode: "webhook", webhook: { url: URL_A } })
+        .status,
+    ).toBe("starting");
+  });
 });
