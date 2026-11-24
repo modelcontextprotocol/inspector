@@ -406,15 +406,20 @@ export interface CatalogPathFlags {
  * always wins and is returned as-is, so `--catalog` + `--config` still fails
  * as mutually exclusive. A blank flag (`--catalog ""`) counts as absent and
  * falls back to the env var, as the CLI and TUI have always done.
+ *
+ * Values are trimmed only to test for presence; the path returned is the one
+ * given, untouched, so a path that genuinely ends in whitespace still names
+ * the same file. Callers that normalize their own flags (the CLI, TUI and
+ * mcpdo trim `--catalog`) do so before calling.
  */
 export function resolveCatalogPath(
   flags: CatalogPathFlags,
   env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
-  const explicit = flags.catalog?.trim();
-  if (explicit) return explicit;
+  if (flags.catalog?.trim()) return flags.catalog;
   if (flags.config?.trim() || flags.adHoc) return undefined;
-  return env.MCP_CATALOG_PATH?.trim() || undefined;
+  const fromEnv = env.MCP_CATALOG_PATH;
+  return fromEnv?.trim() ? fromEnv : undefined;
 }
 
 /**

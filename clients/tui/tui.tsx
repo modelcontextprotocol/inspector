@@ -121,7 +121,7 @@ export async function runTui(args?: string[]): Promise<void> {
     // MCP_CATALOG_PATH only relocates the default catalog, so `--config` alone
     // must not read it as an explicit `--catalog` (#3021).
     catalogPath: resolveCatalogPath({
-      catalog: options.catalog,
+      catalog: options.catalog?.trim(),
       config: options.config,
     }),
     configPath: options.config?.trim() || undefined,

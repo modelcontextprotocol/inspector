@@ -2083,7 +2083,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
 
   const serverOptions = {
     catalogPath: resolveCatalogPath({
-      catalog: options.catalog,
+      catalog: options.catalog?.trim(),
       config: options.config,
       adHoc,
     }),

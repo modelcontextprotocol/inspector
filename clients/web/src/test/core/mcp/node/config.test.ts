@@ -145,10 +145,19 @@ describe("resolveServerSource", () => {
 describe("resolveCatalogPath", () => {
   const env = { MCP_CATALOG_PATH: "/env/catalog.json" };
 
-  it("returns an explicit --catalog, trimmed, over the env var", () => {
-    expect(resolveCatalogPath({ catalog: " /flag.json " }, env)).toBe(
+  it("returns an explicit --catalog over the env var", () => {
+    expect(resolveCatalogPath({ catalog: "/flag.json" }, env)).toBe(
       "/flag.json",
     );
+  });
+
+  it("returns a nonblank path untouched — whitespace is checked, not stripped", () => {
+    expect(resolveCatalogPath({ catalog: "/flag.json " }, env)).toBe(
+      "/flag.json ",
+    );
+    expect(
+      resolveCatalogPath({}, { MCP_CATALOG_PATH: "/env/catalog.json " }),
+    ).toBe("/env/catalog.json ");
   });
 
   it("keeps an explicit --catalog alongside --config, so the conflict still fires", () => {

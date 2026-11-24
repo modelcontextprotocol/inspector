@@ -429,7 +429,10 @@ export async function runMcp(argv?: string[]): Promise<void> {
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
       const serverOptions = {
-        catalogPath: resolveCatalogPath(opts),
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+        }),
         configPath: opts.config?.trim() || undefined,
       };
       const entries = await listServerEntries(serverOptions);
@@ -463,7 +466,10 @@ export async function runMcp(argv?: string[]): Promise<void> {
     .action(async (name: string | undefined) => {
       const opts = program.opts<GlobalOpts>();
       const serverOptions = {
-        catalogPath: resolveCatalogPath(opts),
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+        }),
         configPath: opts.config?.trim() || undefined,
       };
       const explicitName = stripAt(name?.trim() || undefined);
@@ -663,7 +669,11 @@ function registerConnect(program: CommandType): void {
       }
 
       const serverOptions = {
-        catalogPath: resolveCatalogPath({ ...opts, adHoc }),
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+          adHoc,
+        }),
         configPath: opts.config?.trim() || undefined,
         target: adHoc ? (rest.length > 0 ? rest : undefined) : undefined,
         transport: cmdOpts.transport as "sse" | "http" | "stdio" | undefined,
@@ -816,7 +826,10 @@ function registerConnect(program: CommandType): void {
  */
 async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
   const serverOptions = {
-    catalogPath: resolveCatalogPath(opts),
+    catalogPath: resolveCatalogPath({
+      catalog: opts.catalog?.trim(),
+      config: opts.config,
+    }),
     configPath: opts.config?.trim() || undefined,
   };
   const entries = await listServerEntries(serverOptions);
