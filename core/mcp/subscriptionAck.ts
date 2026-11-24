@@ -1,4 +1,9 @@
-import { SdkError, SdkErrorCode } from "@modelcontextprotocol/client";
+import {
+  SdkError,
+  SdkErrorCode,
+  type SubscriptionFilter,
+} from "@modelcontextprotocol/client";
+import { EVENTS_LIST_CHANGED_FILTER_KEY } from "../extension/events/constants.js";
 
 /**
  * Recognizing the "server closed the subscription without ever acknowledging
@@ -72,4 +77,42 @@ export function subscriptionFailureMessage(error: unknown): string {
     return NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE;
   }
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The `subscriptions/listen` filter with the field the Events extension adds
+ * (SEP-3415, #3028). The SDK's `SubscriptionFilter` does not know it; the SDK
+ * sends the filter object as given, so the wider type is all the outbound half
+ * needs.
+ */
+export type EventsSubscriptionFilter = SubscriptionFilter & {
+  eventsListChanged?: boolean;
+};
+
+/**
+ * Whether a raw `notifications/subscriptions/acknowledged` frame echoes
+ * `eventsListChanged: true` — the server agreeing to send
+ * `notifications/events/list_changed` on this stream (SEP-3415, "Dynamic event
+ * types").
+ *
+ * Read off the **raw** frame rather than the SDK's `honoredFilter`, because the
+ * SDK decodes the acknowledgement with its own filter schema, which strips any
+ * field it does not define — so `honoredFilter.eventsListChanged` is always
+ * absent, whatever the server said. Returns `undefined` for any other message, so
+ * a caller can tell "not an acknowledgement" from "acknowledged without it".
+ */
+export function ackedEventsListChanged(message: {
+  method: string;
+  params?: unknown;
+}): boolean | undefined {
+  if (message.method !== "notifications/subscriptions/acknowledged") {
+    return undefined;
+  }
+  const params = message.params;
+  if (params === null || typeof params !== "object") return false;
+  const filter = (params as { notifications?: unknown }).notifications;
+  if (filter === null || typeof filter !== "object") return false;
+  return (
+    (filter as Record<string, unknown>)[EVENTS_LIST_CHANGED_FILTER_KEY] === true
+  );
 }

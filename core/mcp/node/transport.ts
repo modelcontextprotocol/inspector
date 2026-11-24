@@ -20,6 +20,7 @@ import { createProxyFetch } from "./proxyFetch.js";
 import { createGuardedFetch } from "./fetchGuard.js";
 import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
 import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
+import { createEventsMcpNameFetch } from "../../extension/events/headers.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 import { createCookieJarWrapper } from "./cookieJarFetch.js";
@@ -252,8 +253,12 @@ export function createTransportNode(
     // should not show a request the server never saw (#2317). They touch
     // disjoint requests (notification POSTs vs. the endpoint's SSE GET), so
     // their relative order is free.
-    const stampedFetch = createNotificationHeadersFetch(
-      fetchWithOptionalAuthIntercept,
+    // `Mcp-Name` on `events/*` requests (SEP-3415, #3028): the SDK derives
+    // it only for the core methods it knows, and refuses it on the
+    // per-request `headers` option — see core/extension/events/headers.ts.
+    // Stamped next to the notification headers so the tracker records it.
+    const stampedFetch = createEventsMcpNameFetch(
+      createNotificationHeadersFetch(fetchWithOptionalAuthIntercept),
     );
     const httpFetch =
       settings?.suppressNotificationStream === true

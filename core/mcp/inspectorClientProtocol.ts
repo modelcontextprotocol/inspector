@@ -44,6 +44,9 @@ import type { ConnectionDiagnostics } from "./connectionDiagnostics.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import type { SkillEntry } from "../extension/skills/schemas.js";
 import type { SkillsExtensionSupport } from "../extension/skills/conformance.js";
+import type { EventType } from "../extension/events/schemas.js";
+import type { EventsExtensionSupport } from "../extension/events/support.js";
+import type { ExcludedEventType } from "../extension/events/headers.js";
 import type { DirectoryReadResult } from "../extension/skills/schemas.js";
 import type { TaskCapabilities } from "@modelcontextprotocol/ext-tasks/client";
 import type { SamplingCreateMessage } from "./samplingCreateMessage.js";
@@ -149,6 +152,32 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
     cursor?: string,
     metadata?: RequestMetadata,
   ): Promise<DirectoryReadResult>;
+
+  /**
+   * The Events extension (SEP-3415) settings when this connection may use it —
+   * modern era and the server's advertisement — or `undefined` (#3028).
+   *
+   * The events surface is optional on this interface for the reason
+   * `readResourceDirectory` is: the stores treat an absent method as "not
+   * supported", and the many test doubles that satisfy this interface should
+   * not all have to grow methods they never reach.
+   */
+  getEventsExtension?(): EventsExtensionSupport | undefined;
+  /** One page of `events/list`, invalid-annotation types already excluded. */
+  listEvents?(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{
+    events: EventType[];
+    nextCursor?: string;
+    excluded: ExcludedEventType[];
+  }>;
+  /** Every page of `events/list`; the managed events store refreshes with it. */
+  listAllEvents?(options?: {
+    metadata?: RequestMetadata;
+  }): Promise<{ events: EventType[] }>;
+  /** Event types the last full walk excluded for invalid annotations. */
+  getExcludedEventTypes?(): ExcludedEventType[];
 
   /**
    * Mark the response that most recently answered `method` as rejected by the

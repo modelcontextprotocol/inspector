@@ -27,7 +27,7 @@ export class ManagedToolsState extends ManagedListState<
       listMethod: "tools/list",
       changeEvent: "toolsChange",
       listChangedEvent: "toolsListChanged",
-      capabilityKey: "tools",
+      supported: "tools",
       deferWhenPaginated: true,
       supportsIndicator: true,
       debounceMs,

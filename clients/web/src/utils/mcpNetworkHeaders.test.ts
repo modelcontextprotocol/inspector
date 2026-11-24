@@ -207,6 +207,24 @@ describe("classifyProtocolSpecError", () => {
     );
   });
 
+  it("names SEP-3415's general-purpose codes from the code alone (#3028)", () => {
+    const names = [-32023, -32024, -32025, -32026, -32027].map(
+      (code) => classifyProtocolSpecError(code, undefined, 200)?.name,
+    );
+    expect(names).toEqual([
+      "NotFound",
+      "Forbidden",
+      "ResourceExhausted",
+      "Unsupported",
+      "CallbackEndpointError",
+    ]);
+    const forbidden = classifyProtocolSpecError(-32024);
+    // In-band errors: no paired HTTP status, and no Network link to offer.
+    expect(forbidden?.expectedHttpStatus).toBeUndefined();
+    expect(forbidden?.httpRelevant).toBe(false);
+    expect(forbidden?.description).toMatch(/principal/);
+  });
+
   it("treats -32601 as MethodNotFound only on a genuine 404", () => {
     // Thrown modern 404 → the transport taxonomy.
     expect(classifyProtocolSpecError(-32601, undefined, 404)?.name).toBe(

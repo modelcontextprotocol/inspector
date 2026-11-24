@@ -1471,11 +1471,14 @@ export interface InspectorClientOptions {
    * Whether to enable listChanged notification handlers (default: true)
    * If enabled, InspectorClient will subscribe to list_changed notifications and fire
    * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
+   * `events` opts into `notifications/events/list_changed` (`eventsListChanged`)
+   * on a server whose Events extension declares `listChanged` (#3028).
    */
   listChangedNotifications?: {
     tools?: boolean;
     resources?: boolean;
     prompts?: boolean;
+    events?: boolean;
   };
 
   /**

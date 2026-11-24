@@ -83,6 +83,8 @@ import {
   isNeverAcknowledgedSubscriptionClose,
   subscriptionFailureMessage,
   NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE,
+  ackedEventsListChanged,
+  type EventsSubscriptionFilter,
 } from "./subscriptionAck.js";
 import {
   subscriptionListenRefusal,
@@ -154,7 +156,6 @@ import type {
   InputRequests,
   InputRequiredOptions,
   McpSubscription,
-  SubscriptionFilter,
 } from "@modelcontextprotocol/client";
 import {
   ProtocolError,
@@ -199,6 +200,29 @@ import {
   getSkillsExtension,
   type SkillsExtensionSupport,
 } from "../extension/skills/conformance.js";
+import {
+  EVENTS_EXTENSION_KEY,
+  EVENTS_LIST_CHANGED_NOTIFICATION,
+  EVENTS_LIST_METHOD,
+  EVENTS_POLL_METHOD,
+} from "../extension/events/constants.js";
+import {
+  EventsListChangedNotificationParamsSchema,
+  ListEventsResultSchema,
+  PollEventsResultSchema,
+  type EventType,
+  type PollEventsParams,
+  type PollEventsResult,
+} from "../extension/events/schemas.js";
+import {
+  getEventsExtension,
+  type EventsExtensionSupport,
+} from "../extension/events/support.js";
+import {
+  mcpParamHeadersForEvent,
+  partitionEventTypesByHeaderValidity,
+  type ExcludedEventType,
+} from "../extension/events/headers.js";
 import {
   getElicitationUiResourceUri,
   isFormElicitation,
@@ -631,6 +655,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   // annotations (SEP-2243), recomputed on every aggregate tools refresh and
   // surfaced so the Tools tab can show why a tool vanished (#1632).
   private excludedTools: ExcludedTool[] = [];
+  // Event types left out of `events/list` for invalid `x-mcp-header`
+  // annotations (SEP-3415, #3028). Recomputed by every full walk.
+  private excludedEventTypes: ExcludedEventType[] = [];
+  // Whether the server echoed `eventsListChanged` in the last
+  // `notifications/subscriptions/acknowledged` (#3028). Read off the raw
+  // frame because the SDK's acknowledged-filter schema strips the field.
+  private eventsListChangedHonored = false;
   // Entries the Inspector dropped from a list result because they failed the
   // spec schema for that primitive, keyed by list method. Populated only by the
   // salvage fallback in `listAllSalvaging` — empty against a conforming server
@@ -696,6 +727,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     tools: boolean;
     resources: boolean;
     prompts: boolean;
+    events: boolean;
   };
   // Resource subscriptions. The set of subscribed URIs is the era-agnostic
   // source of truth for the UI (the `resourceSubscriptionsChange` list). How a
@@ -892,6 +924,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       tools: options.listChangedNotifications?.tools ?? true,
       resources: options.listChangedNotifications?.resources ?? true,
       prompts: options.listChangedNotifications?.prompts ?? true,
+      events: options.listChangedNotifications?.events ?? true,
     };
 
     // Effective auth fetch: base fetch + tracking with category 'auth'
@@ -1335,7 +1368,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         message: JSONRPCNotification,
         origin: MessageOrigin,
       ) => {
-        if (origin === "server") this.dispatchTaskProgress(message);
+        if (origin === "server") {
+          this.dispatchTaskProgress(message);
+          this.noteSubscriptionAck(message);
+        }
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -1751,6 +1787,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.modernNeverAcknowledged = false;
     this.modernListenRefusal = null;
     this.modernSubscription = null;
+    this.eventsListChangedHonored = false;
     // Announced only once both have moved: a listener that ran between them
     // would see an empty set with an `active` stream — the combination this
     // helper exists to prevent, so its own dispatches must not expose it.
@@ -1825,6 +1862,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.excludedTools.length > 0) {
       this.excludedTools = [];
       this.dispatchTypedEvent("excludedToolsChange", []);
+    }
+    if (this.excludedEventTypes.length > 0) {
+      this.excludedEventTypes = [];
+      this.dispatchTypedEvent("excludedEventTypesChange", []);
     }
     // Restore the configured opt-in rather than carrying a mid-session
     // `setModernLogLevel` override into the next connection — and rather than
@@ -2281,6 +2322,24 @@ export class InspectorClient extends InspectorClientEventTarget {
           );
         }
 
+        // Events list_changed (SEP-3415, #3028). Registered only when the
+        // server's Events settings declare `listChanged` on a connection that
+        // may use the extension at all — the same config ∩ capability rule the
+        // three core lists follow. Custom (3-arg) form: the method is not one
+        // the SDK's codecs define.
+        if (
+          this.listChangedNotifications.events &&
+          this.getEventsExtension()?.listChanged
+        ) {
+          this.client.setNotificationHandler(
+            EVENTS_LIST_CHANGED_NOTIFICATION,
+            { params: EventsListChangedNotificationParamsSchema },
+            async () => {
+              this.dispatchTypedEvent("eventsListChanged");
+            },
+          );
+        }
+
         // Resource updated notification handler (only if server supports subscriptions)
         if (this.capabilities?.resources?.subscribe === true) {
           this.client.setNotificationHandler(
@@ -2482,6 +2541,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolEra = undefined;
     this.discoverResult = undefined;
     this.excludedTools = [];
+    this.excludedEventTypes = [];
     this.malformedListItems.clear();
     // Read as "not opted in" while disconnected. This is no longer what stops
     // it leaking into the next connection — `resetSessionState()` re-derives it
@@ -2502,6 +2562,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
     this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
     this.dispatchTypedEvent("excludedToolsChange", this.excludedTools);
+    this.dispatchTypedEvent(
+      "excludedEventTypesChange",
+      this.excludedEventTypes,
+    );
     this.dispatchTypedEvent("malformedListItemsChange", []);
   }
 
@@ -5238,6 +5302,295 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * The Events extension settings (SEP-3415) when this connection may use it —
+   * a modern era AND the server's advertisement — otherwise `undefined`. Every
+   * `events/*` request below is gated on it, which is how the Inspector keeps
+   * the spec's "MUST NOT send `events/*` to a server that has not advertised
+   * the extension" on every path, legacy connections included (#3028).
+   */
+  getEventsExtension(): EventsExtensionSupport | undefined {
+    return getEventsExtension(this.capabilities, this.protocolEra);
+  }
+
+  /**
+   * Event types the last full `events/list` walk left out for invalid
+   * `x-mcp-header` annotations, each with its reason (#3028).
+   */
+  getExcludedEventTypes(): ExcludedEventType[] {
+    return this.excludedEventTypes;
+  }
+
+  /**
+   * Whether the server echoed `eventsListChanged` in the last
+   * `subscriptions/listen` acknowledgement, i.e. agreed to send
+   * `notifications/events/list_changed` on the stream (#3028). `false` until a
+   * stream is acknowledged, and after the stream is reset.
+   */
+  isEventsListChangedHonored(): boolean {
+    return this.eventsListChangedHonored;
+  }
+
+  /** Record the `eventsListChanged` echo from a raw acknowledgement frame. */
+  private noteSubscriptionAck(message: JSONRPCNotification): void {
+    const honored = ackedEventsListChanged(message);
+    if (honored !== undefined) this.eventsListChangedHonored = honored;
+  }
+
+  /**
+   * Refuse locally, before anything reaches the wire, an `events/*` request the
+   * spec forbids on this connection. Throwing rather than letting the server
+   * answer `-32601` also keeps the Protocol tab honest: a request the Inspector
+   * was never allowed to send must not appear there as a server failure.
+   */
+  private assertEventsAllowed(method: string): void {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    if (!this.getEventsExtension()) {
+      throw new Error(
+        `Server did not advertise ${EVENTS_EXTENSION_KEY} on a modern-era connection; ${method} must not be sent.`,
+      );
+    }
+  }
+
+  /**
+   * Drop the event types a Streamable HTTP client MUST exclude from
+   * `events/list` for invalid `x-mcp-header` annotations, logging a warning for
+   * each (SEP-3415 applies SEP-2243's tool rule to event types). Applied on the
+   * same connections the tools rule is — modern, not stdio — since the spec
+   * scopes the annotation to the HTTP transport and lets other transports
+   * ignore it.
+   */
+  private partitionEventTypes(eventTypes: EventType[]): {
+    kept: EventType[];
+    excluded: ExcludedEventType[];
+  } {
+    if (!this.excludesInvalidXMcpHeaderTools()) {
+      return { kept: eventTypes, excluded: [] };
+    }
+    const result = partitionEventTypesByHeaderValidity(eventTypes);
+    for (const { eventType, reason } of result.excluded) {
+      this.logger.warn(
+        { eventType: eventType.name, reason },
+        "Excluded an event type from events/list: invalid x-mcp-header annotation",
+      );
+    }
+    return result;
+  }
+
+  /**
+   * One page of `events/list` (SEP-3415), with the event types that violate the
+   * `x-mcp-header` rules already removed and reported in `excluded`.
+   *
+   * An ordinary `client.request` with an explicit result schema, like
+   * `skills/list`: the SDK's era gate and capability assertion both fall
+   * through for a method neither codec defines. `events/list` carries no
+   * `Mcp-Name` (it has no `params.name`).
+   */
+  async listEvents(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{
+    events: EventType[];
+    nextCursor?: string;
+    excluded: ExcludedEventType[];
+  }> {
+    this.assertEventsAllowed(EVENTS_LIST_METHOD);
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is legal.
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+    let response: z.infer<typeof ListEventsResultSchema>;
+    try {
+      response = await this.invokeMcpClient(
+        () => {
+          // Re-checked inside the callback because `invokeMcpClient` runs it
+          // again after an auth-recovery reconnect, and the new connection may
+          // no longer offer the extension (or may have negotiated legacy).
+          this.assertEventsAllowed(EVENTS_LIST_METHOD);
+          return this.client!.request(
+            { method: EVENTS_LIST_METHOD, params },
+            ListEventsResultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          );
+        },
+        { method: EVENTS_LIST_METHOD },
+      );
+    } catch (err) {
+      // Attribute a rejected decode to its Protocol entry (#1953), while the
+      // correlation window is still current — the same handling `skills/get`
+      // gets, and only for a decode rejection.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          EVENTS_LIST_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+    const { kept, excluded } = this.partitionEventTypes(response.events);
+    return {
+      events: kept,
+      ...(response.nextCursor !== undefined && {
+        nextCursor: response.nextCursor,
+      }),
+      excluded,
+    };
+  }
+
+  /**
+   * Every page of `events/list`, walked here because the SDK has no aggregate
+   * verb for a consumer-owned method. Commits the excluded set
+   * (`excludedEventTypesChange`) only once the whole walk succeeded, so a
+   * failed walk never publishes a partial one.
+   *
+   * Bounded the same two ways the other hand-rolled walks are: `LIST_MAX_PAGES`
+   * for a server whose cursors never converge, and a repeated cursor for one
+   * stuck on a single page. Both throw rather than return a partial list.
+   */
+  async listAllEvents(options?: {
+    metadata?: RequestMetadata;
+  }): Promise<{ events: EventType[] }> {
+    this.assertEventsAllowed(EVENTS_LIST_METHOD);
+    const events: EventType[] = [];
+    const excluded: ExcludedEventType[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let pages = 0;
+    for (;;) {
+      if (pages >= LIST_MAX_PAGES) {
+        throw listPaginationExceeded(EVENTS_LIST_METHOD);
+      }
+      pages += 1;
+      const page = await this.listEvents(cursor, options?.metadata);
+      events.push(...page.events);
+      excluded.push(...page.excluded);
+      if (page.nextCursor === undefined) break;
+      if (seen.has(page.nextCursor)) {
+        throw new Error(
+          `Server repeated a pagination cursor in ${EVENTS_LIST_METHOD}; stopped to avoid an infinite walk.`,
+        );
+      }
+      seen.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    this.excludedEventTypes = excluded;
+    this.dispatchTypedEvent("excludedEventTypesChange", excluded);
+    return { events };
+  }
+
+  /**
+   * Send one `events/*` request that names an event type (`events/poll`,
+   * `events/stream`, `events/subscribe`, `events/unsubscribe`).
+   *
+   * The shared path every subscription request goes through, so the rules the
+   * spec attaches to all four live in one place:
+   *
+   * - the connection gate ({@link assertEventsAllowed});
+   * - `params.name` taken from the event type, so the `Mcp-Name` header the
+   *   transport's fetch wrapper derives from it (`createEventsMcpNameFetch`)
+   *   always names the type the `Mcp-Param-*` headers were built from;
+   * - the `Mcp-Param-*` headers for annotated arguments, on the per-request
+   *   `headers` option the tools path uses. Only on a modern connection — the
+   *   gate already guarantees that — and harmlessly ignored on stdio.
+   *
+   * `requestOptions` lets a caller adjust the SDK options (an abort signal, or
+   * no timeout for a long-lived `events/stream`); the headers are merged in, not
+   * replaced.
+   */
+  async sendEventsRequest<T>(
+    method: string,
+    eventType: EventType,
+    params: Record<string, unknown>,
+    resultSchema: z.ZodType<T>,
+    options?: {
+      metadata?: RequestMetadata;
+      requestOptions?: Partial<RequestOptions>;
+    },
+  ): Promise<T> {
+    this.assertEventsAllowed(method);
+    const effectiveMeta = this.mergeMeta(options?.metadata);
+    const args = params.arguments;
+    const argsRecord =
+      args !== null && typeof args === "object" && !Array.isArray(args)
+        ? (args as Record<string, unknown>)
+        : undefined;
+    const requestParams: Record<string, unknown> = {
+      ...params,
+      name: eventType.name,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+    };
+    // A caller's `signal` goes through `getRequestOptions`, which combines it
+    // with the ambient request signal (#1783); spreading it over the result
+    // would replace the ambient one, and a request with its timeout disabled
+    // (a push stream) could then outlive the caller that started it.
+    const { signal: callerSignal, ...overrides } =
+      options?.requestOptions ?? {};
+    const requestOptions: RequestOptions = {
+      ...this.getRequestOptions(
+        this.progressTokenOf(options?.metadata),
+        callerSignal,
+      ),
+      ...overrides,
+    };
+    const mirrored = mcpParamHeadersForEvent(eventType, argsRecord);
+    if (Object.keys(mirrored).length > 0) {
+      requestOptions.headers = { ...requestOptions.headers, ...mirrored };
+    }
+    try {
+      return await this.invokeMcpClient(
+        () => {
+          // Re-gated on every attempt, as in `listEvents`: a retry after an
+          // auth-recovery reconnect must not reach a connection without Events.
+          this.assertEventsAllowed(method);
+          return this.client!.request(
+            { method, params: requestParams },
+            resultSchema,
+            requestOptions,
+          );
+        },
+        { method },
+      );
+    } catch (err) {
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          method,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One `events/poll` (SEP-3415, Poll-Based Delivery): a single request, no
+   * loop. The poll runner with `nextPollMs`, the floor and the `hasMore` drain
+   * is the subscription engine's (#3026 phase 2); this is the one-shot the CLI
+   * and that engine both build on. `cursor` defaults to `null` ("start from
+   * now"), sent explicitly so the Protocol tab shows what was asked for.
+   */
+  async pollEvents(
+    eventType: EventType,
+    params: Omit<PollEventsParams, "name"> = {},
+    metadata?: RequestMetadata,
+  ): Promise<PollEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_POLL_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.maxEvents !== undefined && { maxEvents: params.maxEvents }),
+      },
+      PollEventsResultSchema,
+      { metadata },
+    );
+  }
+
+  /**
    * Get a prompt by name
    * @param name Prompt name
    * @param args Optional prompt arguments
@@ -5670,8 +6023,8 @@ export class InspectorClient extends InspectorClientEventTarget {
    * list-change notifications — the spec models one listen stream for every
    * opted-in notification type (SEP §7.4).
    */
-  private buildSubscriptionFilter(): SubscriptionFilter {
-    const filter: SubscriptionFilter = {};
+  private buildSubscriptionFilter(): EventsSubscriptionFilter {
+    const filter: EventsSubscriptionFilter = {};
     // Omitted rather than sent empty: a listChanged-only stream (#1920) is not
     // subscribing to any resource, and `[]` would say it asked for none of a set
     // it is participating in.
@@ -5696,6 +6049,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     ) {
       filter.promptsListChanged = true;
     }
+    // SEP-3415's filter field (#3028): opt in only where the server declared
+    // `listChanged` on its Events settings — "a server that did not declare
+    // `listChanged: true` omits it from the acknowledged filter", so asking
+    // anyway would only make the stream open for nothing.
+    if (
+      this.listChangedNotifications.events &&
+      this.getEventsExtension()?.listChanged
+    ) {
+      filter.eventsListChanged = true;
+    }
     return filter;
   }
 
@@ -5719,7 +6082,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       (filter.resourceSubscriptions?.length ?? 0) > 0 ||
       filter.toolsListChanged === true ||
       filter.resourcesListChanged === true ||
-      filter.promptsListChanged === true
+      filter.promptsListChanged === true ||
+      filter.eventsListChanged === true
     );
   }
 
