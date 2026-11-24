@@ -8,9 +8,9 @@
  *
  * **The delivery picker lives in the same form as the arguments.** ink-form
  * scopes values by field name across the whole form, so the picker needs a name
- * no argument has. {@link deliveryFieldName} derives one from the schema's own
- * properties rather than reserving a word, since an event type may well declare
- * an argument called `mode`.
+ * no argument has. {@link deliveryFieldName} derives one from the generated
+ * argument fields rather than reserving a word, since an event type may well
+ * declare an argument called `delivery`.
  */
 
 import type { FormField, FormStructure } from "ink-form";
@@ -24,6 +24,7 @@ import {
   decodeFormValues,
   missingRequiredFields,
   schemaToForm,
+  selectionCountErrors,
 } from "./schemaToForm.js";
 
 /** The delivery modes the TUI runs. Webhook management is #3026 phase 4. */
@@ -37,18 +38,20 @@ export function subscribableModes(eventType: EventType): TuiDeliveryMode[] {
   );
 }
 
-/** A field name for the delivery picker that no property of the schema uses. */
-export function deliveryFieldName(schema: unknown): string {
-  const properties =
-    schema !== null &&
-    typeof schema === "object" &&
-    "properties" in schema &&
-    schema.properties !== null &&
-    typeof schema.properties === "object"
-      ? schema.properties
-      : {};
+/**
+ * A field name for the delivery picker that no field of the argument form
+ * uses. Read from the generated form rather than the schema's root
+ * `properties`, so a name the form takes from `allOf` or a union branch is
+ * avoided too.
+ */
+export function deliveryFieldName(argumentsForm: FormStructure): string {
+  const taken = new Set(
+    argumentsForm.sections.flatMap((section) =>
+      section.fields.map((field) => field.name),
+    ),
+  );
   let name = "delivery";
-  while (Object.hasOwn(properties, name)) name = `_${name}`;
+  while (taken.has(name)) name = `_${name}`;
   return name;
 }
 
@@ -69,8 +72,8 @@ export function eventSubscribeForm(
   const modes = subscribableModes(eventType);
   if (modes.length === 0) return null;
   const schema = inlineLocalRefs(eventType.inputSchema);
-  const deliveryField = deliveryFieldName(schema);
   const argumentsForm = schemaToForm(schema, eventType.name);
+  const deliveryField = deliveryFieldName(argumentsForm);
   const picker: FormField = {
     type: "select",
     name: deliveryField,
@@ -125,6 +128,15 @@ export function decodeSubscribeValues(
     return {
       ok: false,
       error: `Missing required argument${missing.length > 1 ? "s" : ""}: ${missing.join(", ")}`,
+    };
+  }
+  // A multi-select's `minItems` / `maxItems` are invisible to ink-form's own
+  // gate, as in the tool modal (#2904).
+  const outOfBounds = selectionCountErrors(schema, values, rest);
+  if (outOfBounds.length > 0) {
+    return {
+      ok: false,
+      error: `Invalid argument${outOfBounds.length > 1 ? "s" : ""}: ${outOfBounds.join("; ")}`,
     };
   }
   return { ok: true, mode, arguments: values };

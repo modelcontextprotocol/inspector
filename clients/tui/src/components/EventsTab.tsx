@@ -24,6 +24,7 @@ import type {
 import { useSelectableList } from "../hooks/useSelectableList.js";
 import {
   eventLogLine,
+  eventTypeRows,
   isLiveSubscription,
   subscriptionStatusColor,
   subscriptionSummary,
@@ -62,8 +63,14 @@ export function EventsTab({
   onClearLog,
 }: EventsTabProps) {
   const visibleCount = Math.max(1, height - 7);
+  // A type the server removed stays listed while a subscription refers to it,
+  // so its termination and occurrence log stay reachable.
+  const rows = useMemo(
+    () => eventTypeRows(eventTypes, subscriptions),
+    [eventTypes, subscriptions],
+  );
   const { selectedIndex, firstVisible, setSelection } = useSelectableList(
-    eventTypes.length,
+    rows.length,
     visibleCount,
     { resetWhen: eventTypes },
   );
@@ -71,7 +78,8 @@ export function EventsTab({
   const listWidth = Math.floor(width * 0.35);
   const detailWidth = width - listWidth;
 
-  const selected = eventTypes[selectedIndex] ?? null;
+  const selectedRow = rows[selectedIndex] ?? null;
+  const selected = selectedRow?.eventType ?? null;
   const selectedSubscriptions = useMemo(
     () =>
       selected
@@ -90,8 +98,9 @@ export function EventsTab({
 
   useInput(
     (input: string, key: Key) => {
-      if (key.return && selected) {
-        onSubscribe(selected);
+      if (key.return && selectedRow) {
+        // A type the server no longer lists cannot be subscribed to again.
+        if (selectedRow.listed) onSubscribe(selectedRow.eventType);
         return;
       }
       if (input === "x" && selected) {
@@ -106,7 +115,7 @@ export function EventsTab({
       if (focusedPane === "list") {
         if (key.upArrow && selectedIndex > 0) {
           setSelection(selectedIndex - 1);
-        } else if (key.downArrow && selectedIndex < eventTypes.length - 1) {
+        } else if (key.downArrow && selectedIndex < rows.length - 1) {
           setSelection(selectedIndex + 1);
         }
         return;
@@ -153,7 +162,7 @@ export function EventsTab({
           <Box paddingY={1}>
             <Text color="red">{errorMessage(loadError)}</Text>
           </Box>
-        ) : eventTypes.length === 0 ? (
+        ) : rows.length === 0 ? (
           <Box paddingY={1}>
             <Text dimColor>No event types available</Text>
           </Box>
@@ -164,15 +173,16 @@ export function EventsTab({
             overflow="hidden"
             flexShrink={0}
           >
-            {eventTypes
+            {rows
               .slice(firstVisible, firstVisible + visibleCount)
-              .map((eventType, i) => {
+              .map(({ eventType, listed }, i) => {
                 const index = firstVisible + i;
                 return (
                   <Box key={`${index}:${eventType.name}`} flexShrink={0}>
-                    <Text wrap="truncate-end">
+                    <Text wrap="truncate-end" dimColor={!listed}>
                       {index === selectedIndex ? "▶ " : "  "}
                       {eventType.name}
+                      {listed ? "" : " (removed)"}
                     </Text>
                     {liveNames.has(eventType.name) && (
                       <Box flexShrink={0}>
@@ -214,7 +224,9 @@ export function EventsTab({
               </Text>
               <Box flexShrink={0}>
                 <Text color="cyan" bold>
-                  [Enter subscribe · x stop · l clear log]
+                  {selectedRow?.listed
+                    ? "[Enter subscribe · x stop · l clear log]"
+                    : "[no longer listed by the server · l clear log]"}
                 </Text>
               </Box>
             </Box>

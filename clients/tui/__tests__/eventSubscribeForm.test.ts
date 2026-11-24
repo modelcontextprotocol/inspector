@@ -31,17 +31,32 @@ describe("subscribableModes", () => {
 });
 
 describe("deliveryFieldName", () => {
-  it("is `delivery` unless an argument already has that name", () => {
-    expect(deliveryFieldName({ properties: { region: {} } })).toBe("delivery");
-    expect(
-      deliveryFieldName({ properties: { delivery: {}, _delivery: {} } }),
-    ).toBe("__delivery");
+  const form = (...names: string[]) => ({
+    sections: [
+      {
+        title: "Parameters",
+        fields: names.map((name) => ({ type: "string" as const, name })),
+      },
+    ],
   });
 
-  it("tolerates a schema with no properties", () => {
-    expect(deliveryFieldName({ type: "object" })).toBe("delivery");
-    expect(deliveryFieldName({ properties: null })).toBe("delivery");
-    expect(deliveryFieldName(null)).toBe("delivery");
+  it("is `delivery` unless an argument field already has that name", () => {
+    expect(deliveryFieldName(form("region"))).toBe("delivery");
+    expect(deliveryFieldName(form("delivery", "_delivery"))).toBe("__delivery");
+  });
+
+  it("avoids a name the form takes from allOf, not just root properties", () => {
+    const built = eventSubscribeForm(
+      eventType({
+        inputSchema: {
+          type: "object",
+          allOf: [
+            { type: "object", properties: { delivery: { type: "string" } } },
+          ],
+        },
+      }),
+    )!;
+    expect(built.deliveryField).toBe("_delivery");
   });
 });
 
@@ -134,6 +149,29 @@ describe("decodeSubscribeValues", () => {
         delivery: "poll",
       }),
     ).toEqual({ ok: false, error: "Missing required arguments: a, b" });
+  });
+
+  it("refuses a multi-select outside its minItems / maxItems", () => {
+    const tagged = eventType({
+      inputSchema: {
+        type: "object",
+        properties: {
+          tags: {
+            type: "array",
+            items: { type: "string", enum: ["a", "b", "c"] },
+            minItems: 2,
+          },
+        },
+      },
+    });
+    const decoded = decodeSubscribeValues(tagged, eventSubscribeForm(tagged)!, {
+      delivery: "poll",
+      tags: ["a"],
+    });
+    expect(decoded.ok).toBe(false);
+    expect(decoded.ok === false && decoded.error).toMatch(
+      /^Invalid argument: /,
+    );
   });
 
   it("refuses a mode the type does not offer", () => {

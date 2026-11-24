@@ -137,9 +137,12 @@ export function eventStreamLine(entry: EventLogEntry): Record<string, unknown> {
   const at = entry.at.toISOString();
   switch (entry.kind) {
     case "event":
+      // The occurrence is spread first so the Inspector-owned framing fields
+      // win: `EventOccurrenceSchema` is loose, so a server-sent `type` (or
+      // `at`) survives parsing and would otherwise relabel the line.
       return {
-        type: "event",
         ...entry.occurrence,
+        type: "event",
         ...(entry.payloadError !== undefined && {
           payloadError: entry.payloadError,
         }),

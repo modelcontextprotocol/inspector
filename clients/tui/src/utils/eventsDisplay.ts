@@ -13,6 +13,7 @@ import type {
   EventSubscription,
   EventSubscriptionStatus,
 } from "@inspector/core/mcp/state/index.js";
+import type { EventType } from "@inspector/core/extension/events/schemas.js";
 import { redactErrorText } from "./errorText.js";
 
 /** Whether the engine is still running it (as opposed to stopped or ended). */
@@ -70,7 +71,7 @@ export function subscriptionSummary(subscription: EventSubscription): string {
   if (Object.keys(subscription.arguments).length > 0) {
     parts.push(`args ${JSON.stringify(subscription.arguments)}`);
   }
-  return parts.join(" · ");
+  return escapeControls(parts.join(" · "));
 }
 
 /** How the subscription ended, or `undefined` while it has not. */
@@ -87,7 +88,9 @@ export function terminationText(
         : termination.relist === "done" && !termination.canResubscribe
           ? "; the event type is no longer offered"
           : "";
-  return `Terminated (${termination.reason}): ${redactErrorText(termination.error.message)}${relist}`;
+  return escapeControls(
+    `Terminated (${termination.reason}): ${redactErrorText(termination.error.message)}${relist}`,
+  );
 }
 
 export interface LogLine {
@@ -95,12 +98,34 @@ export interface LogLine {
   color?: string;
 }
 
+// eslint-disable-next-line no-control-regex -- matching control characters is the point
+const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/g;
+
+/**
+ * Escape every C0 and C1 control character (and DEL) as `\\uXXXX`. Applied to
+ * each finished log line, because server text reaches it unescaped — an event
+ * id, a cursor, an error message — and `JSON.stringify` escapes only C0, so a
+ * C1 such as U+009B (CSI) in a payload passes through it. A backslash already
+ * in the text is left alone, so the JSON's own escapes read the same.
+ */
+export function escapeControls(text: string): string {
+  return text.replace(
+    CONTROLS,
+    (ch) => `\\u${ch.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+}
+
 function clock(at: Date): string {
   return at.toISOString().slice(11, 19);
 }
 
-/** One occurrence-log entry as a single display line. */
+/** One occurrence-log entry as a single display line, controls escaped. */
 export function eventLogLine(entry: EventLogEntry): LogLine {
+  const line = rawLogLine(entry);
+  return { ...line, text: escapeControls(line.text) };
+}
+
+function rawLogLine(entry: EventLogEntry): LogLine {
   const time = clock(entry.at);
   switch (entry.kind) {
     case "event":
@@ -130,4 +155,24 @@ export function eventLogLine(entry: EventLogEntry): LogLine {
         color: "red",
       };
   }
+}
+
+/**
+ * The rows the Events tab lists: the server's current event types, then any
+ * type a subscription still refers to that the catalog no longer has — a type
+ * the server removed, which is exactly when its termination and log matter
+ * most. `listed` is false for those; they cannot be subscribed to again.
+ */
+export function eventTypeRows(
+  eventTypes: EventType[],
+  subscriptions: EventSubscription[],
+): { eventType: EventType; listed: boolean }[] {
+  const names = new Set(eventTypes.map((eventType) => eventType.name));
+  const rows = eventTypes.map((eventType) => ({ eventType, listed: true }));
+  for (const subscription of subscriptions) {
+    if (names.has(subscription.name)) continue;
+    names.add(subscription.name);
+    rows.push({ eventType: subscription.eventType, listed: false });
+  }
+  return rows;
 }

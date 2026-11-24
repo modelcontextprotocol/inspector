@@ -453,6 +453,25 @@ describe("eventStreamLine (#3032)", () => {
     expect(eventStreamLine(entry)).toEqual(line);
   });
 
+  it("keeps its own framing fields over an occurrence's extra ones", () => {
+    // The occurrence schema is loose, so a server-sent `type` survives
+    // parsing; it must not relabel the line.
+    const line = eventStreamLine({
+      ...base,
+      kind: "event",
+      occurrence: {
+        eventId: "e1",
+        name: "t",
+        timestamp: at.toISOString(),
+        data: {},
+        type: "terminated",
+        at: "spoofed",
+      },
+    });
+    expect(line.type).toBe("event");
+    expect(line.at).toBe(at.toISOString());
+  });
+
   it("keeps a payload validation failure on the event line", () => {
     const occurrence = {
       eventId: "e1",

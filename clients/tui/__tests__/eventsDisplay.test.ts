@@ -4,7 +4,9 @@ import type {
   EventSubscription,
 } from "@inspector/core/mcp/state/index.js";
 import {
+  escapeControls,
   eventLogLine,
+  eventTypeRows,
   isLiveSubscription,
   subscriptionStatusColor,
   subscriptionSummary,
@@ -182,5 +184,53 @@ describe("eventLogLine", () => {
     expect(line.text).toContain(text);
     expect(line.text).not.toContain("secret");
     expect(line.color).toBe(color);
+  });
+});
+
+describe("escapeControls", () => {
+  it("escapes C0, DEL and C1 controls, and leaves JSON escapes alone", () => {
+    expect(escapeControls("a\u009b31mb\u0007c\u007f")).toBe(
+      "a\\u009b31mb\\u0007c\\u007f",
+    );
+    expect(escapeControls('{"x":"\\u001b"}')).toBe('{"x":"\\u001b"}');
+  });
+
+  it("is applied to log lines and summaries built from server text", () => {
+    const at = new Date(0);
+    const line = eventLogLine({
+      seq: 1,
+      at,
+      subscription: "key",
+      kind: "event",
+      occurrence: {
+        eventId: "e\u009b1",
+        name: "t",
+        timestamp: "t",
+        data: { s: "\u009b2J" },
+      },
+    });
+    expect(line.text).not.toMatch(/[\u0080-\u009f]/);
+    expect(subscriptionSummary(subscription({ cursor: "c\u009b" }))).toContain(
+      "cursor c\\u009b",
+    );
+  });
+});
+
+describe("eventTypeRows", () => {
+  it("keeps a type the catalog dropped while a subscription refers to it", () => {
+    const listed = subscription().eventType;
+    const gone = {
+      ...subscription({ id: "gone", name: "old.type" }),
+      eventType: { ...listed, name: "old.type" },
+    };
+    expect(
+      eventTypeRows([listed], [subscription(), gone, gone]).map((r) => [
+        r.eventType.name,
+        r.listed,
+      ]),
+    ).toEqual([
+      ["incident.created", true],
+      ["old.type", false],
+    ]);
   });
 });

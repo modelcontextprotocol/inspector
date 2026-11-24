@@ -201,6 +201,23 @@ describe("EventsTab (static props)", () => {
     expect(frame).not.toContain("gap:");
   });
 
+  it("keeps a removed type listed, with its history, and does not resubscribe it", async () => {
+    const { stdin, lastFrame, onSubscribe, onClearLog } = renderTab({
+      eventTypes: [type("a.first")],
+      subscriptions: [sub("old", "gone.type", "terminated")],
+    });
+    expect(lastFrame()).toContain("Event types (1)");
+    expect(lastFrame()).toContain("gone.type (removed)");
+    stdin.write(DOWN);
+    await vi.waitFor(() => expect(lastFrame()).toContain("▶ gone.type"));
+    expect(lastFrame()).toContain("no longer listed by the server");
+    expect(lastFrame()).toContain("poll · terminated");
+    stdin.write("\r");
+    stdin.write("l"); // a key it does take, proving Enter was delivered first
+    await vi.waitFor(() => expect(onClearLog).toHaveBeenCalled());
+    expect(onSubscribe).not.toHaveBeenCalled();
+  });
+
   it("scrolls the details pane without moving the selection", async () => {
     const { stdin, lastFrame } = renderTab({ focusedPane: "details" });
     for (const key of [DOWN, UP, PAGE_DOWN, PAGE_UP]) stdin.write(key);
