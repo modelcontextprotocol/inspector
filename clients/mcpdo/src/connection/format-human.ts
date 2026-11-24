@@ -967,6 +967,119 @@ export function formatSkillVerifyListHuman(
   return out.join("\n");
 }
 
+/**
+ * Format an `events/list` result (SEP-3415, #3032): one line per event type —
+ * name, delivery modes, description — then any type the client excluded for an
+ * invalid `x-mcp-header` annotation, with the reason.
+ */
+export function formatEventTypesHuman(
+  result: JsonObject,
+  style: Style = PLAIN,
+): string {
+  const events = asArray<JsonObject>(result.events);
+  const lines = [heading(style, `Event types (${events.length}):`)];
+  for (const eventType of events) {
+    const modes = asArray<string>(eventType.delivery).join(", ");
+    lines.push(
+      `* ${code(style, String(eventType.name ?? "?"))} [${modes}]${descSuffix(style, eventType.description)}`,
+    );
+  }
+  if (events.length === 0) lines.push(style.dim("(none)"));
+  const excluded = asArray<JsonObject>(result.excluded);
+  if (excluded.length > 0) {
+    lines.push(heading(style, `Excluded (${excluded.length}):`));
+    for (const entry of excluded) {
+      lines.push(
+        `* ${code(style, String(entry.name ?? "?"))}${style.dim(` — ${String(entry.reason ?? "")}`)}`,
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
+/** One occurrence: id, type, timestamp, then its `data` as inert JSON. */
+function formatOccurrenceLine(occurrence: JsonObject, style: Style): string {
+  const invalid =
+    typeof occurrence.payloadError === "string"
+      ? style.red(
+          ` (payload does not match its schema: ${occurrence.payloadError})`,
+        )
+      : "";
+  return `* ${code(style, String(occurrence.eventId ?? "?"))} ${String(occurrence.name ?? "")} ${style.dim(String(occurrence.timestamp ?? ""))}${invalid}\n  ${JSON.stringify(occurrence.data ?? {})}`;
+}
+
+/**
+ * Format an `events/poll` result: the occurrences, then the cursor to pass
+ * back, and what the server said about when to poll next.
+ */
+export function formatEventPollHuman(
+  result: JsonObject,
+  style: Style = PLAIN,
+): string {
+  const events = asArray<JsonObject>(result.events);
+  const lines = [heading(style, `Events (${events.length}):`)];
+  for (const occurrence of events) {
+    lines.push(formatOccurrenceLine(occurrence, style));
+  }
+  if (events.length === 0) lines.push(style.dim("(none)"));
+  if (result.truncated === true) {
+    lines.push(
+      style.yellow(
+        "Truncated: events between the cursor and the first one returned are no longer retained.",
+      ),
+    );
+  }
+  lines.push(
+    `cursor: ${result.cursor == null ? "null" : String(result.cursor)}`,
+  );
+  lines.push(
+    style.dim(
+      result.hasMore === true
+        ? "hasMore: poll again now"
+        : `nextPollMs: ${String(result.nextPollMs ?? "")}`,
+    ),
+  );
+  return lines.join("\n");
+}
+
+/**
+ * One `events/stream` line, or `null` for a line of another stream. Kept apart
+ * from the resource lines because both streams open with a `subscribed` line,
+ * told apart by the push subscription's `mode`.
+ */
+function formatEventStreamLine(ev: JsonObject, style: Style): string | null {
+  switch (ev.type) {
+    case "subscribed":
+      return ev.mode === "push"
+        ? `${heading(style, "Subscribed:")} ${code(style, String(ev.name ?? ""))} (push)`
+        : null;
+    case "active":
+      return `${heading(style, "Active:")} cursor ${ev.cursor == null ? "null" : String(ev.cursor)}${ev.heartbeatMs !== undefined ? style.dim(` — heartbeat ${String(ev.heartbeatMs)}ms`) : ""}`;
+    case "event":
+      return formatOccurrenceLine(ev, style);
+    case "gap":
+      return style.yellow(
+        `Gap: the server no longer retained some events; resuming at cursor ${ev.cursor == null ? "null" : String(ev.cursor)}.`,
+      );
+    case "error": {
+      const error = (ev.error ?? {}) as JsonObject;
+      return style.red(
+        `Error ${String(error.code ?? "")}: ${String(error.message ?? "")}`,
+      );
+    }
+    case "reconnect":
+      return style.dim(`Reconnecting: ${String(ev.reason ?? "")}`);
+    case "terminated": {
+      const error = (ev.error ?? {}) as JsonObject;
+      return style.red(
+        `Terminated (${String(ev.reason ?? "")}): ${String(error.message ?? "")}`,
+      );
+    }
+    default:
+      return null;
+  }
+}
+
 /** Format a single app-info probe. */
 export function formatAppInfoHuman(
   info: JsonObject,
@@ -995,6 +1108,8 @@ export function formatStreamEventHuman(
 ): string {
   if (!data || typeof data !== "object") return String(data);
   const ev = data as JsonObject;
+  const eventLine = formatEventStreamLine(ev, style);
+  if (eventLine !== null) return eventLine;
   if (ev.type === "subscribed") {
     return `${heading(style, "Subscribed:")} ${formatUri(style, String(ev.uri ?? ""))}`;
   }
@@ -1066,6 +1181,10 @@ export function formatRpcResultHuman(
       return formatSkillsHuman(asArray(result.skills), style);
     case "skills/get":
       return formatSkillGetHuman(result, style);
+    case "events/list":
+      return formatEventTypesHuman(result, style);
+    case "events/poll":
+      return formatEventPollHuman(result, style);
     default:
       return null;
   }

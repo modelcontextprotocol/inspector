@@ -46,6 +46,10 @@ const h = vi.hoisted(() => {
     tasksExtension: boolean;
     pendingSamples: unknown[];
     pendingElicitations: unknown[];
+    eventsExtension: { listChanged?: boolean } | undefined;
+    eventTypes: unknown[];
+    eventSubscriptions: unknown[];
+    eventLog: unknown[];
   }
   const ctrl: Ctrl = {
     status: "disconnected",
@@ -69,6 +73,10 @@ const h = vi.hoisted(() => {
     tasksExtension: false,
     pendingSamples: [],
     pendingElicitations: [],
+    eventsExtension: undefined,
+    eventTypes: [],
+    eventSubscriptions: [],
+    eventLog: [],
   };
   const refreshTasks = vi.fn(async () => []);
   const clearCompletedTasks = vi.fn();
@@ -182,6 +190,24 @@ const h = vi.hoisted(() => {
   } = { override: null };
   class FakeManager {
     destroy = vi.fn();
+    refresh = vi.fn(async () => []);
+  }
+  // The Events subscription engine (#3032). Each instance is recorded with the
+  // options App built it with, so a test can reach the `relist` it was given.
+  const eventEngines: FakeEventEngine[] = [];
+  class FakeEventEngine {
+    options: { relist?: () => Promise<unknown> } | undefined;
+    destroy = vi.fn();
+    subscribe = vi.fn();
+    stop = vi.fn();
+    clearLog = vi.fn();
+    constructor(
+      _client: unknown,
+      options?: { relist?: () => Promise<unknown> },
+    ) {
+      this.options = options;
+      eventEngines.push(this);
+    }
   }
   class FakeClient {
     cfg: { type?: string; url?: string } | undefined;
@@ -218,6 +244,8 @@ const h = vi.hoisted(() => {
     // "not declared" — the tab is hidden unless a test opts in by pointing
     // `ctrl.skillsExtension` at a declaration.
     getSkillsExtension = vi.fn(() => ctrl.skillsExtension);
+    // Events (#3032) is server-declared and modern-only; hidden by default.
+    getEventsExtension = vi.fn(() => ctrl.eventsExtension);
     isTasksExtensionNegotiated = vi.fn(() => ctrl.tasksExtension);
     getRoots = vi.fn(() => ctrl.roots);
     setRoots = vi.fn(async () => {});
@@ -284,6 +312,8 @@ const h = vi.hoisted(() => {
     fireClientEventFor,
     runner,
     FakeManager,
+    FakeEventEngine,
+    eventEngines,
     FakeClient,
     useInspectorClient: vi.fn(() => ({
       status: ctrl.status,
@@ -320,7 +350,14 @@ const h = vi.hoisted(() => {
     })),
     // Roots are read with a direct store snapshot; the fake client is not a
     // real TypedEventTarget, so the snapshot is driven from `ctrl.roots`.
-    useStoreSnapshot: vi.fn(() => ctrl.roots),
+    // Keyed by event so the Events tab's event-type snapshot (#3032) reads its
+    // own list rather than the roots.
+    useStoreSnapshot: vi.fn((_store: unknown, event: string) =>
+      event === "eventTypesChange" ? ctrl.eventTypes : ctrl.roots,
+    ),
+    useEventSubscriptions: vi.fn(() => ctrl.eventSubscriptions),
+    useEventLog: vi.fn(() => ctrl.eventLog),
+    useListError: vi.fn(() => null),
     usePendingClientRequests: vi.fn(() => ({
       pendingSamples: ctrl.pendingSamples,
       pendingElicitations: ctrl.pendingElicitations,
@@ -342,6 +379,8 @@ vi.mock("@inspector/core/mcp/state/index.js", () => ({
   StderrLogState: h.FakeManager,
   ManagedRequestorTasksState: h.FakeManager,
   ResourceSubscriptionsState: h.FakeManager,
+  ManagedEventsState: h.FakeManager,
+  EventSubscriptionsState: h.FakeEventEngine,
 }));
 vi.mock("@inspector/core/mcp/node/index.js", () => ({
   createTransportNode: vi.fn(),
@@ -388,6 +427,13 @@ vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
 }));
 vi.mock("@inspector/core/react/useStoreSnapshot.js", () => ({
   useStoreSnapshot: h.useStoreSnapshot,
+}));
+vi.mock("@inspector/core/react/useEventSubscriptions.js", () => ({
+  useEventSubscriptions: h.useEventSubscriptions,
+  useEventLog: h.useEventLog,
+}));
+vi.mock("@inspector/core/react/useListError.js", () => ({
+  useListError: h.useListError,
 }));
 vi.mock("@inspector/core/react/usePendingClientRequests.js", () => ({
   usePendingClientRequests: h.usePendingClientRequests,
@@ -788,7 +834,12 @@ beforeEach(() => {
     tasksExtension: false,
     pendingSamples: [],
     pendingElicitations: [],
+    eventsExtension: undefined,
+    eventTypes: [],
+    eventSubscriptions: [],
+    eventLog: [],
   });
+  h.eventEngines.length = 0;
   h.refreshTasks.mockClear();
   h.clearCompletedTasks.mockClear();
   h.connect.mockClear();
@@ -2551,6 +2602,146 @@ describe("App (tasks, subscriptions, roots — #2432)", () => {
     await press(r, [ESC, "e", "x"]);
     await waitUntil(() => client.setRoots.mock.calls.length > 1);
     expect(client.setRoots).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("App (Events tab, #3032)", () => {
+  const eventType = {
+    name: "incident.created",
+    description: "An incident",
+    delivery: ["poll", "push"],
+    inputSchema: { type: "object" },
+  };
+  const subscription = (status: string) => ({
+    id: "sub-1",
+    name: "incident.created",
+    mode: "poll",
+    arguments: {},
+    eventType,
+    status,
+    cursor: null,
+    startedAt: new Date(0),
+    counts: {
+      events: 0,
+      duplicates: 0,
+      invalidPayloads: 0,
+      gaps: 0,
+      errors: 0,
+      reconnects: 0,
+    },
+  });
+
+  function connectedWithEvents() {
+    h.ctrl.status = "connected";
+    h.ctrl.eventsExtension = { listChanged: true };
+    h.ctrl.eventTypes = [eventType];
+  }
+
+  it("hides the Events tab until the connection offers the extension", async () => {
+    h.ctrl.status = "connected";
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Tools");
+    expect(r.lastFrame() ?? "").not.toContain("Events");
+    // Its accelerator does nothing while the tab is hidden.
+    await press(r, ["e"]);
+    expect(r.lastFrame() ?? "").not.toContain("Event types");
+  });
+
+  it("opens the tab with `e`, with its count, and subscribes from the dialog", async () => {
+    connectedWithEvents();
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Events (1)");
+    await press(r, ["e", TAB]);
+    await expectFrame(r, "Event types (1)");
+    await press(r, [ENTER]);
+    await expectFrame(r, "Subscribe: incident.created");
+    // The dialog owns the keyboard: a tab accelerator does nothing under it.
+    await press(r, ["t"]);
+    expect(r.lastFrame() ?? "").toContain("Subscribe: incident.created");
+    (globalThis as Record<string, unknown>).__INK_FORM_SUBMIT_VALUE__ = {
+      delivery: "push",
+    };
+    await press(r, [ENTER]);
+    const engine = h.eventEngines[0]!;
+    await waitUntil(() => engine.subscribe.mock.calls.length > 0);
+    expect(engine.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "incident.created" }),
+      { mode: "push", arguments: {} },
+    );
+    await waitForFrame(r, "Event types (1)");
+    expect(r.lastFrame() ?? "").not.toContain("Subscribe: incident.created");
+  });
+
+  it("closes the dialog on Esc without subscribing", async () => {
+    connectedWithEvents();
+    const r = await mount(oneStdio());
+    await press(r, ["e", TAB, ENTER]);
+    await expectFrame(r, "Subscribe: incident.created");
+    await press(r, [ESC]);
+    await expectFrame(r, "Event types (1)");
+    expect(h.eventEngines[0]!.subscribe).not.toHaveBeenCalled();
+  });
+
+  it("stops live subscriptions with `x` and clears the log with `l`", async () => {
+    connectedWithEvents();
+    h.ctrl.eventSubscriptions = [subscription("active")];
+    const r = await mount(oneStdio());
+    await press(r, ["e", TAB, "x", "l"]);
+    const engine = h.eventEngines[0]!;
+    await waitUntil(() => engine.clearLog.mock.calls.length > 0);
+    expect(engine.stop).toHaveBeenCalledWith("sub-1");
+    expect(engine.clearLog).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps `e` for the roots editor while the Info pane is focused", async () => {
+    connectedWithEvents();
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Events (1)");
+    await press(r, ["i", TAB, "e"]);
+    // The roots editor opened: its footer is the proof the key reached it.
+    await expectFrame(r, "n to add, x to remove");
+    // Closing it shows the Info pane still underneath — the overlay would hide
+    // a tab switch made by the same keypress, so look after it is gone.
+    await press(r, [ESC]);
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("Event types");
+  });
+
+  it("switches tabs across Events with the arrow keys", async () => {
+    connectedWithEvents();
+    h.ctrl.tasksExtension = true;
+    const r = await mount(oneStdio());
+    await press(r, ["s", RIGHT]);
+    await expectFrame(r, "Event types (1)");
+    await press(r, [LEFT]);
+    await expectFrame(r, "No tasks yet");
+  });
+
+  it("re-lists through the managed list, and destroys the engine on unmount", async () => {
+    connectedWithEvents();
+    const r = await mount(oneStdio());
+    await expectFrame(r, "Events (1)");
+    const engine = h.eventEngines[0]!;
+    await engine.options?.relist?.();
+    r.unmount();
+    expect(engine.destroy).toHaveBeenCalled();
+  });
+
+  it("leaves the Events tab when the connection stops offering it", async () => {
+    connectedWithEvents();
+    const r = await mount(oneStdio());
+    await press(r, ["e"]);
+    await expectFrame(r, "Event types (1)");
+    h.ctrl.eventsExtension = undefined;
+    r.rerender(
+      <App
+        mcpServers={oneStdio()}
+        clientConfig={emptyClientConfig}
+        callbackUrlConfig={callbackUrlConfig}
+      />,
+    );
+    await expectFrame(r, "Server Configuration");
+    expect(r.lastFrame() ?? "").not.toContain("Event types");
   });
 });
 

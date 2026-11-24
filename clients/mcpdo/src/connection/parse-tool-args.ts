@@ -26,9 +26,14 @@ export function assertJsonRoundTrips(value: unknown, context: string): void {
  * Parse connection `tools/call` positionals after the tool name:
  * - `key:=value` pairs (JSON-typed when the value parses as JSON, else string)
  * - a single inline JSON object (`{"message":"Foo"}`)
+ *
+ * `subject` names what the arguments belong to in error messages — `tool` by
+ * default, `event` for `events/poll` / `events/stream` (#3032), which take
+ * their subscription arguments in the same two shapes.
  */
 export function parseToolCallPositionals(
   args: string[],
+  subject: "tool" | "event" = "tool",
 ): Record<string, JsonValue> {
   if (args.length === 0) return {};
 
@@ -36,7 +41,7 @@ export function parseToolCallPositionals(
   if (first.startsWith("{") || first.startsWith("[")) {
     if (args.length > 1) {
       throw new Error(
-        "When using inline JSON, only one argument is allowed after the tool name.",
+        `When using inline JSON, only one argument is allowed after the ${subject} name.`,
       );
     }
     let parsed: unknown;
@@ -44,7 +49,7 @@ export function parseToolCallPositionals(
       parsed = JSON.parse(first);
     } catch (e) {
       throw new Error(
-        `Invalid JSON tool arguments: ${e instanceof Error ? e.message : String(e)}`,
+        `Invalid JSON ${subject} arguments: ${e instanceof Error ? e.message : String(e)}`,
         { cause: e },
       );
     }
@@ -53,9 +58,11 @@ export function parseToolCallPositionals(
       typeof parsed !== "object" ||
       Array.isArray(parsed)
     ) {
-      throw new Error("Inline JSON tool arguments must be a JSON object.");
+      throw new Error(
+        `Inline JSON ${subject} arguments must be a JSON object.`,
+      );
     }
-    assertJsonRoundTrips(parsed, "inline JSON tool arguments");
+    assertJsonRoundTrips(parsed, `inline JSON ${subject} arguments`);
     return parsed as Record<string, JsonValue>;
   }
 
@@ -67,7 +74,7 @@ export function parseToolCallPositionals(
     const sep = pair.indexOf(":=");
     if (sep === -1) {
       throw new Error(
-        `Invalid tool argument "${pair}". Use key:=value pairs or a JSON object.\n` +
+        `Invalid ${subject} argument "${pair}". Use key:=value pairs or a JSON object.\n` +
           `Examples: message:=hello count:=10 '{"message":"hello"}'`,
       );
     }
@@ -75,10 +82,10 @@ export function parseToolCallPositionals(
     const rawValue = pair.slice(sep + 2);
     if (!key) {
       throw new Error(
-        `Invalid tool argument "${pair}" — missing key before :=`,
+        `Invalid ${subject} argument "${pair}" — missing key before :=`,
       );
     }
-    out[key] = autoParseValue(rawValue, `tool argument "${pair}"`);
+    out[key] = autoParseValue(rawValue, `${subject} argument "${pair}"`);
   }
   return out;
 }
@@ -161,4 +168,45 @@ function parseJsonObject(raw: string, flag: string): Record<string, JsonValue> {
   }
   assertJsonRoundTrips(parsed, flag);
   return parsed as Record<string, JsonValue>;
+}
+
+export type ResolveEventArgsInput = {
+  eventNameFlag?: string;
+  eventNamePos?: string;
+  /** Remaining positionals after the event-name slot. */
+  eventArgsPos?: string[];
+  eventArgFlag?: Record<string, JsonValue>;
+};
+
+/**
+ * Resolve the event type name and subscription arguments of `events/poll` /
+ * `events/stream` (#3032), the way {@link resolveToolCallArgs} does for a tool:
+ * a positional name or `--event-name`, and either `key:=value` / JSON
+ * positionals or `--event-arg` pairs — one style, not both.
+ */
+export function resolveEventArgs(input: ResolveEventArgsInput): {
+  eventName: string | undefined;
+  eventArgs: Record<string, JsonValue>;
+} {
+  const flagArgs = input.eventArgFlag ?? {};
+  let eventName = input.eventNameFlag ?? input.eventNamePos;
+  let positionals = [...(input.eventArgsPos ?? [])];
+  // `events/poll --event-name x region:=us` — commander puts the first
+  // argument in the name slot when the name came from the flag.
+  if (input.eventNameFlag && input.eventNamePos) {
+    positionals = [input.eventNamePos, ...positionals];
+    eventName = input.eventNameFlag;
+  }
+  if (positionals.length > 0 && Object.keys(flagArgs).length > 0) {
+    throw new Error(
+      "Event arguments must use one style: key:=value / JSON positionals, or --event-arg.",
+    );
+  }
+  if (positionals.length > 0) {
+    return {
+      eventName,
+      eventArgs: parseToolCallPositionals(positionals, "event"),
+    };
+  }
+  return { eventName, eventArgs: flagArgs };
 }
