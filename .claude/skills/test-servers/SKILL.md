@@ -269,7 +269,21 @@ usually looks like a missing capability rather than an error.
 | OAuth token revocation on clear | `oauth-revocation-http.json` (legacy) |
 | A token endpoint the SDK refuses  | `oauth-insecure-token-endpoint-http.json` (legacy) |
 | Cancelling a call mid-flight | `cancellation-modern-http.json` (modern) |
+| The Events extension (poll, push, webhook, `list_changed`, failure presets) | `events-modern-http.json` (modern); `events-legacy-http.json` (legacy, proves no `events/*` is sent) |
 | A resource update reaching every subscribed session (`--load-subscribe`) | `subscriptions-broadcast-http.json` (legacy) |
+
+The Events fixture is driven by its **control tools**, which `"events": true`
+registers by itself: `emit_event`, `add_event_type`, `remove_event_type`,
+`inject_event_failure` and `get_event_stats`. Its failure modes are the
+`preset` values of `inject_event_failure`. The `error_*` presets
+(`error_invalid_params`, `error_not_found`, `error_forbidden`,
+`error_resource_exhausted`, `error_unsupported`, `error_callback_endpoint`)
+fail the next `events/*` request once. The others are `terminate_forbidden`,
+`terminate_schema_changed`, `stream_error`, `gap` and `backlog`. The event
+type names, the methods' behavior and what each preset does are in the
+**Events (SEP-3415)** section of `docs/test-servers.md`. In code, import
+`EVENT_TYPE_NAMES`, `EVENT_FAILURE_PRESETS` and `EVENTS_CONTROL_TOOL_NAMES`
+from the test-server barrel rather than retyping the strings.
 
 ## Adding a config or preset
 
