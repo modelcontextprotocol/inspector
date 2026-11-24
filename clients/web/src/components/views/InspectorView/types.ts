@@ -66,6 +66,14 @@ import type { SkillEntry } from "@inspector/core/extension/skills/schemas.js";
 import type { SkillFileContents } from "@inspector/core/extension/skills/conformance.js";
 import type { DirectoryReadResult } from "@inspector/core/extension/skills/schemas.js";
 import type { TasksUiState } from "../../screens/TasksScreen/TasksScreen";
+import type { EventsUiState } from "../../screens/EventsScreen/EventsScreen";
+import type { EventType } from "@inspector/core/extension/events/schemas.js";
+import type { ExcludedEventType } from "@inspector/core/extension/events/headers.js";
+import type {
+  EventLogEntry,
+  EventSubscribeOptions,
+  EventSubscription,
+} from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import type { ProtocolUiState } from "../../screens/ProtocolScreen/ProtocolScreen";
 import type { NetworkUiState } from "../../screens/NetworkScreen/NetworkScreen";
 import type { ConsoleUiState } from "../../screens/ConsoleScreen/ConsoleScreen";
@@ -353,6 +361,35 @@ export interface SkillsPanelProps {
     uri: string,
     cursor?: string,
   ) => Promise<DirectoryReadResult>;
+}
+
+/**
+ * The Events screen (SEP-3415, #3030): the event-type list, the subscription
+ * engine's subscriptions and occurrence log, and the actions on them.
+ */
+export interface EventsPanelProps {
+  eventTypes: EventType[];
+  /** Event types excluded for invalid `x-mcp-header` annotations. */
+  excludedEventTypes?: ExcludedEventType[];
+  /** A `notifications/events/list_changed` arrived since the last refresh. */
+  eventsListChanged: boolean;
+  eventsLoadError?: Error | null;
+  eventsPagination: ListPaginationControlsProps;
+  eventSubscriptions: EventSubscription[];
+  eventLog: EventLogEntry[];
+  eventsUi: EventsUiState;
+  onEventsUiChange: (next: EventsUiState) => void;
+  onRefreshEvents: () => void;
+  /** Start a subscription; throws when the engine refuses it. */
+  onSubscribeEvent: (
+    eventType: EventType,
+    options: EventSubscribeOptions,
+  ) => void;
+  onStopEventSubscription: (id: string) => void;
+  /** Resume a stopped or resumable subscription; throws when refused. */
+  onResumeEventSubscription: (id: string) => void;
+  onRemoveEventSubscription: (id: string) => void;
+  onClearEventLog: () => void;
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */

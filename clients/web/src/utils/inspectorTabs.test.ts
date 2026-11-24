@@ -18,6 +18,7 @@ describe("inspectorTabs", () => {
       "Prompts",
       "Resources",
       "Skills",
+      "Events",
       "Tasks",
       "Logs",
       "Protocol",

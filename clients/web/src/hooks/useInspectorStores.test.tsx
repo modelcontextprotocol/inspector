@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { act } from "react";
 import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { renderWithMantine } from "../test/renderWithMantine";
+import { TypedEventTarget } from "@inspector/core/mcp/typedEventTarget.js";
 import {
   useInspectorStores,
   type UseInspectorStoresResult,
@@ -11,13 +12,27 @@ import {
 // arguments, so these tests are about the *lifecycle* the hook owns — who is
 // built, with what, and who is torn down — rather than about the stores.
 const { built, destroyed, fakeState, listHook, pagedHook } = vi.hoisted(() => {
-  const built: { name: string; args: unknown[]; destroy: () => void }[] = [];
+  const built: {
+    name: string;
+    args: unknown[];
+    destroy: () => void;
+    refresh: () => Promise<unknown>;
+  }[] = [];
   const destroyed: string[] = [];
   /** A no-op state manager that records how it was constructed. */
   const fakeState = (name: string) =>
     vi.fn(function (...args: unknown[]) {
-      const instance = { destroy: vi.fn(() => destroyed.push(name)) };
-      built.push({ name, args, destroy: instance.destroy });
+      const instance = {
+        destroy: vi.fn(() => destroyed.push(name)),
+        // Read only by the events subscription store's `relist` (#3030).
+        refresh: vi.fn().mockResolvedValue([]),
+      };
+      built.push({
+        name,
+        args,
+        destroy: instance.destroy,
+        refresh: instance.refresh,
+      });
       return instance;
     });
   /** An aggregate-list `core/react` hook returning a fixed list. */
@@ -65,6 +80,15 @@ vi.mock("@inspector/core/mcp/state/managedRequestorTasksState.js", () => ({
 }));
 vi.mock("@inspector/core/mcp/state/managedSkillsState.js", () => ({
   ManagedSkillsState: fakeState("managedSkillsState"),
+}));
+vi.mock("@inspector/core/mcp/state/managedEventsState.js", () => ({
+  ManagedEventsState: fakeState("managedEventsState"),
+}));
+vi.mock("@inspector/core/mcp/state/pagedEventsState.js", () => ({
+  PagedEventsState: fakeState("pagedEventsState"),
+}));
+vi.mock("@inspector/core/mcp/state/eventSubscriptionsState.js", () => ({
+  EventSubscriptionsState: fakeState("eventSubscriptionsState"),
 }));
 vi.mock("@inspector/core/mcp/state/resourceSubscriptionsState.js", () => ({
   ResourceSubscriptionsState: fakeState("resourceSubscriptionsState"),
@@ -122,6 +146,22 @@ vi.mock("@inspector/core/react/useManagedSkills.js", () => ({
     refresh: vi.fn().mockResolvedValue(undefined),
   }),
 }));
+vi.mock("@inspector/core/react/useManagedEvents.js", () => ({
+  useManagedEvents: () => ({
+    ...listHook("eventTypes", [{ name: "aggregate.event" }])(),
+    loaded: true,
+  }),
+}));
+vi.mock("@inspector/core/react/usePagedEvents.js", () => ({
+  usePagedEvents: () => ({
+    ...pagedHook("eventTypes", [{ name: "paged.event" }])(),
+    excluded: [{ eventType: { name: "paged.bad" }, reason: "invalid" }],
+  }),
+}));
+vi.mock("@inspector/core/react/useEventSubscriptions.js", () => ({
+  useEventSubscriptions: () => [{ id: "sub-1" }],
+  useEventLog: () => [{ seq: 1 }],
+}));
 vi.mock("@inspector/core/react/useResourceSubscriptions.js", () => ({
   useResourceSubscriptions: () => ({
     subscriptions: [{ uri: "sub://r" }],
@@ -154,12 +194,15 @@ const fetchLogOptions = {
   sessionId: "sess-1",
 };
 
-function harness(paginatedLists = false) {
+function harness(
+  paginatedLists = false,
+  inspectorClient: InspectorClient | null = null,
+) {
   let latest: UseInspectorStoresResult | undefined;
   let renders = 0;
   function Probe({ paginated }: { paginated: boolean }) {
     latest = useInspectorStores({
-      inspectorClient: null,
+      inspectorClient,
       connected: true,
       paginatedLists: paginated,
     });
@@ -193,6 +236,9 @@ const STORE_NAMES = [
   "managedResourceTemplatesState",
   "managedRequestorTasksState",
   "managedSkillsState",
+  "managedEventsState",
+  "pagedEventsState",
+  "eventSubscriptionsState",
   "resourceSubscriptionsState",
   "messageLogState",
   "fetchRequestLogState",
@@ -213,7 +259,7 @@ describe("useInspectorStores", () => {
       expect(built).toHaveLength(0);
     });
 
-    it("builds all thirteen stores against the client", () => {
+    it("builds every store against the client", () => {
       const h = harness();
       const c = client();
       h.run((api) => api.createStores(c, fetchLogOptions));
@@ -231,6 +277,16 @@ describe("useInspectorStores", () => {
       h.run((api) => api.createStores(client(), fetchLogOptions));
       const subs = built.find((b) => b.name === "resourceSubscriptionsState");
       expect(subs?.args[1]).toBe(h.api().stores?.managedResourcesState);
+    });
+
+    it("re-lists through the managed events store on a termination (#3030)", async () => {
+      const h = harness();
+      h.run((api) => api.createStores(client(), fetchLogOptions));
+      const engine = built.find((b) => b.name === "eventSubscriptionsState");
+      const options = engine?.args[1] as { relist: () => Promise<unknown> };
+      await options.relist();
+      const managed = built.find((b) => b.name === "managedEventsState");
+      expect(managed?.refresh).toHaveBeenCalled();
     });
 
     it("passes the per-connect fetch-log options straight through", () => {
@@ -311,6 +367,30 @@ describe("useInspectorStores", () => {
       expect(h.api().resourcesPagination.items).toEqual([
         { uri: "aggregate://r" },
       ]);
+      expect(h.api().eventsPagination.items).toEqual([
+        { name: "aggregate.event" },
+      ]);
+      // The aggregate walk's exclusions live on the client, absent here.
+      expect(h.api().excludedEventTypes).toEqual([]);
+    });
+
+    it("reads the aggregate walk's exclusions off the live client (#3030)", () => {
+      const excluded = [{ eventType: { name: "bad" }, reason: "invalid" }];
+      // Only the Events exclusions are read off the client here (every store
+      // and hook is mocked), so a real event target carrying that one getter
+      // is the whole surface this needs.
+      class ExcludingClient extends TypedEventTarget<{
+        excludedEventTypesChange: unknown[];
+      }> {
+        getExcludedEventTypes() {
+          return excluded;
+        }
+      }
+      // The double cast stands in for a full InspectorClient, which would drag
+      // in a transport for a test that reads one getter.
+      const c = new ExcludingClient() as unknown as InspectorClient;
+      const h = harness(false, c);
+      expect(h.api().excludedEventTypes).toBe(excluded);
     });
 
     it("switches to the paged lists when pagination is on", () => {
@@ -321,6 +401,10 @@ describe("useInspectorStores", () => {
         { name: "paged-prompt" },
       ]);
       expect(h.api().resourcesPagination.items).toEqual([{ uri: "paged://r" }]);
+      expect(h.api().eventsPagination.items).toEqual([{ name: "paged.event" }]);
+      expect(h.api().excludedEventTypes).toEqual([
+        { eventType: { name: "paged.bad" }, reason: "invalid" },
+      ]);
     });
 
     it("surfaces the remaining store-backed views", () => {
@@ -333,6 +417,8 @@ describe("useInspectorStores", () => {
       expect(api.messages).toEqual([{ id: "m1" }]);
       expect(api.fetchRequests).toEqual([{ id: "f1" }]);
       expect(api.stderrLogs).toEqual([{ id: "s1" }]);
+      expect(api.eventSubscriptions).toEqual([{ id: "sub-1" }]);
+      expect(api.eventLog).toEqual([{ seq: 1 }]);
     });
   });
 });

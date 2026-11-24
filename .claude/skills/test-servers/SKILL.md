@@ -59,7 +59,8 @@ row, never by the caller's category.
   process:
   - **A script.** `scripts/smoke-web-elicitation.mjs` spawns it directly;
     `scripts/lib/mcp-app-flow.mjs` (`startMcpAppServer`) does it for
-    `smoke:web:app`, `smoke:web:tabs` and `pack:verify`. These are automated and
+    `smoke:web:app`, `smoke:web:tabs`, `smoke:web:events` and `pack:verify`.
+    These are automated and
     config-driven, and the whole of this skill applies to them. ⚠️ **Not every
     smoke is here** — `smoke:cli` and `smoke:tui` use the two shapes above and
     pick no config at all.
