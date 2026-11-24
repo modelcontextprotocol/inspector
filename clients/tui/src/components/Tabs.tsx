@@ -34,6 +34,7 @@ interface TabsProps {
     skills?: number;
     tools?: number;
     tasks?: number;
+    events?: number;
     messages?: number;
     requests?: number;
     logging?: number;
@@ -53,6 +54,8 @@ interface TabsProps {
   showSubscriptions?: boolean;
   /** Server supports Tasks (legacy capability or SEP-2663 extension) (#2432). */
   showTasks?: boolean;
+  /** Connection offers the Events extension (#3032). */
+  showEvents?: boolean;
 }
 
 export function Tabs({
@@ -66,6 +69,7 @@ export function Tabs({
   showSkills = false,
   showSubscriptions = false,
   showTasks = false,
+  showEvents = false,
 }: TabsProps) {
   // Shared with `App`, which sizes the pane below this bar from the same list —
   // see `tabBarRows`.
@@ -76,6 +80,7 @@ export function Tabs({
     showSkills,
     showSubscriptions,
     showTasks,
+    showEvents,
   });
 
   return (

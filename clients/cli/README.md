@@ -133,13 +133,15 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, plus catalog-only `servers/list` / `servers/show` and `servers/add` / `servers/edit` / `servers/remove` (no MCP connect; see [Editing the server catalog](#editing-the-server-catalog)). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, `events/list`, `events/poll` (see [Events](#events-eventslist-eventspoll)), plus catalog-only `servers/list` / `servers/show` and `servers/add` / `servers/edit` / `servers/remove` (no MCP connect; see [Editing the server catalog](#editing-the-server-catalog)). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
 | `--rename <name>`             | New name for the entry, with `--method servers/edit` only. Secrets stored under the old name move with it. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                                                                                                                                                                                                                                                                                                                                                        |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number).                                                                                                                                                                                                                                                                             |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`.                                                                                                                                                                                                                                       |
 | `--uri <uri>`                 | Resource URI (`resources/read`), directory URI (`resources/directory/read`), or skill URI (`skills/get`).                                                                                                                                                                                                                                                                                                                                                                                 |
-| `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. |
+| `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. For `events/poll`, the subscription position: pass back the `cursor` the previous poll returned; omitted, the poll starts from now. |
+| `--event-name <name>`         | Event type name (for `events/poll`). |
+| `--event-arg <key=value>`     | Event subscription argument (for `events/poll`); repeat for multiple. Values are coerced like `--tool-arg`. An argument the event type annotates with `x-mcp-header` is also sent as its `Mcp-Param-*` header. |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                                                                                                                                                                                                                                                                                                                                                     |
 | `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple. Values are sent verbatim as strings (`price=1.50` sends `"1.50"`; `q=` sends `""`).                                                                                                                                                                                                                                                                                                                                                                            |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                                                                                                                                                                                                                                                                                                                                                         |
@@ -1256,6 +1258,37 @@ covers:
 
 A read failure is recorded against the file it happened on and the walk
 continues, so one unreadable file never hides the findings after it.
+
+### Events (`events/list`, `events/poll`)
+
+The [Events extension](https://modelcontextprotocol.io/extensions/events/overview)
+(`io.modelcontextprotocol/events`, SEP-3415) lets a server publish event types a
+client subscribes to. It exists only on the 2026-07-28 protocol and later, so it
+needs `--protocol-era modern` (or a catalog entry with `protocolEra: "modern"`).
+Against a server that does not advertise it, or on a legacy connection, both
+methods fail with exit `1` and code `events_unsupported` without sending
+anything.
+
+```bash
+# Every event type, across all pages. `excluded` names the types the CLI left
+# out because their x-mcp-header annotations are invalid, with the reason.
+mcp-inspector --cli https://example.com/mcp --protocol-era modern \
+  --method events/list
+
+# One poll. The result is printed whole: `events`, the `cursor` to pass back
+# next time, `hasMore` (poll again now) and `nextPollMs` (when to poll next).
+mcp-inspector --cli https://example.com/mcp --protocol-era modern \
+  --method events/poll --event-name deploy.completed \
+  --event-arg region=us-west1 --cursor "$CURSOR"
+```
+
+`events/poll` is a single request, not a poll loop: a script drives the loop by
+passing each result's `cursor` back as `--cursor`. Without `--cursor` the poll
+starts from now (`cursor: null`), so it returns nothing that happened before it.
+An unknown name, a type the CLI excluded, or a type that does not advertise
+`poll` delivery is a usage error (exit `1`). Push delivery (`events/stream`) is a
+long-lived subscription and is not a one-shot method; use
+[`mcpdo events/stream`](../mcpdo/README.md) for it.
 
 ## Exit codes & error envelopes
 

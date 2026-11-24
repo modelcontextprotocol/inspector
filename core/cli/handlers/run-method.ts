@@ -21,6 +21,12 @@ import {
   verifySkills,
   type SkillBudgetHint,
 } from "../../extension/skills/verification.js";
+import {
+  assertEventsSupported,
+  eventsStreamOutcome,
+  listEventsResult,
+  resolveEventType,
+} from "./events.js";
 import type {
   CliAppInfo,
   McpResponse,
@@ -563,6 +569,42 @@ export async function runMethod(
         args.cursor,
         args.metadata,
       );
+    } else if (args.method === "events/list") {
+      assertEventsSupported(inspectorClient, args.method);
+      result = await listEventsResult(inspectorClient, args.metadata);
+    } else if (args.method === "events/poll") {
+      assertEventsSupported(inspectorClient, args.method);
+      const eventType = await resolveEventType(
+        inspectorClient,
+        args.eventName,
+        "poll",
+        args.method,
+        args.metadata,
+      );
+      // One poll, printed whole: the `cursor` it returns is what the caller
+      // passes back as `--cursor` for the next one, and `hasMore` /
+      // `nextPollMs` tell it when.
+      result = await inspectorClient.pollEvents(
+        eventType,
+        {
+          arguments: args.eventArgs ?? {},
+          ...(args.cursor !== undefined && { cursor: args.cursor }),
+        },
+        args.metadata,
+      );
+    } else if (args.method === "events/stream") {
+      assertEventsSupported(inspectorClient, args.method);
+      const eventType = await resolveEventType(
+        inspectorClient,
+        args.eventName,
+        "push",
+        args.method,
+        args.metadata,
+      );
+      return eventsStreamOutcome(inspectorClient, eventType, {
+        arguments: args.eventArgs,
+        cursor: args.cursor,
+      });
     } else if (args.method === "roots/list") {
       result = { roots: inspectorClient.getRoots() };
     } else if (args.method === "roots/set") {
@@ -588,7 +630,7 @@ export async function runMethod(
       result = { roots: inspectorClient.getRoots() };
     } else {
       throw new Error(
-        `Unsupported method: ${args.method}. Supported methods include: initialize, tools/*, resources/*, prompts/*, logging/*, tasks/*, roots/*.`,
+        `Unsupported method: ${args.method}. Supported methods include: initialize, tools/*, resources/*, prompts/*, logging/*, tasks/*, roots/*, skills/*, events/*.`,
       );
     }
 

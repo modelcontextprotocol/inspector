@@ -36,7 +36,10 @@ import {
   StderrLogState,
   ManagedRequestorTasksState,
   ResourceSubscriptionsState,
+  ManagedEventsState,
+  EventSubscriptionsState,
 } from "@inspector/core/mcp/state/index.js";
+import type { EventType } from "@inspector/core/extension/events/schemas.js";
 import {
   createGuardedFetch,
   createProxyFetch,
@@ -56,6 +59,11 @@ import { useManagedRequestorTasks } from "@inspector/core/react/useManagedReques
 import { useResourceSubscriptions } from "@inspector/core/react/useResourceSubscriptions.js";
 import { useStoreSnapshot } from "@inspector/core/react/useStoreSnapshot.js";
 import { usePendingClientRequests } from "@inspector/core/react/usePendingClientRequests.js";
+import {
+  useEventLog,
+  useEventSubscriptions,
+} from "@inspector/core/react/useEventSubscriptions.js";
+import { useListError } from "@inspector/core/react/useListError.js";
 import {
   CallbackNavigation,
   MutableRedirectUrlProvider,
@@ -108,6 +116,8 @@ import { keybindingSections } from "./utils/keybindings.js";
 import { TasksTab } from "./components/TasksTab.js";
 import { SubscriptionsTab } from "./components/SubscriptionsTab.js";
 import { RootsModal } from "./components/RootsModal.js";
+import { EventsTab } from "./components/EventsTab.js";
+import { EventSubscribeModal } from "./components/EventSubscribeModal.js";
 import { PendingRequestModal } from "./components/PendingRequestModal.js";
 import { BodyLines } from "./components/BodyLines.js";
 import type { TuiServer } from "./tui-servers.js";
@@ -141,6 +151,11 @@ export const TUI_CONNECTION_TIMEOUT_REMEDY =
  */
 const NO_ROOTS: Root[] = [];
 const readRoots = (client: InspectorClient): Root[] => client.getRoots();
+
+/** Event types snapshot (#3032), module scope for the same reason. */
+const NO_EVENT_TYPES: EventType[] = [];
+const readEventTypes = (state: ManagedEventsState): EventType[] =>
+  state.getEventTypes();
 
 // Focus management types
 type FocusArea =
@@ -211,6 +226,7 @@ function App({
     skills?: number;
     tools?: number;
     tasks?: number;
+    events?: number;
     messages?: number;
     requests?: number;
     logging?: number;
@@ -287,6 +303,10 @@ function App({
     copyText: string;
   } | null>(null);
 
+  // Events subscribe dialog (#3032), opened from the Events tab.
+  const [eventSubscribeModal, setEventSubscribeModal] =
+    useState<EventType | null>(null);
+
   // Roots editor (#2432), opened from the Info tab.
   const [rootsModalOpen, setRootsModalOpen] = useState(false);
 
@@ -325,6 +345,15 @@ function App({
   >({});
   const [resourceSubscriptionsStates, setResourceSubscriptionsStates] =
     useState<Record<string, ResourceSubscriptionsState>>({});
+  // Events (#3032): the event-type list and the subscription engine, per
+  // server and created with the client like the stores above, so a push
+  // occurrence that lands while another tab is showing is still logged.
+  const [managedEventsStates, setManagedEventsStates] = useState<
+    Record<string, ManagedEventsState>
+  >({});
+  const [eventSubscriptionsStates, setEventSubscriptionsStates] = useState<
+    Record<string, EventSubscriptionsState>
+  >({});
   const [dimensions, setDimensions] = useState({
     width: process.stdout.columns || 80,
     height: process.stdout.rows || 24,
@@ -388,6 +417,9 @@ function App({
       string,
       ResourceSubscriptionsState
     > = {};
+    const newManagedEventsStates: Record<string, ManagedEventsState> = {};
+    const newEventSubscriptionsStates: Record<string, EventSubscriptionsState> =
+      {};
     for (const serverName of serverNames) {
       if (!(serverName in inspectorClients)) {
         const { config: serverConfig, settings: savedSettings } =
@@ -483,6 +515,14 @@ function App({
         // Resource's name rather than a bare URI.
         newResourceSubscriptionsStates[serverName] =
           new ResourceSubscriptionsState(client, resourcesState);
+        // Given the managed list's refresh, so the list the tab shows is the
+        // one a termination's resubscribe offer was based on.
+        const eventsState = new ManagedEventsState(client);
+        newManagedEventsStates[serverName] = eventsState;
+        newEventSubscriptionsStates[serverName] = new EventSubscriptionsState(
+          client,
+          { relist: () => eventsState.refresh() },
+        );
       }
     }
     if (Object.keys(newClients).length > 0) {
@@ -517,6 +557,14 @@ function App({
       setResourceSubscriptionsStates((prev) => ({
         ...prev,
         ...newResourceSubscriptionsStates,
+      }));
+      setManagedEventsStates((prev) => ({
+        ...prev,
+        ...newManagedEventsStates,
+      }));
+      setEventSubscriptionsStates((prev) => ({
+        ...prev,
+        ...newEventSubscriptionsStates,
       }));
     }
     // Omitted on purpose: `inspectorClients` is this effect's own output, so
@@ -569,6 +617,12 @@ function App({
       Object.values(resourceSubscriptionsStates).forEach((manager) => {
         manager.destroy();
       });
+      Object.values(eventSubscriptionsStates).forEach((manager) => {
+        manager.destroy();
+      });
+      Object.values(managedEventsStates).forEach((manager) => {
+        manager.destroy();
+      });
       Object.values(inspectorClients).forEach((client) => {
         client.disconnect().catch(() => {
           // Ignore errors during cleanup
@@ -587,6 +641,8 @@ function App({
     stderrLogStates,
     requestorTasksStates,
     resourceSubscriptionsStates,
+    eventSubscriptionsStates,
+    managedEventsStates,
   ]);
 
   // Preselect the first server on mount
@@ -859,6 +915,49 @@ function App({
       setActiveTab("info");
     }
   }, [activeTab, inspectorStatus, showSubscriptionsTab, showTasksTab]);
+
+  // Events (#3032). Server-declared and modern-era only, so the gate is the
+  // client's own (`getEventsExtension`), and only knowable once connected.
+  const selectedManagedEventsState = useMemo(
+    () =>
+      selectedServer && managedEventsStates[selectedServer]
+        ? managedEventsStates[selectedServer]
+        : null,
+    [selectedServer, managedEventsStates],
+  );
+  const selectedEventSubscriptionsState = useMemo(
+    () =>
+      selectedServer && eventSubscriptionsStates[selectedServer]
+        ? eventSubscriptionsStates[selectedServer]
+        : null,
+    [selectedServer, eventSubscriptionsStates],
+  );
+  const eventTypes = useStoreSnapshot(
+    selectedManagedEventsState,
+    "eventTypesChange",
+    readEventTypes,
+    NO_EVENT_TYPES,
+  );
+  const eventTypesError = useListError(selectedManagedEventsState);
+  const eventSubscriptions = useEventSubscriptions(
+    selectedEventSubscriptionsState,
+  );
+  const eventLog = useEventLog(selectedEventSubscriptionsState);
+  const showEventsTab =
+    inspectorStatus === "connected" &&
+    !!selectedInspectorClient?.getEventsExtension();
+
+  // Switch away from the Events tab when the server does not offer it, for
+  // the Skills reason above.
+  useEffect(() => {
+    if (
+      activeTab === "events" &&
+      inspectorStatus === "connected" &&
+      !showEventsTab
+    ) {
+      setActiveTab("info");
+    }
+  }, [activeTab, inspectorStatus, showEventsTab]);
 
   // Connect — on 401 or mid-session auth recovery, run OAuth then retry.
   type TuiOAuthRunResult =
@@ -1604,6 +1703,7 @@ function App({
       tools: managedTools.length || 0,
       subscriptions: resourceSubscriptions.length,
       tasks: requestorTasks.length,
+      events: eventTypes.length,
       messages: inspectorMessages.length || 0,
       requests: inspectorFetchRequests.length || 0,
       logging: inspectorStderrLogs.length || 0,
@@ -1616,6 +1716,7 @@ function App({
     managedTools,
     resourceSubscriptions,
     requestorTasks,
+    eventTypes,
     inspectorMessages,
     inspectorFetchRequests,
     inspectorStderrLogs,
@@ -1667,6 +1768,7 @@ function App({
       detailsModal ||
       helpOpen ||
       rootsModalOpen ||
+      eventSubscribeModal ||
       pendingRequestOpen
     ) {
       return;
@@ -1718,6 +1820,7 @@ function App({
           if (tab.id === "skills" && !showSkillsTab) return false;
           if (tab.id === "subscriptions" && !showSubscriptionsTab) return false;
           if (tab.id === "tasks" && !showTasksTab) return false;
+          if (tab.id === "events" && !showEventsTab) return false;
           return true;
         })
         .map((tab: { id: TabType; label: string; accelerator: string }) => [
@@ -1738,7 +1841,13 @@ function App({
         nextTab === "tasks" &&
         activeTab === "auth" &&
         (focus === "tabContentList" || focus === "tabContentDetails");
-      if (!authStepUpAccelerator && !authClearKey) {
+      // InfoTab binds `e` to "edit roots" while its pane is focused, so the
+      // Events accelerator must not also fire there (#3032).
+      const infoEditRootsKey =
+        nextTab === "events" &&
+        activeTab === "info" &&
+        (focus === "tabContentList" || focus === "tabContentDetails");
+      if (!authStepUpAccelerator && !authClearKey && !infoEditRootsKey) {
         setActiveTab(nextTab);
         setFocus(nextTab === "auth" ? "tabContentList" : "tabs");
       }
@@ -1815,6 +1924,7 @@ function App({
         "skills",
         "tools",
         "tasks",
+        "events",
         "messages",
         "requests",
         "logging",
@@ -1826,6 +1936,7 @@ function App({
         if (t === "skills" && !showSkillsTab) return false;
         if (t === "subscriptions" && !showSubscriptionsTab) return false;
         if (t === "tasks" && !showTasksTab) return false;
+        if (t === "events" && !showEventsTab) return false;
         return true;
       });
       const currentIndex = tabs.indexOf(activeTab);
@@ -1887,6 +1998,7 @@ function App({
     showSkills: showSkillsTab,
     showSubscriptions: showSubscriptionsTab,
     showTasks: showTasksTab,
+    showEvents: showEventsTab,
   });
   const tabsHeight = tabBarRows(shownTabs, tabCounts, contentWidth);
   // Server details will be flexible - calculate remaining space for content
@@ -2102,6 +2214,7 @@ function App({
             showSkills={showSkillsTab}
             showSubscriptions={showSubscriptionsTab}
             showTasks={showTasksTab}
+            showEvents={showEventsTab}
             showRequests={
               selectedServer && inspectorClients[selectedServer]
                 ? (() => {
@@ -2368,6 +2481,32 @@ function App({
                 }
                 onAuthRecoveryRequired={onAuthRecoveryRequired}
               />
+            ) : activeTab === "events" &&
+              showEventsTab &&
+              selectedEventSubscriptionsState ? (
+              <EventsTab
+                key={`events-${selectedServer}`}
+                eventTypes={eventTypes}
+                subscriptions={eventSubscriptions}
+                log={eventLog}
+                loadError={eventTypesError}
+                width={contentWidth}
+                height={contentHeight}
+                focusedPane={
+                  focus === "tabContentDetails"
+                    ? "details"
+                    : focus === "tabContentList"
+                      ? "list"
+                      : null
+                }
+                modalOpen={!!(eventSubscribeModal || detailsModal)}
+                onSubscribe={setEventSubscribeModal}
+                onStop={(ids) => {
+                  for (const id of ids)
+                    selectedEventSubscriptionsState.stop(id);
+                }}
+                onClearLog={() => selectedEventSubscriptionsState.clearLog()}
+              />
             ) : activeTab === "skills" &&
               currentServerState?.status === "connected" &&
               selectedInspectorClient ? (
@@ -2612,6 +2751,23 @@ function App({
           width={dimensions.width}
           height={dimensions.height}
           onClose={() => setHelpOpen(false)}
+          inputActive={!pendingRequestOpen}
+        />
+      )}
+
+      {/* Events subscribe dialog (#3032) - full screen overlay */}
+      {eventSubscribeModal && selectedEventSubscriptionsState && (
+        <EventSubscribeModal
+          eventType={eventSubscribeModal}
+          width={dimensions.width}
+          height={dimensions.height}
+          onSubscribe={(eventType, mode, args) => {
+            selectedEventSubscriptionsState.subscribe(eventType, {
+              mode,
+              arguments: args,
+            });
+          }}
+          onClose={() => setEventSubscribeModal(null)}
           inputActive={!pendingRequestOpen}
         />
       )}

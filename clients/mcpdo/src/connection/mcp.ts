@@ -96,6 +96,7 @@ import {
 import {
   assertJsonRoundTrips,
   parseToolCallPositionals,
+  resolveEventArgs,
   resolveToolCallArgs,
 } from "./parse-tool-args.js";
 import { resolveCommandPath } from "./resolve-command.js";
@@ -1691,6 +1692,53 @@ function registerRpcCommands(program: CommandType): void {
             metadata: o.metadata,
           });
         });
+        break;
+      case "events/poll":
+      case "events/stream":
+        // SEP-3415 (#3032). The arguments take the same two shapes as a tool
+        // call's. `events/poll` is one poll: pass the `cursor` it returns back
+        // as `--cursor` for the next. `events/stream` holds a push
+        // subscription open on the daemon's connection until Ctrl-C, or until
+        // the server terminates it.
+        cmd
+          .argument("[eventName]", "Event type name")
+          .argument(
+            "[eventArgs...]",
+            "Subscription arguments as key:=value pairs or a JSON object",
+          )
+          .option("--event-name <name>", "Event type name")
+          .option(
+            "--event-arg <pairs...>",
+            "Subscription argument as key=value pair (alternative to key:=value positionals)",
+            parseKeyValue,
+            {},
+          )
+          .option(
+            "--cursor <cursor>",
+            method === "events/poll"
+              ? "Where to poll from: the cursor the previous poll returned (omitted: start from now)"
+              : "Where to resume the stream from (omitted: start from now)",
+          );
+        cmd.action(
+          async (
+            eventNamePos: string | undefined,
+            eventArgsPos: string[] | undefined,
+            o,
+          ) => {
+            const { eventName, eventArgs } = resolveEventArgs({
+              eventNameFlag: o.eventName as string | undefined,
+              eventNamePos,
+              eventArgsPos,
+              eventArgFlag: (o.eventArg ?? {}) as Record<string, JsonValue>,
+            });
+            await runRpc(program, method, {
+              eventName,
+              eventArgs,
+              cursor: o.cursor as string | undefined,
+              metadata: o.metadata,
+            });
+          },
+        );
         break;
       case "prompts/get":
         cmd
