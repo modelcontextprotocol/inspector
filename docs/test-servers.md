@@ -458,6 +458,18 @@ from the Tools tab with the control tools, and watch the Protocol and Network
 tabs. The python-sdk `examples/stories/events` server is a second, independent
 target for interop checks.
 
+To exercise **webhook management** in the Events tab
+([#3031](https://github.com/modelcontextprotocol/inspector/issues/3031)), pick
+`incident.created`, choose **Webhook**, and use the URL to choose the
+fixture's canned outcome: `https://hooks.example.com/in` verifies and reports
+healthy delivery on **Refresh now**, a path containing `/failing` or
+`/throttled` reports suspended or rate-limited delivery, and a host such as
+`https://challenge-failed.example.com/hook` ends the subscribe with
+`CallbackEndpointError`. A `ttlMs` below a minute is clamped up to one, and
+**No expiry** is granted `refreshBefore: null`. To see the `Forbidden` message a
+real server gives an unauthenticated caller, arm `inject_event_failure` with
+`preset: "error_forbidden"` and `method: "events/subscribe"` first.
+
 ## Skills (SEP-2640)
 
 `skills-http.json` sets `"skills": true` and serves eight skills over four

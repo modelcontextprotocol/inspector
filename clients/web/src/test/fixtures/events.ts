@@ -76,6 +76,13 @@ export const webhookOnlyType: EventType = {
   inputSchema: { type: "object" },
 };
 
+/** Advertises only a mode this client does not know. */
+export const unknownModeType: EventType = {
+  name: "pigeon.landed",
+  delivery: ["carrier-pigeon"],
+  inputSchema: { type: "object" },
+};
+
 export const eventTypes: EventType[] = [
   pollOnlyType,
   allModesType,
@@ -146,6 +153,98 @@ export const forbiddenPoll: EventSubscription = {
   termination: {
     reason: "forbidden",
     error: { code: -32024, message: "Access revoked" },
+    at: new Date("2026-11-24T10:05:00Z"),
+    relist: "skipped",
+    canResubscribe: false,
+  },
+};
+
+/** A test-only signing secret; never rendered, only copied. */
+export const WEBHOOK_SECRET = `whsec_${"Q".repeat(43)}=`;
+
+const webhookCounts = { ...counts, events: 0, invalidPayloads: 0, gaps: 0 };
+
+export const activeWebhook: EventSubscription = {
+  id: 'incident.created\u0000{}\u0000webhook\u0000"https://hooks.example.com/in"',
+  name: "incident.created",
+  mode: "webhook",
+  arguments: {},
+  eventType: allModesType,
+  status: "active",
+  cursor: "c-100",
+  startedAt: new Date("2026-11-24T10:00:00Z"),
+  lastMessageAt: new Date("2026-11-24T10:30:00Z"),
+  counts: webhookCounts,
+  webhook: {
+    url: "https://hooks.example.com/in",
+    secret: "whsec_••••••••••••",
+    ttlMs: 3_600_000,
+    id: "sub_a3f1c8e2b0d49f7e",
+    refreshBefore: "2026-11-24T11:30:00.000Z",
+    nextRefreshAt: new Date("2026-11-24T11:25:00.000Z"),
+    lastRefreshAt: new Date("2026-11-24T10:30:00.000Z"),
+    truncated: false,
+    refreshes: 2,
+    deliveryStatus: {
+      active: false,
+      lastDeliveryAt: "2026-11-24T10:20:00Z",
+      lastError: "http_5xx",
+      failedSince: "2026-11-24T10:25:00Z",
+    },
+  },
+};
+
+export const throttledWebhook: EventSubscription = {
+  ...activeWebhook,
+  id: `${activeWebhook.id}#throttled`,
+  webhook: {
+    ...activeWebhook.webhook!,
+    ttlMs: null,
+    refreshBefore: null,
+    nextRefreshAt: null,
+    refreshes: 1,
+    truncated: true,
+    deliveryStatus: {
+      active: true,
+      lastError: null,
+      throttled: true,
+      retryAfterMs: 60_000,
+    },
+  },
+};
+
+export const stoppedWebhook: EventSubscription = {
+  ...activeWebhook,
+  id: `${activeWebhook.id}#stopped`,
+  status: "stopped",
+  webhook: {
+    url: "https://hooks.example.com/in",
+    secret: "whsec_••••••••••••",
+    refreshes: 0,
+    unsubscribe: {
+      status: "failed",
+      error: { code: -32603, message: "network down" },
+    },
+  },
+};
+
+export const rejectedWebhook: EventSubscription = {
+  ...activeWebhook,
+  id: `${activeWebhook.id}#rejected`,
+  status: "terminated",
+  webhook: { ...stoppedWebhook.webhook!, unsubscribe: undefined },
+  lastError: {
+    code: -32027,
+    message: "Callback endpoint failed verification",
+    data: { reason: "challenge_failed" },
+  },
+  termination: {
+    reason: "rejected",
+    error: {
+      code: -32027,
+      message: "Callback endpoint failed verification",
+      data: { reason: "challenge_failed" },
+    },
     at: new Date("2026-11-24T10:05:00Z"),
     relist: "skipped",
     canResubscribe: false,

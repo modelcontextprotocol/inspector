@@ -61,6 +61,17 @@ export interface EventsScreenProps {
   onResumeSubscription: (id: string) => void;
   onRemoveSubscription: (id: string) => void;
   onClearLog: () => void;
+  /**
+   * The signing secret the next webhook subscribe sends. Held by App outside
+   * {@link EventsUiState}, which is snapshotted to `sessionStorage` across an
+   * OAuth redirect: the secret must never be written anywhere (#3031).
+   */
+  webhookSecret?: string;
+  onRegenerateWebhookSecret?: () => void;
+  /** A webhook subscription's secret, for its card's copy control. */
+  getWebhookSecret?: (id: string) => string | undefined;
+  /** Refresh a live webhook subscription now. */
+  onRefreshWebhook?: (id: string) => void;
 }
 
 // Each column caps at the screen's height so its card scrolls inside rather
@@ -182,6 +193,10 @@ export function EventsScreen({
   onResumeSubscription,
   onRemoveSubscription,
   onClearLog,
+  webhookSecret,
+  onRegenerateWebhookSecret,
+  getWebhookSecret,
+  onRefreshWebhook,
 }: EventsScreenProps) {
   const selected = eventTypes.find((e) => e.name === ui.selectedEventName);
   const mode = selected ? resolveSubscribeMode(selected, ui.mode) : undefined;
@@ -218,6 +233,7 @@ export function EventsScreen({
           mode,
           eventArguments(selected.inputSchema, ui.formValues),
           ui.tuning,
+          webhookSecret,
         ),
       );
     } catch (err) {
@@ -278,6 +294,8 @@ export function EventsScreen({
               onTuningChange={(tuning) => onUiChange({ ...ui, tuning })}
               onSubscribe={handleSubscribe}
               subscribeError={subscribeError}
+              webhookSecret={webhookSecret}
+              onRegenerateWebhookSecret={onRegenerateWebhookSecret}
             />
           </ContentCard>
         ) : (
@@ -307,6 +325,15 @@ export function EventsScreen({
                         onStop={() => onStopSubscription(subscription.id)}
                         onResume={() => handleResume(subscription.id)}
                         onRemove={() => handleRemove(subscription.id)}
+                        webhookSecret={
+                          subscription.mode === "webhook"
+                            ? getWebhookSecret?.(subscription.id)
+                            : undefined
+                        }
+                        onRefresh={
+                          onRefreshWebhook &&
+                          (() => onRefreshWebhook(subscription.id))
+                        }
                         onToggleLogFilter={() =>
                           onUiChange({
                             ...ui,

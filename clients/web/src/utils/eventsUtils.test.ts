@@ -2,8 +2,14 @@ import { describe, it, expect } from "vitest";
 import {
   SUBSCRIBABLE_DELIVERY_MODES,
   buildSubscribeOptions,
+  callbackUrlError,
   canResumeSubscription,
+  describeDeliveryStatus,
   describeEventsError,
+  describeWebhookError,
+  describeWebhookFailure,
+  formatRefreshBefore,
+  formatTtlSuggestion,
   eventArguments,
   filterEventLog,
   filterEventTypes,
@@ -29,20 +35,26 @@ import {
   pollOnlyType,
   reconnectingPush,
   terminatedPush,
+  unknownModeType,
   webhookOnlyType,
 } from "../test/fixtures/events";
 
-describe("subscribable modes (the webhook seam, #3031)", () => {
-  it("offers poll and push only", () => {
-    expect(SUBSCRIBABLE_DELIVERY_MODES).toEqual(["poll", "push"]);
+describe("subscribable modes (#3031)", () => {
+  it("offers all three modes", () => {
+    expect(SUBSCRIBABLE_DELIVERY_MODES).toEqual(["poll", "push", "webhook"]);
   });
 
   it("keeps the advertised subscribable modes in the server's order", () => {
-    expect(subscribableModes(allModesType)).toEqual(["poll", "push"]);
+    expect(subscribableModes(allModesType)).toEqual([
+      "poll",
+      "push",
+      "webhook",
+    ]);
     expect(
       subscribableModes({ ...allModesType, delivery: ["push", "poll"] }),
     ).toEqual(["push", "poll"]);
-    expect(subscribableModes(webhookOnlyType)).toEqual([]);
+    expect(subscribableModes(webhookOnlyType)).toEqual(["webhook"]);
+    expect(subscribableModes(unknownModeType)).toEqual([]);
     expect(
       subscribableModes({ ...pollOnlyType, delivery: ["poll", "pigeon"] }),
     ).toEqual(["poll"]);
@@ -52,7 +64,8 @@ describe("subscribable modes (the webhook seam, #3031)", () => {
     expect(resolveSubscribeMode(allModesType, "push")).toBe("push");
     expect(resolveSubscribeMode(pollOnlyType, "push")).toBe("poll");
     expect(resolveSubscribeMode(pollOnlyType, undefined)).toBe("poll");
-    expect(resolveSubscribeMode(webhookOnlyType, "poll")).toBeUndefined();
+    expect(resolveSubscribeMode(webhookOnlyType, "poll")).toBe("webhook");
+    expect(resolveSubscribeMode(unknownModeType, "poll")).toBeUndefined();
   });
 });
 
@@ -128,6 +141,173 @@ describe("eventArguments", () => {
 
   it("returns an empty object for an empty form", () => {
     expect(eventArguments(schema, {})).toEqual({});
+  });
+});
+
+describe("webhook options (#3031)", () => {
+  it("sends the trimmed URL, the secret and only the webhook tuning", () => {
+    expect(
+      buildSubscribeOptions(
+        "webhook",
+        { a: 1 },
+        {
+          callbackUrl: "  https://hooks.example.com/in ",
+          ttlMs: 60000,
+          maxAgeMs: 5,
+          maxEvents: 3,
+          heartbeatMs: 4,
+        },
+        "whsec_x",
+      ),
+    ).toEqual({
+      mode: "webhook",
+      arguments: { a: 1 },
+      maxAgeMs: 5,
+      webhook: {
+        url: "https://hooks.example.com/in",
+        secret: "whsec_x",
+        ttlMs: 60000,
+      },
+    });
+  });
+
+  it("sends ttlMs: null for no expiry, and omits an unset TTL and secret", () => {
+    expect(
+      buildSubscribeOptions("webhook", {}, { noExpiry: true, ttlMs: 9 }),
+    ).toEqual({
+      mode: "webhook",
+      arguments: {},
+      webhook: { url: "", ttlMs: null },
+    });
+    expect(buildSubscribeOptions("webhook", {}, {})).toEqual({
+      mode: "webhook",
+      arguments: {},
+      webhook: { url: "" },
+    });
+    // The secret belongs to webhook only.
+    expect(buildSubscribeOptions("poll", {}, {}, "whsec_x")).toEqual({
+      mode: "poll",
+      arguments: {},
+    });
+  });
+
+  it("explains a callback URL that cannot be used", () => {
+    expect(callbackUrlError(undefined)).toBeUndefined();
+    expect(callbackUrlError("  ")).toBeUndefined();
+    expect(callbackUrlError("https://hooks.example.com")).toBeUndefined();
+    expect(callbackUrlError("nope")).toBe("Not a valid URL.");
+    expect(callbackUrlError("http://hooks.example.com")).toMatch(
+      /must use https/,
+    );
+  });
+
+  it("needs an https callback URL", () => {
+    expect(isTuningValid("webhook", {})).toBe(false);
+    expect(isTuningValid("webhook", { callbackUrl: " " })).toBe(false);
+    expect(isTuningValid("webhook", { callbackUrl: "http://x.example" })).toBe(
+      false,
+    );
+    expect(
+      isTuningValid("webhook", { callbackUrl: "https://x.example/in" }),
+    ).toBe(true);
+  });
+
+  it("spells out a CallbackEndpointError reason", () => {
+    expect(
+      describeWebhookError({
+        code: -32027,
+        message: "verify failed",
+        data: { reason: "challenge_failed" },
+      }),
+    ).toMatch(
+      /^The server could not verify the callback endpoint \(challenge_failed\): the endpoint did not echo the verification challenge/,
+    );
+    expect(
+      describeWebhookError({ code: -32027, message: "verify failed" }),
+    ).toBe(
+      "-32027 CallbackEndpointError: verify failed. The server could not verify the callback endpoint.",
+    );
+    expect(
+      describeWebhookError({
+        code: -32027,
+        message: "x",
+        data: { reason: 5 },
+      }),
+    ).toMatch(/could not verify the callback endpoint\.$/);
+    expect(
+      describeWebhookError({ code: -32027, message: "x", data: "flat" }),
+    ).toMatch(/could not verify the callback endpoint\.$/);
+  });
+
+  it("says Forbidden means an authenticated principal is needed", () => {
+    expect(
+      describeWebhookError({ code: -32024, message: "Forbidden" }),
+    ).toMatch(
+      /^-32024 Forbidden: Forbidden\. Webhook subscriptions need an authenticated principal/,
+    );
+  });
+
+  it("reads any other error as describeEventsError does", () => {
+    expect(describeWebhookError({ code: -32602, message: "bad" })).toBe(
+      "-32602: bad",
+    );
+  });
+
+  it("describes every failure category, and an unknown one verbatim", () => {
+    for (const category of [
+      "connection_refused",
+      "timeout",
+      "tls_error",
+      "http_4xx",
+      "http_5xx",
+      "challenge_failed",
+    ]) {
+      expect(describeWebhookFailure(category)).not.toBe(category);
+    }
+    expect(describeWebhookFailure("dns_error")).toBe("dns_error");
+  });
+
+  it("formats the grant and the suggestion", () => {
+    expect(formatRefreshBefore(undefined)).toBe("not granted yet");
+    expect(formatRefreshBefore(null)).toBe("never (no expiry)");
+    expect(formatRefreshBefore("2026-11-24T11:00:00Z")).toBe(
+      "2026-11-24T11:00:00Z",
+    );
+    expect(formatTtlSuggestion(undefined)).toBe("server default");
+    expect(formatTtlSuggestion(null)).toBe("no expiry");
+    expect(formatTtlSuggestion(3_600_000)).toBe("60 min");
+  });
+
+  it("describes a deliveryStatus, line by reported field", () => {
+    expect(describeDeliveryStatus({ active: true })).toEqual(["Delivering"]);
+    expect(
+      describeDeliveryStatus({
+        active: false,
+        lastError: "http_4xx",
+        failedSince: "T1",
+        lastDeliveryAt: "T0",
+      }),
+    ).toEqual([
+      "Suspended after repeated failures (this refresh reactivated it)",
+      "Last error: http_4xx — the endpoint answered with a 4xx status",
+      "Failing since T1",
+      "Last delivery T0",
+    ]);
+    expect(
+      describeDeliveryStatus({
+        active: true,
+        lastError: null,
+        throttled: true,
+        retryAfterMs: 60_000,
+      }),
+    ).toEqual([
+      "Delivering",
+      "Throttled: deliveries delayed, not failing (about 1 min)",
+    ]);
+    expect(describeDeliveryStatus({ active: true, throttled: true })).toEqual([
+      "Delivering",
+      "Throttled: deliveries delayed, not failing",
+    ]);
   });
 });
 

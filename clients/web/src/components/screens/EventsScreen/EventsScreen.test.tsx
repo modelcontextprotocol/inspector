@@ -15,6 +15,8 @@ import { EMPTY_EVENTS_UI } from "../screenUiState";
 import { noopPagination } from "../../../test/fixtures/pagination";
 import {
   activePoll,
+  activeWebhook,
+  WEBHOOK_SECRET,
   eventLog,
   eventTypes,
   subscriptions,
@@ -250,5 +252,66 @@ describe("EventsScreen", () => {
     renderWithMantine(<EventsScreen {...p} />);
     await userEvent.click(screen.getByRole("button", { name: "Clear" }));
     expect(p.onClearLog).toHaveBeenCalled();
+  });
+
+  describe("webhook (#3031)", () => {
+    it("subscribes with the callback, the TTL and the App-held secret", async () => {
+      const onSubscribe = vi.fn();
+      const onRegenerate = vi.fn();
+      renderWithMantine(
+        <Stateful
+          onSubscribe={onSubscribe}
+          webhookSecret={WEBHOOK_SECRET}
+          onRegenerateWebhookSecret={onRegenerate}
+          initialUi={{
+            ...EMPTY_EVENTS_UI,
+            selectedEventName: "incident.created",
+            mode: "webhook",
+            tuning: {
+              callbackUrl: "https://hooks.example.com/in",
+              ttlMs: 60000,
+            },
+          }}
+        />,
+      );
+      await userEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+      expect(onRegenerate).toHaveBeenCalledOnce();
+      await userEvent.click(screen.getByRole("button", { name: "Subscribe" }));
+      expect(onSubscribe).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "incident.created" }),
+        {
+          mode: "webhook",
+          arguments: {},
+          webhook: {
+            url: "https://hooks.example.com/in",
+            secret: WEBHOOK_SECRET,
+            ttlMs: 60000,
+          },
+        },
+      );
+      // The secret is never part of the lifted (sessionStorage-bound) state.
+      expect(JSON.stringify(ui())).not.toContain(WEBHOOK_SECRET);
+    });
+
+    it("hands each webhook card its secret and refresh, and no other card", async () => {
+      const getWebhookSecret = vi.fn(() => WEBHOOK_SECRET);
+      const onRefreshWebhook = vi.fn();
+      renderWithMantine(
+        <Stateful
+          subscriptions={[activePoll, activeWebhook]}
+          getWebhookSecret={getWebhookSecret}
+          onRefreshWebhook={onRefreshWebhook}
+        />,
+      );
+      expect(getWebhookSecret).toHaveBeenCalledWith(activeWebhook.id);
+      expect(getWebhookSecret).not.toHaveBeenCalledWith(activePoll.id);
+      expect(
+        screen.getAllByRole("button", { name: "Copy webhook secret" }),
+      ).toHaveLength(1);
+      await userEvent.click(
+        screen.getByRole("button", { name: "Refresh now" }),
+      );
+      expect(onRefreshWebhook).toHaveBeenCalledWith(activeWebhook.id);
+    });
   });
 });

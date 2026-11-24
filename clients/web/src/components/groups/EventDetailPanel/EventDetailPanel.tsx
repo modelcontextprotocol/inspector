@@ -3,6 +3,7 @@ import {
   Accordion,
   Alert,
   Button,
+  Checkbox,
   Code,
   Divider,
   Group,
@@ -11,16 +12,19 @@ import {
   SegmentedControl,
   Stack,
   Text,
+  TextInput,
 } from "@mantine/core";
 import type { EventType } from "@inspector/core/extension/events/schemas.js";
 import type { EventSubscriptionMode } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { DeliveryModeBadge } from "../../elements/DeliveryModeBadge/DeliveryModeBadge";
+import { WebhookSecretField } from "../../elements/WebhookSecretField/WebhookSecretField";
 import { SchemaForm } from "../SchemaForm/SchemaForm";
 import {
   hasMissingRequiredFields,
   toFormSchema,
 } from "../../../utils/jsonUtils";
 import {
+  callbackUrlError,
   formatPayload,
   isTuningValid,
   mirroredEventHeaders,
@@ -46,6 +50,14 @@ export interface EventDetailPanelProps {
   subscribeError?: string;
   /** Per-selection identity for the schema form; see `SchemaFormProps`. */
   resetKey?: string;
+  /**
+   * The signing secret a webhook subscribe will send, generated before the
+   * subscribe so it can be copied into the receiver first (the endpoint
+   * verification runs during the subscribe). Without one the engine generates
+   * it, and it is copyable from the subscription card instead.
+   */
+  webhookSecret?: string;
+  onRegenerateWebhookSecret?: () => void;
 }
 
 // Header pinned, body scrolls, Subscribe footer pinned — ToolDetailPanel's
@@ -156,9 +168,30 @@ const NoModeNote = Text.withProps({
   c: "var(--inspector-text-secondary)",
 });
 
+const WebhookStack = Stack.withProps({
+  gap: "sm",
+});
+
+const CallbackInput = TextInput.withProps({
+  label: "Callback URL",
+  placeholder: "https://",
+  size: "sm",
+});
+
+const SecretLabel = Text.withProps({
+  size: "sm",
+  fw: 500,
+});
+
+const WebhookNote = Alert.withProps({
+  color: "blue",
+  variant: "light",
+});
+
 const MODE_LABELS: Record<EventSubscriptionMode, string> = {
   poll: "Poll",
   push: "Push",
+  webhook: "Webhook",
 };
 
 /**
@@ -179,6 +212,8 @@ export function EventDetailPanel({
   onSubscribe,
   subscribeError,
   resetKey,
+  webhookSecret,
+  onRegenerateWebhookSecret,
 }: EventDetailPanelProps) {
   const { name, description, delivery, inputSchema, payloadSchema } = eventType;
   const formSchema = toFormSchema(inputSchema) ?? {};
@@ -246,8 +281,9 @@ export function EventDetailPanel({
               </HeaderRow>
             ))}
             <SectionNote>
-              Sent on every poll and stream request for this event type, so a
-              Streamable HTTP server can route it without reading the body.
+              Sent on every poll, stream, subscribe and unsubscribe request for
+              this event type, so a Streamable HTTP server can route it without
+              reading the body.
             </SectionNote>
           </HeaderSection>
 
@@ -290,7 +326,20 @@ export function EventDetailPanel({
                     })
                   }
                 />
-                {mode === "poll" ? (
+                {mode === "webhook" ? (
+                  <TuningInput
+                    label="ttlMs"
+                    description="Suggested lifetime; the server's grant wins"
+                    disabled={tuning.noExpiry === true}
+                    value={tuning.ttlMs ?? ""}
+                    onChange={(value) =>
+                      onTuningChange({
+                        ...tuning,
+                        ttlMs: optionalWholeNumber(value),
+                      })
+                    }
+                  />
+                ) : mode === "poll" ? (
                   <PositiveTuningInput
                     label="maxEvents"
                     description="Most events per poll"
@@ -316,6 +365,53 @@ export function EventDetailPanel({
                   />
                 )}
               </TuningRow>
+              {mode === "webhook" && (
+                <WebhookStack>
+                  <Checkbox
+                    label="No expiry (ttlMs: null)"
+                    description="The server keeps it until you unsubscribe, even after you disconnect"
+                    checked={tuning.noExpiry === true}
+                    onChange={(event) =>
+                      onTuningChange({
+                        ...tuning,
+                        noExpiry: event.currentTarget.checked,
+                      })
+                    }
+                  />
+                  <CallbackInput
+                    description="Where the server POSTs deliveries: a receiver you run, such as a tunnel or a request bin"
+                    value={tuning.callbackUrl ?? ""}
+                    error={callbackUrlError(tuning.callbackUrl)}
+                    onChange={(event) =>
+                      onTuningChange({
+                        ...tuning,
+                        callbackUrl: event.currentTarget.value,
+                      })
+                    }
+                  />
+                  {webhookSecret !== undefined && (
+                    <Stack gap={4}>
+                      <SecretLabel>Signing secret</SecretLabel>
+                      <WebhookSecretField
+                        secret={webhookSecret}
+                        onRegenerate={onRegenerateWebhookSecret}
+                      />
+                      <SectionNote>
+                        Generated from a CSPRNG. Copy it into your receiver
+                        before subscribing: the server verifies the endpoint
+                        with it during the subscribe.
+                      </SectionNote>
+                    </Stack>
+                  )}
+                  <WebhookNote>
+                    The Inspector manages this subscription (subscribe, refresh
+                    before expiry, delivery status, unsubscribe) but does not
+                    receive its deliveries. The server must verify the callback
+                    endpoint, and requires an authenticated connection for
+                    webhook delivery.
+                  </WebhookNote>
+                </WebhookStack>
+              )}
             </>
           ) : (
             <NoModeNote>

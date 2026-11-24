@@ -1339,6 +1339,12 @@ export function InspectorView({
                   onResumeSubscription={eventsPanel.onResumeEventSubscription}
                   onRemoveSubscription={eventsPanel.onRemoveEventSubscription}
                   onClearLog={eventsPanel.onClearEventLog}
+                  webhookSecret={eventsPanel.webhookSecret}
+                  onRegenerateWebhookSecret={
+                    eventsPanel.onRegenerateWebhookSecret
+                  }
+                  getWebhookSecret={eventsPanel.getWebhookSecret}
+                  onRefreshWebhook={eventsPanel.onRefreshWebhook}
                 />
               </ScreenStage>
             )}

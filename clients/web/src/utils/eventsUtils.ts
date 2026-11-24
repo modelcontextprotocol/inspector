@@ -3,13 +3,10 @@
  * the tab can subscribe with, how the subscribe form's fields become engine
  * options, and how cursors, intervals and log entries read in the UI.
  *
- * **The subscribable modes are the seam for webhook management (#3031).** The
- * subscription engine runs `poll` and `push`; `webhook` is managed by a later
- * phase. {@link SUBSCRIBABLE_DELIVERY_MODES} is the one list the mode picker is
- * built from, so offering webhook is adding it here plus the form fields it
- * needs, not finding every place the picker filters. An event type that
- * advertises only webhook still lists, with its badge, and says why it cannot
- * be subscribed to yet.
+ * {@link SUBSCRIBABLE_DELIVERY_MODES} is the one list the mode picker is built
+ * from. All three modes are offered; webhook is subscription management only
+ * (#3031) — the Inspector subscribes, refreshes and unsubscribes, and shows
+ * the `deliveryStatus` the server reports, but never receives a delivery.
  */
 
 import { convertParametersForSchema } from "@inspector/core/json/jsonUtils.js";
@@ -17,9 +14,15 @@ import {
   MCP_PARAM_HEADER_PREFIX,
   scanXMcpHeaderDeclarations,
 } from "@inspector/core/json/xMcpHeader.js";
-import { eventsErrorName } from "@inspector/core/extension/events/constants.js";
+import {
+  EVENTS_ERROR_CODES,
+  eventsErrorName,
+} from "@inspector/core/extension/events/constants.js";
 import type { EventsErrorInfo } from "@inspector/core/extension/events/termination.js";
-import type { EventType } from "@inspector/core/extension/events/schemas.js";
+import type {
+  DeliveryStatus,
+  EventType,
+} from "@inspector/core/extension/events/schemas.js";
 import { knownDeliveryModes } from "@inspector/core/extension/events/schemas.js";
 import type {
   EventLogEntry,
@@ -32,6 +35,7 @@ import type {
 export const SUBSCRIBABLE_DELIVERY_MODES: readonly EventSubscriptionMode[] = [
   "poll",
   "push",
+  "webhook",
 ];
 
 /** The subscribable modes `eventType` advertises, in the server's order. */
@@ -57,23 +61,39 @@ export function resolveSubscribeMode(
   return modes[0];
 }
 
-/** The subscribe form's numeric fields, as the screen holds them. */
+/**
+ * The subscribe form's option fields, as the screen holds them. The webhook
+ * signing secret is deliberately not one of them: this object is lifted to App
+ * and snapshotted into `sessionStorage` across an OAuth redirect, and the
+ * secret must never be written anywhere (#3031).
+ */
 export interface SubscribeTuning {
   maxAgeMs?: number;
   maxEvents?: number;
   heartbeatMs?: number;
+  /** Webhook: where the server should POST deliveries. */
+  callbackUrl?: string;
+  /** Webhook: suggested lifetime; ignored while {@link noExpiry} is set. */
+  ttlMs?: number;
+  /** Webhook: ask for no expiry (`ttlMs: null`). */
+  noExpiry?: boolean;
 }
 
 /**
  * The engine options for a subscribe: the arguments, and only the tuning the
- * chosen mode accepts — `maxEvents` is a poll parameter and `heartbeatMs` a
- * push one, so neither is sent where the spec does not define it.
+ * chosen mode accepts — `maxEvents` is a poll parameter, `heartbeatMs` a push
+ * one, and the callback URL, secret and TTL webhook ones, so none is sent
+ * where the spec does not define it. A webhook `ttlMs` is sent only when set:
+ * absent asks for the server's default, and `null` (no expiry) is a request of
+ * its own.
  */
 export function buildSubscribeOptions(
   mode: EventSubscriptionMode,
   args: Record<string, unknown>,
   tuning: SubscribeTuning,
+  webhookSecret?: string,
 ): EventSubscribeOptions {
+  const ttlMs = tuning.noExpiry ? null : tuning.ttlMs;
   return {
     mode,
     arguments: args,
@@ -82,7 +102,33 @@ export function buildSubscribeOptions(
       tuning.maxEvents !== undefined && { maxEvents: tuning.maxEvents }),
     ...(mode === "push" &&
       tuning.heartbeatMs !== undefined && { heartbeatMs: tuning.heartbeatMs }),
+    ...(mode === "webhook" && {
+      webhook: {
+        url: (tuning.callbackUrl ?? "").trim(),
+        ...(webhookSecret !== undefined && { secret: webhookSecret }),
+        ...(ttlMs !== undefined && { ttlMs }),
+      },
+    }),
   };
+}
+
+/**
+ * Why a callback URL cannot be subscribed with, or `undefined` when it can.
+ * An empty field is not an error to show — just not yet subscribable — so it
+ * is `undefined` here and refused by {@link isTuningValid}.
+ */
+export function callbackUrlError(url: string | undefined): string | undefined {
+  const trimmed = (url ?? "").trim();
+  if (trimmed === "") return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return "Not a valid URL.";
+  }
+  return parsed.protocol === "https:"
+    ? undefined
+    : "The callback URL must use https:// (the server rejects anything else).";
 }
 
 /**
@@ -90,6 +136,7 @@ export function buildSubscribeOptions(
  * or `heartbeatMs` (push) below 1 is refused, since neither a batch of zero
  * nor a zero interval is something a server can honor. A restored or typed 0
  * would otherwise reach the server and end the subscription on InvalidParams.
+ * A webhook needs an `https://` callback URL.
  */
 export function isTuningValid(
   mode: EventSubscriptionMode | undefined,
@@ -97,6 +144,12 @@ export function isTuningValid(
 ): boolean {
   if (mode === "poll") return (tuning.maxEvents ?? 1) >= 1;
   if (mode === "push") return (tuning.heartbeatMs ?? 1) >= 1;
+  if (mode === "webhook") {
+    return (
+      (tuning.callbackUrl ?? "").trim() !== "" &&
+      callbackUrlError(tuning.callbackUrl) === undefined
+    );
+  }
   return true;
 }
 
@@ -278,4 +331,97 @@ export function filterEventLog(
 export function describeEventsError(error: EventsErrorInfo): string {
   const name = eventsErrorName(error.code);
   return `${error.code}${name ? ` ${name}` : ""}: ${error.message}`;
+}
+
+/**
+ * The webhook failure categories — a `deliveryStatus.lastError`, or the
+ * `data.reason` of a `CallbackEndpointError` — as a plain sentence. The spec
+ * makes these the server's only report on the endpoint (never its raw
+ * response), so the sentence says what to check.
+ */
+export const WEBHOOK_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
+  connection_refused:
+    "the endpoint refused the connection; check that something is listening at that URL",
+  timeout: "the endpoint did not answer in time",
+  tls_error:
+    "the TLS handshake failed; check the endpoint's certificate and hostname",
+  http_4xx: "the endpoint answered with a 4xx status",
+  http_5xx: "the endpoint answered with a 5xx status",
+  challenge_failed:
+    'the endpoint did not echo the verification challenge; it must verify the signature with this secret and answer {"challenge": "<nonce>"} in a 2xx body',
+};
+
+/** A failure category as a sentence; an unknown one is shown verbatim. */
+export function describeWebhookFailure(category: string): string {
+  return WEBHOOK_FAILURE_MESSAGES[category] ?? category;
+}
+
+function reasonOf(data: unknown): string | undefined {
+  if (data === null || typeof data !== "object") return undefined;
+  const reason = (data as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : undefined;
+}
+
+/**
+ * A webhook subscription's error, with the two the spec gives a meaning of
+ * their own spelled out: `CallbackEndpointError` names the endpoint failure
+ * its `data.reason` categorises, and `Forbidden` says webhook delivery needs
+ * an authenticated principal (an unauthenticated server may offer poll and
+ * push, but not webhook). Anything else reads as {@link describeEventsError}.
+ */
+export function describeWebhookError(error: EventsErrorInfo): string {
+  if (error.code === EVENTS_ERROR_CODES.CallbackEndpointError) {
+    const reason = reasonOf(error.data);
+    return reason === undefined
+      ? `${describeEventsError(error)}. The server could not verify the callback endpoint.`
+      : `The server could not verify the callback endpoint (${reason}): ${describeWebhookFailure(reason)}.`;
+  }
+  if (error.code === EVENTS_ERROR_CODES.Forbidden) {
+    return `${describeEventsError(error)}. Webhook subscriptions need an authenticated principal: connect with OAuth or a bearer token. A server may refuse webhook delivery to an unauthenticated caller while still offering poll and push.`;
+  }
+  return describeEventsError(error);
+}
+
+/** A grant's expiry as the card shows it: `null` is "no expiry". */
+export function formatRefreshBefore(
+  refreshBefore: string | null | undefined,
+): string {
+  if (refreshBefore === undefined) return "not granted yet";
+  return refreshBefore === null ? "never (no expiry)" : refreshBefore;
+}
+
+/** The suggested TTL a webhook subscription was sent with. */
+export function formatTtlSuggestion(ttlMs: number | null | undefined): string {
+  if (ttlMs === undefined) return "server default";
+  return ttlMs === null ? "no expiry" : formatInterval(ttlMs);
+}
+
+/**
+ * A webhook `deliveryStatus` as short lines for the card: whether the server
+ * is delivering, the last failure category, since when, and active
+ * rate-limiting — each only when the server reported it.
+ */
+export function describeDeliveryStatus(status: DeliveryStatus): string[] {
+  const lines = [
+    status.active
+      ? "Delivering"
+      : "Suspended after repeated failures (this refresh reactivated it)",
+  ];
+  if (status.lastError) {
+    lines.push(
+      `Last error: ${status.lastError} — ${describeWebhookFailure(status.lastError)}`,
+    );
+  }
+  if (status.failedSince) lines.push(`Failing since ${status.failedSince}`);
+  if (status.lastDeliveryAt) {
+    lines.push(`Last delivery ${status.lastDeliveryAt}`);
+  }
+  if (status.throttled) {
+    lines.push(
+      status.retryAfterMs !== undefined
+        ? `Throttled: deliveries delayed, not failing (about ${formatInterval(status.retryAfterMs)})`
+        : "Throttled: deliveries delayed, not failing",
+    );
+  }
+  return lines;
 }

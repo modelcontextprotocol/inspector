@@ -208,14 +208,22 @@ import {
   EVENTS_POLL_METHOD,
   EVENTS_STREAM_METHOD,
   EVENTS_STREAM_NOTIFICATIONS,
+  EVENTS_SUBSCRIBE_METHOD,
+  EVENTS_UNSUBSCRIBE_METHOD,
 } from "../extension/events/constants.js";
+import { redactSubscribeSecret } from "../extension/events/webhookSecret.js";
 import {
   EventsListChangedNotificationParamsSchema,
   ListEventsResultSchema,
   PollEventsResultSchema,
   StreamEventsResultSchema,
+  SubscribeEventsResultSchema,
+  UnsubscribeEventsResultSchema,
   EventsStreamNotificationEnvelopeSchema,
   type EventType,
+  type SubscribeEventsParams,
+  type SubscribeEventsResult,
+  type UnsubscribeEventsParams,
   type PollEventsParams,
   type PollEventsResult,
   type StreamEventsParams,
@@ -1331,7 +1339,9 @@ export class InspectorClient extends InspectorClientEventTarget {
           timestamp: new Date(),
           direction: "request",
           origin,
-          message,
+          // The Protocol tab records an `events/subscribe` with its webhook
+          // signing secret masked (#3031); the sent message keeps it.
+          message: redactSubscribeSecret(message),
         };
         this.dispatchTypedEvent("message", entry);
       },
@@ -5716,6 +5726,64 @@ export class InspectorClient extends InspectorClientEventTarget {
           ...(options.signal && { signal: options.signal }),
         },
       },
+    );
+  }
+
+  /**
+   * One `events/subscribe` (SEP-3415, Webhook-Based Delivery): create a
+   * webhook subscription, or refresh the one with the same key — the call is
+   * idempotent, which is how its TTL is kept alive. Management only: the
+   * Inspector never receives the deliveries (#3031).
+   *
+   * Every field is sent as given. `cursor` defaults to `null` ("start from
+   * now"), sent explicitly as for poll and push; `ttlMs` is sent only when the
+   * caller set it, because absent ("server default") and `null` ("no expiry")
+   * mean different things. `delivery.secret` reaches the wire and nothing else:
+   * the Protocol and Network tabs record it masked.
+   */
+  async subscribeEvents(
+    eventType: EventType,
+    params: Omit<SubscribeEventsParams, "name">,
+    options: { signal?: AbortSignal; metadata?: RequestMetadata } = {},
+  ): Promise<SubscribeEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_SUBSCRIBE_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        delivery: params.delivery,
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.ttlMs !== undefined && { ttlMs: params.ttlMs }),
+      },
+      SubscribeEventsResultSchema,
+      {
+        metadata: options.metadata,
+        ...(options.signal && { requestOptions: { signal: options.signal } }),
+      },
+    );
+  }
+
+  /**
+   * One `events/unsubscribe`: tear a webhook subscription down now rather than
+   * letting its TTL lapse. Resolved by the same key as the subscribe —
+   * `(name, arguments, delivery.url)` plus the server's principal — never by
+   * the server-derived id, which the spec does not accept as input.
+   */
+  async unsubscribeEvents(
+    eventType: EventType,
+    params: Omit<UnsubscribeEventsParams, "name">,
+    options: { metadata?: RequestMetadata } = {},
+  ): Promise<void> {
+    await this.sendEventsRequest(
+      EVENTS_UNSUBSCRIBE_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        delivery: { url: params.delivery.url },
+      },
+      UnsubscribeEventsResultSchema,
+      { metadata: options.metadata },
     );
   }
 

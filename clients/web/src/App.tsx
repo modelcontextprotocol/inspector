@@ -138,6 +138,7 @@ import { OutputValidationToastMessage } from "./components/elements/Toasts/Outpu
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
 import { errorMessage } from "./utils/errorFormat";
 import { runWebLoadTest, type RunLoadTest } from "./lib/loadTest";
+import { generateWebhookSecret } from "@inspector/core/extension/events/webhookSecret.js";
 
 /**
  * Terminates a dispatched handler's promise by reporting the failure, for the
@@ -203,6 +204,11 @@ function App() {
     string | undefined
   >(undefined);
   const [clientSettingsOpen, setClientSettingsOpen] = useState(false);
+  // The signing secret the next Events webhook subscribe sends (#3031). Held
+  // here, not in the Events tab's lifted UI state, because that state is
+  // snapshotted to sessionStorage across an OAuth redirect; generated from the
+  // CSPRNG, never typed, and regenerated only on request.
+  const [webhookSecret, setWebhookSecret] = useState(generateWebhookSecret);
   const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const closeConnectionInfoModal = useCallback(
     () => setConnectionInfoModalOpen(false),
@@ -2021,6 +2027,12 @@ function App() {
     },
     onRemoveEventSubscription: (id) => eventSubscriptionsState?.remove(id),
     onClearEventLog: () => eventSubscriptionsState?.clearLog(),
+    webhookSecret,
+    onRegenerateWebhookSecret: () => setWebhookSecret(generateWebhookSecret()),
+    getWebhookSecret: (id) => eventSubscriptionsState?.getWebhookSecret(id),
+    onRefreshWebhook: (id) => {
+      eventSubscriptionsState?.refreshWebhook(id);
+    },
   };
 
   const tasksPanelProps: TasksPanelProps = {
