@@ -5522,9 +5522,18 @@ export class InspectorClient extends InspectorClientEventTarget {
       name: eventType.name,
       ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
     };
+    // A caller's `signal` goes through `getRequestOptions`, which combines it
+    // with the ambient request signal (#1783); spreading it over the result
+    // would replace the ambient one, and a request with its timeout disabled
+    // (a push stream) could then outlive the caller that started it.
+    const { signal: callerSignal, ...overrides } =
+      options?.requestOptions ?? {};
     const requestOptions: RequestOptions = {
-      ...this.getRequestOptions(this.progressTokenOf(options?.metadata)),
-      ...options?.requestOptions,
+      ...this.getRequestOptions(
+        this.progressTokenOf(options?.metadata),
+        callerSignal,
+      ),
+      ...overrides,
     };
     const mirrored = mcpParamHeadersForEvent(eventType, argsRecord);
     if (Object.keys(mirrored).length > 0) {

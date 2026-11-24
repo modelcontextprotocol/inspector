@@ -21,7 +21,11 @@ import { LIST_MAX_PAGES } from "@inspector/core/mcp/listSalvage.js";
 
 interface RequestCall {
   req: { method: string; params: Record<string, unknown> };
-  options: { headers?: Record<string, string>; timeout?: number };
+  options: {
+    headers?: Record<string, string>;
+    timeout?: number;
+    signal?: AbortSignal;
+  };
 }
 
 interface EventsInternals {
@@ -35,6 +39,7 @@ interface EventsInternals {
     ) => Promise<unknown>;
   } | null;
   listChangedNotifications: { events: boolean };
+  ambientRequestSignal: AbortSignal | undefined;
   noteSubscriptionAck: (message: { method: string; params?: unknown }) => void;
   buildSubscriptionFilter: () => Record<string, unknown>;
   wantsModernStream: () => boolean;
@@ -398,6 +403,28 @@ describe("InspectorClient events (#3028)", () => {
           .PollEventsResultSchema,
       );
       expect(calls[1].options.headers).toBeUndefined();
+    });
+
+    it("combines a caller's signal with the ambient one instead of replacing it", async () => {
+      const client = makeClient();
+      advertise(client);
+      const { calls } = stubRequest(client, POLL_RESULT);
+      const ambient = new AbortController();
+      internals(client).ambientRequestSignal = ambient.signal;
+      const caller = new AbortController();
+      await client.sendEventsRequest(
+        "events/poll",
+        REGION,
+        {},
+        (await import("@inspector/core/extension/events/schemas.js"))
+          .PollEventsResultSchema,
+        { requestOptions: { signal: caller.signal } },
+      );
+      const sent = calls[0].options.signal;
+      expect(sent?.aborted).toBe(false);
+      // Aborting the ambient (command-scoped) signal still reaches the request.
+      ambient.abort();
+      expect(sent?.aborted).toBe(true);
     });
 
     it("attributes a rejected poll decode, and only a decode", async () => {
