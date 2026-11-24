@@ -1,5 +1,6 @@
 /**
- * The poll and push loops of the Events subscription engine (SEP-3415, #3029).
+ * The poll, push and webhook loops of the Events subscription engine
+ * (SEP-3415, #3029; webhook management #3031).
  *
  * Each runner owns one subscription's wire activity and nothing else: when to
  * send the next `events/poll`, when to open, abandon and re-open an
@@ -38,8 +39,11 @@ import {
   EventsHeartbeatNotificationParamsSchema,
   EventsTerminatedNotificationParamsSchema,
   normalizeCursor,
+  type DeliveryStatus,
   type EventOccurrence,
   type PollEventsResult,
+  type SubscribeEventsResult,
+  type WebhookDelivery,
 } from "./schemas.js";
 import {
   eventsErrorOf,
@@ -88,6 +92,30 @@ export interface RunnerUpdate {
   nextPollMs?: number;
   /** When the last poll result or stream notification arrived. */
   lastMessageAt?: Date;
+  /** Webhook: what the last `events/subscribe` granted and reported. */
+  webhook?: WebhookRunnerUpdate;
+}
+
+/** The webhook runner's half of a subscription's state, as it changes. */
+export interface WebhookRunnerUpdate {
+  /** The server-derived subscription id (`X-MCP-Subscription-Id`). */
+  id?: string;
+  /** The granted expiry (ISO 8601), or `null` for no expiry. */
+  refreshBefore?: string | null;
+  /**
+   * The `deliveryStatus` the last response carried. Replaced on every
+   * response, so a refresh that omits it clears the previous one rather than
+   * leaving a stale status on show.
+   */
+  deliveryStatus?: DeliveryStatus;
+  /** Whether the last response said delivery started past the cursor. */
+  truncated?: boolean;
+  /** When the last successful subscribe or refresh answered. */
+  lastRefreshAt?: Date;
+  /** When the next refresh is due; `null` when none is scheduled. */
+  nextRefreshAt?: Date | null;
+  /** Successful `events/subscribe` calls, the first included. */
+  refreshes?: number;
 }
 
 /** How a runner reports to its registry. None of these may throw. */
@@ -546,5 +574,237 @@ export class PushRunner implements SubscriptionRunner {
       this.reconnectTimer = undefined;
       this.open();
     }, delay);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Webhook
+// ---------------------------------------------------------------------------
+
+/**
+ * Of a finite grant, the share left unspent when the refresh is sent: the
+ * refresh goes out once 80% of the time to `refreshBefore` has passed, so a
+ * failed refresh still has a fifth of the grant to be retried in.
+ */
+export const WEBHOOK_REFRESH_LEAD_FRACTION = 0.2;
+/** The lead never exceeds this: a day-long grant refreshes 5 min early. */
+export const MAX_WEBHOOK_REFRESH_LEAD_MS = 5 * 60_000;
+/**
+ * Never refresh sooner than this after a response, so a grant already in
+ * the past (a skewed clock, a server granting 0) cannot induce a tight loop.
+ */
+export const MIN_WEBHOOK_REFRESH_DELAY_MS = 1000;
+
+/**
+ * How long to wait before refreshing a grant, from `now`: `undefined` for no
+ * expiry (`null`) and for a timestamp that does not parse, which the runner
+ * reports rather than guessing a cadence for.
+ */
+export function webhookRefreshDelay(
+  refreshBefore: string | null,
+  now: number,
+): number | undefined {
+  if (refreshBefore === null) return undefined;
+  const expiry = Date.parse(refreshBefore);
+  if (Number.isNaN(expiry)) return undefined;
+  const remaining = expiry - now;
+  const lead = Math.min(
+    Math.max(remaining, 0) * WEBHOOK_REFRESH_LEAD_FRACTION,
+    MAX_WEBHOOK_REFRESH_LEAD_MS,
+  );
+  return Math.min(
+    Math.max(remaining - lead, MIN_WEBHOOK_REFRESH_DELAY_MS),
+    MAX_TIMER_DELAY_MS,
+  );
+}
+
+/** The parameters of every `events/subscribe` a runner sends, cursor aside. */
+export interface WebhookRunnerRequest {
+  arguments: Record<string, unknown>;
+  delivery: WebhookDelivery;
+  maxAgeMs?: number;
+  /** Omitted = server default; `null` = request no expiry. */
+  ttlMs?: number | null;
+}
+
+export interface WebhookRunnerOptions extends RunnerTiming {
+  request: WebhookRunnerRequest;
+  cursor: string | null;
+  /** Send one `events/subscribe`; abort `signal` to cancel it. */
+  subscribe(
+    params: WebhookRunnerRequest & { cursor: string | null },
+    signal: AbortSignal,
+  ): Promise<SubscribeEventsResult>;
+  callbacks: RunnerCallbacks;
+  /** Clock for the refresh schedule. Injectable for tests. */
+  now?: () => number;
+}
+
+/**
+ * One webhook subscription's management loop (spec, Webhook-Based Delivery):
+ * `events/subscribe`, then the same call again before every granted
+ * `refreshBefore` — the subscribe is idempotent, and re-sending it is what
+ * keeps the subscription alive. Every response's `cursor` is persisted and
+ * supplied on the next refresh ("always pass the last persisted cursor"),
+ * `truncated` is reported as a gap, and `deliveryStatus` is handed on as is.
+ *
+ * The Inspector never receives the deliveries, so this is the whole of the
+ * client's side: no occurrence ever reaches {@link RunnerCallbacks.occurrences}.
+ *
+ * A grant of no expiry (`refreshBefore: null`, only ever in answer to
+ * `ttlMs: null`) schedules nothing; {@link refreshNow} still sends one, which
+ * is how the spec's "occasionally refresh anyway" (to advance the cursor and
+ * read `deliveryStatus`) is offered without a timer.
+ *
+ * A JSON-RPC error that says the request can never succeed as sent —
+ * `CallbackEndpointError`, `Forbidden`, `InvalidParams`, … — ends it. A
+ * transport failure is retried with backoff, while the grant (if any) runs.
+ */
+export class WebhookRunner implements SubscriptionRunner {
+  private current: AbortController | undefined;
+  /** Settles (never rejects) once the in-flight subscribe has. */
+  private inflight: Promise<void> = Promise.resolve();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private failures = 0;
+  private refreshes = 0;
+  private stopped = false;
+  private started = false;
+  private readonly timing: Required<RunnerTiming>;
+  private readonly now: () => number;
+  cursor: string | null;
+  private readonly options: WebhookRunnerOptions;
+
+  constructor(options: WebhookRunnerOptions) {
+    this.options = options;
+    this.cursor = options.cursor;
+    this.timing = withDefaults(options);
+    this.now = options.now ?? Date.now;
+  }
+
+  start(): void {
+    if (this.started || this.stopped) return;
+    this.started = true;
+    this.send();
+  }
+
+  /**
+   * Stop refreshing. An in-flight subscribe is **not** aborted: aborting it
+   * locally does not stop the server from creating or refreshing the
+   * subscription, so the caller waits on {@link whenIdle} and only then sends
+   * `events/unsubscribe` — otherwise the unsubscribe could be processed first
+   * and a late grant left delivering. Its outcome is ignored.
+   */
+  stop(): void {
+    this.stopped = true;
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+    this.current = undefined;
+  }
+
+  /** Resolves once no subscribe is in flight; it never rejects. */
+  whenIdle(): Promise<void> {
+    return this.inflight;
+  }
+
+  /**
+   * Refresh now instead of at the scheduled time. Refused (`false`) before
+   * the runner has started, after it has stopped, and while a subscribe is
+   * already in flight.
+   */
+  refreshNow(): boolean {
+    if (!this.started || this.stopped || this.current) return false;
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = undefined;
+    this.send();
+    return true;
+  }
+
+  private schedule(delayMs: number): void {
+    // Never two timers: a listener may already have scheduled or sent.
+    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined;
+        this.send();
+      },
+      Math.min(delayMs, MAX_TIMER_DELAY_MS),
+    );
+  }
+
+  private send(): void {
+    const controller = new AbortController();
+    this.current = controller;
+    this.inflight = this.options
+      .subscribe(
+        { ...this.options.request, cursor: this.cursor },
+        controller.signal,
+      )
+      .then(
+        (result) => this.onResult(controller, result),
+        (err: unknown) => this.onFailure(controller, err),
+      );
+  }
+
+  private onResult(
+    controller: AbortController,
+    result: SubscribeEventsResult,
+  ): void {
+    if (this.stopped || controller !== this.current) return;
+    this.current = undefined;
+    this.failures = 0;
+    this.refreshes += 1;
+    this.cursor = normalizeCursor(result.cursor);
+    const now = this.now();
+    const delay = webhookRefreshDelay(result.refreshBefore, now);
+    const { callbacks } = this.options;
+    callbacks.update({
+      status: "active",
+      cursor: this.cursor,
+      lastMessageAt: new Date(now),
+      webhook: {
+        id: result.id,
+        refreshBefore: result.refreshBefore,
+        deliveryStatus: result.deliveryStatus,
+        truncated: result.truncated,
+        lastRefreshAt: new Date(now),
+        nextRefreshAt: delay === undefined ? null : new Date(now + delay),
+        refreshes: this.refreshes,
+      },
+    });
+    if (this.stopped) return;
+    // As for poll: a type with no replay has no position to have skipped.
+    if (result.truncated && this.cursor !== null) callbacks.gap(this.cursor);
+    // A listener may have stopped it, or sent a refresh of its own (whose
+    // result schedules the next one).
+    if (this.stopped || this.current) return;
+    if (delay !== undefined) {
+      this.schedule(delay);
+    } else if (result.refreshBefore !== null) {
+      callbacks.error({
+        code: -32603,
+        message: `Unreadable refreshBefore "${result.refreshBefore}": no refresh is scheduled, so the subscription will lapse unless refreshed by hand.`,
+        data: { client: true },
+      });
+    }
+  }
+
+  private onFailure(controller: AbortController, err: unknown): void {
+    if (this.stopped || controller !== this.current) return;
+    this.current = undefined;
+    const rpc = eventsErrorOf(err);
+    if (rpc && isTerminalRequestError(rpc.code)) {
+      this.stop();
+      this.options.callbacks.terminated(rpc);
+      return;
+    }
+    const { callbacks } = this.options;
+    callbacks.error(rpc ?? transportErrorInfo(err));
+    callbacks.update({ status: "reconnecting" });
+    callbacks.reconnect(`subscribe failed: ${describeFailure(err)}`);
+    if (this.stopped || this.current) return;
+    this.schedule(
+      backoffDelay(this.failures, MIN_WEBHOOK_REFRESH_DELAY_MS, this.timing),
+    );
+    this.failures += 1;
   }
 }

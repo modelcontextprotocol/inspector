@@ -40,11 +40,21 @@ export function canonicalJson(value: unknown): string {
  * The registry key for one subscription: event name, canonical arguments and
  * delivery mode. Two subscribe calls with the same three address the same
  * subscription; any difference addresses a different one.
+ *
+ * A webhook subscription is also keyed by its callback URL, as the server keys
+ * it (spec, Subscription identity: `(principal, delivery.url, name,
+ * arguments)`): the same event and arguments delivered to two URLs are two
+ * subscriptions. Poll and push pass no URL and keep their three-part key.
  */
 export function eventSubscriptionKey(
   name: string,
   args: Record<string, unknown> | undefined,
   mode: string,
+  deliveryUrl?: string,
 ): string {
-  return canonicalJson([name, args ?? {}, mode]);
+  return canonicalJson(
+    deliveryUrl === undefined
+      ? [name, args ?? {}, mode]
+      : [name, args ?? {}, mode, deliveryUrl],
+  );
 }

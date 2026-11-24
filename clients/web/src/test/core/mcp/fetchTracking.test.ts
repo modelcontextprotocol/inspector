@@ -1212,6 +1212,26 @@ describe("redactUrlsInText", () => {
 });
 
 describe("redactBody", () => {
+  it("masks a webhook signing secret by its whsec_ shape (#3031)", () => {
+    const secret = `whsec_${btoa("k".repeat(32))}`;
+    const json = redactBody(
+      JSON.stringify({
+        method: "events/subscribe",
+        params: { delivery: { url: "https://x.example", secret } },
+      }),
+      "application/json",
+    );
+    expect(json).not.toContain(secret);
+    expect(JSON.parse(json).params.delivery).toEqual({
+      url: "https://x.example",
+      secret: "whsec_[REDACTED]",
+    });
+    // Unparseable text is masked too.
+    expect(redactBody(`secret=${secret} trailing`, "text/plain")).toBe(
+      "secret=whsec_[REDACTED] trailing",
+    );
+  });
+
   it("returns undefined / empty bodies unchanged", () => {
     expect(redactBody(undefined, "application/json")).toBeUndefined();
     expect(redactBody("", "application/json")).toBe("");

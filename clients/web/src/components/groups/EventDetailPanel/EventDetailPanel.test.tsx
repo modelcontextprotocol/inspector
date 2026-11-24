@@ -12,6 +12,7 @@ import {
   allModesType,
   headerAnnotatedType,
   pollOnlyType,
+  unknownModeType,
   webhookOnlyType,
 } from "../../../test/fixtures/events";
 
@@ -93,7 +94,7 @@ describe("EventDetailPanel", () => {
     const group = screen.getByRole("radiogroup", { name: "Delivery mode" });
     expect(group).toHaveTextContent("Poll");
     expect(group).toHaveTextContent("Push");
-    expect(group).not.toHaveTextContent(/webhook/i);
+    expect(group).toHaveTextContent("Webhook");
     // Poll tuning: maxEvents, not heartbeatMs.
     expect(screen.getByLabelText("maxEvents")).toBeInTheDocument();
     expect(screen.queryByLabelText("heartbeatMs")).not.toBeInTheDocument();
@@ -145,7 +146,7 @@ describe("EventDetailPanel", () => {
     renderWithMantine(
       <EventDetailPanel
         {...baseProps}
-        eventType={webhookOnlyType}
+        eventType={unknownModeType}
         mode={undefined}
       />,
     );
@@ -168,5 +169,66 @@ describe("EventDetailPanel", () => {
     expect(
       screen.getByText("does not advertise push delivery"),
     ).toBeInTheDocument();
+  });
+
+  describe("webhook (#3031)", () => {
+    const SECRET = `whsec_${"Z".repeat(43)}=`;
+
+    it("takes a callback URL, a TTL or no expiry, and shows the secret masked", async () => {
+      const onRegenerate = vi.fn();
+      const { container } = renderWithMantine(
+        <Stateful
+          eventType={webhookOnlyType}
+          mode="webhook"
+          webhookSecret={SECRET}
+          onRegenerateWebhookSecret={onRegenerate}
+        />,
+      );
+      expect(screen.queryByLabelText("maxEvents")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("heartbeatMs")).not.toBeInTheDocument();
+      expect(container.innerHTML).not.toContain(SECRET.slice(6));
+      expect(screen.getByText(/does not receive its deliveries/)).toBeVisible();
+      const subscribe = screen.getByRole("button", { name: "Subscribe" });
+      expect(subscribe).toBeDisabled();
+
+      await userEvent.type(
+        screen.getByLabelText("Callback URL"),
+        "http://hooks.example.com",
+      );
+      expect(screen.getByText(/must use https/)).toBeInTheDocument();
+      expect(subscribe).toBeDisabled();
+      await userEvent.clear(screen.getByLabelText("Callback URL"));
+      await userEvent.type(
+        screen.getByLabelText("Callback URL"),
+        "https://hooks.example.com/in",
+      );
+      expect(subscribe).toBeEnabled();
+
+      await userEvent.type(screen.getByLabelText("ttlMs"), "60000");
+      expect(state().tuning).toMatchObject({
+        callbackUrl: "https://hooks.example.com/in",
+        ttlMs: 60000,
+      });
+      await userEvent.click(screen.getByLabelText(/No expiry/));
+      expect(state().tuning.noExpiry).toBe(true);
+      expect(screen.getByLabelText("ttlMs")).toBeDisabled();
+
+      await userEvent.click(screen.getByRole("button", { name: "Regenerate" }));
+      expect(onRegenerate).toHaveBeenCalledOnce();
+      expect(
+        screen.getByRole("button", { name: "Copy webhook secret" }),
+      ).toBeInTheDocument();
+    });
+
+    it("leaves the secret to the engine when none is given", () => {
+      renderWithMantine(
+        <EventDetailPanel
+          {...baseProps}
+          eventType={webhookOnlyType}
+          mode="webhook"
+        />,
+      );
+      expect(screen.queryByText("Signing secret")).not.toBeInTheDocument();
+    });
   });
 });

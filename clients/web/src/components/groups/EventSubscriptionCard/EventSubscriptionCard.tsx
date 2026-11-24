@@ -2,12 +2,17 @@ import { Button, Group, Paper, Stack, Text } from "@mantine/core";
 import type { EventSubscription } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { DeliveryModeBadge } from "../../elements/DeliveryModeBadge/DeliveryModeBadge";
 import { EventSubscriptionStatusBadge } from "../../elements/EventSubscriptionStatusBadge/EventSubscriptionStatusBadge";
+import { WebhookSecretField } from "../../elements/WebhookSecretField/WebhookSecretField";
 import {
   canResumeSubscription,
+  describeDeliveryStatus,
   describeEventsError,
+  describeWebhookError,
   formatCursor,
   formatInterval,
+  formatRefreshBefore,
   formatSubscriptionArguments,
+  formatTtlSuggestion,
   isSubscriptionLive,
   subscriptionInterval,
 } from "../../../utils/eventsUtils";
@@ -21,6 +26,10 @@ export interface EventSubscriptionCardProps {
   onRemove: () => void;
   /** Narrow the occurrence log to this subscription, or widen it again. */
   onToggleLogFilter: () => void;
+  /** Webhook: the signing secret, for the copy control (never rendered). */
+  webhookSecret?: string;
+  /** Webhook: send a refresh now rather than at the scheduled time. */
+  onRefresh?: () => void;
 }
 
 const CardFrame = Paper.withProps({
@@ -90,6 +99,18 @@ const StopButton = Button.withProps({
   color: "red",
 });
 
+const NoteText = Text.withProps({
+  size: "xs",
+  c: "var(--inspector-text-secondary)",
+});
+
+const UNSUBSCRIBE_LABELS = {
+  pending: "Unsubscribing…",
+  done: "Unsubscribed on the server.",
+  gone: "Already gone on the server (it had lapsed or been dropped).",
+  failed: "Unsubscribe failed",
+} as const;
+
 const RELIST_LABELS = {
   pending: "re-listing event types…",
   done: "event types re-listed",
@@ -110,11 +131,24 @@ export function EventSubscriptionCard({
   onResume,
   onRemove,
   onToggleLogFilter,
+  webhookSecret,
+  onRefresh,
 }: EventSubscriptionCardProps) {
-  const { name, mode, status, cursor, counts, lastError, termination } =
-    subscription;
+  const {
+    name,
+    mode,
+    status,
+    cursor,
+    counts,
+    lastError,
+    termination,
+    webhook,
+  } = subscription;
   const interval = subscriptionInterval(subscription);
   const live = isSubscriptionLive(subscription);
+  // A webhook error has meanings of its own (an endpoint that failed
+  // verification, an unauthenticated caller) worth spelling out.
+  const describeError = webhook ? describeWebhookError : describeEventsError;
 
   return (
     <CardFrame data-testid="event-subscription" data-status={status}>
@@ -140,29 +174,107 @@ export function EventSubscriptionCard({
             <DetailValue>{formatInterval(interval.ms)}</DetailValue>
           </DetailRow>
         )}
-        <CountsText>
-          {counts.events} events · {counts.gaps} gaps · {counts.errors} errors ·{" "}
-          {counts.reconnects} reconnects · {counts.duplicates} duplicates ·{" "}
-          {counts.invalidPayloads} invalid payloads
-        </CountsText>
+        {webhook && (
+          <>
+            <DetailRow>
+              <DetailLabel>Callback</DetailLabel>
+              <DetailValue>{webhook.url}</DetailValue>
+            </DetailRow>
+            {webhookSecret !== undefined && (
+              <DetailRow>
+                <DetailLabel>Secret</DetailLabel>
+                <WebhookSecretField secret={webhookSecret} />
+              </DetailRow>
+            )}
+            {webhook.id !== undefined && (
+              <DetailRow>
+                <DetailLabel>Webhook id</DetailLabel>
+                <DetailValue>{webhook.id}</DetailValue>
+              </DetailRow>
+            )}
+            <DetailRow>
+              <DetailLabel>TTL asked</DetailLabel>
+              <DetailValue>{formatTtlSuggestion(webhook.ttlMs)}</DetailValue>
+            </DetailRow>
+            <DetailRow>
+              <DetailLabel>Expires</DetailLabel>
+              <DetailValue>
+                {formatRefreshBefore(webhook.refreshBefore)}
+              </DetailValue>
+            </DetailRow>
+            {live && webhook.nextRefreshAt && (
+              <DetailRow>
+                <DetailLabel>Next refresh</DetailLabel>
+                <DetailValue>{webhook.nextRefreshAt.toISOString()}</DetailValue>
+              </DetailRow>
+            )}
+            <NoteText>
+              {webhook.refreshes} successful subscribe
+              {webhook.refreshes === 1 ? "" : "s"}
+              {webhook.truncated ? " · last response truncated (gap)" : ""}
+            </NoteText>
+            {webhook.deliveryStatus ? (
+              describeDeliveryStatus(webhook.deliveryStatus).map((line) => (
+                <NoteText key={line}>{line}</NoteText>
+              ))
+            ) : (
+              <NoteText>
+                No delivery status reported (a server includes it on a refresh,
+                if at all).
+              </NoteText>
+            )}
+            {webhook.unsubscribe && (
+              <NoteText>
+                {UNSUBSCRIBE_LABELS[webhook.unsubscribe.status]}
+                {webhook.unsubscribe.status === "failed" &&
+                  webhook.unsubscribe.error &&
+                  `: ${describeEventsError(webhook.unsubscribe.error)}`}
+              </NoteText>
+            )}
+          </>
+        )}
+        {webhook ? (
+          // Deliveries go to the callback, never here, so only what the
+          // management loop sees is counted.
+          <CountsText>
+            {counts.gaps} gaps · {counts.errors} errors · {counts.reconnects}{" "}
+            retries
+          </CountsText>
+        ) : (
+          <CountsText>
+            {counts.events} events · {counts.gaps} gaps · {counts.errors} errors
+            · {counts.reconnects} reconnects · {counts.duplicates} duplicates ·{" "}
+            {counts.invalidPayloads} invalid payloads
+          </CountsText>
+        )}
         {termination ? (
           <ErrorText>
             Terminated ({termination.reason},{" "}
             {RELIST_LABELS[termination.relist]}
-            ): {describeEventsError(termination.error)}
+            ): {describeError(termination.error)}
           </ErrorText>
         ) : (
           lastError && (
-            <ErrorText>Last error: {describeEventsError(lastError)}</ErrorText>
+            <ErrorText>Last error: {describeError(lastError)}</ErrorText>
           )
         )}
         <ActionRow>
           {live ? (
-            <StopButton onClick={onStop}>Stop</StopButton>
+            <>
+              <StopButton onClick={onStop}>
+                {webhook ? "Unsubscribe" : "Stop"}
+              </StopButton>
+              {webhook && onRefresh && (
+                <ActionButton onClick={onRefresh}>Refresh now</ActionButton>
+              )}
+            </>
           ) : (
             <>
               {canResumeSubscription(subscription) && (
                 <ActionButton onClick={onResume}>Resume</ActionButton>
+              )}
+              {webhook?.unsubscribe?.status === "failed" && (
+                <ActionButton onClick={onStop}>Retry unsubscribe</ActionButton>
               )}
               <ActionButton onClick={onRemove}>Remove</ActionButton>
             </>

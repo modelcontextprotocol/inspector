@@ -390,6 +390,11 @@ export interface EventsPanelProps {
   onResumeEventSubscription: (id: string) => void;
   onRemoveEventSubscription: (id: string) => void;
   onClearEventLog: () => void;
+  /** The secret the next webhook subscribe sends; see `EventsScreenProps`. */
+  webhookSecret?: string;
+  onRegenerateWebhookSecret?: () => void;
+  getWebhookSecret?: (id: string) => string | undefined;
+  onRefreshWebhook?: (id: string) => void;
 }
 
 /** The Tasks monitor: the task list, its progress map, and actions. */

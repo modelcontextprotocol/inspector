@@ -3,9 +3,14 @@ import { fn } from "storybook/test";
 import { EventSubscriptionCard } from "./EventSubscriptionCard";
 import {
   activePoll,
+  activeWebhook,
   forbiddenPoll,
   reconnectingPush,
+  rejectedWebhook,
+  stoppedWebhook,
   terminatedPush,
+  throttledWebhook,
+  WEBHOOK_SECRET,
 } from "../../../test/fixtures/events";
 
 const meta: Meta<typeof EventSubscriptionCard> = {
@@ -35,4 +40,24 @@ export const TerminatedForbidden: Story = {
 };
 export const LogFiltered: Story = {
   args: { subscription: activePoll, logFiltered: true },
+};
+export const WebhookFailingDelivery: Story = {
+  args: {
+    subscription: activeWebhook,
+    webhookSecret: WEBHOOK_SECRET,
+    onRefresh: fn(),
+  },
+};
+export const WebhookThrottledNoExpiry: Story = {
+  args: {
+    subscription: throttledWebhook,
+    webhookSecret: WEBHOOK_SECRET,
+    onRefresh: fn(),
+  },
+};
+export const WebhookUnsubscribeFailed: Story = {
+  args: { subscription: stoppedWebhook, webhookSecret: WEBHOOK_SECRET },
+};
+export const WebhookEndpointVerificationFailed: Story = {
+  args: { subscription: rejectedWebhook },
 };

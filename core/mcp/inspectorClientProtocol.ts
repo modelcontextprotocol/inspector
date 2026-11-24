@@ -50,6 +50,9 @@ import type {
   PollEventsResult,
   StreamEventsParams,
   StreamEventsResult,
+  SubscribeEventsParams,
+  SubscribeEventsResult,
+  UnsubscribeEventsParams,
 } from "../extension/events/schemas.js";
 import type { EventsExtensionSupport } from "../extension/events/support.js";
 import type { ExcludedEventType } from "../extension/events/headers.js";
@@ -204,6 +207,21 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
       metadata?: RequestMetadata;
     },
   ): Promise<StreamEventsResult>;
+  /**
+   * One `events/subscribe`: create or refresh a webhook subscription; the
+   * subscription engine's webhook runner re-sends it before each expiry (#3031).
+   */
+  subscribeEvents?(
+    eventType: EventType,
+    params: Omit<SubscribeEventsParams, "name">,
+    options?: { signal?: AbortSignal; metadata?: RequestMetadata },
+  ): Promise<SubscribeEventsResult>;
+  /** One `events/unsubscribe`: tear a webhook subscription down now. */
+  unsubscribeEvents?(
+    eventType: EventType,
+    params: Omit<UnsubscribeEventsParams, "name">,
+    options?: { metadata?: RequestMetadata },
+  ): Promise<void>;
 
   /**
    * Mark the response that most recently answered `method` as rejected by the

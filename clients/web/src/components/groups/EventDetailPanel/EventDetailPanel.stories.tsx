@@ -9,6 +9,8 @@ import {
   allModesType,
   headerAnnotatedType,
   pollOnlyType,
+  unknownModeType,
+  WEBHOOK_SECRET,
   webhookOnlyType,
 } from "../../../test/fixtures/events";
 
@@ -63,8 +65,32 @@ export const PollOnly: Story = { args: { eventType: pollOnlyType } };
 export const MirroredHeaders: Story = {
   args: { eventType: headerAnnotatedType, formValues: { region: "us-west1" } },
 };
-export const WebhookOnly: Story = {
-  args: { eventType: webhookOnlyType, mode: undefined },
+export const Webhook: Story = {
+  args: {
+    eventType: allModesType,
+    mode: "webhook",
+    tuning: { callbackUrl: "https://hooks.example.com/in", ttlMs: 3_600_000 },
+    webhookSecret: WEBHOOK_SECRET,
+    onRegenerateWebhookSecret: fn(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText(/whsec_•+/)).toBeInTheDocument();
+    await expect(
+      canvas.getByRole("button", { name: "Subscribe" }),
+    ).toBeEnabled();
+  },
+};
+export const WebhookNotHttps: Story = {
+  args: {
+    eventType: webhookOnlyType,
+    mode: "webhook",
+    tuning: { callbackUrl: "http://hooks.example.com/in" },
+    webhookSecret: WEBHOOK_SECRET,
+  },
+};
+export const NoSubscribableMode: Story = {
+  args: { eventType: unknownModeType, mode: undefined },
 };
 export const SubscribeRefused: Story = {
   args: {

@@ -15,6 +15,9 @@ import type {
   PollEventsResult,
   StreamEventsParams,
   StreamEventsResult,
+  SubscribeEventsParams,
+  SubscribeEventsResult,
+  UnsubscribeEventsParams,
 } from "@inspector/core/extension/events/schemas.js";
 import {
   EVENTS_SUBSCRIPTION_ID_META_KEY,
@@ -133,6 +136,44 @@ export class EventsEngineFakeClient extends EventsFakeClient {
         });
       }),
   );
+
+  /**
+   * Webhook subscribe answers, in order; an `Error` rejects. Empty, a subscribe
+   * is granted an hour from the (possibly fake) clock, echoing the cursor.
+   */
+  subscribeResults: Array<SubscribeEventsResult | Error> = [];
+  /** Webhook unsubscribe outcomes, in order; empty resolves. */
+  unsubscribeResults: Array<Error | undefined> = [];
+
+  subscribeEvents = vi.fn<
+    (
+      eventType: EventType,
+      params: Omit<SubscribeEventsParams, "name">,
+      options?: { signal?: AbortSignal; metadata?: RequestMetadata },
+    ) => Promise<SubscribeEventsResult>
+  >(async (_eventType, params) => {
+    const next = this.subscribeResults.shift();
+    if (next instanceof Error) throw next;
+    return (
+      next ?? {
+        id: "sub_fake",
+        refreshBefore: new Date(Date.now() + 3_600_000).toISOString(),
+        cursor: params.cursor ?? null,
+        truncated: false,
+      }
+    );
+  });
+
+  unsubscribeEvents = vi.fn<
+    (
+      eventType: EventType,
+      params: Omit<UnsubscribeEventsParams, "name">,
+      options?: { metadata?: RequestMetadata },
+    ) => Promise<void>
+  >(async () => {
+    const next = this.unsubscribeResults.shift();
+    if (next) throw next;
+  });
 
   /** The newest stream opened. */
   lastStream(): FakeStream {
