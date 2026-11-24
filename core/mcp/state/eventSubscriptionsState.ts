@@ -308,6 +308,12 @@ interface Entry {
 export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptionsStateEventMap> {
   private readonly entries = new Map<string, Entry>();
   private readonly routes = new Map<string, PushRunner>();
+  /**
+   * Webhook keys with an `events/unsubscribe` in flight. A subscribe with the
+   * same key waits for it to settle: sent alongside, the server could apply
+   * the unsubscribe last and delete the subscription the card reports live.
+   */
+  private readonly tearingDown = new Set<string>();
   private log: EventLogEntry[] = [];
   private seq = 0;
   private client: InspectorClientProtocol | null;
@@ -415,6 +421,11 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     const id = eventSubscriptionKey(eventType.name, args, mode, webhook?.url);
     const existing = this.entries.get(id);
     if (existing?.runner) return existing.snapshot;
+    if (this.tearingDown.has(id)) {
+      throw new Error(
+        "This webhook subscription is still being unsubscribed; try again once that finishes.",
+      );
+    }
     // Checked here, once the existing entry is known: a resume keeps the
     // secret the receiver already verifies with.
     const secret =
@@ -514,11 +525,19 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   /**
    * Stop a subscription, keeping it (and its cursor) in the registry. A
    * webhook one is also torn down on the server with `events/unsubscribe`;
-   * its outcome is reported on {@link EventWebhookState.unsubscribe}.
+   * its outcome is reported on {@link EventWebhookState.unsubscribe}, and
+   * stopping it again after a failed unsubscribe retries the teardown.
    */
   stop(id: string): void {
     const entry = this.entries.get(id);
-    if (!entry?.runner) return;
+    if (!entry) return;
+    if (!entry.runner) {
+      // A teardown that failed is retried: the server may still hold it.
+      if (entry.snapshot.webhook?.unsubscribe?.status === "failed") {
+        this.unsubscribeWebhook(entry);
+      }
+      return;
+    }
     entry.runner.stop();
     entry.runner = undefined;
     this.patch(entry, { status: "stopped" });
@@ -526,14 +545,16 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   }
 
   /**
-   * Stop a subscription and forget it. A live webhook one is unsubscribed on
-   * the way out; a stopped one already was, and a terminated one no longer
-   * exists on the server.
+   * Stop a subscription and forget it. A webhook one the server may still
+   * hold is unsubscribed on the way out (best effort — the entry is gone, so
+   * the outcome is not reported): a live one, and one that was granted and
+   * ended without a confirmed teardown (a failed unsubscribe, or a refresh
+   * refused after an earlier grant).
    */
   remove(id: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
-    const unsubscribe = entry.runner !== undefined && entry.snapshot.webhook;
+    const unsubscribe = needsTeardown(entry);
     entry.runner?.stop();
     entry.runner = undefined;
     this.entries.delete(id);
@@ -571,7 +592,7 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   /**
    * Send `events/unsubscribe` for a webhook entry the caller has just stopped
    * or removed, reporting the outcome on the entry while it is still the
-   * registry's and still stopped (a resume or a remove meanwhile wins).
+   * registry's.
    */
   private unsubscribeWebhook(entry: Entry): void {
     const client = this.client;
@@ -579,11 +600,19 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     /* v8 ignore next -- callers pass only webhook entries of a live store, whose client `subscribe` checked */
     if (!client?.unsubscribeEvents || !webhook) return;
     const report = (unsubscribe: EventWebhookUnsubscribe): void => {
-      if (this.entries.get(entry.snapshot.id) !== entry || entry.runner) return;
+      // A remove meanwhile wins. A resume cannot: `subscribe` refuses the key
+      // until this settles.
+      if (this.entries.get(entry.snapshot.id) !== entry) return;
       const current = entry.snapshot.webhook!;
       this.patch(entry, { webhook: { ...current, unsubscribe } });
     };
     report({ status: "pending" });
+    const key = entry.snapshot.id;
+    this.tearingDown.add(key);
+    const settle = (unsubscribe: EventWebhookUnsubscribe): void => {
+      this.tearingDown.delete(key);
+      report(unsubscribe);
+    };
     let pending: Promise<void>;
     try {
       pending = client.unsubscribeEvents(entry.snapshot.eventType, {
@@ -594,10 +623,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
       pending = Promise.reject(err);
     }
     pending.then(
-      () => report({ status: "done" }),
+      () => settle({ status: "done" }),
       (err: unknown) => {
         const rpc = eventsErrorOf(err);
-        report(
+        settle(
           rpc?.code === EVENTS_ERROR_CODES.NotFound
             ? { status: "gone", error: rpc }
             : { status: "failed", error: rpc ?? transportErrorInfo(err) },
@@ -618,6 +647,7 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     const hadLog = this.log.length > 0;
     this.entries.clear();
     this.routes.clear();
+    this.tearingDown.clear();
     this.log = [];
     if (hadEntries) this.dispatchSubscriptions();
     if (hadLog) this.dispatchTypedEvent("logChange", []);
@@ -925,5 +955,25 @@ function checkWebhookOptions(
   if (url.protocol !== "https:") {
     throw new Error("The callback URL must use https://.");
   }
-  return options;
+  // Normalized, so equivalent spellings (`https://h.example` and
+  // `https://h.example/`) are one registry key, as they are one server key.
+  return { ...options, url: url.href };
+}
+
+/**
+ * Whether removing `entry` should send `events/unsubscribe`: it is a webhook
+ * subscription the server may still hold — live, or granted at least once
+ * and not confirmed torn down (and no teardown already in flight).
+ */
+function needsTeardown(entry: Entry): boolean {
+  const { webhook } = entry.snapshot;
+  if (!webhook) return false;
+  if (entry.runner) return true;
+  const status = webhook.unsubscribe?.status;
+  return (
+    webhook.refreshes > 0 &&
+    status !== "done" &&
+    status !== "gone" &&
+    status !== "pending"
+  );
 }

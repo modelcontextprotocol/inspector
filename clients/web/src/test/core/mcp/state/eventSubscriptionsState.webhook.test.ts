@@ -253,6 +253,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       });
       await flush();
       state.stop(sub.id);
+      await flush();
       state.resubscribe(sub.id);
       expect(client.subscribeEvents.mock.calls[1]![1]).not.toHaveProperty(
         "ttlMs",
@@ -304,7 +305,7 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       );
     });
 
-    it("drops an unsubscribe outcome once the subscription was resumed", async () => {
+    it("drops an unsubscribe outcome once the subscription was removed", async () => {
       let settle: () => void = () => {};
       client.unsubscribeEvents.mockImplementationOnce(
         () => new Promise<void>((resolve) => (settle = resolve)),
@@ -315,12 +316,13 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       });
       await flush();
       state.stop(sub.id);
-      state.resubscribe(sub.id);
+      state.remove(sub.id);
+      const changes = vi.fn();
+      state.addEventListener("subscriptionsChange", changes);
       settle();
       await flush();
-      expect(
-        state.getSubscription(sub.id)?.webhook?.unsubscribe,
-      ).toBeUndefined();
+      expect(changes).not.toHaveBeenCalled();
+      expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
     });
 
     it("unsubscribes a live one on remove, but not a stopped or terminated one", async () => {
@@ -394,5 +396,106 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       canResubscribe: false,
     });
     expect(() => state.resubscribe(sub.id)).toThrow(/cannot be resumed/);
+  });
+
+  describe("review round 1", () => {
+    it("keys equivalent callback URLs as one, and sends the normalized URL", () => {
+      const a = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: "https://hooks.example.com" },
+      });
+      const b = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: "https://HOOKS.example.com/" },
+      });
+      expect(b).toBe(a);
+      expect(a.webhook?.url).toBe("https://hooks.example.com/");
+      expect(client.subscribeEvents.mock.calls[0]![1].delivery.url).toBe(
+        "https://hooks.example.com/",
+      );
+    });
+
+    it("refuses a resubscribe, or a re-create, while its unsubscribe is in flight", async () => {
+      let settle: () => void = () => {};
+      client.unsubscribeEvents.mockImplementation(
+        () => new Promise<void>((resolve) => (settle = resolve)),
+      );
+      const sub = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: URL_A },
+      });
+      await flush();
+      state.stop(sub.id);
+      expect(() => state.resubscribe(sub.id)).toThrow(
+        /still being unsubscribed/,
+      );
+      state.remove(sub.id);
+      expect(() =>
+        state.subscribe(hooked, { mode: "webhook", webhook: { url: URL_A } }),
+      ).toThrow(/still being unsubscribed/);
+      settle();
+      await flush();
+      expect(
+        state.subscribe(hooked, { mode: "webhook", webhook: { url: URL_A } })
+          .status,
+      ).toBe("starting");
+    });
+
+    it("retries a failed unsubscribe on stop, and tears it down on remove", async () => {
+      client.unsubscribeResults.push(new Error("down"), new Error("down"));
+      const sub = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: URL_A },
+      });
+      await flush();
+      state.stop(sub.id);
+      await flush();
+      expect(state.getSubscription(sub.id)?.webhook?.unsubscribe?.status).toBe(
+        "failed",
+      );
+      state.stop(sub.id); // retry
+      expect(client.unsubscribeEvents).toHaveBeenCalledTimes(2);
+      await flush();
+      expect(state.getSubscription(sub.id)?.webhook?.unsubscribe?.status).toBe(
+        "failed",
+      );
+      state.remove(sub.id); // still not torn down: one more attempt
+      expect(client.unsubscribeEvents).toHaveBeenCalledTimes(3);
+      await flush();
+    });
+
+    it("tears down on remove a subscription refused on refresh after a grant", async () => {
+      client.subscribeResults.push(
+        {
+          id: "sub_1",
+          refreshBefore: null,
+          cursor: null,
+          truncated: false,
+        },
+        rpcError(EVENTS_ERROR_CODES.CallbackEndpointError, "no", {
+          reason: "timeout",
+        }),
+      );
+      const sub = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: URL_A },
+      });
+      await flush();
+      state.refreshWebhook(sub.id);
+      await flush();
+      expect(state.getSubscription(sub.id)?.status).toBe("terminated");
+      state.remove(sub.id);
+      expect(client.unsubscribeEvents).toHaveBeenCalledTimes(1);
+      await flush();
+    });
+
+    it("does nothing on stop for an unknown id or a stopped poll", async () => {
+      const poll = state.subscribe(hooked, { mode: "poll" });
+      await flush();
+      state.stop(poll.id);
+      state.stop(poll.id);
+      state.stop("nope");
+      expect(client.unsubscribeEvents).not.toHaveBeenCalled();
+    });
   });
 });

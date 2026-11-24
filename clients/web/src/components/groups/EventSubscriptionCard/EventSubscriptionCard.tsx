@@ -273,6 +273,9 @@ export function EventSubscriptionCard({
               {canResumeSubscription(subscription) && (
                 <ActionButton onClick={onResume}>Resume</ActionButton>
               )}
+              {webhook?.unsubscribe?.status === "failed" && (
+                <ActionButton onClick={onStop}>Retry unsubscribe</ActionButton>
+              )}
               <ActionButton onClick={onRemove}>Remove</ActionButton>
             </>
           )}

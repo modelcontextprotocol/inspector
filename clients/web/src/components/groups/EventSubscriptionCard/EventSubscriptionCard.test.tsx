@@ -181,6 +181,15 @@ describe("EventSubscriptionCard", () => {
       expect(screen.getByRole("button", { name: "Resume" })).toBeVisible();
     });
 
+    it("offers to retry a failed unsubscribe", async () => {
+      const p = props({ subscription: stoppedWebhook });
+      renderWithMantine(<EventSubscriptionCard {...p} />);
+      await userEvent.click(
+        screen.getByRole("button", { name: "Retry unsubscribe" }),
+      );
+      expect(p.onStop).toHaveBeenCalledOnce();
+    });
+
     it.each([
       ["pending", "Unsubscribing…"],
       ["done", "Unsubscribed on the server."],

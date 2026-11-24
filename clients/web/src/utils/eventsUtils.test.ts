@@ -145,6 +145,26 @@ describe("eventArguments", () => {
 });
 
 describe("webhook options (#3031)", () => {
+  it("offers no resume while an unsubscribe is in flight", () => {
+    const stopped = {
+      ...activePoll,
+      status: "stopped" as const,
+      webhook: {
+        url: "https://x.example/",
+        secret: "whsec_•",
+        refreshes: 1,
+        unsubscribe: { status: "pending" as const },
+      },
+    };
+    expect(canResumeSubscription(stopped)).toBe(false);
+    expect(
+      canResumeSubscription({
+        ...stopped,
+        webhook: { ...stopped.webhook, unsubscribe: { status: "done" } },
+      }),
+    ).toBe(true);
+  });
+
   it("sends the trimmed URL, the secret and only the webhook tuning", () => {
     expect(
       buildSubscribeOptions(

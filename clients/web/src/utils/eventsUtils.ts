@@ -296,6 +296,9 @@ export function canResumeSubscription(
   subscription: EventSubscription,
 ): boolean {
   if (isSubscriptionLive(subscription)) return false;
+  // A webhook resubscribe waits for its in-flight unsubscribe (the engine
+  // refuses it until then).
+  if (subscription.webhook?.unsubscribe?.status === "pending") return false;
   return subscription.termination?.canResubscribe ?? true;
 }
 
