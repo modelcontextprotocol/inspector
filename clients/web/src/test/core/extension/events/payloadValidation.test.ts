@@ -20,10 +20,13 @@ describe("createEventPayloadValidator (#3029)", () => {
     const validate = createEventPayloadValidator(
       new LinearPatternJsonSchemaValidator(),
     );
-    expect(validate(typed, { status: "passed" })).toBeUndefined();
-    expect(validate(typed, { status: "flaky" })).toMatch(
-      /Payload does not match the payloadSchema of "build.finished"/,
-    );
+    expect(validate(typed, { status: "passed" })).toEqual({ status: "valid" });
+    expect(validate(typed, { status: "flaky" })).toEqual({
+      status: "invalid",
+      error: expect.stringMatching(
+        /Payload does not match the payloadSchema of "build.finished"/,
+      ),
+    });
   });
 
   it("does not check a type with no payloadSchema", () => {
@@ -35,7 +38,7 @@ describe("createEventPayloadValidator (#3029)", () => {
       delivery: typed.delivery,
       inputSchema: typed.inputSchema,
     };
-    expect(validate(untyped, { anything: 1 })).toBeUndefined();
+    expect(validate(untyped, { anything: 1 })).toEqual({ status: "unchecked" });
   });
 
   it("compiles each schema once and never flags against a schema that will not compile", () => {
@@ -44,8 +47,8 @@ describe("createEventPayloadValidator (#3029)", () => {
     });
     const provider: jsonSchemaValidator = { getValidator };
     const validate = createEventPayloadValidator(provider);
-    expect(validate(typed, { status: 1 })).toBeUndefined();
-    expect(validate(typed, { status: 2 })).toBeUndefined();
+    expect(validate(typed, { status: 1 })).toEqual({ status: "unchecked" });
+    expect(validate(typed, { status: 2 })).toEqual({ status: "unchecked" });
     expect(getValidator).toHaveBeenCalledTimes(1);
   });
 });

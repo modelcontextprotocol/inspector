@@ -10,11 +10,13 @@ export interface DeliveryModeBadgeProps {
   mode: string;
 }
 
-const COLOR_BY_MODE: Record<string, string> = {
-  poll: "blue",
-  push: "teal",
-  webhook: "grape",
-};
+// A Map, not an object literal: the mode is server-controlled, and a name like
+// `constructor` or `__proto__` must miss rather than hit an inherited member.
+const COLOR_BY_MODE: ReadonlyMap<string, string> = new Map([
+  ["poll", "blue"],
+  ["push", "teal"],
+  ["webhook", "grape"],
+]);
 
 const ModeBadge = Badge.withProps({
   variant: "filled",
@@ -31,7 +33,7 @@ const ModeBadge = Badge.withProps({
  */
 export function DeliveryModeBadge({ mode }: DeliveryModeBadgeProps) {
   return (
-    <ModeBadge color={filledBadgeColor(COLOR_BY_MODE[mode] ?? "gray")}>
+    <ModeBadge color={filledBadgeColor(COLOR_BY_MODE.get(mode) ?? "gray")}>
       {mode}
     </ModeBadge>
   );

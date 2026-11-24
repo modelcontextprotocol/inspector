@@ -177,6 +177,7 @@ export const eventLog: EventLogEntry[] = [
       },
       cursor: "c-41",
     },
+    payload: "valid",
   },
   {
     seq: 2,
@@ -189,6 +190,7 @@ export const eventLog: EventLogEntry[] = [
       timestamp: "2026-11-24T10:01:05Z",
       data: { messageId: "msg_2" },
     },
+    payload: "invalid",
     payloadError: "data must have required property 'from'",
   },
   { seq: 3, at, subscription: activePoll.id, kind: "gap", cursor: "c-42" },
@@ -225,5 +227,6 @@ export const eventLog: EventLogEntry[] = [
       timestamp: "2026-11-24T10:01:09Z",
       data: {},
     },
+    payload: "unchecked",
   },
 ];

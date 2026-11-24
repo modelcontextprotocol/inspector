@@ -247,6 +247,11 @@ export function EventDetailPanel({
             onChange={onFormChange}
             resetKey={resetKey ?? name}
             onValidityChange={setHasInvalidDraft}
+            // The arguments go through the `tools/call` conversion
+            // (`eventArguments`), so a raw-JSON draft the conversion would
+            // retype is refused rather than sent as something other than
+            // what the editor shows (#2171).
+            enforceToolArgumentTypes
           />
 
           {mode !== undefined ? (

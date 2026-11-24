@@ -56,7 +56,7 @@ describe("EventLogPanel", () => {
     expect(document.querySelector("b")).toBeNull();
   });
 
-  it("badges payload validation: invalid, valid, or no schema", async () => {
+  it("badges the recorded payload verdict: invalid, valid, or not checked", async () => {
     renderWithMantine(
       <EventLogPanel
         entries={eventLog}
@@ -65,8 +65,7 @@ describe("EventLogPanel", () => {
       />,
     );
     expect(screen.getByText("payload valid")).toBeInTheDocument();
-    // The entry whose subscription is gone has no schema to check against.
-    expect(screen.getByText("no payload schema")).toBeInTheDocument();
+    expect(screen.getByText("payload not checked")).toBeInTheDocument();
     await userEvent.hover(screen.getByText("payload invalid"));
     expect(
       await screen.findByText("data must have required property 'from'"),

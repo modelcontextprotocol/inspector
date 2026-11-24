@@ -100,8 +100,11 @@ export function eventArguments(
   inputSchema: Record<string, unknown>,
   values: Record<string, unknown>,
 ): Record<string, unknown> {
-  const present: Record<string, unknown> = {};
-  const strings: Record<string, string> = {};
+  // Null-prototype collectors, so an argument named `__proto__` is an own
+  // property rather than a call to the inherited setter that drops it. The
+  // spread below copies own keys as data properties, so it survives that too.
+  const present: Record<string, unknown> = Object.create(null);
+  const strings: Record<string, string> = Object.create(null);
   for (const [key, value] of Object.entries(values)) {
     if (value === undefined || value === "") continue;
     present[key] = value;

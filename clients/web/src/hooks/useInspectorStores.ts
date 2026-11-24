@@ -192,6 +192,26 @@ export interface UseInspectorStoresResult {
   stderrLogs: StderrLogEntry[];
 }
 
+/**
+ * The re-list a contract-changing termination triggers (#3029). The engine
+ * decides its resubscribe offer from the full list the managed store walks; in
+ * paginated mode the tab shows the paged store instead, so page 1 is reloaded
+ * too, or the sidebar and form would keep the stale descriptor the offer was
+ * not based on. That reload's failure is the paged store's to show; it does
+ * not fail the re-list.
+ */
+export async function relistEvents(
+  client: InspectorClient,
+  managed: ManagedEventsState,
+  paged: PagedEventsState,
+): Promise<EventType[]> {
+  const eventTypes = await managed.refresh();
+  if (client.getServerSettings()?.paginatedLists) {
+    await paged.loadPage(undefined).catch(() => {});
+  }
+  return eventTypes;
+}
+
 /** Module scope: a `useStoreSnapshot` fallback and reader must be stable. */
 const NO_EXCLUDED_EVENT_TYPES: ExcludedEventType[] = [];
 // Typed by the protocol, where the Events surface is optional: a client
@@ -248,6 +268,7 @@ export function useInspectorStores({
       // contract-changing termination, so the list the Events tab shows is the
       // one its resubscribe offer was based on.
       const managedEventsState = new ManagedEventsState(client);
+      const pagedEventsState = new PagedEventsState(client);
       const fetchRequestLogState = new FetchRequestLogState(
         client,
         fetchLogOptions,
@@ -265,9 +286,10 @@ export function useInspectorStores({
         managedRequestorTasksState: new ManagedRequestorTasksState(client),
         managedSkillsState: new ManagedSkillsState(client),
         managedEventsState,
-        pagedEventsState: new PagedEventsState(client),
+        pagedEventsState,
         eventSubscriptionsState: new EventSubscriptionsState(client, {
-          relist: () => managedEventsState.refresh(),
+          relist: () =>
+            relistEvents(client, managedEventsState, pagedEventsState),
         }),
         resourceSubscriptionsState: new ResourceSubscriptionsState(
           client,

@@ -110,6 +110,12 @@ describe("eventArguments", () => {
     ).toEqual({ count: 3, name: "x", flag: true });
   });
 
+  it("keeps an argument named __proto__ as an own property", () => {
+    const args = eventArguments(schema, JSON.parse('{"__proto__":"x"}'));
+    expect(Object.keys(args)).toEqual(["__proto__"]);
+    expect(Object.getOwnPropertyDescriptor(args, "__proto__")?.value).toBe("x");
+  });
+
   it("returns an empty object for an empty form", () => {
     expect(eventArguments(schema, {})).toEqual({});
   });

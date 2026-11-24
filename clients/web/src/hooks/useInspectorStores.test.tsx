@@ -4,6 +4,7 @@ import type { InspectorClient } from "@inspector/core/mcp/index.js";
 import { renderWithMantine } from "../test/renderWithMantine";
 import { TypedEventTarget } from "@inspector/core/mcp/typedEventTarget.js";
 import {
+  relistEvents,
   useInspectorStores,
   type UseInspectorStoresResult,
 } from "./useInspectorStores";
@@ -187,7 +188,11 @@ vi.mock("@inspector/core/react/useStderrLog.js", () => ({
  * transport and an environment to assert on object identity.
  */
 const client = () =>
-  ({ marker: Symbol("client") }) as unknown as InspectorClient;
+  ({
+    marker: Symbol("client"),
+    // Read only by the events re-list (#3030): all-pages mode.
+    getServerSettings: () => undefined,
+  }) as unknown as InspectorClient;
 
 const fetchLogOptions = {
   maxFetchRequests: 42,
@@ -244,6 +249,40 @@ const STORE_NAMES = [
   "fetchRequestLogState",
   "stderrLogState",
 ];
+
+describe("relistEvents (#3030)", () => {
+  // Structural stand-ins for the three collaborators; each double cast skips a
+  // transport-backed client or a full store for a function that calls one
+  // method on each.
+  const managed = (types: unknown[]) =>
+    ({ refresh: vi.fn().mockResolvedValue(types) }) as unknown as Parameters<
+      typeof relistEvents
+    >[1];
+  const paged = (load: () => Promise<unknown>) =>
+    ({ loadPage: vi.fn(load) }) as unknown as Parameters<
+      typeof relistEvents
+    >[2];
+  const clientWith = (paginatedLists: boolean) =>
+    ({
+      getServerSettings: () => ({ paginatedLists }),
+    }) as unknown as InspectorClient;
+
+  it("returns the full list and leaves the paged store alone in all-pages mode", async () => {
+    const p = paged(() => Promise.resolve());
+    await expect(
+      relistEvents(clientWith(false), managed([{ name: "a" }]), p),
+    ).resolves.toEqual([{ name: "a" }]);
+    expect(p.loadPage).not.toHaveBeenCalled();
+  });
+
+  it("reloads page 1 in paginated mode, and a failed reload does not fail the re-list", async () => {
+    const p = paged(() => Promise.reject(new Error("page failed")));
+    await expect(
+      relistEvents(clientWith(true), managed([{ name: "a" }]), p),
+    ).resolves.toEqual([{ name: "a" }]);
+    expect(p.loadPage).toHaveBeenCalledWith(undefined);
+  });
+});
 
 describe("useInspectorStores", () => {
   beforeEach(() => {

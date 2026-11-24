@@ -121,11 +121,6 @@ const KIND_COLORS: Record<EventLogEntry["kind"], string> = {
   terminated: "red",
 };
 
-/** Whether an occurrence's type declared a `payloadSchema` to check against. */
-function hasPayloadSchema(subscription: EventSubscription | undefined) {
-  return subscription?.eventType.payloadSchema !== undefined;
-}
-
 function EntryBody({
   entry,
   subscription,
@@ -167,26 +162,27 @@ function EntryBody({
   }
 }
 
-function ValidationFlag({
-  entry,
-  subscription,
-}: {
-  entry: EventLogEntry;
-  subscription: EventSubscription | undefined;
-}) {
+/**
+ * The verdict the engine recorded when the occurrence arrived — not one
+ * re-derived from the subscription's current descriptor, which a re-list can
+ * replace after the fact.
+ */
+function ValidationFlag({ entry }: { entry: EventLogEntry }) {
   if (entry.kind !== "event") return null;
-  if (entry.payloadError !== undefined) {
-    return (
-      <PayloadErrorTooltip label={entry.payloadError}>
-        <ValidationBadge color="red">payload invalid</ValidationBadge>
-      </PayloadErrorTooltip>
-    );
+  switch (entry.payload) {
+    case "invalid":
+      return (
+        <PayloadErrorTooltip label={entry.payloadError}>
+          <ValidationBadge color="red">payload invalid</ValidationBadge>
+        </PayloadErrorTooltip>
+      );
+    case "valid":
+      return <ValidationBadge color="green">payload valid</ValidationBadge>;
+    case "unchecked":
+      return (
+        <ValidationBadge color="gray">payload not checked</ValidationBadge>
+      );
   }
-  return hasPayloadSchema(subscription) ? (
-    <ValidationBadge color="green">payload valid</ValidationBadge>
-  ) : (
-    <ValidationBadge color="gray">no payload schema</ValidationBadge>
-  );
 }
 
 /**
@@ -238,10 +234,7 @@ export function EventLogPanel({
                           : entry.subscription}{" "}
                         · {entry.at.toLocaleTimeString()}
                       </EntryMeta>
-                      <ValidationFlag
-                        entry={entry}
-                        subscription={subscription}
-                      />
+                      <ValidationFlag entry={entry} />
                     </EntryHeader>
                     <EntryBody entry={entry} subscription={subscription} />
                   </EntryStack>
