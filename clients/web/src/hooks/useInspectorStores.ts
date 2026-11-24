@@ -207,6 +207,10 @@ export async function relistEvents(
 ): Promise<EventType[]> {
   const eventTypes = await managed.refresh();
   if (client.getServerSettings()?.paginatedLists) {
+    // Cleared first: a Load-more still in flight would otherwise make this
+    // page-1 load a no-op under the store's in-flight guard and then commit
+    // its stale page. Clearing ends that load's generation.
+    paged.clear();
     await paged.loadPage(undefined).catch(() => {});
   }
   return eventTypes;

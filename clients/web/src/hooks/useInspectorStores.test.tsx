@@ -259,7 +259,7 @@ describe("relistEvents (#3030)", () => {
       typeof relistEvents
     >[1];
   const paged = (load: () => Promise<unknown>) =>
-    ({ loadPage: vi.fn(load) }) as unknown as Parameters<
+    ({ loadPage: vi.fn(load), clear: vi.fn() }) as unknown as Parameters<
       typeof relistEvents
     >[2];
   const clientWith = (paginatedLists: boolean) =>
@@ -273,6 +273,7 @@ describe("relistEvents (#3030)", () => {
       relistEvents(clientWith(false), managed([{ name: "a" }]), p),
     ).resolves.toEqual([{ name: "a" }]);
     expect(p.loadPage).not.toHaveBeenCalled();
+    expect(p.clear).not.toHaveBeenCalled();
   });
 
   it("reloads page 1 in paginated mode, and a failed reload does not fail the re-list", async () => {
@@ -281,6 +282,8 @@ describe("relistEvents (#3030)", () => {
       relistEvents(clientWith(true), managed([{ name: "a" }]), p),
     ).resolves.toEqual([{ name: "a" }]);
     expect(p.loadPage).toHaveBeenCalledWith(undefined);
+    // Cleared first, so an in-flight Load-more cannot commit a stale page.
+    expect(p.clear).toHaveBeenCalled();
   });
 });
 

@@ -86,6 +86,21 @@ export function buildSubscribeOptions(
 }
 
 /**
+ * Whether the tuning the chosen mode sends is acceptable: a `maxEvents` (poll)
+ * or `heartbeatMs` (push) below 1 is refused, since neither a batch of zero
+ * nor a zero interval is something a server can honor. A restored or typed 0
+ * would otherwise reach the server and end the subscription on InvalidParams.
+ */
+export function isTuningValid(
+  mode: EventSubscriptionMode | undefined,
+  tuning: SubscribeTuning,
+): boolean {
+  if (mode === "poll") return (tuning.maxEvents ?? 1) >= 1;
+  if (mode === "push") return (tuning.heartbeatMs ?? 1) >= 1;
+  return true;
+}
+
+/**
  * The form's values as the `arguments` a subscription is sent with.
  *
  * Two things differ from the raw form state, both because a subscription's
@@ -105,8 +120,14 @@ export function eventArguments(
   // spread below copies own keys as data properties, so it survives that too.
   const present: Record<string, unknown> = Object.create(null);
   const strings: Record<string, string> = Object.create(null);
+  // An empty string is kept for a field the schema requires (a `const: ""`
+  // the form seeded, say): dropping it would send arguments that violate the
+  // schema with no way for the user to correct them.
+  const required = new Set(
+    Array.isArray(inputSchema.required) ? inputSchema.required : [],
+  );
   for (const [key, value] of Object.entries(values)) {
-    if (value === undefined || value === "") continue;
+    if (value === undefined || (value === "" && !required.has(key))) continue;
     present[key] = value;
     if (typeof value === "string") strings[key] = value;
   }

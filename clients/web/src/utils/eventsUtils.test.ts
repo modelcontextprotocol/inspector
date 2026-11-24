@@ -12,6 +12,7 @@ import {
   formatPayload,
   formatSubscriptionArguments,
   isSubscriptionLive,
+  isTuningValid,
   mirroredEventHeaders,
   optionalWholeNumber,
   resolveSubscribeMode,
@@ -116,8 +117,28 @@ describe("eventArguments", () => {
     expect(Object.getOwnPropertyDescriptor(args, "__proto__")?.value).toBe("x");
   });
 
+  it("keeps an empty string for a required field", () => {
+    expect(
+      eventArguments(
+        { type: "object", properties: { k: { const: "" } }, required: ["k"] },
+        { k: "" },
+      ),
+    ).toEqual({ k: "" });
+  });
+
   it("returns an empty object for an empty form", () => {
     expect(eventArguments(schema, {})).toEqual({});
+  });
+});
+
+describe("isTuningValid", () => {
+  it("refuses a poll batch or a push heartbeat below 1", () => {
+    expect(isTuningValid("poll", { maxEvents: 0 })).toBe(false);
+    expect(isTuningValid("poll", { maxEvents: 1, heartbeatMs: 0 })).toBe(true);
+    expect(isTuningValid("poll", {})).toBe(true);
+    expect(isTuningValid("push", { heartbeatMs: 0 })).toBe(false);
+    expect(isTuningValid("push", { heartbeatMs: 5, maxEvents: 0 })).toBe(true);
+    expect(isTuningValid(undefined, { maxEvents: 0 })).toBe(true);
   });
 });
 

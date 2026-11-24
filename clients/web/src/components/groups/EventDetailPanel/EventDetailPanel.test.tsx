@@ -134,6 +134,13 @@ describe("EventDetailPanel", () => {
     expect(screen.getByRole("button", { name: "Subscribe" })).toBeDisabled();
   });
 
+  it("refuses a restored maxEvents of 0", () => {
+    renderWithMantine(
+      <EventDetailPanel {...baseProps} tuning={{ maxEvents: 0 }} />,
+    );
+    expect(screen.getByRole("button", { name: "Subscribe" })).toBeDisabled();
+  });
+
   it("explains a type with no subscribable mode", () => {
     renderWithMantine(
       <EventDetailPanel

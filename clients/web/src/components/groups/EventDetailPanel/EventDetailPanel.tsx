@@ -22,6 +22,7 @@ import {
 } from "../../../utils/jsonUtils";
 import {
   formatPayload,
+  isTuningValid,
   mirroredEventHeaders,
   optionalWholeNumber,
   subscribableModes,
@@ -131,6 +132,15 @@ const TuningInput = NumberInput.withProps({
   size: "sm",
 });
 
+// A batch cap or a heartbeat interval of zero means nothing a server can
+// honor (the test fixture answers InvalidParams), so these start at 1.
+const PositiveTuningInput = NumberInput.withProps({
+  min: 1,
+  allowDecimal: false,
+  allowNegative: false,
+  size: "sm",
+});
+
 const FooterRow = Group.withProps({
   justify: "flex-start",
   flex: "0 0 auto",
@@ -180,7 +190,8 @@ export function EventDetailPanel({
   const subscribeDisabled =
     mode === undefined ||
     hasMissingRequiredFields(formSchema, formValues) ||
-    hasInvalidDraft;
+    hasInvalidDraft ||
+    !isTuningValid(mode, tuning);
 
   return (
     <PanelStack>
@@ -280,7 +291,7 @@ export function EventDetailPanel({
                   }
                 />
                 {mode === "poll" ? (
-                  <TuningInput
+                  <PositiveTuningInput
                     label="maxEvents"
                     description="Most events per poll"
                     value={tuning.maxEvents ?? ""}
@@ -292,7 +303,7 @@ export function EventDetailPanel({
                     }
                   />
                 ) : (
-                  <TuningInput
+                  <PositiveTuningInput
                     label="heartbeatMs"
                     description="Suggested; the server's grant wins"
                     value={tuning.heartbeatMs ?? ""}
