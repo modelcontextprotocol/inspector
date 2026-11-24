@@ -231,6 +231,19 @@ export const EventsErrorNotificationParamsSchema = z.looseObject({
 export const EventsTerminatedNotificationParamsSchema =
   EventsErrorNotificationParamsSchema;
 
+/**
+ * The envelope every push-stream notification is registered with on the SDK
+ * client: just an object. Deliberately looser than the per-method schemas
+ * above, because a notification the SDK refuses to decode is dropped with no
+ * trace a subscription could show, while one let through here reaches the
+ * subscription engine, which routes it by {@link subscriptionIdOf} and decodes
+ * it with the strict schema itself — so a malformed `event` on a live stream
+ * becomes a visible error on that subscription rather than a silent gap.
+ */
+export const EventsStreamNotificationEnvelopeSchema = z.looseObject({
+  _meta: MetaSchema.optional(),
+});
+
 /** `notifications/events/list_changed` carries nothing but optional `_meta`. */
 export const EventsListChangedNotificationParamsSchema = z
   .looseObject({ _meta: MetaSchema.optional() })

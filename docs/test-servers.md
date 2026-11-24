@@ -431,6 +431,7 @@ Pass these as `inject_event_failure`'s `preset`. They are exported as
 | `terminate_forbidden` | Open push streams (for `name`, or all of them) get `notifications/events/terminated` with `Forbidden`, then the final frame. The next poll fails with `Forbidden`. |
 | `terminate_schema_changed` | The same, with `Unsupported` `{feature:"payloadSchema", reason:"schema_changed"}`. |
 | `stream_error` | Open push streams get a transient `notifications/events/error` (`-32603`) and stay open. |
+| `stall_stream` | Open push streams (for `name`, or all of them) go silent — no heartbeat, event or final frame — but stay open, so a client's heartbeat liveness check has to notice and reconnect. Only the client's abort releases one. |
 | `gap` | History is dropped, for `name` only when it is given and otherwise for every type. The affected push streams get a fresh `active` with `truncated: true`, and a poll from an older cursor returns `truncated: true`. |
 | `backlog` | Emit `count` (default 25) occurrences of `name` (default `incident.created`), so a poll with `maxEvents` drains through `hasMore`. |
 

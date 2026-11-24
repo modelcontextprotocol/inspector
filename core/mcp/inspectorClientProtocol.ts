@@ -44,7 +44,13 @@ import type { ConnectionDiagnostics } from "./connectionDiagnostics.js";
 import type { InspectorClientEventTarget } from "./inspectorClientEventTarget.js";
 import type { SkillEntry } from "../extension/skills/schemas.js";
 import type { SkillsExtensionSupport } from "../extension/skills/conformance.js";
-import type { EventType } from "../extension/events/schemas.js";
+import type {
+  EventType,
+  PollEventsParams,
+  PollEventsResult,
+  StreamEventsParams,
+  StreamEventsResult,
+} from "../extension/events/schemas.js";
 import type { EventsExtensionSupport } from "../extension/events/support.js";
 import type { ExcludedEventType } from "../extension/events/headers.js";
 import type { DirectoryReadResult } from "../extension/skills/schemas.js";
@@ -178,6 +184,26 @@ export interface InspectorClientProtocol extends InspectorClientEventTarget {
   }): Promise<{ events: EventType[] }>;
   /** Event types the last full walk excluded for invalid annotations. */
   getExcludedEventTypes?(): ExcludedEventType[];
+  /** One `events/poll`; the subscription engine's poll runner loops on it. */
+  pollEvents?(
+    eventType: EventType,
+    params?: Omit<PollEventsParams, "name">,
+    metadata?: RequestMetadata,
+    options?: { signal?: AbortSignal },
+  ): Promise<PollEventsResult>;
+  /**
+   * One `events/stream`, open until the server closes it or `signal` aborts
+   * it; `onSubscriptionId` names the id its notifications carry (#3029).
+   */
+  streamEvents?(
+    eventType: EventType,
+    params?: Omit<StreamEventsParams, "name">,
+    options?: {
+      signal?: AbortSignal;
+      onSubscriptionId?: (id: string | number) => void;
+      metadata?: RequestMetadata;
+    },
+  ): Promise<StreamEventsResult>;
 
   /**
    * Mark the response that most recently answered `method` as rejected by the

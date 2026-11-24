@@ -375,6 +375,17 @@ export class RemoteSession {
     waitForProgressToken(this.requestWaits, progressToken)?.resetTimeout();
   }
 
+  /**
+   * Resolve a pending wait without its response, because the request was
+   * cancelled and a cancelled request is not answered (#3029). The route
+   * holding `/api/mcp/send` open for it then returns `ok`, as it would have
+   * had the answer arrived — the cancellation is the caller's own act, not a
+   * failed send.
+   */
+  releaseRequestWait(requestId: string | number): void {
+    this.settleRequestWait(requestId);
+  }
+
   cancelRequestWait(requestId: string | number): void {
     const wait = this.requestWaits.get(requestId);
     if (!wait) {

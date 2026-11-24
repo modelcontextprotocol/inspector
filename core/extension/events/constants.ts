@@ -41,6 +41,21 @@ export const EVENTS_HEARTBEAT_NOTIFICATION = "notifications/events/heartbeat";
 export const EVENTS_ERROR_NOTIFICATION = "notifications/events/error";
 export const EVENTS_TERMINATED_NOTIFICATION = "notifications/events/terminated";
 
+/**
+ * The notifications a push stream (`events/stream`) carries, each tagged with
+ * its stream's subscription id. `list_changed` is not one of them: it arrives
+ * on the `subscriptions/listen` stream instead.
+ */
+export const EVENTS_STREAM_NOTIFICATIONS = [
+  EVENTS_ACTIVE_NOTIFICATION,
+  EVENTS_EVENT_NOTIFICATION,
+  EVENTS_HEARTBEAT_NOTIFICATION,
+  EVENTS_ERROR_NOTIFICATION,
+  EVENTS_TERMINATED_NOTIFICATION,
+] as const;
+export type EventsStreamNotificationMethod =
+  (typeof EVENTS_STREAM_NOTIFICATIONS)[number];
+
 /** The method prefix the extension reserves (spec, Reservations). */
 export const EVENTS_METHOD_PREFIX = "events/";
 

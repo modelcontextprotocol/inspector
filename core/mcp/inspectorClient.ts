@@ -147,6 +147,7 @@ import type {
 import type { Transport } from "@modelcontextprotocol/client";
 import type {
   RequestOptions,
+  RequestId,
   CacheableRequestOptions,
   CacheMode,
   ProgressCallback,
@@ -205,14 +206,20 @@ import {
   EVENTS_LIST_CHANGED_NOTIFICATION,
   EVENTS_LIST_METHOD,
   EVENTS_POLL_METHOD,
+  EVENTS_STREAM_METHOD,
+  EVENTS_STREAM_NOTIFICATIONS,
 } from "../extension/events/constants.js";
 import {
   EventsListChangedNotificationParamsSchema,
   ListEventsResultSchema,
   PollEventsResultSchema,
+  StreamEventsResultSchema,
+  EventsStreamNotificationEnvelopeSchema,
   type EventType,
   type PollEventsParams,
   type PollEventsResult,
+  type StreamEventsParams,
+  type StreamEventsResult,
 } from "../extension/events/schemas.js";
 import {
   getEventsExtension,
@@ -477,6 +484,14 @@ interface ToolCallRequest {
   options?: { skipOutputValidation?: boolean };
 }
 
+/**
+ * The largest delay `setTimeout` accepts (2^31 - 1 ms, about 24.8 days); a
+ * larger one, `Infinity` included, fires after 1 ms instead. It stands in for
+ * "no timeout" on a request the SDK would otherwise time out at 60 s — the SDK
+ * always arms a timer — which is what a push stream needs (#3029).
+ */
+export const UNBOUNDED_REQUEST_TIMEOUT_MS = 2_147_483_647;
+
 // Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
 // (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
 // delay (based on the count of *consecutive failed* re-lists) so a flapping
@@ -594,6 +609,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   // resets, because it is still unanswered and that is what the diagnostics
   // report.
   private outstandingRequests = new Map<string | number, OutstandingRequest>();
+  // A caller waiting to learn the JSON-RPC id the SDK assigns to the request it
+  // is about to send (#3029). Set immediately before `client.request` and
+  // cleared immediately after: the SDK assigns the id and hands the frame to
+  // the transport synchronously inside that call, so the claim is consumed by
+  // `trackRequest` for exactly that request and no other.
+  private requestIdClaim:
+    | { method: string; onRequestId: (id: RequestId) => void }
+    | undefined;
   // The id of the most recently answered request per method, for
   // `markResponseRejected` (#1953). At most one id per method, so it does not
   // grow with the session.
@@ -1295,6 +1318,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     return {
       trackRequest: (message: JSONRPCRequest, origin: MessageOrigin) => {
         if (origin === "client") {
+          this.takeRequestIdClaim(message);
           this.outstandingRequests.set(message.id, {
             id: message.id,
             method: message.method,
@@ -2338,6 +2362,29 @@ export class InspectorClient extends InspectorClientEventTarget {
               this.dispatchTypedEvent("eventsListChanged");
             },
           );
+        }
+
+        // Push-stream notifications (SEP-3415 `events/stream`, #3029). One
+        // handler per method, each forwarding the params as an event the
+        // subscription engine routes by subscription id. Registered whenever
+        // the connection may use the extension — unlike `list_changed`, no
+        // server setting gates them, and an `events/stream` can only be open
+        // when the extension is offered.
+        if (this.getEventsExtension()) {
+          for (const method of EVENTS_STREAM_NOTIFICATIONS) {
+            this.client.setNotificationHandler(
+              method,
+              { params: EventsStreamNotificationEnvelopeSchema },
+              // The 3-argument form hands the handler the params the schema
+              // parsed, not the notification.
+              async (params) => {
+                this.dispatchTypedEvent("eventsStreamNotification", {
+                  method,
+                  params,
+                });
+              },
+            );
+          }
         }
 
         // Resource updated notification handler (only if server supports subscriptions)
@@ -5330,6 +5377,14 @@ export class InspectorClient extends InspectorClientEventTarget {
     return this.eventsListChangedHonored;
   }
 
+  /** Hand an outgoing request's id to the caller that claimed it, once. */
+  private takeRequestIdClaim(message: JSONRPCRequest): void {
+    const claim = this.requestIdClaim;
+    if (claim === undefined || claim.method !== message.method) return;
+    this.requestIdClaim = undefined;
+    claim.onRequestId(message.id);
+  }
+
   /** Record the `eventsListChanged` echo from a raw acknowledgement frame. */
   private noteSubscriptionAck(message: JSONRPCNotification): void {
     const honored = ackedEventsListChanged(message);
@@ -5499,6 +5554,12 @@ export class InspectorClient extends InspectorClientEventTarget {
    * `requestOptions` lets a caller adjust the SDK options (an abort signal, or
    * no timeout for a long-lived `events/stream`); the headers are merged in, not
    * replaced.
+   *
+   * `onRequestId` is called with the JSON-RPC id the SDK assigned, as the
+   * request goes out and before any response or notification for it can
+   * arrive — and again, with the new id, if an auth recovery re-sends it. A
+   * push stream needs it: the server echoes that id as the subscription id on
+   * every notification of the stream (#3029).
    */
   async sendEventsRequest<T>(
     method: string,
@@ -5508,6 +5569,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     options?: {
       metadata?: RequestMetadata;
       requestOptions?: Partial<RequestOptions>;
+      onRequestId?: (id: RequestId) => void;
     },
   ): Promise<T> {
     this.assertEventsAllowed(method);
@@ -5545,11 +5607,17 @@ export class InspectorClient extends InspectorClientEventTarget {
           // Re-gated on every attempt, as in `listEvents`: a retry after an
           // auth-recovery reconnect must not reach a connection without Events.
           this.assertEventsAllowed(method);
-          return this.client!.request(
-            { method, params: requestParams },
-            resultSchema,
-            requestOptions,
-          );
+          const onRequestId = options?.onRequestId;
+          this.requestIdClaim = onRequestId && { method, onRequestId };
+          try {
+            return this.client!.request(
+              { method, params: requestParams },
+              resultSchema,
+              requestOptions,
+            );
+          } finally {
+            this.requestIdClaim = undefined;
+          }
         },
         { method },
       );
@@ -5575,6 +5643,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     eventType: EventType,
     params: Omit<PollEventsParams, "name"> = {},
     metadata?: RequestMetadata,
+    options: { signal?: AbortSignal } = {},
   ): Promise<PollEventsResult> {
     return this.sendEventsRequest(
       EVENTS_POLL_METHOD,
@@ -5586,7 +5655,67 @@ export class InspectorClient extends InspectorClientEventTarget {
         ...(params.maxEvents !== undefined && { maxEvents: params.maxEvents }),
       },
       PollEventsResultSchema,
-      { metadata },
+      {
+        metadata,
+        // The poll runner cancels an in-flight poll when its subscription is
+        // stopped (#3029).
+        ...(options.signal && { requestOptions: { signal: options.signal } }),
+      },
+    );
+  }
+
+  /**
+   * One `events/stream` (SEP-3415, Push-Based Delivery): a request that stays
+   * open for the life of a push subscription. It resolves only when the server
+   * closes the stream (the empty `StreamEventsResult`), and rejects when it is
+   * refused (`NotFound`, `Forbidden`, …), when the connection drops, or when
+   * `signal` aborts it.
+   *
+   * - **No request timeout.** The spec says a client SHOULD NOT apply its
+   *   default timeout here — the heartbeat is the liveness signal, and the
+   *   subscription engine owns that check. The SDK has no "never" value and
+   *   arms a real timer with whatever it is given (`setTimeout` treats
+   *   `Infinity` as 1 ms), so the largest delay a timer accepts stands in for
+   *   it, and `maxTotalTimeout` and progress resets are switched off.
+   * - **Cancellation is the abort.** Aborting `signal` is all a caller does:
+   *   the SDK turns it into the transport's own signal — closing the request's
+   *   SSE stream on Streamable HTTP, `notifications/cancelled` on stdio.
+   * - **The notifications are not returned here.** They reach the client's
+   *   notification handlers and are re-dispatched as `eventsStreamNotification`;
+   *   `onSubscriptionId` tells the caller which of them are this stream's.
+   *   `cursor` defaults to `null` ("start from now"), sent explicitly.
+   */
+  async streamEvents(
+    eventType: EventType,
+    params: Omit<StreamEventsParams, "name"> = {},
+    options: {
+      signal?: AbortSignal;
+      onSubscriptionId?: (id: RequestId) => void;
+      metadata?: RequestMetadata;
+    } = {},
+  ): Promise<StreamEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_STREAM_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.heartbeatMs !== undefined && {
+          heartbeatMs: params.heartbeatMs,
+        }),
+      },
+      StreamEventsResultSchema,
+      {
+        metadata: options.metadata,
+        onRequestId: options.onSubscriptionId,
+        requestOptions: {
+          timeout: UNBOUNDED_REQUEST_TIMEOUT_MS,
+          maxTotalTimeout: undefined,
+          resetTimeoutOnProgress: false,
+          ...(options.signal && { signal: options.signal }),
+        },
+      },
     );
   }
 
