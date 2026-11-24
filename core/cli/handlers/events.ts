@@ -139,7 +139,7 @@ export function eventStreamLine(entry: EventLogEntry): Record<string, unknown> {
     case "event":
       // The occurrence is spread first so the Inspector-owned fields win:
       // `EventOccurrenceSchema` is loose, so a server-sent `type`, `at` or
-      // `payloadError` survives parsing and would otherwise relabel the line.
+      // `payloadError` or `payload` survives parsing and would otherwise relabel the line.
       return {
         ...entry.occurrence,
         type: "event",
@@ -147,6 +147,9 @@ export function eventStreamLine(entry: EventLogEntry): Record<string, unknown> {
         // occurrence must not read as an Inspector diagnostic. `undefined` is
         // dropped when the line is serialized.
         payloadError: entry.payloadError,
+        // `valid`, `invalid` or `unchecked` — the engine's verdict as it ran,
+        // so a missing `payloadError` is never read as "checked and valid".
+        payload: entry.payload,
         at,
       };
     case "gap":

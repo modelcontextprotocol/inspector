@@ -997,15 +997,27 @@ export function formatEventTypesHuman(
   return lines.join("\n");
 }
 
-/** One occurrence: id, type, timestamp, then its `data` as inert JSON. */
-function formatOccurrenceLine(occurrence: JsonObject, style: Style): string {
-  const invalid =
-    typeof occurrence.payloadError === "string"
+/**
+ * One occurrence: id, type, timestamp, then its `data` as inert JSON.
+ * `withVerdict` is set only for an `events/stream` line, whose `payload` /
+ * `payloadError` are the Inspector's own; on a poll result they would be
+ * whatever the server put on the occurrence, so they are not read there.
+ */
+function formatOccurrenceLine(
+  occurrence: JsonObject,
+  style: Style,
+  withVerdict = false,
+): string {
+  const verdict = !withVerdict
+    ? ""
+    : occurrence.payload === "invalid"
       ? style.red(
-          ` (payload does not match its schema: ${occurrence.payloadError})`,
+          ` (payload does not match its schema: ${String(occurrence.payloadError ?? "")})`,
         )
-      : "";
-  return `* ${code(style, String(occurrence.eventId ?? "?"))} ${String(occurrence.name ?? "")} ${style.dim(String(occurrence.timestamp ?? ""))}${invalid}\n  ${JSON.stringify(occurrence.data ?? {})}`;
+      : occurrence.payload === "unchecked"
+        ? style.dim(" (payload not checked)")
+        : "";
+  return `* ${code(style, String(occurrence.eventId ?? "?"))} ${String(occurrence.name ?? "")} ${style.dim(String(occurrence.timestamp ?? ""))}${verdict}\n  ${JSON.stringify(occurrence.data ?? {})}`;
 }
 
 /**
@@ -1056,7 +1068,7 @@ function formatEventStreamLine(ev: JsonObject, style: Style): string | null {
     case "active":
       return `${heading(style, "Active:")} cursor ${ev.cursor == null ? "null" : String(ev.cursor)}${ev.heartbeatMs !== undefined ? style.dim(` — heartbeat ${String(ev.heartbeatMs)}ms`) : ""}`;
     case "event":
-      return formatOccurrenceLine(ev, style);
+      return formatOccurrenceLine(ev, style, true);
     case "gap":
       return style.yellow(
         `Gap: the server no longer retained some events; resuming at cursor ${ev.cursor == null ? "null" : String(ev.cursor)}.`,

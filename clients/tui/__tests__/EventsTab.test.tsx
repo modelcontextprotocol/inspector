@@ -154,6 +154,7 @@ describe("EventsTab (static props)", () => {
         at,
         subscription: "live",
         kind: "event",
+        payload: "valid",
         occurrence: {
           eventId: "e1",
           name: "a.first",

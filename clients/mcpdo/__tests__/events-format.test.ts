@@ -165,9 +165,21 @@ describe("events human output", () => {
         name: "a.b",
         timestamp: "t",
         data: { a: 1 },
+        payload: "invalid",
         payloadError: "missing x",
       },
       "payload does not match its schema: missing x",
+    ],
+    [
+      {
+        type: "event",
+        eventId: "e2",
+        name: "a.b",
+        timestamp: "t",
+        data: {},
+        payload: "unchecked",
+      },
+      "(payload not checked)",
     ],
     [{ type: "gap", cursor: "cur_5" }, "resuming at cursor cur_5"],
     [{ type: "gap", cursor: null }, "resuming at cursor null"],
@@ -191,6 +203,30 @@ describe("events human output", () => {
     [{ type: "terminated" }, "Terminated (): "],
   ])("renders stream line %j", (line, expected) => {
     expect(formatStreamEventHuman(line)).toContain(expected);
+  });
+
+  it("does not read a verdict off a poll result's occurrences", () => {
+    const text = formatEventPollHuman({
+      events: [
+        {
+          eventId: "e1",
+          name: "a",
+          timestamp: "t",
+          data: {},
+          payload: "invalid",
+        },
+      ],
+    });
+    expect(text).not.toContain("does not match");
+    const valid = formatStreamEventHuman({
+      type: "event",
+      eventId: "e1",
+      name: "a",
+      timestamp: "t",
+      data: {},
+      payload: "valid",
+    });
+    expect(valid).not.toContain("payload");
   });
 
   it("leaves a resource subscription's subscribed line to the resource branch", () => {

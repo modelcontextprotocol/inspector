@@ -151,15 +151,44 @@ describe("eventLogLine", () => {
   };
 
   it("shows an occurrence's data as escaped JSON", () => {
-    const line = eventLogLine({ ...base, kind: "event", occurrence });
+    const line = eventLogLine({
+      ...base,
+      kind: "event",
+      occurrence,
+      payload: "valid",
+    });
     expect(line).toEqual({
       text: '10:11:12 e1 {"title":"\\u001b[2Jboom"}',
     });
   });
 
+  it("says when a payload was not checked, rather than passing it as valid", () => {
+    const line = eventLogLine({
+      ...base,
+      kind: "event",
+      occurrence,
+      payload: "unchecked",
+    });
+    expect(line.text).toContain("(payload not checked)");
+    expect(line.color).toBeUndefined();
+  });
+
+  it("names an invalid payload even without an error message", () => {
+    expect(
+      eventLogLine({ ...base, kind: "event", occurrence, payload: "invalid" })
+        .text,
+    ).toContain("payload does not match its schema: ");
+  });
+
   it.each<[EventLogEntry, string, string]>([
     [
-      { ...base, kind: "event", occurrence, payloadError: "missing x" },
+      {
+        ...base,
+        kind: "event",
+        occurrence,
+        payload: "invalid",
+        payloadError: "missing x",
+      },
       "payload does not match its schema: missing x",
       "yellow",
     ],
@@ -202,6 +231,7 @@ describe("escapeControls", () => {
       at,
       subscription: "key",
       kind: "event",
+      payload: "valid",
       occurrence: {
         eventId: "e\u009b1",
         name: "t",

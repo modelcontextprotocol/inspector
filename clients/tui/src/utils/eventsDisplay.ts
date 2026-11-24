@@ -128,15 +128,21 @@ export function eventLogLine(entry: EventLogEntry): LogLine {
 function rawLogLine(entry: EventLogEntry): LogLine {
   const time = clock(entry.at);
   switch (entry.kind) {
-    case "event":
-      return entry.payloadError === undefined
-        ? {
-            text: `${time} ${entry.occurrence.eventId} ${JSON.stringify(entry.occurrence.data)}`,
-          }
-        : {
-            text: `${time} ${entry.occurrence.eventId} ${JSON.stringify(entry.occurrence.data)} — payload does not match its schema: ${entry.payloadError}`,
-            color: "yellow",
-          };
+    case "event": {
+      // The engine's recorded verdict, not the absence of an error: an
+      // `unchecked` payload (no schema, validation off, a schema that would
+      // not compile) is said so rather than passing as valid (#3030).
+      const head = `${time} ${entry.occurrence.eventId} ${JSON.stringify(entry.occurrence.data)}`;
+      if (entry.payload === "invalid") {
+        return {
+          text: `${head} — payload does not match its schema: ${entry.payloadError ?? ""}`,
+          color: "yellow",
+        };
+      }
+      return entry.payload === "unchecked"
+        ? { text: `${head} (payload not checked)` }
+        : { text: head };
+    }
     case "gap":
       return {
         text: `${time} gap: some events were no longer retained (resuming at cursor ${cursorText(entry.cursor)})`,

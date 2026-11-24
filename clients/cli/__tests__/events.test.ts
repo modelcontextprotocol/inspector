@@ -467,12 +467,15 @@ describe("eventStreamLine (#3032)", () => {
         type: "terminated",
         at: "spoofed",
         payloadError: "spoofed",
+        payload: "invalid",
       },
+      payload: "valid",
     });
     expect(line.type).toBe("event");
     expect(line.at).toBe(at.toISOString());
     // No validation failure was reported, so none is claimed.
     expect(JSON.parse(JSON.stringify(line))).not.toHaveProperty("payloadError");
+    expect(line.payload).toBe("valid");
   });
 
   it("keeps a payload validation failure on the event line", () => {
@@ -487,11 +490,13 @@ describe("eventStreamLine (#3032)", () => {
         ...base,
         kind: "event",
         occurrence,
+        payload: "invalid",
         payloadError: "missing a",
       }),
     ).toEqual({
       type: "event",
       ...occurrence,
+      payload: "invalid",
       payloadError: "missing a",
       at: at.toISOString(),
     });
