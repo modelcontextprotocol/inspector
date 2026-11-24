@@ -125,12 +125,9 @@ describe("PollRunner (#3029)", () => {
     });
     expect(cb.occurrences).toHaveBeenCalledWith([occurrence("e1")]);
     expect(cb.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: "active",
-        cursor: "c1",
-        nextPollMs: 5000,
-      }),
+      expect.objectContaining({ status: "active", nextPollMs: 5000 }),
     );
+    expect(cb.update).toHaveBeenCalledWith({ cursor: "c1" });
     expect(r.cursor).toBe("c1");
 
     await vi.advanceTimersByTimeAsync(4999);
@@ -256,7 +253,7 @@ describe("PollRunner (#3029)", () => {
     expect(poll).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
     expect(poll).toHaveBeenCalledTimes(3);
-    expect(cb.update).toHaveBeenLastCalledWith(
+    expect(cb.update).toHaveBeenCalledWith(
       expect.objectContaining({ status: "active" }),
     );
     r.stop();
@@ -334,6 +331,32 @@ describe("PollRunner (#3029)", () => {
     expect(cb.gap).not.toHaveBeenCalled();
   });
 
+  it("keeps the previous cursor when delivery was stopped partway through a batch", async () => {
+    const cb = callbacks();
+    const poll = vi.fn(async () =>
+      pollResult({ cursor: "past-batch", events: [occurrence("x")] }),
+    );
+    const r: PollRunner = new PollRunner({
+      request: { arguments: {} },
+      cursor: "before",
+      poll,
+      callbacks: { ...cb, occurrences: () => r.stop() },
+    });
+    r.start();
+    await flush();
+    expect(r.cursor).toBe("before");
+    expect(cb.update).not.toHaveBeenCalledWith({ cursor: "past-batch" });
+  });
+
+  it("clamps a nextPollMs too large for a timer instead of polling at once", async () => {
+    const { r, poll } = runner([pollResult({ nextPollMs: 2_147_483_648 })]);
+    r.start();
+    await flush();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(poll).toHaveBeenCalledTimes(1);
+    r.stop();
+  });
+
   it("does not report a gap once the occurrences callback stopped it", async () => {
     const cb = callbacks();
     const poll = vi.fn(async () =>
@@ -344,6 +367,25 @@ describe("PollRunner (#3029)", () => {
       cursor: null,
       poll,
       callbacks: { ...cb, occurrences: () => r.stop() },
+    });
+    r.start();
+    await flush();
+    expect(cb.gap).not.toHaveBeenCalled();
+  });
+
+  it("does not report a gap once the cursor update stopped it", async () => {
+    const cb = callbacks();
+    const poll = vi.fn(async () => pollResult({ truncated: true }));
+    const r: PollRunner = new PollRunner({
+      request: { arguments: {} },
+      cursor: null,
+      poll,
+      callbacks: {
+        ...cb,
+        update: (u) => {
+          if (u.cursor !== undefined) r.stop();
+        },
+      },
     });
     r.start();
     await flush();
@@ -620,7 +662,6 @@ describe("PushRunner (#3029)", () => {
         { cursor: "c", truncated: true, heartbeatMs: 100 },
         "gap",
       ],
-      [EVENTS_EVENT_NOTIFICATION, occurrence("e"), "occurrences"],
       [
         EVENTS_ERROR_NOTIFICATION,
         { error: { code: -32603, message: "x" } },
@@ -635,6 +676,33 @@ describe("PushRunner (#3029)", () => {
       r.handleNotification(method, { ...params, ...meta });
       expect(cb[next]).not.toHaveBeenCalled();
     }
+  });
+
+  it("moves the cursor past an event only after it was delivered", () => {
+    const { r, cb } = setup({ arguments: {} }, "before");
+    cb.occurrences.mockImplementation(() => r.stop());
+    r.start();
+    r.handleNotification(EVENTS_EVENT_NOTIFICATION, {
+      ...occurrence("e", "after"),
+      _meta: { "io.modelcontextprotocol/subscriptionId": 100 },
+    });
+    expect(r.cursor).toBe("before");
+    expect(cb.update).not.toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: "after" }),
+    );
+  });
+
+  it("clamps a granted heartbeat too large for a timer instead of firing at once", async () => {
+    const { r, cb } = setup();
+    r.start();
+    r.handleNotification(EVENTS_ACTIVE_NOTIFICATION, {
+      truncated: false,
+      heartbeatMs: 1_000_000_000,
+      _meta: { "io.modelcontextprotocol/subscriptionId": 100 },
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(cb.reconnect).not.toHaveBeenCalled();
+    r.stop();
   });
 
   it("reconnects after a server close with no terminated, with growing backoff reset by active", async () => {

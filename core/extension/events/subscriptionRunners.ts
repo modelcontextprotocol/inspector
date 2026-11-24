@@ -60,6 +60,13 @@ export const DEFAULT_POLL_FLOOR_MS = 1000;
 export const DEFAULT_HEARTBEAT_MS = 30_000;
 /** The spec's liveness rule: dead after this many heartbeat intervals of silence. */
 export const HEARTBEAT_LIVENESS_MULTIPLIER = 3;
+/**
+ * The largest delay `setTimeout` honors (2^31 - 1 ms); a larger one fires
+ * after about 1 ms. Every server-supplied interval is clamped to it, so a huge
+ * `nextPollMs` or granted `heartbeatMs` waits long instead of not at all.
+ */
+export const MAX_TIMER_DELAY_MS = 2_147_483_647;
+
 /** Upper bound of the random wait before the first reconnect or retry. */
 export const DEFAULT_RECONNECT_JITTER_MS = 1000;
 /** Ceiling on the backed-off wait before a reconnect or retry. */
@@ -213,10 +220,13 @@ export class PollRunner implements SubscriptionRunner {
   }
 
   private schedule(delayMs: number): void {
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      this.send();
-    }, delayMs);
+    this.timer = setTimeout(
+      () => {
+        this.timer = undefined;
+        this.send();
+      },
+      Math.min(delayMs, MAX_TIMER_DELAY_MS),
+    );
   }
 
   private send(): void {
@@ -234,11 +244,9 @@ export class PollRunner implements SubscriptionRunner {
     if (this.stopped || controller !== this.current) return;
     this.current = undefined;
     this.failures = 0;
-    this.cursor = normalizeCursor(result.cursor);
     const { callbacks } = this.options;
     callbacks.update({
       status: "active",
-      cursor: this.cursor,
       nextPollMs: result.nextPollMs,
       lastMessageAt: new Date(),
     });
@@ -246,6 +254,12 @@ export class PollRunner implements SubscriptionRunner {
     // subscription synchronously), so nothing more is reported once it has.
     if (this.stopped) return;
     if (result.events.length > 0) callbacks.occurrences(result.events);
+    // The cursor is checkpointed only once the whole batch was delivered: a
+    // runner stopped partway resumes from the previous cursor, and the
+    // registry's eventId dedup drops what it had already logged.
+    if (this.stopped) return;
+    this.cursor = normalizeCursor(result.cursor);
+    callbacks.update({ cursor: this.cursor });
     if (this.stopped) return;
     // A type with no replay has no position to have advanced past; the spec
     // says such a `truncated` SHOULD be false and clients SHOULD ignore it.
@@ -400,10 +414,11 @@ export class PushRunner implements SubscriptionRunner {
       case EVENTS_EVENT_NOTIFICATION: {
         const parsed = EventsEventNotificationParamsSchema.safeParse(params);
         if (!parsed.success) return this.malformed(method, parsed.error);
+        // Delivered before the cursor moves past it, as for a poll batch.
+        callbacks.occurrences([parsed.data]);
+        if (this.stopped) return;
         this.cursor = normalizeCursor(parsed.data.cursor);
         callbacks.update({ cursor: this.cursor, lastMessageAt: now });
-        if (this.stopped) return;
-        callbacks.occurrences([parsed.data]);
         return;
       }
       case EVENTS_HEARTBEAT_NOTIFICATION: {
@@ -460,7 +475,10 @@ export class PushRunner implements SubscriptionRunner {
     // which the server may raise (spec, Lifecycle: "counted from
     // notifications/events/active").
     const interval = this.grantedHeartbeatMs ?? DEFAULT_HEARTBEAT_MS;
-    const deadMs = interval * HEARTBEAT_LIVENESS_MULTIPLIER;
+    const deadMs = Math.min(
+      interval * HEARTBEAT_LIVENESS_MULTIPLIER,
+      MAX_TIMER_DELAY_MS,
+    );
     this.livenessTimer = setTimeout(() => {
       this.livenessTimer = undefined;
       // Abandon the stream before aborting it, so its rejection is ignored.
