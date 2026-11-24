@@ -73,11 +73,20 @@ export type MethodArgs = {
    */
   requireDigests?: boolean;
   /**
-   * Opaque pagination cursor. Used by `resources/directory/read`, whose result
-   * pages exactly as `resources/list` does — and where the caller descends the
-   * tree itself, so there is no store to walk it.
+   * Opaque cursor. For `resources/directory/read` it is a pagination cursor,
+   * since that result pages exactly as `resources/list` does — and the caller
+   * descends the tree itself, so there is no store to walk it. For
+   * `events/poll` and `events/stream` it is the subscription position to
+   * resume from (SEP-3415).
    */
   cursor?: string;
+  /**
+   * `events/poll` / `events/stream` (SEP-3415): the event type's name and its
+   * subscription arguments. The poll or stream position is {@link cursor};
+   * omitted, it is `null` ("start from now").
+   */
+  eventName?: string;
+  eventArgs?: Record<string, JsonValue>;
   /** roots/set payload (JSON array of {uri, name?}). */
   rootsJson?: string;
   /**
@@ -119,8 +128,17 @@ export type MethodOutcome =
       kind: "stream";
       /** Human label for errors. */
       label: string;
-      /** Subscribe and push NDJSON object lines; return an unsubscribe. */
-      start: (writeLine: (obj: unknown) => void) => () => void;
+      /**
+       * Subscribe and push NDJSON object lines; return an unsubscribe.
+       * `end`, when the consumer supplies it, lets the stream finish on its
+       * own — `events/stream` calls it after a server termination, so the
+       * caller sees EOF instead of a stream that can never deliver again.
+       * The consumer still calls the returned unsubscribe afterwards.
+       */
+      start: (
+        writeLine: (obj: unknown) => void,
+        end?: () => void,
+      ) => () => void;
     };
 
 /**
@@ -160,6 +178,9 @@ export const CONNECTION_RPC_METHODS = [
   "roots/set",
   "skills/list",
   "skills/get",
+  "events/list",
+  "events/poll",
+  "events/stream",
 ] as const;
 
 export type ConnectionRpcMethod = (typeof CONNECTION_RPC_METHODS)[number];
@@ -186,6 +207,11 @@ export const ONE_SHOT_METHODS = [
   "skills/list",
   "skills/get",
   "resources/directory/read",
+  // SEP-3415. Both are one request each: `events/poll` is a single poll, not
+  // the poll loop, and returns the server's cursor for the caller to pass back.
+  // `events/stream` stays out — it is open until stopped.
+  "events/list",
+  "events/poll",
 ] as const;
 
 export type OneShotMethod = (typeof ONE_SHOT_METHODS)[number];

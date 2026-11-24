@@ -22,7 +22,9 @@
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run build",
     "validate": "npm run check && npm run test",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "pretest": "npm run test-servers:build",
+    "test:coverage": "npm run test-servers:build && vitest run --coverage",
+    "test-servers:build": "tsc -p ../../test-servers --noCheck",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --write src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\"",
     "format:check": "prettier --check src __tests__ \"*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}\""

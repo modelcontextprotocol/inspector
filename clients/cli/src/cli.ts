@@ -1172,6 +1172,7 @@ function isHeaderToken(arg: string): boolean {
 const VARIADIC_VALUE_SHAPES: ReadonlyMap<string, (arg: string) => boolean> =
   new Map([
     ["--tool-arg", isKeyValueToken],
+    ["--event-arg", isKeyValueToken],
     ["--prompt-args", isKeyValueToken],
     ["--metadata", isKeyValueToken],
     ["--tool-metadata", isKeyValueToken],
@@ -1346,7 +1347,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--cursor <cursor>",
-      "Opaque pagination cursor (for resources/directory/read; pass back the nextCursor from the previous page).",
+      "Opaque cursor. For resources/directory/read, pass back the nextCursor from the previous page; for events/poll, pass back the cursor the previous poll returned (omitted: start from now).",
+    )
+    .option("--event-name <name>", "Event type name (for events/poll)")
+    .option(
+      "--event-arg <pairs...>",
+      "Event subscription argument as key=value pair (for events/poll)",
+      parseKeyValuePair,
+      {},
     )
     .option(
       "--prompt-name <promptName>",
@@ -1732,6 +1740,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     method?: string;
     toolName?: string;
     toolArg?: Record<string, JsonValue>;
+    eventName?: string;
+    eventArg?: Record<string, JsonValue>;
     uri?: string;
     promptName?: string;
     promptArgs?: Record<string, string>;
@@ -2286,6 +2296,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     verify: options.verify === true,
     requireDigests: options.requireDigests === true,
     cursor: options.cursor,
+    eventName: options.eventName,
+    eventArgs: options.eventArg,
     format: options.format,
     quiet: options.quiet === true,
     output: options.output,
