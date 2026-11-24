@@ -219,6 +219,18 @@ describe("EventsTab (static props)", () => {
     expect(onSubscribe).not.toHaveBeenCalled();
   });
 
+  it("escapes terminal controls in server text it renders", () => {
+    const hostile: EventType = {
+      name: "x\u009b2J",
+      description: "desc\u009b31m",
+      delivery: ["poll"],
+      inputSchema: { type: "object", title: "t\u009b" },
+    };
+    const frame = renderTab({ eventTypes: [hostile] }).lastFrame()!;
+    expect(frame).not.toMatch(/[\u0080-\u009f]/);
+    expect(frame).toContain("desc\\u009b31m");
+  });
+
   it("scrolls the details pane without moving the selection", async () => {
     const { stdin, lastFrame } = renderTab({ focusedPane: "details" });
     for (const key of [DOWN, UP, PAGE_DOWN, PAGE_UP]) stdin.write(key);

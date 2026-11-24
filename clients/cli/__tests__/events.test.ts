@@ -373,6 +373,32 @@ describe("events/stream through runMethod (#3032)", () => {
     });
   });
 
+  it("is not cancelled by another command's ambient request signal", async () => {
+    // The mcpdo daemon scopes an ambient abort signal to each command (#1783).
+    // A stream opened (or reconnecting) while one is set must not inherit it:
+    // cancelling that unrelated command would otherwise abort the stream.
+    const url = await startFixture();
+    const client = await connect(url);
+    const command = new AbortController();
+    const clearScope = client.setAmbientRequestSignal(command.signal);
+    const { lines, stop } = await openStream(client, EVENT_TYPE_NAMES.allModes);
+    await vi.waitFor(() =>
+      expect(lines.some((l) => l.type === "active")).toBe(true),
+    );
+    command.abort();
+    clearScope();
+    await control(client, EVENTS_CONTROL_TOOL_NAMES.emit, {
+      name: EVENT_TYPE_NAMES.allModes,
+    });
+    await vi.waitFor(() =>
+      expect(lines.some((l) => l.type === "event")).toBe(true),
+    );
+    expect(
+      lines.some((l) => l.type === "reconnect" || l.type === "error"),
+    ).toBe(false);
+    stop();
+  });
+
   it("refuses a type that does not advertise push delivery", async () => {
     const url = await startFixture();
     const client = await connect(url);

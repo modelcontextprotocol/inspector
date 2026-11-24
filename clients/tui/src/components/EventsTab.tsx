@@ -23,6 +23,7 @@ import type {
 } from "@inspector/core/mcp/state/index.js";
 import { useSelectableList } from "../hooks/useSelectableList.js";
 import {
+  escapeControls,
   eventLogLine,
   eventTypeRows,
   isLiveSubscription,
@@ -181,7 +182,7 @@ export function EventsTab({
                   <Box key={`${index}:${eventType.name}`} flexShrink={0}>
                     <Text wrap="truncate-end" dimColor={!listed}>
                       {index === selectedIndex ? "▶ " : "  "}
-                      {eventType.name}
+                      {escapeControls(eventType.name)}
                       {listed ? "" : " (removed)"}
                     </Text>
                     {liveNames.has(eventType.name) && (
@@ -220,7 +221,7 @@ export function EventsTab({
                 }
                 {...(focusedPane === "details" ? {} : { color: "cyan" })}
               >
-                {selected.name}
+                {escapeControls(selected.name)}
               </Text>
               <Box flexShrink={0}>
                 <Text color="cyan" bold>
@@ -233,11 +234,13 @@ export function EventsTab({
             <ScrollView ref={scrollViewRef} height={height - 3}>
               {selected.description && (
                 <Box marginTop={1} flexShrink={0}>
-                  <Text dimColor>{selected.description}</Text>
+                  <Text dimColor>{escapeControls(selected.description)}</Text>
                 </Box>
               )}
               <Box flexShrink={0}>
-                <Text dimColor>Delivery: {selected.delivery.join(", ")}</Text>
+                <Text dimColor>
+                  Delivery: {escapeControls(selected.delivery.join(", "))}
+                </Text>
               </Box>
 
               <Box marginTop={1} flexShrink={0}>
@@ -300,7 +303,7 @@ export function EventsTab({
                 .split("\n")
                 .map((line, idx) => (
                   <Box key={`schema-${idx}`} paddingLeft={2} flexShrink={0}>
-                    <Text dimColor>{line}</Text>
+                    <Text dimColor>{escapeControls(line)}</Text>
                   </Box>
                 ))}
             </ScrollView>

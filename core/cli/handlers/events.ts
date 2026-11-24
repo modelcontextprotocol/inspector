@@ -168,6 +168,40 @@ export function eventStreamLine(entry: EventLogEntry): Record<string, unknown> {
   }
 }
 
+/**
+ * `client`, with its `streamEvents` run outside any ambient request signal.
+ *
+ * The mcpdo daemon sets an ambient abort signal on the client for the span of
+ * each serialized command (#1783), and every request made meanwhile folds it
+ * in. A push stream outlives the command that opened it, and its engine
+ * reconnects in the background — possibly while some unrelated command holds
+ * the ambient scope — so without this, cancelling that command would abort the
+ * stream and send it round a spurious error and reconnect. The stream keeps
+ * its own cancellation: the engine's stop signal, and the connection closing.
+ *
+ * Clearing the scope around the call is enough because `streamEvents` reads
+ * the ambient signal synchronously, when it builds the request options.
+ */
+export function detachedStreams(client: InspectorClient): InspectorClient {
+  const streamEvents: InspectorClient["streamEvents"] = (...args) => {
+    const restore = client.setAmbientRequestSignal(undefined);
+    try {
+      return client.streamEvents(...args);
+    } finally {
+      restore();
+    }
+  };
+  return new Proxy(client, {
+    get(target, property) {
+      if (property === "streamEvents") return streamEvents;
+      const value: unknown = Reflect.get(target, property, target);
+      // Bound to the real client: an EventTarget method called on the proxy
+      // would fail its receiver check.
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 /** The line written when the stream is confirmed (`notifications/events/active`). */
 function activeLine(subscription: EventSubscription): Record<string, unknown> {
   return {
@@ -207,7 +241,7 @@ export function eventsStreamOutcome(
     kind: "stream",
     label: "events/stream",
     start: (writeLine, end) => {
-      const engine = new EventSubscriptionsState(client);
+      const engine = new EventSubscriptionsState(detachedStreams(client));
       const eventArgs = args.arguments ?? {};
       // The registry key, known before subscribing, so no report can arrive
       // for this subscription before the listeners can recognise it.
