@@ -52,9 +52,13 @@ const ClearLogButton = Button.withProps({
   variant: "subtle",
 });
 
+// `tabIndex: 0` on the viewport: a log of payloads may hold nothing focusable,
+// and axe's `scrollable-region-focusable` requires a scroll region to be
+// reachable from the keyboard (the EmbeddableScrollArea treatment).
 const LogScroll = ScrollArea.withProps({
   flex: 1,
   mih: 0,
+  viewportProps: { tabIndex: 0 },
 });
 
 const EntryFrame = Paper.withProps({
@@ -102,8 +106,11 @@ const EntryText = Text.withProps({
 
 // Payloads are untrusted (spec, Security): rendered as a text node in a code
 // block, never as Markdown or HTML.
+// `wrapping` so a long value wraps instead of opening a horizontal scroll
+// region of its own.
 const PayloadBlock = Code.withProps({
   block: true,
+  variant: "wrapping",
 });
 
 const EmptyText = Text.withProps({

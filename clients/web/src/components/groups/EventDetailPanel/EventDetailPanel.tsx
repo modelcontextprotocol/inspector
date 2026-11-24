@@ -115,6 +115,7 @@ const HeaderArrow = Text.withProps({
 // sideways inside an already narrow column.
 const SchemaBlock = Code.withProps({
   block: true,
+  variant: "wrapping",
 });
 
 const TuningRow = Group.withProps({
