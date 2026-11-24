@@ -541,6 +541,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     const idle = whenIdle(entry.runner);
     entry.runner.stop();
     entry.runner = undefined;
+    // Reserved before any notification: a listener resuming it from the
+    // `stopped` dispatch must be refused, not have its new grant deleted by
+    // this teardown.
+    if (entry.snapshot.mode === "webhook") this.tearingDown.add(id);
     this.patch(entry, { status: "stopped" });
     if (entry.snapshot.mode === "webhook") this.unsubscribeWebhook(entry, idle);
   }
@@ -609,9 +613,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
       const current = entry.snapshot.webhook!;
       this.patch(entry, { webhook: { ...current, unsubscribe } });
     };
-    report({ status: "pending" });
     const key = entry.snapshot.id;
+    // Reserved before the `pending` dispatch, for the reason `stop` gives.
     this.tearingDown.add(key);
+    report({ status: "pending" });
     const settle = (unsubscribe: EventWebhookUnsubscribe): void => {
       this.tearingDown.delete(key);
       report(unsubscribe);
@@ -978,10 +983,8 @@ function needsTeardown(entry: Entry): boolean {
   if (!webhook) return false;
   if (entry.runner) return true;
   const status = webhook.unsubscribe?.status;
-  return (
-    webhook.refreshes > 0 &&
-    status !== "done" &&
-    status !== "gone" &&
-    status !== "pending"
-  );
+  // A failed teardown always needs another: a subscribe that was in flight
+  // at the stop may have been granted on the server without being counted.
+  if (status === "failed") return true;
+  return webhook.refreshes > 0 && status === undefined;
 }

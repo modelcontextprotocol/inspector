@@ -539,4 +539,63 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
       },
     );
   });
+
+  describe("review round 3", () => {
+    it.each(["stopped", "pending"])(
+      "refuses a resume from the %s notification",
+      async (seen) => {
+        const sub = state.subscribe(hooked, {
+          mode: "webhook",
+          webhook: { url: URL_A },
+        });
+        await flush();
+        const errors: unknown[] = [];
+        state.addEventListener("subscriptionsChange", () => {
+          const current = state.getSubscription(sub.id);
+          const matches =
+            seen === "stopped"
+              ? current?.status === "stopped" && !current.webhook?.unsubscribe
+              : current?.webhook?.unsubscribe?.status === "pending";
+          if (!matches) return;
+          try {
+            state.resubscribe(sub.id);
+          } catch (err) {
+            errors.push(err);
+          }
+        });
+        state.stop(sub.id);
+        expect(errors).toHaveLength(1);
+        expect(String(errors[0])).toMatch(/still being unsubscribed/);
+        expect(client.subscribeEvents).toHaveBeenCalledTimes(1);
+        await flush();
+      },
+    );
+
+    it("tears down on remove after stop, a late grant, and a failed unsubscribe", async () => {
+      let settle: (result: SubscribeEventsResult) => void = () => {};
+      client.subscribeEvents.mockImplementationOnce(
+        () => new Promise((resolve) => (settle = resolve)),
+      );
+      client.unsubscribeResults.push(new Error("down"));
+      const sub = state.subscribe(hooked, {
+        mode: "webhook",
+        webhook: { url: URL_A, ttlMs: null },
+      });
+      state.stop(sub.id);
+      settle({
+        id: "sub_late",
+        refreshBefore: null,
+        cursor: null,
+        truncated: false,
+      });
+      await flush();
+      expect(state.getSubscription(sub.id)?.webhook).toMatchObject({
+        refreshes: 0,
+        unsubscribe: { status: "failed" },
+      });
+      state.remove(sub.id);
+      await flush();
+      expect(client.unsubscribeEvents).toHaveBeenCalledTimes(2);
+    });
+  });
 });
