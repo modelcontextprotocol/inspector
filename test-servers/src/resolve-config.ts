@@ -98,6 +98,7 @@ export function resolveConfig(config: ConfigFile): ServerConfig {
     tasksExtension: config.tasksExtension,
     skills: config.skills,
     skillsRequireClientExtension: config.skillsRequireClientExtension,
+    events: config.events,
     appElicitation: config.appElicitation,
     maxPageSize: config.maxPageSize,
     emptyStringCursor: config.emptyStringCursor,

@@ -79,6 +79,7 @@ Only `serverInfo` and `transport` are required.
 | `tasksExtension` | boolean | Advertise the modern `io.modelcontextprotocol/tasks` extension and register its `modern_task` / `modern_input_task` tools. Pair with `transport.modern`. |
 | `skills` | boolean | Advertise the Skills extension and serve the fixture skills. See [Skills](#skills-sep-2640). |
 | `skillsRequireClientExtension` | boolean | With `skills`, refuse the skills methods to a client that did not declare the extension. |
+| `events` | boolean \| object | Serve the Events extension (`io.modelcontextprotocol/events`) and register its control tools. HTTP only. See [Events (SEP-3415)](#events-sep-3415). |
 | `appElicitation` | boolean | Advertise the MCP Apps UI extension with its nested `elicitation` setting. See [App-rendered form elicitations](#app-rendered-form-elicitations). |
 | `maxPageSize` | `{ tools?, resources?, resourceTemplates?, prompts? }` | Paginate each named list at this page size. Unset means the list is not paginated. |
 | `emptyStringCursor` | boolean | Hand out `""` as the cursor for page two of every paginated list. See [The empty-string cursor](#the-empty-string-cursor). |
@@ -326,6 +327,135 @@ as a missing capability rather than an error.
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
 | `skills-http.json` **(either era)** | Skills tab: `skills/list`, `resources/directory/read`, digest verification, the frontmatter cross-check, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) |
 | `skills-strict-{legacy,modern}-http.json` **(era per file)** | The same skills, served only to a client that **declared** `io.modelcontextprotocol/skills` itself (SEP-2133) | [#2373](https://github.com/modelcontextprotocol/inspector/issues/2373) |
+| `events-modern-http.json` **(modern era)** | Events extension: `events/list`, poll, push, webhook management, `list_changed`, and every failure preset | [#3027](https://github.com/modelcontextprotocol/inspector/issues/3027) |
+| `events-legacy-http.json` **(legacy era)** | A legacy server that (non-conformantly) advertises Events, to prove the client never sends `events/*` on a legacy connection | [#3027](https://github.com/modelcontextprotocol/inspector/issues/3027) |
+
+## Events (SEP-3415)
+
+`events-modern-http.json` (port 3250, **modern era**) sets `"events": true`. No
+SDK implements the Events extension, so `test-servers/src/events.ts` serves it
+directly against the spec, as Express middleware ahead of the SDK handler. It
+advertises `capabilities.extensions["io.modelcontextprotocol/events"] =
+{ listChanged: true }` to a modern `server/discover` only, and serves it over
+HTTP only.
+
+`events` is `true` or an object:
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `listChanged` | boolean | Declare `listChanged` and honor `eventsListChanged` on a listen. Default `true`. With `false`, the listen ack omits `eventsListChanged`. |
+| `nextPollMs` | number | The `nextPollMs` every poll result recommends. Default `1000`. |
+| `advertiseOnLegacy` | boolean | Also advertise the extension in a legacy `initialize` result. A conformant server never does; the legacy config sets it. Default `false`. |
+| `maxStreams` | number | Open push streams before `events/stream` answers `ResourceExhausted` (`-32025`). Default `16`. |
+| `maxWebhookSubscriptions` | number | Webhook subscriptions before `events/subscribe` answers `ResourceExhausted`. Default `16`. |
+
+### Event types
+
+Five built-in types, two per `events/list` page (three pages). The names are
+stable and exported as `EVENT_TYPE_NAMES`.
+
+| Name | `delivery` | Notes |
+| --- | --- | --- |
+| `email.received` | `poll` | Argument `from`. |
+| `build.finished` | `push` | **Emit-only:** no replay, and `cursor` is **omitted** everywhere (absent means `null`). |
+| `incident.created` | `poll`, `push`, `webhook` | Arguments `severity` (`P1`–`P4`) and `service`. Carries `_meta`. |
+| `deploy.completed` | `poll`, `push` | `region` is annotated `x-mcp-header: "Region"`, so requests need `Mcp-Param-Region`. |
+| `invalid.header` | `poll` | Its annotation (`"Bad Header"`) is not an RFC 9110 token. A client MUST exclude it from the list. |
+
+An occurrence matches a subscription when every argument that names a key of
+the payload equals it. Arguments that the payload does not carry do not filter.
+Cursors are `cur_<n>`, and a cursor the server never issued is `InvalidParams`.
+
+### Methods
+
+- **`events/poll`:** a `null` or absent cursor returns no events and the
+  current cursor. `maxEvents` (default 10, 1–100) caps a page and sets
+  `hasMore`. `maxAgeMs` skips older occurrences and reports `truncated: true`.
+- **`events/stream`:** an SSE response. `notifications/events/active` comes
+  first, with the granted `heartbeatMs` (default 30000, clamped to 100–60000).
+  Any backlog after the supplied cursor comes next, then live events. A
+  heartbeat is sent whenever `heartbeatMs` passes without another message.
+  Every notification carries `_meta["io.modelcontextprotocol/subscriptionId"]`,
+  which is the request id. Aborting the request releases the stream, and so
+  does `notifications/cancelled` with its request id. A server-initiated close
+  sends a final `{ resultType: "complete" }` result frame.
+- **`events/subscribe` / `events/unsubscribe`:** webhook **management only**.
+  Nothing is ever POSTed. The URL must be `https` and must not be a private or
+  loopback host. The secret must be `whsec_` + base64 of 24–64 bytes, and
+  `delivery.mode` must be `"webhook"`. Otherwise the answer is `InvalidParams`.
+  `ttlMs` defaults to one hour and is clamped to 1 minute–1 day, and
+  `ttlMs: null` grants `refreshBefore: null`. A refresh with the same key
+  returns the same `id` and a canned `deliveryStatus`: a URL path containing
+  `/failing` reports suspended delivery, `/throttled` reports rate-limiting,
+  and any other path is healthy. A host whose first label is a reason category
+  written with dashes (`https://challenge-failed.example.com/…`,
+  `connection-refused.`, `timeout.`, `tls-error.`, `http-4xx.`, `http-5xx.`)
+  answers `CallbackEndpointError` (`-32027`) with that `data.reason`. ⚠️ The
+  fixture accepts an unauthenticated caller. A real server answers `Forbidden`.
+- **Routing headers:** every method except `events/list` requires `Mcp-Name`
+  equal to `params.name`. The Base64 sentinel form is accepted. Each annotated
+  argument that has a value needs its `Mcp-Param-*` header. A missing or
+  mismatched header is HTTP 400 `HeaderMismatch` (`-32020`).
+- **`subscriptions/listen`:** a listen whose filter sets
+  `eventsListChanged: true` is served by the fixture. The ack echoes it and
+  `notifications/events/list_changed` arrives on that stream. The core filter
+  fields are honored there too. A listen without it goes to the SDK unchanged.
+- **Era:** an `events/*` request without a modern per-request envelope gets
+  `-32601` and is counted as `legacyRequests`.
+
+### Control tools
+
+Registered whenever `events` is on, so a config does not list them.
+
+| Tool | Arguments | What it does |
+| --- | --- | --- |
+| `emit_event` | `name`, `data?`, `count?`, `ageMs?`, `eventId?` | Emit occurrences. Matching push streams get them live, and later polls return them. `ageMs` backdates the timestamp (for `maxAgeMs`). An explicit `eventId` can be repeated, to test dedup. |
+| `add_event_type` | `name?` (default `dynamic.added`), `delivery?` (default `["poll","push"]`) | Add or replace a type and send `list_changed`. |
+| `remove_event_type` | `name` | Remove a type. Its push streams are terminated with `NotFound` `{kind:"event"}`, its webhooks are dropped, a later poll answers `NotFound`, and `list_changed` is sent. |
+| `inject_event_failure` | `preset`, `name?`, `method?`, `count?` | Trigger a failure preset (below). |
+| `get_event_stats` | — | `requests` by method, `legacyRequests`, `errors`, `openStreams`, `listenStreams`, `webhookSubscriptions` and `emitted`, as `structuredContent`. |
+
+### Failure presets
+
+Pass these as `inject_event_failure`'s `preset`. They are exported as
+`EVENT_FAILURE_PRESETS`.
+
+| Preset | Effect |
+| --- | --- |
+| `error_invalid_params` | The next `events/*` request fails once with `-32602`. `method` and `name` narrow which request. |
+| `error_not_found` | The same, with `NotFound` `-32023` `{kind:"event"}`. |
+| `error_forbidden` | The same, with `Forbidden` `-32024`. |
+| `error_resource_exhausted` | The same, with `ResourceExhausted` `-32025` `{limit:"subscriptions"}`. |
+| `error_unsupported` | The same, with `Unsupported` `-32026` `{feature:"deliveryMode"}`. |
+| `error_callback_endpoint` | The same, with `CallbackEndpointError` `-32027` `{reason:"challenge_failed"}`. |
+| `terminate_forbidden` | Open push streams (for `name`, or all of them) get `notifications/events/terminated` with `Forbidden`, then the final frame. The next poll fails with `Forbidden`. |
+| `terminate_schema_changed` | The same, with `Unsupported` `{feature:"payloadSchema", reason:"schema_changed"}`. |
+| `stream_error` | Open push streams get a transient `notifications/events/error` (`-32603`) and stay open. |
+| `gap` | History is dropped, for `name` only when it is given and otherwise for every type. The affected push streams get a fresh `active` with `truncated: true`, and a poll from an older cursor returns `truncated: true`. |
+| `backlog` | Emit `count` (default 25) occurrences of `name` (default `incident.created`), so a poll with `maxEvents` drains through `hasMore`. |
+
+`NotFound` after removal comes from `remove_event_type`, not from a preset.
+
+### The legacy config
+
+`events-legacy-http.json` (port 3251, **legacy era**) sets
+`"events": { "advertiseOnLegacy": true }`. It advertises the extension in
+`initialize`, which no conformant server does. Seeing the capability, the
+Inspector must still send no `events/*` request, because the extension
+requires a modern connection. Any request that does arrive is answered
+`-32601` and counted. Call `get_event_stats` and check that
+`legacyRequests` is `0`.
+
+### Running it by hand
+
+```sh
+node test-servers/build/server-composable.js --config test-servers/configs/events-modern-http.json
+```
+
+Connect with **Protocol Era = Modern**. Until the Events tab lands, drive it
+from the Tools tab with the control tools, and watch the Protocol and Network
+tabs. The python-sdk `examples/stories/events` server is a second, independent
+target for interop checks.
 
 ## Skills (SEP-2640)
 

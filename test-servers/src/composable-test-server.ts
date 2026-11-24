@@ -54,6 +54,12 @@ import {
   wireModernTaskHandlers,
 } from "./modern-tasks.js";
 import { SKILLS_EXTENSION_KEY, wireSkillsHandlers } from "./skills.js";
+import {
+  EVENTS_EXTENSION_KEY,
+  EventsRuntime,
+  createEventsControlTools,
+  type EventsConfig,
+} from "./events.js";
 import type { StallableOAuthEndpoint } from "./test-server-oauth.js";
 
 /**
@@ -641,6 +647,21 @@ export interface ServerConfig {
    */
   skillsRequireClientExtension?: boolean;
   /**
+   * Serve the Events extension (SEP-3415, `io.modelcontextprotocol/events`):
+   * advertise it to a **modern** `server/discover` only, serve `events/*` and
+   * the `eventsListChanged` listen filter over HTTP, and register the control
+   * tools (`emit_event`, `add_event_type`, `remove_event_type`,
+   * `inject_event_failure`, `get_event_stats`). `true` takes every default.
+   * HTTP only — see `events.ts`.
+   */
+  events?: boolean | EventsConfig;
+  /**
+   * Shared Events runtime. Created lazily and cached here, like
+   * {@link ServerConfig.modernTaskRuntime}, so every per-request server on the
+   * modern leg sees one occurrence log. Do not set by hand.
+   */
+  eventsRuntime?: EventsRuntime;
+  /**
    * Advertise the MCP Apps `io.modelcontextprotocol/ui` extension with the
    * nested `elicitation` setting — the server-side half of the app-rendered
    * form elicitation negotiation (#1854, ext-apps#733).
@@ -927,7 +948,29 @@ export interface ServerConfig {
  * Create and configure an McpServer instance from ServerConfig
  * This centralizes the setup logic shared between HTTP and stdio test servers
  */
-export function createMcpServer(config: ServerConfig): McpServer {
+/**
+ * The shared Events runtime for a config, created on first use. `undefined`
+ * when the config does not turn the extension on.
+ */
+export function getEventsRuntime(
+  config: ServerConfig,
+): EventsRuntime | undefined {
+  if (!config.events) return undefined;
+  return (config.eventsRuntime ??= new EventsRuntime(
+    config.events === true ? {} : config.events,
+  ));
+}
+
+/**
+ * @param era The protocol era the instance will serve, when the caller knows
+ *   it (the modern HTTP leg's factory passes it). Only the Events extension
+ *   reads it: that extension is advertised to a modern `server/discover` and,
+ *   absent `advertiseOnLegacy`, to nothing else.
+ */
+export function createMcpServer(
+  config: ServerConfig,
+  era?: "legacy" | "modern",
+): McpServer {
   // Build capabilities based on config
   const capabilities: {
     tools?: object;
@@ -945,7 +988,7 @@ export function createMcpServer(config: ServerConfig): McpServer {
   // The modern tasks extension (SEP-2663) needs the tools capability too (its
   // task-augmented tools list via `tools/list`), even when no `config.tools`
   // were supplied.
-  if (config.tools !== undefined || config.tasksExtension) {
+  if (config.tools !== undefined || config.tasksExtension || config.events) {
     capabilities.tools = {};
   }
   if (
@@ -1005,6 +1048,17 @@ export function createMcpServer(config: ServerConfig): McpServer {
     // resources capability has to be advertised even when the config registers
     // no ordinary resources of its own.
     capabilities.resources = capabilities.resources ?? {};
+  }
+
+  // Events extension (SEP-3415): defined for 2026-07-28+ only, so it is
+  // declared to a modern instance and — unless a config deliberately opts into
+  // the non-conformant legacy advertisement — to nothing else.
+  const eventsRuntime = getEventsRuntime(config);
+  if (eventsRuntime && (era === "modern" || eventsRuntime.advertiseOnLegacy)) {
+    capabilities.extensions = {
+      ...(capabilities.extensions ?? {}),
+      [EVENTS_EXTENSION_KEY]: eventsRuntime.capabilitySettings(),
+    };
   }
 
   // MCP Apps app-rendered elicitation (#1854): the server-side half of the
@@ -1121,6 +1175,9 @@ export function createMcpServer(config: ServerConfig): McpServer {
   const effectiveTools: (ToolDefinition | TaskToolDefinition)[] = [
     ...(config.tools ?? []),
     ...(config.tasksExtension ? createModernTaskTools() : []),
+    // The Events control tools close over the shared runtime, so they are
+    // registered with the extension rather than listed as config presets.
+    ...(eventsRuntime ? createEventsControlTools(eventsRuntime) : []),
   ];
   if (effectiveTools.length > 0) {
     for (const tool of effectiveTools) {
