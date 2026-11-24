@@ -196,9 +196,28 @@ async function openStream(params: Json, id = nextId++): Promise<OpenStream> {
         if (data) queue.push(JSON.parse(data.slice(6)) as Json);
         continue;
       }
-      if (Date.now() > deadline)
+      // Race the read against what is left of the deadline, so a silent
+      // stream fails here — naming the wait — rather than at the test timeout.
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        controller.abort();
         throw new Error("timed out waiting for a frame");
-      const chunk = await reader.read();
+      }
+      const read = reader.read();
+      // The abort below rejects the pending read; it must not go unhandled.
+      read.catch(() => {});
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const chunk = await Promise.race([
+        read,
+        new Promise<"timeout">((resolve) => {
+          timer = setTimeout(() => resolve("timeout"), remaining);
+        }),
+      ]);
+      clearTimeout(timer);
+      if (chunk === "timeout") {
+        controller.abort();
+        throw new Error("timed out waiting for a frame");
+      }
       if (chunk.done) throw new Error("stream ended");
       buffer += decoder.decode(chunk.value, { stream: true });
     }
@@ -1069,6 +1088,18 @@ describe("events-modern-http.json (#3027)", () => {
       }
     });
 
+    it("fails a silent stream at the helper's own deadline", async () => {
+      await start();
+      const stream = await openStream({
+        name: "incident.created",
+        heartbeatMs: 60_000,
+      });
+      await stream.next();
+      await expect(stream.next(200)).rejects.toThrow(
+        "timed out waiting for a frame",
+      );
+    });
+
     it("leaves no subscription behind when the cursor is rejected", async () => {
       await start();
       for (const cursor of ["garbage", "cur_99"]) {
@@ -1108,6 +1139,8 @@ describe("events-modern-http.json (#3027)", () => {
         { name, delivery: delivery("https://localhost/x") },
         { name, delivery: delivery("https://192.168.1.4/x") },
         { name, delivery: delivery("https://[::1]/x") },
+        { name, delivery: delivery("https://[::ffff:127.0.0.1]/x") },
+        { name, delivery: delivery("https://[::ffff:192.168.1.4]/x") },
         { name, delivery: delivery("not a url") },
         { name, delivery: delivery("https://hooks.example.com/x", "secret") },
         {

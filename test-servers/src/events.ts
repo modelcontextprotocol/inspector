@@ -607,7 +607,14 @@ function callbackEndpointFailure(url: URL): string | undefined {
 }
 
 function isPrivateHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  let host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  // An IPv4-mapped IPv6 address (`::ffff:127.0.0.1`, which WHATWG URL
+  // serializes as `::ffff:7f00:1`) is checked as the IPv4 address it embeds.
+  const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(host);
+  if (mapped) {
+    const [hi, lo] = [parseInt(mapped[1]!, 16), parseInt(mapped[2]!, 16)];
+    host = `${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`;
+  }
   if (host === "localhost" || host.endsWith(".localhost") || host === "::1") {
     return true;
   }
