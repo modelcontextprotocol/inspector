@@ -95,7 +95,7 @@ const ActionButton = Button.withProps({
 
 const StopButton = Button.withProps({
   size: "compact-xs",
-  variant: "light",
+  variant: "outline",
   color: "red",
 });
 
@@ -280,7 +280,7 @@ export function EventSubscriptionCard({
             </>
           )}
           <ActionButton onClick={onToggleLogFilter} aria-pressed={logFiltered}>
-            {logFiltered ? "Show all events" : "Only this in log"}
+            {logFiltered ? "Show all events" : "Filter Log"}
           </ActionButton>
         </ActionRow>
       </CardStack>

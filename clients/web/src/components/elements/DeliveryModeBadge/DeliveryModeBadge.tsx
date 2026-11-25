@@ -22,8 +22,6 @@ const ModeBadge = Badge.withProps({
   variant: "filled",
   autoContrast: true,
   size: "sm",
-  // Mode names are lowercase protocol literals; keep their casing.
-  tt: "none",
 });
 
 /**

@@ -95,9 +95,7 @@ describe("EventSubscriptionCard", () => {
   it("toggles the log filter and says which way it points", async () => {
     const p = props();
     const { rerender } = renderWithMantine(<EventSubscriptionCard {...p} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Only this in log" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Filter Log" }));
     expect(p.onToggleLogFilter).toHaveBeenCalled();
     rerender(<EventSubscriptionCard {...p} logFiltered />);
     expect(

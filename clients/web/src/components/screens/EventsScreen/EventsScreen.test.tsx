@@ -225,7 +225,7 @@ describe("EventsScreen", () => {
     renderWithMantine(<Stateful />);
     const cards = () => screen.getAllByTestId("event-subscription");
     await userEvent.click(
-      within(cards()[2]!).getByRole("button", { name: "Only this in log" }),
+      within(cards()[2]!).getByRole("button", { name: "Filter Log" }),
     );
     expect(ui().logFilter).toBe(terminatedPush.id);
     expect(screen.getAllByTestId("event-log-entry")).toHaveLength(1);
@@ -239,7 +239,7 @@ describe("EventsScreen", () => {
     expect(screen.getAllByTestId("event-log-entry")).toHaveLength(7);
 
     await userEvent.click(
-      within(cards()[2]!).getByRole("button", { name: "Only this in log" }),
+      within(cards()[2]!).getByRole("button", { name: "Filter Log" }),
     );
     await userEvent.click(
       within(cards()[2]!).getByRole("button", { name: "Remove" }),
