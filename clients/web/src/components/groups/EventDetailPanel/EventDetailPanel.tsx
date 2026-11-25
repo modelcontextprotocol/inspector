@@ -441,7 +441,10 @@ export function EventDetailPanel({
 
       <FooterRow>
         {onUnsubscribe ? (
-          <UnsubscribeButton onClick={onUnsubscribe}>
+          // An unparseable arguments draft leaves `formValues` at its last
+          // valid value, so the match may be against arguments the form no
+          // longer shows; stopping is refused until the draft parses.
+          <UnsubscribeButton onClick={onUnsubscribe} disabled={hasInvalidDraft}>
             Unsubscribe
           </UnsubscribeButton>
         ) : (

@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 import type { EventSubscriptionMode } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { renderWithMantine, screen } from "../../../test/renderWithMantine";
+import { setAceTextByLabel } from "../../../test/aceEditor";
 import {
   EventDetailPanel,
   type EventDetailPanelProps,
@@ -153,6 +154,23 @@ describe("EventDetailPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: "Unsubscribe" }));
     expect(onUnsubscribe).toHaveBeenCalledTimes(1);
     expect(onSubscribe).not.toHaveBeenCalled();
+  });
+
+  it("refuses Unsubscribe while the arguments draft does not parse", async () => {
+    const onUnsubscribe = vi.fn();
+    renderWithMantine(
+      <EventDetailPanel
+        {...baseProps}
+        eventType={headerAnnotatedType}
+        formValues={{ region: "us-west1" }}
+        onUnsubscribe={onUnsubscribe}
+      />,
+    );
+    const button = screen.getByRole("button", { name: "Unsubscribe" });
+    expect(button).toBeEnabled();
+    await userEvent.click(screen.getByLabelText("Edit as JSON"));
+    await setAceTextByLabel(/Arguments JSON/, '{"region":');
+    expect(screen.getByRole("button", { name: "Unsubscribe" })).toBeDisabled();
   });
 
   it("refuses a restored maxEvents of 0", () => {
