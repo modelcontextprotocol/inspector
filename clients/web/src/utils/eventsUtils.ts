@@ -24,6 +24,7 @@ import type {
   EventType,
 } from "@inspector/core/extension/events/schemas.js";
 import { knownDeliveryModes } from "@inspector/core/extension/events/schemas.js";
+import { eventSubscriptionKey } from "@inspector/core/extension/events/canonicalJson.js";
 import type {
   EventLogEntry,
   EventSubscribeOptions,
@@ -285,6 +286,37 @@ export function isSubscriptionLive(subscription: EventSubscription): boolean {
     subscription.status === "active" ||
     subscription.status === "reconnecting"
   );
+}
+
+/**
+ * The live subscription the subscribe form would address, or `undefined`.
+ *
+ * A subscription is identified by event name, arguments and mode (plus the
+ * callback URL for webhook), so the form addresses an existing one exactly
+ * when those match — the same key the engine dedupes on, which is why a
+ * second Subscribe with them would be a silent no-op. The Events tab offers
+ * Unsubscribe instead in that case (#3042). Different arguments are a
+ * different, legitimate subscription, so this never matches on name alone.
+ */
+export function findLiveSubscription(
+  subscriptions: readonly EventSubscription[],
+  eventName: string,
+  mode: EventSubscriptionMode,
+  args: Record<string, unknown>,
+  callbackUrl?: string,
+): EventSubscription | undefined {
+  let url: string | undefined;
+  if (mode === "webhook") {
+    // The engine keys a webhook on the URL as `new URL(...).href`; one that
+    // does not parse cannot match a subscription the engine accepted.
+    try {
+      url = new URL((callbackUrl ?? "").trim()).href;
+    } catch {
+      return undefined;
+    }
+  }
+  const key = eventSubscriptionKey(eventName, args, mode, url);
+  return subscriptions.find((s) => s.id === key && isSubscriptionLive(s));
 }
 
 /**

@@ -31,6 +31,12 @@ function props(
   };
 }
 
+/** The figure shown above a tally's name. */
+function tally(name: string): string | null | undefined {
+  return screen.getByText(name, { exact: true }).previousElementSibling
+    ?.textContent;
+}
+
 describe("EventSubscriptionCard", () => {
   it("shows a live poll's state, cursor, interval and tallies, and stops", async () => {
     const p = props();
@@ -42,7 +48,8 @@ describe("EventSubscriptionCard", () => {
     expect(screen.getByText("c-42")).toBeInTheDocument();
     expect(screen.getByText("Next poll")).toBeInTheDocument();
     expect(screen.getByText("5 s")).toBeInTheDocument();
-    expect(screen.getByText(/3 events · 1 gaps/)).toBeInTheDocument();
+    expect(tally("events")).toBe("3");
+    expect(tally("gaps")).toBe("1");
     expect(
       screen.queryByRole("button", { name: "Resume" }),
     ).not.toBeInTheDocument();
@@ -95,9 +102,7 @@ describe("EventSubscriptionCard", () => {
   it("toggles the log filter and says which way it points", async () => {
     const p = props();
     const { rerender } = renderWithMantine(<EventSubscriptionCard {...p} />);
-    await userEvent.click(
-      screen.getByRole("button", { name: "Only this in log" }),
-    );
+    await userEvent.click(screen.getByRole("button", { name: "Filter Log" }));
     expect(p.onToggleLogFilter).toHaveBeenCalled();
     rerender(<EventSubscriptionCard {...p} logFiltered />);
     expect(
@@ -126,7 +131,10 @@ describe("EventSubscriptionCard", () => {
       expect(
         screen.getByText(/Last error: http_5xx — the endpoint answered/),
       ).toBeVisible();
-      expect(screen.getByText(/0 gaps · 0 errors · 0/)).toBeVisible();
+      expect(tally("gaps")).toBe("0");
+      expect(tally("errors")).toBe("0");
+      expect(tally("retries")).toBe("0");
+      expect(screen.queryByText("events")).not.toBeInTheDocument();
       expect(screen.queryByText(/duplicates/)).not.toBeInTheDocument();
       // Masked, with a copy control; the value is never in the DOM.
       expect(container.innerHTML).not.toContain(WEBHOOK_SECRET.slice(6));

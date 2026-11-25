@@ -22,6 +22,7 @@ import {
   subscriptions,
   terminatedPush,
 } from "../../../test/fixtures/events";
+import { eventSubscriptionKey } from "@inspector/core/extension/events/canonicalJson.js";
 
 function baseProps(): EventsScreenProps {
   return {
@@ -137,6 +138,31 @@ describe("EventsScreen", () => {
     );
   });
 
+  it("offers Unsubscribe when the form addresses a live subscription, and stops it", async () => {
+    const live = {
+      ...activePoll,
+      id: eventSubscriptionKey("incident.created", { service: "api" }, "push"),
+      name: "incident.created",
+      mode: "push" as const,
+      arguments: { service: "api" },
+    };
+    const onStopSubscription = vi.fn();
+    renderWithMantine(
+      <Stateful
+        subscriptions={[live]}
+        onStopSubscription={onStopSubscription}
+        initialUi={{
+          ...EMPTY_EVENTS_UI,
+          selectedEventName: "incident.created",
+          formValues: { service: "api" },
+          mode: "push",
+        }}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Unsubscribe" }));
+    expect(onStopSubscription).toHaveBeenCalledWith(live.id);
+  });
+
   it("lifts the form, mode and tuning edits", async () => {
     renderWithMantine(
       <Stateful
@@ -225,7 +251,7 @@ describe("EventsScreen", () => {
     renderWithMantine(<Stateful />);
     const cards = () => screen.getAllByTestId("event-subscription");
     await userEvent.click(
-      within(cards()[2]!).getByRole("button", { name: "Only this in log" }),
+      within(cards()[2]!).getByRole("button", { name: "Filter Log" }),
     );
     expect(ui().logFilter).toBe(terminatedPush.id);
     expect(screen.getAllByTestId("event-log-entry")).toHaveLength(1);
@@ -239,7 +265,7 @@ describe("EventsScreen", () => {
     expect(screen.getAllByTestId("event-log-entry")).toHaveLength(7);
 
     await userEvent.click(
-      within(cards()[2]!).getByRole("button", { name: "Only this in log" }),
+      within(cards()[2]!).getByRole("button", { name: "Filter Log" }),
     );
     await userEvent.click(
       within(cards()[2]!).getByRole("button", { name: "Remove" }),

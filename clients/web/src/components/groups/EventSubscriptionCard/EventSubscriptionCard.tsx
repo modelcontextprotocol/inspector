@@ -1,4 +1,4 @@
-import { Button, Group, Paper, Stack, Text } from "@mantine/core";
+import { Button, Divider, Group, Paper, Stack, Text } from "@mantine/core";
 import type { EventSubscription } from "@inspector/core/mcp/state/eventSubscriptionsState.js";
 import { DeliveryModeBadge } from "../../elements/DeliveryModeBadge/DeliveryModeBadge";
 import { EventSubscriptionStatusBadge } from "../../elements/EventSubscriptionStatusBadge/EventSubscriptionStatusBadge";
@@ -39,19 +39,35 @@ const CardFrame = Paper.withProps({
 });
 
 const CardStack = Stack.withProps({
-  gap: 6,
+  gap: "sm",
 });
 
-// The name gets a line of its own and the badges the next, so neither is
-// squeezed when the column is narrow (the monitoring sidebar open beside it).
+// Name on the left, mode and state on the right; on a narrow column (the
+// monitoring sidebar open beside it) the badges wrap under the name rather
+// than squeezing it.
+const HeaderRow = Group.withProps({
+  justify: "space-between",
+  align: "center",
+  gap: "xs",
+});
+
 const BadgeRow = Group.withProps({
   gap: "xs",
 });
 
 const NameText = Text.withProps({
   fw: 600,
-  size: "sm",
+  size: "md",
   truncate: "end",
+  miw: 0,
+});
+
+const SectionDivider = Divider.withProps({
+  color: "var(--inspector-border-default)",
+});
+
+const DetailStack = Stack.withProps({
+  gap: 4,
 });
 
 const DetailRow = Group.withProps({
@@ -63,7 +79,7 @@ const DetailRow = Group.withProps({
 const DetailLabel = Text.withProps({
   size: "xs",
   c: "var(--inspector-text-secondary)",
-  w: 72,
+  w: 88,
   flex: "0 0 auto",
 });
 
@@ -74,7 +90,24 @@ const DetailValue = Text.withProps({
   miw: 0,
 });
 
-const CountsText = Text.withProps({
+// The tallies, one figure per column with its name under it, so a count is
+// read at a glance rather than found in a sentence.
+const TallyRow = Group.withProps({
+  gap: "lg",
+  align: "flex-start",
+});
+
+const TallyStack = Stack.withProps({
+  gap: 0,
+});
+
+const TallyFigure = Text.withProps({
+  size: "md",
+  fw: 600,
+  ff: "monospace",
+});
+
+const TallyName = Text.withProps({
   size: "xs",
   c: "var(--inspector-text-secondary)",
 });
@@ -85,6 +118,11 @@ const ErrorText = Text.withProps({
 });
 
 const ActionRow = Group.withProps({
+  justify: "space-between",
+  gap: "xs",
+});
+
+const ActionGroup = Group.withProps({
   gap: "xs",
 });
 
@@ -95,7 +133,7 @@ const ActionButton = Button.withProps({
 
 const StopButton = Button.withProps({
   size: "compact-xs",
-  variant: "light",
+  variant: "outline",
   color: "red",
 });
 
@@ -117,6 +155,38 @@ const RELIST_LABELS = {
   failed: "re-list failed",
   skipped: "no re-list",
 } as const;
+
+/** How a nonzero tally reads: a lost or repeated event warns, a failure is an error. */
+type TallyTone = "neutral" | "warning" | "danger";
+
+const TONE_COLOR: Record<TallyTone, string> = {
+  neutral: "var(--inspector-text-primary)",
+  warning: "var(--inspector-warning-text)",
+  danger: "var(--inspector-danger-text)",
+};
+
+interface TallyProps {
+  value: number;
+  name: string;
+  tone?: TallyTone;
+}
+
+/**
+ * One tally. A zero reads in the secondary text color so the counts that
+ * moved stand out; a nonzero problem count takes its tone's color.
+ */
+function Tally({ value, name, tone = "neutral" }: TallyProps) {
+  return (
+    <TallyStack>
+      <TallyFigure
+        c={value === 0 ? "var(--inspector-text-secondary)" : TONE_COLOR[tone]}
+      >
+        {value}
+      </TallyFigure>
+      <TallyName>{name}</TallyName>
+    </TallyStack>
+  );
+}
 
 /**
  * One Events subscription (SEP-3415, #3030): its mode and state, the cursor it
@@ -153,99 +223,115 @@ export function EventSubscriptionCard({
   return (
     <CardFrame data-testid="event-subscription" data-status={status}>
       <CardStack>
-        <NameText>{name}</NameText>
-        <BadgeRow>
-          <DeliveryModeBadge mode={mode} />
-          <EventSubscriptionStatusBadge status={status} />
-        </BadgeRow>
-        <DetailRow>
-          <DetailLabel>Arguments</DetailLabel>
-          <DetailValue>
-            {formatSubscriptionArguments(subscription.arguments)}
-          </DetailValue>
-        </DetailRow>
-        <DetailRow>
-          <DetailLabel>Cursor</DetailLabel>
-          <DetailValue>{formatCursor(cursor)}</DetailValue>
-        </DetailRow>
-        {interval && (
+        <HeaderRow>
+          <NameText>{name}</NameText>
+          <BadgeRow>
+            <DeliveryModeBadge mode={mode} />
+            <EventSubscriptionStatusBadge status={status} />
+          </BadgeRow>
+        </HeaderRow>
+        <SectionDivider />
+        <DetailStack>
           <DetailRow>
-            <DetailLabel>{interval.label}</DetailLabel>
-            <DetailValue>{formatInterval(interval.ms)}</DetailValue>
+            <DetailLabel>Arguments</DetailLabel>
+            <DetailValue>
+              {formatSubscriptionArguments(subscription.arguments)}
+            </DetailValue>
           </DetailRow>
-        )}
-        {webhook && (
-          <>
+          <DetailRow>
+            <DetailLabel>Cursor</DetailLabel>
+            <DetailValue>{formatCursor(cursor)}</DetailValue>
+          </DetailRow>
+          {interval && (
             <DetailRow>
-              <DetailLabel>Callback</DetailLabel>
-              <DetailValue>{webhook.url}</DetailValue>
+              <DetailLabel>{interval.label}</DetailLabel>
+              <DetailValue>{formatInterval(interval.ms)}</DetailValue>
             </DetailRow>
-            {webhookSecret !== undefined && (
+          )}
+          {webhook && (
+            <>
               <DetailRow>
-                <DetailLabel>Secret</DetailLabel>
-                <WebhookSecretField secret={webhookSecret} />
+                <DetailLabel>Callback</DetailLabel>
+                <DetailValue>{webhook.url}</DetailValue>
               </DetailRow>
-            )}
-            {webhook.id !== undefined && (
+              {webhookSecret !== undefined && (
+                <DetailRow>
+                  <DetailLabel>Secret</DetailLabel>
+                  <WebhookSecretField secret={webhookSecret} />
+                </DetailRow>
+              )}
+              {webhook.id !== undefined && (
+                <DetailRow>
+                  <DetailLabel>Webhook id</DetailLabel>
+                  <DetailValue>{webhook.id}</DetailValue>
+                </DetailRow>
+              )}
               <DetailRow>
-                <DetailLabel>Webhook id</DetailLabel>
-                <DetailValue>{webhook.id}</DetailValue>
+                <DetailLabel>TTL asked</DetailLabel>
+                <DetailValue>{formatTtlSuggestion(webhook.ttlMs)}</DetailValue>
               </DetailRow>
-            )}
-            <DetailRow>
-              <DetailLabel>TTL asked</DetailLabel>
-              <DetailValue>{formatTtlSuggestion(webhook.ttlMs)}</DetailValue>
-            </DetailRow>
-            <DetailRow>
-              <DetailLabel>Expires</DetailLabel>
-              <DetailValue>
-                {formatRefreshBefore(webhook.refreshBefore)}
-              </DetailValue>
-            </DetailRow>
-            {live && webhook.nextRefreshAt && (
               <DetailRow>
-                <DetailLabel>Next refresh</DetailLabel>
-                <DetailValue>{webhook.nextRefreshAt.toISOString()}</DetailValue>
+                <DetailLabel>Expires</DetailLabel>
+                <DetailValue>
+                  {formatRefreshBefore(webhook.refreshBefore)}
+                </DetailValue>
               </DetailRow>
-            )}
-            <NoteText>
-              {webhook.refreshes} successful subscribe
-              {webhook.refreshes === 1 ? "" : "s"}
-              {webhook.truncated ? " · last response truncated (gap)" : ""}
-            </NoteText>
-            {webhook.deliveryStatus ? (
-              describeDeliveryStatus(webhook.deliveryStatus).map((line) => (
-                <NoteText key={line}>{line}</NoteText>
-              ))
-            ) : (
+              {live && webhook.nextRefreshAt && (
+                <DetailRow>
+                  <DetailLabel>Next refresh</DetailLabel>
+                  <DetailValue>
+                    {webhook.nextRefreshAt.toISOString()}
+                  </DetailValue>
+                </DetailRow>
+              )}
               <NoteText>
-                No delivery status reported (a server includes it on a refresh,
-                if at all).
+                {webhook.refreshes} successful subscribe
+                {webhook.refreshes === 1 ? "" : "s"}
+                {webhook.truncated ? " · last response truncated (gap)" : ""}
               </NoteText>
-            )}
-            {webhook.unsubscribe && (
-              <NoteText>
-                {UNSUBSCRIBE_LABELS[webhook.unsubscribe.status]}
-                {webhook.unsubscribe.status === "failed" &&
-                  webhook.unsubscribe.error &&
-                  `: ${describeEventsError(webhook.unsubscribe.error)}`}
-              </NoteText>
-            )}
-          </>
-        )}
+              {webhook.deliveryStatus ? (
+                describeDeliveryStatus(webhook.deliveryStatus).map((line) => (
+                  <NoteText key={line}>{line}</NoteText>
+                ))
+              ) : (
+                <NoteText>
+                  No delivery status reported (a server includes it on a
+                  refresh, if at all).
+                </NoteText>
+              )}
+              {webhook.unsubscribe && (
+                <NoteText>
+                  {UNSUBSCRIBE_LABELS[webhook.unsubscribe.status]}
+                  {webhook.unsubscribe.status === "failed" &&
+                    webhook.unsubscribe.error &&
+                    `: ${describeEventsError(webhook.unsubscribe.error)}`}
+                </NoteText>
+              )}
+            </>
+          )}
+        </DetailStack>
+        <SectionDivider />
         {webhook ? (
           // Deliveries go to the callback, never here, so only what the
           // management loop sees is counted.
-          <CountsText>
-            {counts.gaps} gaps · {counts.errors} errors · {counts.reconnects}{" "}
-            retries
-          </CountsText>
+          <TallyRow>
+            <Tally value={counts.gaps} name="gaps" tone="warning" />
+            <Tally value={counts.errors} name="errors" tone="danger" />
+            <Tally value={counts.reconnects} name="retries" tone="warning" />
+          </TallyRow>
         ) : (
-          <CountsText>
-            {counts.events} events · {counts.gaps} gaps · {counts.errors} errors
-            · {counts.reconnects} reconnects · {counts.duplicates} duplicates ·{" "}
-            {counts.invalidPayloads} invalid payloads
-          </CountsText>
+          <TallyRow>
+            <Tally value={counts.events} name="events" />
+            <Tally value={counts.gaps} name="gaps" tone="warning" />
+            <Tally value={counts.errors} name="errors" tone="danger" />
+            <Tally value={counts.reconnects} name="reconnects" tone="warning" />
+            <Tally value={counts.duplicates} name="duplicates" tone="warning" />
+            <Tally
+              value={counts.invalidPayloads}
+              name="invalid payloads"
+              tone="danger"
+            />
+          </TallyRow>
         )}
         {termination ? (
           <ErrorText>
@@ -259,28 +345,32 @@ export function EventSubscriptionCard({
           )
         )}
         <ActionRow>
-          {live ? (
-            <>
-              <StopButton onClick={onStop}>
-                {webhook ? "Unsubscribe" : "Stop"}
-              </StopButton>
-              {webhook && onRefresh && (
-                <ActionButton onClick={onRefresh}>Refresh now</ActionButton>
-              )}
-            </>
-          ) : (
-            <>
-              {canResumeSubscription(subscription) && (
-                <ActionButton onClick={onResume}>Resume</ActionButton>
-              )}
-              {webhook?.unsubscribe?.status === "failed" && (
-                <ActionButton onClick={onStop}>Retry unsubscribe</ActionButton>
-              )}
-              <ActionButton onClick={onRemove}>Remove</ActionButton>
-            </>
-          )}
+          <ActionGroup>
+            {live ? (
+              <>
+                <StopButton onClick={onStop}>
+                  {webhook ? "Unsubscribe" : "Stop"}
+                </StopButton>
+                {webhook && onRefresh && (
+                  <ActionButton onClick={onRefresh}>Refresh now</ActionButton>
+                )}
+              </>
+            ) : (
+              <>
+                {canResumeSubscription(subscription) && (
+                  <ActionButton onClick={onResume}>Resume</ActionButton>
+                )}
+                {webhook?.unsubscribe?.status === "failed" && (
+                  <ActionButton onClick={onStop}>
+                    Retry unsubscribe
+                  </ActionButton>
+                )}
+                <ActionButton onClick={onRemove}>Remove</ActionButton>
+              </>
+            )}
+          </ActionGroup>
           <ActionButton onClick={onToggleLogFilter} aria-pressed={logFiltered}>
-            {logFiltered ? "Show all events" : "Only this in log"}
+            {logFiltered ? "Show all events" : "Filter Log"}
           </ActionButton>
         </ActionRow>
       </CardStack>

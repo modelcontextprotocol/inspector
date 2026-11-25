@@ -16,6 +16,7 @@ import type { ListPaginationControlsProps } from "../../elements/ListPaginationC
 import { collectSchemaDefaults, toFormSchema } from "../../../utils/jsonUtils";
 import {
   buildSubscribeOptions,
+  findLiveSubscription,
   eventArguments,
   filterEventLog,
   resolveSubscribeMode,
@@ -204,6 +205,16 @@ export function EventsScreen({
   // it clears on the next selection and on the next attempt.
   const [subscribeError, setSubscribeError] = useState<string>();
   const filtered = subscriptions.find((s) => s.id === ui.logFilter);
+  const liveMatch =
+    selected && mode
+      ? findLiveSubscription(
+          subscriptions,
+          selected.name,
+          mode,
+          eventArguments(selected.inputSchema, ui.formValues),
+          ui.tuning.callbackUrl,
+        )
+      : undefined;
   const entries = filterEventLog(log, filtered?.id);
 
   const handleSelect = (name: string) => {
@@ -293,6 +304,9 @@ export function EventsScreen({
               tuning={ui.tuning}
               onTuningChange={(tuning) => onUiChange({ ...ui, tuning })}
               onSubscribe={handleSubscribe}
+              onUnsubscribe={
+                liveMatch ? () => onStopSubscription(liveMatch.id) : undefined
+              }
               subscribeError={subscribeError}
               webhookSecret={webhookSecret}
               onRegenerateWebhookSecret={onRegenerateWebhookSecret}
