@@ -14,7 +14,7 @@ export interface DeliveryModeBadgeProps {
 // `constructor` or `__proto__` must miss rather than hit an inherited member.
 const COLOR_BY_MODE: ReadonlyMap<string, string> = new Map([
   ["poll", "blue"],
-  ["push", "teal"],
+  ["push", "orange"],
   ["webhook", "grape"],
 ]);
 
