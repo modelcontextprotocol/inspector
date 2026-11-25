@@ -18,6 +18,7 @@ import {
   formatPayload,
   formatSubscriptionArguments,
   isSubscriptionLive,
+  findLiveSubscription,
   isTuningValid,
   mirroredEventHeaders,
   optionalWholeNumber,
@@ -38,6 +39,7 @@ import {
   unknownModeType,
   webhookOnlyType,
 } from "../test/fixtures/events";
+import { eventSubscriptionKey } from "@inspector/core/extension/events/canonicalJson.js";
 
 describe("subscribable modes (#3031)", () => {
   it("offers all three modes", () => {
@@ -445,6 +447,89 @@ describe("subscription state", () => {
       true,
     );
     expect(isSubscriptionLive(terminatedPush)).toBe(false);
+  });
+
+  describe("findLiveSubscription", () => {
+    const poll = {
+      ...activePoll,
+      id: eventSubscriptionKey("email.received", { folder: "inbox" }, "poll"),
+      arguments: { folder: "inbox" },
+    };
+    const hook = {
+      ...activePoll,
+      id: eventSubscriptionKey(
+        "email.received",
+        {},
+        "webhook",
+        "https://hooks.example.com/in",
+      ),
+      mode: "webhook" as const,
+      arguments: {},
+    };
+
+    it("matches a live subscription on name, arguments and mode", () => {
+      expect(
+        findLiveSubscription([poll], "email.received", "poll", {
+          folder: "inbox",
+        }),
+      ).toBe(poll);
+    });
+
+    it("does not match other arguments, another mode, or another name", () => {
+      const subs = [poll];
+      expect(
+        findLiveSubscription(subs, "email.received", "poll", { folder: "x" }),
+      ).toBeUndefined();
+      expect(
+        findLiveSubscription(subs, "email.received", "push", {
+          folder: "inbox",
+        }),
+      ).toBeUndefined();
+      expect(
+        findLiveSubscription(subs, "other", "poll", { folder: "inbox" }),
+      ).toBeUndefined();
+    });
+
+    it("ignores a matching subscription that is no longer live", () => {
+      expect(
+        findLiveSubscription(
+          [{ ...poll, status: "stopped" }],
+          "email.received",
+          "poll",
+          { folder: "inbox" },
+        ),
+      ).toBeUndefined();
+    });
+
+    it("keys a webhook on its normalized callback URL", () => {
+      expect(
+        findLiveSubscription(
+          [hook],
+          "email.received",
+          "webhook",
+          {},
+          "  HTTPS://hooks.example.com/in ",
+        ),
+      ).toBe(hook);
+      expect(
+        findLiveSubscription(
+          [hook],
+          "email.received",
+          "webhook",
+          {},
+          "https://hooks.example.com/other",
+        ),
+      ).toBeUndefined();
+    });
+
+    it("matches no webhook when the callback URL does not parse", () => {
+      expect(
+        findLiveSubscription([hook], "email.received", "webhook", {}, "nope"),
+      ).toBeUndefined();
+      expect(
+        findLiveSubscription([hook], "email.received", "webhook", {}),
+      ).toBeUndefined();
+    });
   });
 
   it("offers a resume only where the engine would accept one", () => {

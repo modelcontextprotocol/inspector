@@ -46,6 +46,12 @@ export interface EventDetailPanelProps {
   tuning: SubscribeTuning;
   onTuningChange: (tuning: SubscribeTuning) => void;
   onSubscribe: () => void;
+  /**
+   * Set when the form's name, arguments and mode address a subscription that
+   * is already running: the button then stops it instead of subscribing
+   * again, which the engine would treat as a no-op (#3042).
+   */
+  onUnsubscribe?: () => void;
   /** Why the last subscribe was refused, shown above the button. */
   subscribeError?: string;
   /** Per-selection identity for the schema form; see `SchemaFormProps`. */
@@ -153,6 +159,12 @@ const PositiveTuningInput = NumberInput.withProps({
   size: "sm",
 });
 
+const UnsubscribeButton = Button.withProps({
+  size: "md",
+  variant: "outline",
+  color: "red",
+});
+
 const FooterRow = Group.withProps({
   justify: "flex-start",
   flex: "0 0 auto",
@@ -210,6 +222,7 @@ export function EventDetailPanel({
   tuning,
   onTuningChange,
   onSubscribe,
+  onUnsubscribe,
   subscribeError,
   resetKey,
   webhookSecret,
@@ -427,9 +440,15 @@ export function EventDetailPanel({
       )}
 
       <FooterRow>
-        <Button size="md" onClick={onSubscribe} disabled={subscribeDisabled}>
-          Subscribe
-        </Button>
+        {onUnsubscribe ? (
+          <UnsubscribeButton onClick={onUnsubscribe}>
+            Unsubscribe
+          </UnsubscribeButton>
+        ) : (
+          <Button size="md" onClick={onSubscribe} disabled={subscribeDisabled}>
+            Subscribe
+          </Button>
+        )}
       </FooterRow>
     </PanelStack>
   );

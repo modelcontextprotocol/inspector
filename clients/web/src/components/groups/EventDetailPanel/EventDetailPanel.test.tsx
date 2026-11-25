@@ -135,6 +135,26 @@ describe("EventDetailPanel", () => {
     expect(screen.getByRole("button", { name: "Subscribe" })).toBeDisabled();
   });
 
+  it("offers Unsubscribe instead of Subscribe when the form addresses a live subscription", async () => {
+    const onSubscribe = vi.fn();
+    const onUnsubscribe = vi.fn();
+    renderWithMantine(
+      <EventDetailPanel
+        {...baseProps}
+        eventType={headerAnnotatedType}
+        onSubscribe={onSubscribe}
+        onUnsubscribe={onUnsubscribe}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Subscribe" }),
+    ).not.toBeInTheDocument();
+    // Enabled even though the form would not pass subscribe validation.
+    await userEvent.click(screen.getByRole("button", { name: "Unsubscribe" }));
+    expect(onUnsubscribe).toHaveBeenCalledTimes(1);
+    expect(onSubscribe).not.toHaveBeenCalled();
+  });
+
   it("refuses a restored maxEvents of 0", () => {
     renderWithMantine(
       <EventDetailPanel {...baseProps} tuning={{ maxEvents: 0 }} />,

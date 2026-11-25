@@ -61,6 +61,14 @@ export const AllModes: Story = {
     await expect(canvas.getByLabelText("heartbeatMs")).toBeInTheDocument();
   },
 };
+export const AlreadySubscribed: Story = {
+  args: { eventType: allModesType, onUnsubscribe: fn() },
+  play: async ({ args, canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Unsubscribe" }));
+    await expect(args.onUnsubscribe).toHaveBeenCalledTimes(1);
+  },
+};
 export const PollOnly: Story = { args: { eventType: pollOnlyType } };
 export const MirroredHeaders: Story = {
   args: { eventType: headerAnnotatedType, formValues: { region: "us-west1" } },

@@ -22,6 +22,7 @@ import {
   subscriptions,
   terminatedPush,
 } from "../../../test/fixtures/events";
+import { eventSubscriptionKey } from "@inspector/core/extension/events/canonicalJson.js";
 
 function baseProps(): EventsScreenProps {
   return {
@@ -135,6 +136,31 @@ describe("EventsScreen", () => {
         heartbeatMs: 5000,
       },
     );
+  });
+
+  it("offers Unsubscribe when the form addresses a live subscription, and stops it", async () => {
+    const live = {
+      ...activePoll,
+      id: eventSubscriptionKey("incident.created", { service: "api" }, "push"),
+      name: "incident.created",
+      mode: "push" as const,
+      arguments: { service: "api" },
+    };
+    const onStopSubscription = vi.fn();
+    renderWithMantine(
+      <Stateful
+        subscriptions={[live]}
+        onStopSubscription={onStopSubscription}
+        initialUi={{
+          ...EMPTY_EVENTS_UI,
+          selectedEventName: "incident.created",
+          formValues: { service: "api" },
+          mode: "push",
+        }}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Unsubscribe" }));
+    expect(onStopSubscription).toHaveBeenCalledWith(live.id);
   });
 
   it("lifts the form, mode and tuning edits", async () => {
