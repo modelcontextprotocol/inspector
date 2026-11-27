@@ -470,18 +470,22 @@ uncontrolled dependency update (seen on 1.0.2, #2080). The edits are:
 
 - `version` in the **four** `package.json` files: root, `client/`, `server/`,
   `cli/`.
-- The **three** `@modelcontextprotocol/inspector-{cli,client,server}` ranges in
-  the root `package.json` `dependencies` (`^X.Y.Z`).
-- The **eight** matching fields in `package-lock.json`: the top-level
+- The **four** workspace ranges (`^X.Y.Z`): the three
+  `@modelcontextprotocol/inspector-{cli,client,server}` ranges in the root
+  `package.json` `dependencies`, and the `@modelcontextprotocol/inspector-server`
+  range in `client/package.json` (since 1.0.7, #3059: the client launches the
+  server through it when installed on its own).
+- The **nine** matching fields in `package-lock.json`: the top-level
   `version`, `packages[""].version`, the three ranges under
-  `packages[""].dependencies`, and `packages["cli"|"client"|"server"].version`.
+  `packages[""].dependencies`, the one under `packages["client"].dependencies`,
+  and `packages["cli"|"client"|"server"].version`.
   The `node_modules/@modelcontextprotocol/inspector-*` entries are workspace
   links with no version, so they need no edit.
 
 Then prove the edit is complete and touched nothing else:
 
 ```sh
-npm run check-version                       # every version field agrees
+npm run check-version                       # every version field and workspace range agrees
 cp package-lock.json /tmp/lock-before.json
 npm ci && cmp package-lock.json /tmp/lock-before.json   # silent: npm ci left the lockfile alone
 ```
@@ -497,37 +501,52 @@ install, which hoists every dependency the root declares. So a package that
 imports something only the root declares passes all of them and still fails as
 soon as someone runs it on its own. `npx -y @modelcontextprotocol/inspector-server`
 crashed this way (`ERR_MODULE_NOT_FOUND: 'node-fetch'`) in every release from
-0.21.0 through 1.0.6, and nothing caught it until 1.0.7 (#3055).
+0.21.0 through 1.0.6, and nothing caught it until 1.0.7 (#3055). The client was
+worse: `bin/start.js` reached the proxy and its own UI server through
+`../../server` and `../../client`, paths that exist only inside the root package,
+so from its layout `npx @modelcontextprotocol/inspector-client` could not have
+started at all (#3059).
 
 There are two halves, because each catches what the other misses: a scan of the
 shipped files, and a run of each bin.
 
 ```sh
 npm run build
-mkdir -p "$TMPDIR/v1pack/tgz"
-npm pack --workspaces --include-workspace-root --pack-destination "$TMPDIR/v1pack/tgz"
+# A fresh root every run. A reused directory keeps the previous run's
+# node_modules, which can supply exactly the dependency this check is looking for.
+R=$(mktemp -d "${TMPDIR:-/tmp}/v1pack.XXXXXX"); mkdir "$R/tgz"
+npm pack --workspaces --include-workspace-root --pack-destination "$R/tgz"
 
 # 1. Scan: every bare import in a package's shipped files must be in that
 #    package's own dependencies. This catches a lazy import that never fails at
-#    startup. client/dist is a Vite bundle with its dependencies inlined, so
-#    only client/bin is scanned.
+#    startup. The patterns are the statement-shaped ones in
+#    scripts/lib/bundle-bare-imports.mjs (static import/export … from, side-effect
+#    import, dynamic import()), plus require(). They are anchored to the start of
+#    a line, so the word `from` in a comment is not read as an import.
+#    client/dist is a Vite bundle with its dependencies inlined, so only
+#    client/bin is scanned.
 node -e '
-const fs=require("fs"),path=require("path"),builtin=new Set(require("module").builtinModules);
-const walk=(d,o=[])=>{for(const f of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,f.name);f.isDirectory()?walk(p,o):/\.m?js$/.test(f.name)&&o.push(p);}return o;};
+const fs=require("fs"),path=require("path"),{isBuiltin}=require("module");
+const P=[/^(?:import|export)\b[^;]*?\bfrom\s*["\x27]([^"\x27]+)["\x27]/gm,/^import\s*["\x27]([^"\x27]+)["\x27]/gm,/\bimport\(\s*["\x27]([^"\x27]+)["\x27]\s*\)/g,/\brequire\(\s*["\x27]([^"\x27]+)["\x27]\s*\)/g];
+const walk=(d,o=[])=>{for(const f of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,f.name);f.isDirectory()?walk(p,o):/\.[cm]?js$/.test(f.name)&&o.push(p);}return o;};
 let bad=0;for(const [ws,dirs] of [["server",["build"]],["client",["bin"]],["cli",["build"]]]){
  const pj=require("./"+ws+"/package.json"),dec=new Set(Object.keys({...pj.dependencies,...pj.peerDependencies}));
- for(const d of dirs)for(const f of walk(ws+"/"+d))for(const m of fs.readFileSync(f,"utf8").matchAll(/(?:from\s*|import\s*\(\s*|require\s*\(\s*)["\x27]([^"\x27.\/][^"\x27]*)["\x27]/g)){
-  let n=m[1];if(n.startsWith("node:"))continue;n=n.startsWith("@")?n.split("/").slice(0,2).join("/"):n.split("/")[0];
-  if(!builtin.has(n)&&!dec.has(n)){console.log(ws+": undeclared "+n+" ("+f+")");bad=1;}}}
+ for(const d of dirs)for(const f of walk(ws+"/"+d)){const s=fs.readFileSync(f,"utf8");for(const re of P)for(const m of s.matchAll(re)){
+  const x=m[1];if(x.startsWith(".")||x.startsWith("/")||x.includes(":")||isBuiltin(x))continue;
+  const n=x.startsWith("@")?x.split("/").slice(0,2).join("/"):x.split("/")[0];
+  if(!dec.has(n)){console.log(ws+": undeclared "+n+" ("+f+")");bad=1;}}}}
 process.exit(bad);'
 
 # 2. Run: install each tarball into its own empty directory and start its bin.
-for p in server cli client; do
-  d="$TMPDIR/v1pack/alone-$p"; mkdir -p "$d"
-  (cd "$d" && npm init -y >/dev/null && npm i "$TMPDIR/v1pack/tgz/modelcontextprotocol-inspector-$p-X.Y.Z.tgz")
-done
-# …then install all four tarballs together into a fifth directory and run its
-# mcp-inspector bin: that is the published shape.
+#    The client depends on inspector-server@^X.Y.Z, which is not on npm until
+#    the release publishes, so its install takes the server tarball alongside it:
+#    exactly what npm resolves once both are published.
+T="$R/tgz/modelcontextprotocol-inspector"
+inst() { mkdir "$R/$1" && (cd "$R/$1" && npm init -y >/dev/null && shift && npm i "$@"); }
+inst alone-server "$T-server-X.Y.Z.tgz"
+inst alone-cli    "$T-cli-X.Y.Z.tgz"
+inst alone-client "$T-client-X.Y.Z.tgz" "$T-server-X.Y.Z.tgz"
+inst full         "$T-X.Y.Z.tgz" "$T-server-X.Y.Z.tgz" "$T-client-X.Y.Z.tgz" "$T-cli-X.Y.Z.tgz"
 ```
 
 The scan must print nothing and exit 0. What each run must show:
@@ -536,15 +555,11 @@ The scan must print nothing and exit 0. What each run must show:
 | --- | --- |
 | `inspector-server` alone | `SERVER_PORT=<p> MCP_PROXY_AUTH_TOKEN=<t> node node_modules/@modelcontextprotocol/inspector-server/build/index.js` answers `GET /health` with `{"status":"ok"}`. Drive a release's server fix through `POST /fetch` on this install as well as on the built tree. |
 | `inspector-cli` alone | `./node_modules/.bin/mcp-inspector-cli --help` prints `Usage:` |
-| `inspector-client` alone | Fails on `Cannot find module …/@modelcontextprotocol/server/build/index.js`, and on nothing else |
-| All four together | `./node_modules/.bin/mcp-inspector` with `SERVER_PORT`/`CLIENT_PORT` set: the client serves `GET /` with 200 and the proxy `/health` is ok |
+| `inspector-client` alone | `./node_modules/.bin/mcp-inspector-client` with `SERVER_PORT`/`CLIENT_PORT`/`MCP_PROXY_AUTH_TOKEN` set: the UI serves `GET /` with 200, and the proxy it launched answers `/health`. There is no sibling `server/` in this install, so this proves the proxy came from the `inspector-server` dependency. |
+| All four together | `./node_modules/.bin/mcp-inspector` with the same variables: the UI serves `GET /` with 200 and the proxy `/health` is ok. This is the published shape. |
 
-⚠️ **`inspector-client` is root-only by design, so its row expects an error.**
-`bin/start.js` launches the proxy at `resolve(__dirname, "../..", "server/build/index.js")`,
-a path that exists only inside the root package, which ships `client/`, `server/`
-and `cli/` side by side. A different error there, above all
-`ERR_MODULE_NOT_FOUND` naming a package, is a missing dependency and fails the
-check.
+Set `MCP_AUTO_OPEN_ENABLED=false` on the two UI runs, or each one opens a
+browser tab.
 
 A failure is a fix PR against `v1/main`, merged **before** the bump (v1-2). Put
 the run's results in the release ledger.
