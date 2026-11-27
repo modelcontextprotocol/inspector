@@ -42,6 +42,7 @@
     "@modelcontextprotocol/sdk": "^1.25.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
+    "node-fetch": "^3.3.2",
     "shell-quote": "^1.8.4",
     "shx": "^0.3.4",
     "spawn-rx": "^5.1.2",
