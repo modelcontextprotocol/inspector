@@ -231,6 +231,11 @@ export interface UseServerCommandsOptions {
   loadToolsPage: (cursor: string | undefined) => Promise<unknown>;
   loadPromptsPage: (cursor: string | undefined) => Promise<unknown>;
   loadResourcesPage: (cursor: string | undefined) => Promise<unknown>;
+  /** The Events list (SEP-3415, #3030), in the same two modes. */
+  eventsPagination: PaginatedListModel<unknown>;
+  refreshEvents: () => Promise<unknown>;
+  clearEventsListChanged: () => void;
+  loadEventsPage: (cursor: string | undefined) => Promise<unknown>;
 
   // --- Persisting the pagination setting (#1721/#2089/#2095). ---
   /** What each settings write actually put on disk, per server (#2089). */
@@ -301,6 +306,8 @@ export interface ServerCommands {
   onLoadMoreTools: () => void;
   onLoadMorePrompts: () => void;
   onLoadMoreResources: () => void;
+  onRefreshEvents: () => void;
+  onLoadMoreEvents: () => void;
 }
 
 /**
@@ -353,6 +360,10 @@ export function useServerCommands({
   loadToolsPage,
   loadPromptsPage,
   loadResourcesPage,
+  eventsPagination,
+  refreshEvents,
+  clearEventsListChanged,
+  loadEventsPage,
   lastPersistedSettings,
   applyLiveServerSettings,
   updateServerSettings,
@@ -881,6 +892,21 @@ export function useServerCommands({
     clearResourcesListChanged,
     runCommandInBackground,
   ]);
+  // Events (#3030): the tools path, both modes.
+  const onRefreshEvents = useCallback(() => {
+    if (paginatedLists) {
+      clearEventsListChanged();
+      runCommandInBackground(() => eventsPagination.onRefresh(), "ambient");
+    } else {
+      runCommandInBackground(() => refreshEvents(), "ambient");
+    }
+  }, [
+    paginatedLists,
+    eventsPagination,
+    refreshEvents,
+    clearEventsListChanged,
+    runCommandInBackground,
+  ]);
   // The per-list sidebar toggle edits the server-wide `paginatedLists` setting:
   // optimistic override for an instant flip, live push so the managed state's
   // gating reads it now, and a persisted PUT so it survives reconnects (#1721).
@@ -913,10 +939,12 @@ export function useServerCommands({
           runCommandInBackground(() => loadToolsPage(undefined), "ambient");
           runCommandInBackground(() => loadPromptsPage(undefined), "ambient");
           runCommandInBackground(() => loadResourcesPage(undefined), "ambient");
+          runCommandInBackground(() => loadEventsPage(undefined), "ambient");
         } else {
           runCommandInBackground(() => refreshTools(), "ambient");
           runCommandInBackground(() => refreshPrompts(), "ambient");
           runCommandInBackground(() => refreshResources(), "ambient");
+          runCommandInBackground(() => refreshEvents(), "ambient");
         }
       }
       // Refreshed like every other secret-store mutation: this resends the
@@ -1033,9 +1061,11 @@ export function useServerCommands({
       loadToolsPage,
       loadPromptsPage,
       loadResourcesPage,
+      loadEventsPage,
       refreshTools,
       refreshPrompts,
       refreshResources,
+      refreshEvents,
       runCommandInBackground,
     ],
   );
@@ -1049,6 +1079,11 @@ export function useServerCommands({
     () =>
       runCommandInBackground(() => promptsPagination.onLoadMore(), "ambient"),
     [promptsPagination, runCommandInBackground],
+  );
+  const onLoadMoreEvents = useCallback(
+    () =>
+      runCommandInBackground(() => eventsPagination.onLoadMore(), "ambient"),
+    [eventsPagination, runCommandInBackground],
   );
   const onLoadMoreResources = useCallback(
     () =>
@@ -1207,5 +1242,7 @@ export function useServerCommands({
     onLoadMoreTools,
     onLoadMorePrompts,
     onLoadMoreResources,
+    onRefreshEvents,
+    onLoadMoreEvents,
   };
 }

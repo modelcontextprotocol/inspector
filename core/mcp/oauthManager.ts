@@ -119,6 +119,8 @@ export class OAuthManager {
     requestRefreshToken?: boolean;
     /** Send `scope` on the refresh-token request (#2805). */
     scopeOnRefresh?: boolean;
+    /** Skip the RFC 8414 §3.3 issuer check on AS metadata (#2983). */
+    skipIssuerMetadataValidation?: boolean;
   }): void {
     this.oauthConfig = {
       ...this.oauthConfig,
@@ -128,6 +130,20 @@ export class OAuthManager {
 
   private getServerUrl(): string {
     return this.params.getServerUrl();
+  }
+
+  /**
+   * The per-server opt-out of the RFC 8414 §3.3 issuer check on
+   * authorization-server metadata (#2983), spread into every discovery this
+   * manager starts. Security-weakening, so only an explicit `true` yields the
+   * key — any other value leaves the SDK's check on.
+   */
+  private issuerMetadataValidationOptions(): {
+    skipIssuerMetadataValidation?: true;
+  } {
+    return this.oauthConfig.skipIssuerMetadataValidation === true
+      ? { skipIssuerMetadataValidation: true }
+      : {};
   }
 
   /**
@@ -197,6 +213,10 @@ export class OAuthManager {
       // #2805: per-server opt-in to a `scope` on the refresh-token request.
       // Pure config, like the two above.
       scopeOnRefresh: this.oauthConfig.scopeOnRefresh,
+      // #2983: per-server opt-out of the issuer metadata check. The provider
+      // needs it to stop serving cached metadata the check would now reject.
+      skipIssuerMetadataValidation:
+        this.oauthConfig.skipIssuerMetadataValidation === true,
       // #2068: lets the provider tell an `offline_access` the user asked for
       // from one inherited from a previous grant's persisted scope.
       configuredScope: this.oauthConfig.scope,
@@ -329,6 +349,7 @@ export class OAuthManager {
       provider,
       fetchFn: this.params.effectiveAuthFetch,
       resourceMetadataUrl,
+      ...this.issuerMetadataValidationOptions(),
     });
 
     // Read once: the getter filters (#2068), so this is what was actually
@@ -339,6 +360,7 @@ export class OAuthManager {
       scope: requestedScope,
       fetchFn: this.params.effectiveAuthFetch,
       resourceMetadataUrl,
+      ...this.issuerMetadataValidationOptions(),
     });
 
     if (result === "AUTHORIZED") {
@@ -449,6 +471,7 @@ export class OAuthManager {
         authorizationCode,
         iss,
         fetchFn: this.params.effectiveAuthFetch,
+        ...this.issuerMetadataValidationOptions(),
       });
 
       if (result !== "AUTHORIZED") {
@@ -896,6 +919,7 @@ export class OAuthManager {
       provider,
       fetchFn: this.params.effectiveAuthFetch,
       resourceMetadataUrl,
+      ...this.issuerMetadataValidationOptions(),
     });
 
     // #2068 — the step-up union is built from *raw* storage
@@ -938,6 +962,7 @@ export class OAuthManager {
         scope: scopeForAuth,
         fetchFn: this.params.effectiveAuthFetch,
         resourceMetadataUrl,
+        ...this.issuerMetadataValidationOptions(),
         ...(enriched.reason === "insufficient_scope" && {
           // Judge coverage the way checkAuthChallengeSatisfied does: a token
           // response that omitted `scope` granted what was stored, so a
@@ -1093,6 +1118,7 @@ export class OAuthManager {
         scope: scopeForAuth,
         fetchFn: this.params.effectiveAuthFetch,
         resourceMetadataUrl: challengeResourceMetadataUrl(enriched),
+        ...this.issuerMetadataValidationOptions(),
         forceReauthorization: true,
       });
     } finally {

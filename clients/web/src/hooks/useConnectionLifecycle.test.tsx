@@ -128,6 +128,11 @@ interface HarnessProps {
   } | null;
   /** Feeds `lastPersistedSettings.resolve`, which wins over `entry.settings`. */
   persisted?: Record<string, InspectorServerSettings | undefined>;
+  /**
+   * A settings write still in flight for a server (#3007): the promise settles
+   * with what it put on disk, or `undefined` when it failed.
+   */
+  pendingWrites?: Record<string, Promise<InspectorServerSettings | undefined>>;
   addServerImpl?: (id: string, config: MCPServerConfig) => Promise<unknown>;
   updateServerImpl?: (
     id: string,
@@ -218,6 +223,9 @@ function harness(initial: HarnessProps = {}): Harness {
       destroyStores: s.destroyStores,
       lastPersistedSettings: {
         resolve: (id: string) => p.persisted?.[id],
+        isPending: (id: string) => p.pendingWrites?.[id] !== undefined,
+        whenSettled: (id: string) =>
+          p.pendingWrites?.[id] ?? Promise.resolve(undefined),
       },
       clientConfig: p.clientConfig ?? {},
       newAppElicitationSession: s.newAppElicitationSession,
@@ -589,6 +597,23 @@ describe("useConnectionLifecycle", () => {
       expect(client.getServerSettings()?.oauthScopeOnRefresh).toBe(true);
     });
 
+    it("forwards the issuer-check opt-out on its own (#2983)", () => {
+      // Now the last operand of the "is there any per-server OAuth?" chain.
+      const settings: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        oauthSkipIssuerMetadataValidation: true,
+      };
+      const h = harness({
+        servers: [entry("a", { settings })],
+        persisted: { a: settings },
+      });
+
+      const client = h.published()!(entry("a", { settings }));
+      expect(
+        client.getServerSettings()?.oauthSkipIssuerMetadataValidation,
+      ).toBe(true);
+    });
+
     it("threads the per-server authorization params and endpoint overrides", () => {
       const settings: InspectorServerSettings = {
         ...EMPTY_SETTINGS,
@@ -618,6 +643,134 @@ describe("useConnectionLifecycle", () => {
       expect(h.spies.setActiveServerId).toHaveBeenCalledWith("a");
       expect(h.spies.setFailedServerId).toHaveBeenCalledWith(undefined);
       expect(h.api().connectErrorMessage).toBeUndefined();
+    });
+
+    it("waits out a settings write in flight and connects with what it saved (#3007)", async () => {
+      const before: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        requestTimeout: 1,
+      };
+      const saved: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        requestTimeout: 4000,
+      };
+      let land: (
+        written: InspectorServerSettings | undefined,
+      ) => void = () => {};
+      const write = new Promise<InspectorServerSettings | undefined>((r) => {
+        land = r;
+      });
+      // The list entry and the tracker both still describe the settings from
+      // before the edit — the state a connect issued right after the settings
+      // modal closes finds.
+      const h = harness({
+        servers: [entry("a", { settings: before })],
+        persisted: { a: before },
+        pendingWrites: { a: write },
+      });
+
+      let toggled: Promise<void> = Promise.resolve();
+      await act(async () => {
+        toggled = h.api().onToggleConnection("a");
+        await Promise.resolve();
+      });
+      expect(h.spies.setInspectorClient).not.toHaveBeenCalled();
+      expect(connectSpy).not.toHaveBeenCalled();
+
+      await act(async () => {
+        land(saved);
+        await toggled;
+      });
+
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.seedModernLogLevel).toHaveBeenCalledWith(saved);
+    });
+
+    it("connects with what disk still holds when the write in flight fails (#3007)", async () => {
+      const before: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        requestTimeout: 1,
+      };
+      const h = harness({
+        servers: [entry("a", { settings: before })],
+        persisted: { a: before },
+        pendingWrites: { a: Promise.resolve(undefined) },
+      });
+
+      await act(async () => {
+        await h.api().onToggleConnection("a");
+      });
+
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.seedModernLogLevel).toHaveBeenCalledWith(before);
+    });
+
+    it("uses the settings current once the wait ends when the write failed (#3007)", async () => {
+      const before: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        requestTimeout: 1,
+      };
+      const reread: InspectorServerSettings = {
+        ...EMPTY_SETTINGS,
+        requestTimeout: 7,
+      };
+      let fail: (written: undefined) => void = () => {};
+      const write = new Promise<InspectorServerSettings | undefined>((r) => {
+        fail = r;
+      });
+      const props: HarnessProps = {
+        servers: [entry("a", { settings: before })],
+        persisted: { a: before },
+        pendingWrites: { a: write },
+      };
+      const h = harness(props);
+
+      let toggled: Promise<void> = Promise.resolve();
+      await act(async () => {
+        toggled = h.api().onToggleConnection("a");
+        await Promise.resolve();
+      });
+      // A list read lands during the wait; the toggle above still holds the
+      // callbacks of the render it was issued from.
+      h.rerender({ ...props, persisted: { a: reread } });
+      await act(async () => {
+        fail(undefined);
+        await toggled;
+      });
+
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.seedModernLogLevel).toHaveBeenCalledWith(reread);
+    });
+
+    it("drops a connect that a later one replaced while it waited (#3007)", async () => {
+      let land: (
+        written: InspectorServerSettings | undefined,
+      ) => void = () => {};
+      const write = new Promise<InspectorServerSettings | undefined>((r) => {
+        land = r;
+      });
+      const h = harness({
+        servers: [entry("a"), entry("b")],
+        pendingWrites: { a: write },
+      });
+
+      let waiting: Promise<void> = Promise.resolve();
+      await act(async () => {
+        waiting = h.api().onToggleConnection("a");
+        await h.api().onToggleConnection("b");
+      });
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.setActiveServerId).toHaveBeenCalledWith("b");
+
+      await act(async () => {
+        land(EMPTY_SETTINGS);
+        await waiting;
+      });
+
+      // The session belongs to B; A's stale attempt must not rebuild over it.
+      expect(connectSpy).toHaveBeenCalledTimes(1);
+      expect(h.spies.setInspectorClient).toHaveBeenCalledTimes(1);
+      expect(h.spies.setActiveServerId).not.toHaveBeenCalledWith("a");
     });
 
     it("does not re-set the active id when the target is already active", async () => {

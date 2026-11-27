@@ -453,6 +453,47 @@ describe("Transport", () => {
       ).toBe("reauthorize");
     });
 
+    it("forwards settings.oauthSkipIssuerMetadataValidation to both HTTP transports only when on (#2983)", () => {
+      const baseSettings: InspectorServerSettings = {
+        headers: [],
+        env: [],
+        metadata: {},
+        connectionTimeout: 0,
+        requestTimeout: 0,
+        taskTtl: 0,
+        maxFetchRequests: 1000,
+        roots: [],
+      };
+      // The SDK keeps the option in a private field; reading it is the only
+      // way to observe what the constructor was handed short of a live 401.
+      const skipOf = (transport: unknown): unknown =>
+        (transport as { _skipIssuerMetadataValidation?: boolean })
+          ._skipIssuerMetadataValidation;
+
+      for (const type of ["streamable-http", "sse"] as const) {
+        const config: MCPServerConfig = {
+          type,
+          url: "https://mcp.example.com/mcp",
+        };
+        expect(
+          skipOf(
+            createTransportNode(config, {
+              settings: {
+                ...baseSettings,
+                oauthSkipIssuerMetadataValidation: true,
+              },
+            }).transport,
+          ),
+        ).toBe(true);
+        // Unset → the SDK's check stays on.
+        expect(
+          skipOf(
+            createTransportNode(config, { settings: baseSettings }).transport,
+          ),
+        ).toBeUndefined();
+      }
+    });
+
     it("applies settings.headers to the outgoing SSE request", async () => {
       const server = createTestServerHttp({
         serverInfo: createTestServerInfo(),

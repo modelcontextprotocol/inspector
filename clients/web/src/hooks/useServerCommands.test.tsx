@@ -174,6 +174,9 @@ function spies() {
     loadToolsPage: vi.fn().mockResolvedValue(undefined),
     loadPromptsPage: vi.fn().mockResolvedValue(undefined),
     loadResourcesPage: vi.fn().mockResolvedValue(undefined),
+    refreshEvents: vi.fn().mockResolvedValue(undefined),
+    clearEventsListChanged: vi.fn(),
+    loadEventsPage: vi.fn().mockResolvedValue(undefined),
     record: vi.fn(),
     valueFor: vi.fn(),
     applyLiveServerSettings: vi.fn(),
@@ -196,6 +199,7 @@ interface Harness {
   toolsPagination: PaginatedListModel<Tool>;
   promptsPagination: PaginatedListModel<unknown>;
   resourcesPagination: PaginatedListModel<unknown>;
+  eventsPagination: PaginatedListModel<unknown>;
 }
 
 function harness(initial: HarnessProps = {}): Harness {
@@ -205,6 +209,7 @@ function harness(initial: HarnessProps = {}): Harness {
   const toolsPagination = pagination<Tool>();
   const promptsPagination = pagination<unknown>();
   const resourcesPagination = pagination<unknown>();
+  const eventsPagination = pagination<unknown>();
   const activeToolCallTaskIdRef: { current: string | undefined } = {
     current: undefined,
   };
@@ -289,11 +294,16 @@ function harness(initial: HarnessProps = {}): Harness {
       loadToolsPage: s.loadToolsPage,
       loadPromptsPage: s.loadPromptsPage,
       loadResourcesPage: s.loadResourcesPage,
+      eventsPagination,
+      refreshEvents: s.refreshEvents,
+      clearEventsListChanged: s.clearEventsListChanged,
+      loadEventsPage: s.loadEventsPage,
       lastPersistedSettings: {
         begin: s.begin,
         resolve: (id: string) => p.persisted?.[id] ?? s.resolveSettings(id),
         lastWriteFailed: s.lastWriteFailed,
         isPending: () => false,
+        whenSettled: () => Promise.resolve(undefined),
       },
       applyLiveServerSettings: s.applyLiveServerSettings,
       updateServerSettings:
@@ -337,6 +347,7 @@ function harness(initial: HarnessProps = {}): Harness {
     toolsPagination,
     promptsPagination,
     resourcesPagination,
+    eventsPagination,
   };
 }
 
@@ -1572,7 +1583,9 @@ describe("the refresh handlers", () => {
       h.api().onRefreshTools();
       h.api().onRefreshPrompts();
       h.api().onRefreshResources();
+      h.api().onRefreshEvents();
     });
+    expect(h.spies.refreshEvents).toHaveBeenCalled();
     expect(h.spies.refreshTools).toHaveBeenCalled();
     expect(h.spies.refreshPrompts).toHaveBeenCalled();
     expect(h.spies.refreshResources).toHaveBeenCalled();
@@ -1586,7 +1599,11 @@ describe("the refresh handlers", () => {
       h.api().onRefreshTools();
       h.api().onRefreshPrompts();
       h.api().onRefreshResources();
+      h.api().onRefreshEvents();
     });
+    expect(h.spies.clearEventsListChanged).toHaveBeenCalled();
+    expect(h.eventsPagination.onRefresh).toHaveBeenCalled();
+    expect(h.spies.refreshEvents).not.toHaveBeenCalled();
     expect(h.spies.clearToolsListChanged).toHaveBeenCalled();
     expect(h.spies.clearPromptsListChanged).toHaveBeenCalled();
     expect(h.spies.clearResourcesListChanged).toHaveBeenCalled();
@@ -1604,7 +1621,9 @@ describe("the refresh handlers", () => {
       h.api().onLoadMoreTools();
       h.api().onLoadMorePrompts();
       h.api().onLoadMoreResources();
+      h.api().onLoadMoreEvents();
     });
+    expect(h.eventsPagination.onLoadMore).toHaveBeenCalled();
     expect(h.toolsPagination.onLoadMore).toHaveBeenCalled();
     expect(h.promptsPagination.onLoadMore).toHaveBeenCalled();
     expect(h.resourcesPagination.onLoadMore).toHaveBeenCalled();
@@ -1665,6 +1684,7 @@ describe("onTogglePaginatedLists", () => {
     expect(h.spies.loadToolsPage).toHaveBeenCalledWith(undefined);
     expect(h.spies.loadPromptsPage).toHaveBeenCalledWith(undefined);
     expect(h.spies.loadResourcesPage).toHaveBeenCalledWith(undefined);
+    expect(h.spies.loadEventsPage).toHaveBeenCalledWith(undefined);
   });
 
   it("refetches every aggregate when connected and turning off", async () => {
@@ -1675,6 +1695,7 @@ describe("onTogglePaginatedLists", () => {
       client: client(),
     });
     await act(async () => h.api().onTogglePaginatedLists(false));
+    expect(h.spies.refreshEvents).toHaveBeenCalled();
     expect(h.spies.refreshTools).toHaveBeenCalled();
     expect(h.spies.refreshPrompts).toHaveBeenCalled();
     expect(h.spies.refreshResources).toHaveBeenCalled();

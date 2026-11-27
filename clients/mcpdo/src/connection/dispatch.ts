@@ -22,7 +22,11 @@ import { writeConnectionOutput } from "./format-connection.js";
 import { styleFromOpts, type Style } from "@inspector/core/cli/style.js";
 import { promptElicitation } from "./elicitation-prompt.js";
 
-const STREAM_METHODS = new Set(["logging/tail", "resources/subscribe"]);
+const STREAM_METHODS = new Set([
+  "logging/tail",
+  "resources/subscribe",
+  "events/stream",
+]);
 
 /**
  * The only two methods whose NDJSON output is a `--verify` conformance report

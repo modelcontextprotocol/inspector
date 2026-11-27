@@ -4,6 +4,7 @@ import {
   isNeverAcknowledgedSubscriptionClose,
   subscriptionFailureMessage,
   NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE,
+  ackedEventsListChanged,
 } from "@inspector/core/mcp/subscriptionAck.js";
 
 /**
@@ -96,5 +97,44 @@ describe("NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE", () => {
       "graceful closure",
     );
     expect(NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE).toContain("Not retrying");
+  });
+});
+
+describe("ackedEventsListChanged (#3028)", () => {
+  const ACK = "notifications/subscriptions/acknowledged";
+
+  it("is undefined for anything but an acknowledgement", () => {
+    expect(
+      ackedEventsListChanged({ method: "notifications/tools/list_changed" }),
+    ).toBeUndefined();
+  });
+
+  it("reads the eventsListChanged echo off the raw filter", () => {
+    expect(
+      ackedEventsListChanged({
+        method: ACK,
+        params: { notifications: { eventsListChanged: true } },
+      }),
+    ).toBe(true);
+    expect(
+      ackedEventsListChanged({
+        method: ACK,
+        params: { notifications: { toolsListChanged: true } },
+      }),
+    ).toBe(false);
+  });
+
+  it("treats a malformed acknowledgement as not honoring it", () => {
+    expect(ackedEventsListChanged({ method: ACK })).toBe(false);
+    expect(ackedEventsListChanged({ method: ACK, params: {} })).toBe(false);
+    expect(
+      ackedEventsListChanged({ method: ACK, params: { notifications: null } }),
+    ).toBe(false);
+    expect(
+      ackedEventsListChanged({
+        method: ACK,
+        params: { notifications: { eventsListChanged: "true" } },
+      }),
+    ).toBe(false);
   });
 });

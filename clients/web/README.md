@@ -52,12 +52,27 @@ Components live under `src/components/` in four layers, smallest to largest:
 
 | Layer       | Count | What it is                                                                     |
 | ----------- | ----- | ------------------------------------------------------------------------------ |
-| `elements/` | ~48   | Leaf presentational pieces (badges, buttons, toggles) over Mantine primitives. |
-| `groups/`   | ~64   | Composite pieces (cards, panels, modals, control bars).                        |
-| `screens/`  | ~11   | Full tab screens (Tools, Resources, Servers, monitoring screens…).             |
+| `elements/` | ~51   | Leaf presentational pieces (badges, buttons, toggles) over Mantine primitives. |
+| `groups/`   | ~73   | Composite pieces (cards, panels, modals, control bars).                        |
+| `screens/`  | ~12   | Full tab screens (Tools, Resources, Servers, monitoring screens…).             |
 | `views/`    | 1     | `InspectorView` — the top-level layout that composes the screens.              |
 
-Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)). Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
+Every screen and element has a `*.stories.tsx` (see [Storybook](#storybook)).
+
+## The Events tab
+
+The **Events** tab ([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)) inspects a server's [Events extension](https://modelcontextprotocol.io/extensions/events/overview) (`io.modelcontextprotocol/events`, SEP-3415). It is shown only on a **modern-era** connection to a server that advertises the extension; a legacy connection never shows it, even when the server declares the key, because the client never sends `events/*` there.
+
+- **Event types** (`EventControls`): `events/list`, with each type's description and a badge per advertised delivery mode, following `notifications/events/list_changed` and the paginated-lists setting like the Tools list. Types excluded for invalid `x-mcp-header` annotations are listed below with the reason.
+- **Subscribe form** (`EventDetailPanel`): the type's `inputSchema` and `payloadSchema`, the `Mcp-Name` and `Mcp-Param-*` headers its requests carry, an argument form generated from `inputSchema` by the shared `SchemaForm`, a mode picker limited to the type's advertised modes, and `maxAgeMs` plus `maxEvents` (poll) or `heartbeatMs` (push). A subscription is identified by event name, arguments and mode (plus the callback URL for webhook), so when the form matches one that is already running, **Subscribe** becomes **Unsubscribe** and stops it; other arguments or another mode are a separate subscription and keep **Subscribe** ([#3042](https://github.com/modelcontextprotocol/inspector/issues/3042)).
+- **Subscriptions** (`EventSubscriptionCard`): the event name with its mode and state (starting, active, reconnecting, terminated, stopped) badges, then the arguments, current cursor and granted heartbeat or `nextPollMs`, then the tallies as a row of figures (events, gaps, errors, reconnects, duplicates, invalid payloads; zeros dimmed, a nonzero problem count in the warning or danger color), the last error and how a termination was handled. **Stop**, **Resume** and **Remove** sit on the left; **Filter Log** on the right narrows the occurrence log to that subscription (**Show all events** widens it again).
+- **Occurrences** (`EventLogPanel`): newest first, each occurrence's `data` rendered as **inert JSON text only** (payloads are untrusted), with a payload-schema validation badge, interleaved with the gap, error, reconnect and termination markers.
+
+The subscriptions and the log are the core subscription engine's (`EventSubscriptionsState`); the screen only renders them.
+
+**Webhook** delivery ([#3031](https://github.com/modelcontextprotocol/inspector/issues/3031)) is **subscription management only** — the Inspector never receives a delivery, because a callback must be `https`, globally routable and endpoint-verified. Point the **Callback URL** at a receiver you run (a tunnel, a request bin, a gateway) and copy the **signing secret** into it before subscribing, since the server verifies the endpoint during `events/subscribe`. The secret is a `whsec_` value generated from the CSPRNG (`core/extension/events/webhookSecret.ts`); there is no field to type one, only **Copy** and **Regenerate**, and it is shown masked everywhere — the form, the card, the Protocol tab (`events/subscribe` is recorded with `delivery.secret` replaced) and the Network tab (any `whsec_…` in a recorded body is masked). App holds it outside the Events UI state, which is snapshotted to `sessionStorage` across an OAuth redirect. The form also takes `ttlMs` or **No expiry** (`ttlMs: null`). The engine's `WebhookRunner` re-sends `events/subscribe` with the last cursor before each granted `refreshBefore`, and the card shows the server-derived id, the grant, the next refresh, `truncated`, the `deliveryStatus` (delivering or suspended, the `lastError` category in words, `failedSince`, throttling and `retryAfterMs`), with **Refresh now** and **Unsubscribe** (`events/unsubscribe`). `CallbackEndpointError` reasons and `Forbidden` (webhook needs an authenticated principal) get messages of their own. A subscription is not unsubscribed on disconnect: a finite grant lapses at its TTL, and a no-expiry one stays until unsubscribed. Verifying a pasted Standard Webhooks delivery against the secret is not offered.
+
+Styling follows the Mantine-first rules in [`AGENTS.md`](../../AGENTS.md) — theme variants and component props over CSS, `--inspector-*` tokens over raw colors.
 
 ## Load testing (`#2911`)
 
@@ -115,12 +130,14 @@ Nothing _enforces_ the boundary — no path alias keys off it, and the coverage 
 
 ## Core tab automation contract
 
-The Tools, Resources, Prompts and Skills screens each expose a `data-testid` plus a
+The Tools, Resources, Prompts, Skills and Events screens each expose a `data-testid` plus a
 small set of `data-*` attributes, so a headless driver can `waitForSelector` on
 a deterministic signal rather than on visible copy. `scripts/smoke-web-tabs.mjs`
 drives the first three of those four against `test-servers/configs/web-tabs-http.json`
 ([#2148](https://github.com/modelcontextprotocol/inspector/issues/2148)); Skills
 publishes the same contract but is not smoked yet ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234)).
+`scripts/smoke-web-events.mjs` drives Events against `test-servers/configs/events-modern-http.json`
+([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)).
 Treat them as a public contract, for the same reason as the Apps ones below:
 
 | Attribute                            | Where              | Meaning                                                                                                                                                     |
@@ -142,6 +159,12 @@ Treat them as a public contract, for the same reason as the Apps ones below:
 | `data-skill-count`                   | on `skills-screen` | Entries accumulated from `skills/list`.                                                                                                                     |
 | `data-skill-page-count`              | on `skills-screen` | Pages the last `skills/list` walk took — a **separate** fact from the count, and the one that shows pagination actually happened.                            |
 | `data-testid="skill-manifest"`       | detail pane        | The selected skill's resource manifest. Absent for a `resources: "dynamic"` skill, which has no manifest to render.                                          |
+| `data-testid="events-screen"`        | Events root        | The element carrying the three attributes below ([#3030](https://github.com/modelcontextprotocol/inspector/issues/3030)).                                    |
+| `data-event-count`                   | on `events-screen` | Event types listed (`events/list`, after exclusions).                                                                                                       |
+| `data-subscription-count`            | on `events-screen` | Subscriptions in the engine's registry, live or not.                                                                                                        |
+| `data-log-count`                     | on `events-screen` | Entries in the occurrence log, every subscription's.                                                                                                        |
+| `data-testid="event-subscription"`   | each subscription  | One per subscription, with `data-status` = `starting` / `active` / `reconnecting` / `terminated` / `stopped`.                                               |
+| `data-testid="event-log-entry"`      | each log entry     | One per log entry, with `data-kind` = `event` / `gap` / `error` / `reconnect` / `terminated`.                                                               |
 
 Why attributes rather than text: a smoke that waited on a label fails the next
 time the label is reworded, which is noise rather than signal — and it fails as
@@ -483,7 +506,7 @@ OAuth discovery, protected-resource metadata, token, client registration and rev
 
 - **Schemes:** `http:` and `https:` only.
 - **Refused addresses:** link-local and instance-metadata only — `169.254.0.0/16`, the metadata services at fixed addresses outside it (`100.100.100.200`, Alibaba Cloud; `192.0.0.192`, Oracle Cloud Classic), the IPv4-mapped IPv6 forms of all of those, `fe80::/10` and `fd00:ec2::254`. Loopback, private (RFC 1918) and CGNAT (`100.64.0.0/10`, which Tailscale uses) addresses stay reachable, since local, LAN and tailnet MCP and authorization servers are ordinary targets — the two out-of-range metadata addresses are refused exactly, not by their enclosing range.
-- **Redirects** are followed by the guard, which re-checks every hop, drops credentials on a cross-origin hop, and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
+- **Redirects** are followed by the guard, which re-checks every hop, keeps only content-negotiation headers on a cross-origin hop (so neither `Authorization`/`Cookie` nor a server's custom headers follow one), and refuses one that would carry a request body to another origin. Only 301, 302, 303, 307 and 308 are followed.
 - **DNS** is checked inside the connection's own lookup, so the socket connects to exactly the addresses that were checked — a name cannot resolve differently between check and connect.
 
 **What it covers.** OAuth traffic only — never the MCP endpoint you configured:

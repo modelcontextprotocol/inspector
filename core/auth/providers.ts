@@ -153,6 +153,14 @@ export type OAuthProviderConfig = {
    */
   scopeOnRefresh?: boolean;
   /**
+   * The per-server, security-weakening opt-out of the RFC 8414 §3.3 issuer
+   * check on authorization-server metadata (#2983). Defaults to `false`. The
+   * provider does not skip anything itself — the option is passed to SDK
+   * `auth()` — but it has to know the setting to keep it revocable: see
+   * {@link BaseOAuthClientProvider.discoveryState}.
+   */
+  skipIssuerMetadataValidation?: boolean;
+  /**
    * Where the in-flight PKCE verifier lives (#2726). When set, the verifier is
    * keyed by the OAuth `state` of the flow that created it instead of sharing
    * the server-URL-keyed slot in {@link storage}, so overlapping flows for the
@@ -160,6 +168,25 @@ export type OAuthProviderConfig = {
    */
   flowStore?: PkceFlowStore;
 };
+
+/**
+ * The SDK's RFC 8414 §3.3 comparison, exactly as
+ * `discoverAuthorizationServerMetadata` applies it: string equality, with the
+ * one allowance that a URL ending in `/` matches an issuer without it. Kept
+ * identical on purpose — anything looser would accept a document the SDK
+ * rejects, and anything stricter would withhold metadata the SDK itself
+ * validated and cached.
+ */
+function issuerMatchesAuthorizationServerUrl(
+  issuer: string,
+  authorizationServerUrl: string,
+): boolean {
+  return (
+    issuer === authorizationServerUrl ||
+    (authorizationServerUrl.endsWith("/") &&
+      issuer === authorizationServerUrl.slice(0, -1))
+  );
+}
 
 /**
  * Base OAuth client provider
@@ -186,6 +213,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
   protected configuredScope?: string;
   /** Send `scope` on the refresh-token request (#2805). */
   protected scopeOnRefresh: boolean;
+  /** Accept cached metadata whose issuer does not match its URL (#2983). */
+  protected skipIssuerMetadataValidation: boolean;
   /** Per-flow verifier store (#2726); absent → the shared storage slot. */
   protected flowStore?: PkceFlowStore;
   /**
@@ -204,6 +233,8 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     this.requestRefreshToken = oauthConfig.requestRefreshToken ?? true;
     this.configuredScope = oauthConfig.configuredScope;
     this.scopeOnRefresh = oauthConfig.scopeOnRefresh ?? false;
+    this.skipIssuerMetadataValidation =
+      oauthConfig.skipIssuerMetadataValidation === true;
     this.flowStore = oauthConfig.flowStore;
   }
 
@@ -686,8 +717,34 @@ export class BaseOAuthClientProvider implements OAuthClientProvider {
     await this.storage.saveDiscoveryState(this.serverUrl, state);
   }
 
+  /**
+   * ⚠️ The SDK trusts cached authorization-server metadata without re-running
+   * the RFC 8414 §3.3 issuer check: `auth()` only discovers — and so only
+   * validates — when the cached state carries no metadata. A document accepted
+   * while `skipIssuerMetadataValidation` was on would therefore keep being
+   * used after the setting is turned off, and turning it off would restore
+   * nothing (#2983, Copilot).
+   *
+   * So with the check on, cached metadata that would not pass it is withheld.
+   * Only the metadata: the recorded `authorizationServerUrl` stays, which is
+   * what makes the SDK re-discover *that* authorization server — strictly, so
+   * the mismatch is reported again — and keeps the callback leg's binding
+   * intact. Stored state is left alone, so re-enabling the setting finds it.
+   */
   async discoveryState(): Promise<OAuthDiscoveryState | undefined> {
-    return this.storage.getDiscoveryState(this.serverUrl);
+    const state = await this.storage.getDiscoveryState(this.serverUrl);
+    const issuer = state?.authorizationServerMetadata?.issuer;
+    if (
+      !state ||
+      issuer === undefined ||
+      this.skipIssuerMetadataValidation ||
+      issuerMatchesAuthorizationServerUrl(issuer, state.authorizationServerUrl)
+    ) {
+      return state;
+    }
+    const withoutMetadata = { ...state };
+    delete withoutMetadata.authorizationServerMetadata;
+    return withoutMetadata;
   }
 
   /**

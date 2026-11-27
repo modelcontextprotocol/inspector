@@ -694,6 +694,11 @@ export function storedFieldsToInspectorSettings(
   if (stored.oauth?.scopeOnRefresh === true) {
     settings.oauthScopeOnRefresh = true;
   }
+  // Default off, and security-weakening when on, so anything but an explicit
+  // `true` — a hand-edited string included — reads back as the default. (#2983)
+  if (stored.oauth?.skipIssuerMetadataValidation === true) {
+    settings.oauthSkipIssuerMetadataValidation = true;
+  }
   // Same inverted default as the flag above: revocation is on unless the entry
   // explicitly opted out. (#2144)
   if (stored.oauth?.revokeOnClear === false) {
@@ -878,6 +883,10 @@ export function inspectorSettingsToStoredFields(
   // The default here is off, so only `true` is written. (#2805)
   if (settings.oauthScopeOnRefresh === true) {
     oauthFields.scopeOnRefresh = true;
+  }
+  // Same rule: off is the default, so only `true` is written. (#2983)
+  if (settings.oauthSkipIssuerMetadataValidation === true) {
+    oauthFields.skipIssuerMetadataValidation = true;
   }
   // Same omit-the-default rule as the flag above. (#2144)
   if (settings.oauthRevokeOnClear === false) {

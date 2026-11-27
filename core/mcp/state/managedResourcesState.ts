@@ -27,7 +27,7 @@ export class ManagedResourcesState extends ManagedListState<
       listMethod: "resources/list",
       changeEvent: "resourcesChange",
       listChangedEvent: "resourcesListChanged",
-      capabilityKey: "resources",
+      supported: "resources",
       deferWhenPaginated: true,
       supportsIndicator: true,
       debounceMs,

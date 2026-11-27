@@ -82,11 +82,13 @@ npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --tr
 npx @modelcontextprotocol/inspector --cli https://my-mcp-server.example.com --transport http --method tools/list --header "X-API-Key: your-api-key"
 ```
 
+Custom headers go to the MCP endpoint and to the OAuth requests the Inspector sends to **that server's own origin** — discovery, dynamic client registration, the token and revocation requests — so a deployment that routes by header (`X-Environment: staging`) is authorized against the same environment it is inspected in ([#2985](https://github.com/modelcontextprotocol/inspector/issues/2985)). They are never sent to an authorization server on another origin, a header the OAuth request sets itself is never replaced, and `Authorization` and `Cookie` are not copied. The browser's visit to the authorization page is a navigation and cannot carry them. This holds for every client.
+
 When a server is loaded from a `--catalog`/`--config` file, its per-server settings (headers, connection/request timeouts, OAuth, and `roots`) are applied to the connection — the same resolution the TUI uses. A `--header` flag overrides the file's headers for that run while leaving the file's timeouts and OAuth in place.
 
 The file is the only durable way to give a run its roots: there is no roots flag, and `--method roots/set` applies only to that one short-lived connection. Roots configured for a server (the same field the web UI's Server Settings writes) are advertised at connect, so a server that asks for `roots/list` — `@modelcontextprotocol/server-filesystem` does, to learn its allowed directories — gets them.
 
-**Environment-variable semantics.** `MCP_CATALOG_PATH` is honored only when no ad-hoc target is given (positional command, `--server-url`, or `--transport`) — so a shell that exports it can still run one-off ad-hoc invocations without hitting the catalog/ad-hoc conflict. `MCP_STORAGE_DIR` sets the storage directory used by the OAuth persist backend (`<MCP_STORAGE_DIR>/oauth.json`); the per-file `MCP_INSPECTOR_OAUTH_STATE_PATH` override still takes precedence over it. Every variable the CLI reads is listed in [Environment variables](../../docs/environment-variables.md).
+**Environment-variable semantics.** `MCP_CATALOG_PATH` is honored only when no ad-hoc target is given (positional command, `--server-url`, or `--transport`) and no `--config` file is named — so a shell that exports it can still run one-off ad-hoc invocations, or open a read-only `--config` file, without hitting the catalog conflict. `MCP_STORAGE_DIR` sets the storage directory used by the OAuth persist backend (`<MCP_STORAGE_DIR>/oauth.json`); the per-file `MCP_INSPECTOR_OAUTH_STATE_PATH` override still takes precedence over it. Every variable the CLI reads is listed in [Environment variables](../../docs/environment-variables.md).
 
 ### HTTP proxy support
 
@@ -131,13 +133,15 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 
 | Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, plus catalog-only `servers/list` / `servers/show` and `servers/add` / `servers/edit` / `servers/remove` (no MCP connect; see [Editing the server catalog](#editing-the-server-catalog)). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
+| `--method <method>`           | MCP method to invoke. Supports `initialize` (connect-only probe → `{serverInfo, protocolVersion, capabilities, instructions}`), `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`, `prompts/get`, `logging/setLevel`, `skills/list`, `skills/get`, `resources/directory/read`, `events/list`, `events/poll` (see [Events](#events-eventslist-eventspoll)), plus catalog-only `servers/list` / `servers/show` and `servers/add` / `servers/edit` / `servers/remove` (no MCP connect; see [Editing the server catalog](#editing-the-server-catalog)). Stream / session-only methods (e.g. `logging/tail`) are rejected. |
 | `--rename <name>`             | New name for the entry, with `--method servers/edit` only. Secrets stored under the old name move with it. |
 | `--tool-name <name>`          | Tool name (for `tools/call`).                                                                                                                                                                                                                                                                                                                                                                                        |
 | `--tool-arg <key=value>`      | Tool argument; repeat for multiple. Use `key='{"json":true}'` for JSON. Values are coerced (JSON-parsed, so `count=1` becomes a number).                                                                                                                                                                                                                                                                             |
 | `--tool-args-json <json>`     | Tool arguments as a single JSON object (e.g. `'{"zip":"10001"}'`). Passed verbatim — no `key=value` coercion, so `"012"` stays a string. Mutually exclusive with `--tool-arg`.                                                                                                                                                                                                                                       |
 | `--uri <uri>`                 | Resource URI (`resources/read`), directory URI (`resources/directory/read`), or skill URI (`skills/get`).                                                                                                                                                                                                                                                                                                                                                                                 |
-| `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. |
+| `--cursor <cursor>`           | Opaque pagination cursor for `resources/directory/read` — pass back the `nextCursor` from the previous page. The listing is not recursive and pages are not aggregated: SEP-2640 gives the cursor to the client, and descending is the caller's job. For `events/poll`, the subscription position: pass back the `cursor` the previous poll returned; omitted, the poll starts from now. |
+| `--event-name <name>`         | Event type name (for `events/poll`). |
+| `--event-arg <key=value>`     | Event subscription argument (for `events/poll`); repeat for multiple. Values are coerced like `--tool-arg`. An argument the event type annotates with `x-mcp-header` is also sent as its `Mcp-Param-*` header. |
 | `--prompt-name <name>`        | Prompt name (for `prompts/get`).                                                                                                                                                                                                                                                                                                                                                                                     |
 | `--prompt-args <key=value>`   | Prompt arguments; repeat for multiple. Values are sent verbatim as strings (`price=1.50` sends `"1.50"`; `q=` sends `""`).                                                                                                                                                                                                                                                                                                                                                                            |
 | `--log-level <level>`         | Logging level for `logging/setLevel` (e.g. `debug`, `info`).                                                                                                                                                                                                                                                                                                                                                         |
@@ -147,7 +151,7 @@ Options that specify the MCP server (catalog/config file, ad-hoc command/URL, en
 | `--app-info`                  | Probe a tool's MCP App UI metadata without invoking it. With `--method tools/call --tool-name <name>`: prints one JSON line (`hasApp`, `resourceUri`, `csp`, `permissions`, `domain`, …) and exits `0` if the tool has an app or `2` (`no_app`) if not. With `--method tools/list`: emits NDJSON — one app-info line per tool over a single connection.                                                              |
 | `--advertise-apps`            | Advertise the MCP Apps UI extension (`io.modelcontextprotocol/ui`) at `initialize`. Off by default, because the CLI cannot render an App and a server decides whether to return one from that advertisement. Set it when a server only exposes its App tools to a client that claims App support — typically alongside `--app-info`. |
 | `--strict`                    | With `--method tools/list`: report tool-schema portability problems in full (path, issue, suggested fix) on stderr, and exit `6` if any is error-severity. Without it, a one-line count is printed instead. See [Schema portability](#schema-portability---strict). |
-| `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails. See [Skill verification](#skill-verification---verify). |
+| `--verify`                    | With `--method skills/list` or `--method skills/get`: run the SEP-2640 conformance, digest and frontmatter checks over the skills returned, emit one JSON report per skill on stdout, and exit `7` if any fails (or `13` if `skills/list` returned none to check). See [Skill verification](#skill-verification---verify). |
 | `--require-digests`           | With `--verify`: exit `9` when a skill advertises no digests (`resources: "dynamic"`), instead of reporting it `unverifiable` and exiting `0`. See [Skill verification](#skill-verification---verify). |
 | `--skill-catalog-max-skills <n>` | With `--verify` (required; rejected without it, since it would bound nothing): the skills catalog budget, the most skills whose files one run reads (default `256`). Positive integer; anything else is rejected before connecting. Overrides the server's [`skillCatalogMaxSkills`](../../docs/mcp-server-configuration.md#inspector-specific-per-server-fields) from the catalog/config file — the same setting the web client exposes per server in Server Settings. Skills past the budget are reported `incomplete` (exit `8`). |
 | `--skill-catalog-max-bytes <n>`  | With `--verify` (required): the skills catalog budget, the most bytes one run reads across all skills (default `67108864`, 64 MiB). Positive integer. Overrides the server's [`skillCatalogMaxBytes`](../../docs/mcp-server-configuration.md#inspector-specific-per-server-fields). |
@@ -1195,6 +1199,16 @@ different answers:
 
 When a catalog mixes them, the exit code is the loudest: `7` over `8` over `9`.
 
+**An empty catalog is not a pass.** When `skills/list` returns no skills there
+is no report to give an outcome to, and "every skill verified" would be
+vacuously true — so the run prints `No skills to verify: skills/list returned
+an empty catalog, so nothing was checked.` and exits `13` (`skills_empty`)
+rather than `0` (#2986). This is the case a CI gate most needs caught: a server
+that skips every skill it cannot load (malformed frontmatter, a wrong root)
+serves an empty listing, not an error. The server broke no MUST by serving
+none, which is why it has a code of its own: a job pointed at a server that
+legitimately has no skills allows `13` and still fails on `7`.
+
 **The run is bounded, and says when a bound bit.** Three limits, all reported as
 `incomplete` (`8`) rather than as a pass or a failure, because an entry that was
 not read has not been cleared of anything:
@@ -1245,6 +1259,37 @@ covers:
 A read failure is recorded against the file it happened on and the walk
 continues, so one unreadable file never hides the findings after it.
 
+### Events (`events/list`, `events/poll`)
+
+The [Events extension](https://modelcontextprotocol.io/extensions/events/overview)
+(`io.modelcontextprotocol/events`, SEP-3415) lets a server publish event types a
+client subscribes to. It exists only on the 2026-07-28 protocol and later, so it
+needs `--protocol-era modern` (or a catalog entry with `protocolEra: "modern"`).
+Against a server that does not advertise it, or on a legacy connection, both
+methods fail with exit `1` and code `events_unsupported` without sending
+anything.
+
+```bash
+# Every event type, across all pages. `excluded` names the types the CLI left
+# out because their x-mcp-header annotations are invalid, with the reason.
+mcp-inspector --cli https://example.com/mcp --protocol-era modern \
+  --method events/list
+
+# One poll. The result is printed whole: `events`, the `cursor` to pass back
+# next time, `hasMore` (poll again now) and `nextPollMs` (when to poll next).
+mcp-inspector --cli https://example.com/mcp --protocol-era modern \
+  --method events/poll --event-name deploy.completed \
+  --event-arg region=us-west1 --cursor "$CURSOR"
+```
+
+`events/poll` is a single request, not a poll loop: a script drives the loop by
+passing each result's `cursor` back as `--cursor`. Without `--cursor` the poll
+starts from now (`cursor: null`), so it returns nothing that happened before it.
+An unknown name, a type the CLI excluded, or a type that does not advertise
+`poll` delivery is a usage error (exit `1`). Push delivery (`events/stream`) is a
+long-lived subscription and is not a one-shot method; use
+[`mcpdo events/stream`](../mcpdo/README.md) for it.
+
 ## Exit codes & error envelopes
 
 Every non-zero exit maps to a stable failure class, so a programmatic caller
@@ -1263,6 +1308,7 @@ prose from stderr:
 | `7`  | `--verify` found a SEP-2640 violation (`skills_nonconformant` — a conformance error, a digest or size mismatch, or an unreadable manifest file). |
 | `8`  | `--verify` could not check the whole catalog (`skills_incomplete` — the read bounds stopped the walk). The server broke no **MUST**: the 512-entry and 16 MiB limits are `SHOULD NOT`, and hosts may support more. A job that tolerates oversized catalogs can allow `8` and still fail on `7`. |
 | `9`  | `--verify --require-digests` found a skill that advertised no digests (`skills_unverifiable` — `resources: "dynamic"`). Only produced under `--require-digests`; without it such a skill is reported `unverifiable` and the run exits `0`. |
+| `13` | `--method skills/list --verify` had nothing to verify (`skills_empty` — the server returned an empty catalog, so no skill was checked). Not a violation; non-zero because "verified" over no skills would be a false pass. A job that expects an empty catalog can allow `13`. |
 | `10` | A `--load` run breached a threshold (`load_error_rate_exceeded` for `--load-max-error-rate`, `load_p50_exceeded` / `load_p95_exceeded` / `load_p99_exceeded` for `--load-max-p50` / `-p95` / `-p99`, `load_throughput_below` for `--load-min-throughput`, `load_regression` for `--load-max-regression`). The summary is still printed on stdout first. See [Thresholds for CI](#thresholds-for-ci). |
 | `11` | The server rate limited the request (`rate_limited` — HTTP 429). The envelope carries the server's retry timing; see below. |
 | `12` | The OAuth destination guard refused a URL (`fetch_refused` — a link-local or cloud-metadata address, a non-http(s) scheme, or a redirect it will not follow). A policy refusal rather than a network failure, so unlike `4` a retry repeats it. |

@@ -43,6 +43,40 @@ describe("isBlockedAddress", () => {
     "192.0.0.192",
     "::ffff:192.0.0.192",
     "::ffff:c000:c0",
+    // Non-canonical spellings `isIP` accepts are matched on their value.
+    "0:0:0:0:0:ffff:a9fe:a9fe",
+    "0000::FFFF:169.254.169.254",
+    "fe80::1%eth0",
+    // The top of fe80::/10.
+    "febf::1",
+    "fd00:0ec2:0:0:0:0:0:0254",
+    // NAT64 (RFC 6052 well-known prefix) forms of every metadata address, in
+    // the hex form WHATWG URL serializes to and the dotted form.
+    "64:ff9b::a9fe:a9fe",
+    "64:ff9b::169.254.169.254",
+    "64:ff9b::6464:64c8",
+    "64:ff9b::100.100.100.200",
+    "64:ff9b::c000:c0",
+    "64:ff9b::192.0.0.192",
+    // ...and their non-canonical spellings.
+    "64:ff9b:0:0:0:0:a9fe:a9fe",
+    "0064:ff9b:0000::a9fe:a9fe",
+    "64:FF9B::A9FE:A9FE",
+    "64:ff9b:0:0:0:0:169.254.169.254",
+    // The RFC 8215 local-use prefix, /96 layout.
+    "64:ff9b:1::a9fe:a9fe",
+    "64:ff9b:1:abcd::169.254.169.254",
+    // The local-use prefix under each shorter RFC 6052 layout, worked from
+    // the §2.2 table (byte 8 is the reserved `u` octet).
+    // /48: a9.fe in bytes 6-7, a9.fe in bytes 9-10.
+    "64:ff9b:1:a9fe:a9:fe00::",
+    "64:ff9b:1:6464:64:c800::", // 100.100.100.200
+    // /56: a9 in byte 7, fe.a9.fe in bytes 9-11 (byte 6 is prefix).
+    "64:ff9b:1:a9:fe:a9fe::",
+    "64:ff9b:1:12a9:fe:a9fe::",
+    // /64: a9.fe.a9.fe in bytes 9-12 (bytes 6-7 are prefix).
+    "64:ff9b:1:0:a9:fea9:fe00:0",
+    "64:ff9b:1:beef:a9:fea9:fe00:0",
   ])("blocks %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(true);
   });
@@ -68,8 +102,29 @@ describe("isBlockedAddress", () => {
     "::ffff:100.100.100.100",
     "::ffff:6464:6464",
     "192.0.0.193",
+    // NAT64 of a public address is an ordinary destination.
+    "64:ff9b::808:808",
+    "64:ff9b::8.8.8.8",
+    "64:ff9b:1::808:808",
+    // Not a NAT64 prefix: the IPv4-looking tail means nothing here.
+    "64:ff9c::a9fe:a9fe",
+    "64:ff9b:2::a9fe:a9fe",
+    "64:ff9b:0:0:1::a9fe:a9fe",
+    "2001:db8::a9fe:a9fe",
+    "fd00:ec2::",
+    // fe8::1 is group 0x0fe8, below fe80::/10.
+    "fe8::1",
   ])("allows %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(false);
+  });
+
+  // 8.8.8.8 under the /48 layout. Its decodings under every layout the guard
+  // reads (/48, /56, /64, /96) are all public, so it stays reachable.
+  it("allows a public address under the local-use /48 layout", () => {
+    expect(isBlockedAddress("64:ff9b:1:808:8:800::")).toBe(false);
+    for (const decoded of ["8.8.8.8", "8.8.8.0", "8.8.0.0", "0.0.0.0"]) {
+      expect(isBlockedAddress(decoded)).toBe(false);
+    }
   });
 });
 
@@ -141,15 +196,41 @@ describe("nextRedirectRequest", () => {
     expect(next.body).toBe("grant_type=refresh_token");
   });
 
-  it("drops credentials on a cross-origin hop", () => {
+  it("keeps only negotiation headers on a cross-origin hop", () => {
     const next = nextRedirectRequest(
-      hop({ method: "GET", body: undefined }),
+      hop({
+        method: "GET",
+        body: undefined,
+        headers: {
+          Authorization: "Bearer x",
+          Cookie: "c=1",
+          // #2985: a server's custom header, sent to its own origin — a
+          // credential under a name no fixed list could anticipate.
+          "X-API-Key": "secret",
+          Accept: "application/json",
+          "MCP-Protocol-Version": "2025-06-18",
+        },
+      }),
       302,
       "https://other.example/",
     );
-    expect(next.headers).not.toHaveProperty("Authorization");
-    expect(next.headers).not.toHaveProperty("Cookie");
-    expect(next.headers.Accept).toBe("application/json");
+    expect(next.headers).toEqual({
+      Accept: "application/json",
+      "MCP-Protocol-Version": "2025-06-18",
+    });
+  });
+
+  it("keeps a custom header on a same-origin hop", () => {
+    const next = nextRedirectRequest(
+      hop({
+        method: "GET",
+        body: undefined,
+        headers: { "X-API-Key": "secret" },
+      }),
+      302,
+      "/moved",
+    );
+    expect(next.headers).toEqual({ "X-API-Key": "secret" });
   });
 
   it("refuses a cross-origin hop that would still carry a body", () => {

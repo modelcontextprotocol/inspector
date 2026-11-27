@@ -8,6 +8,8 @@ import type {
   McpHttpHandler,
 } from "@modelcontextprotocol/server";
 import { createMcpServer } from "./test-server-fixtures.js";
+import { getEventsRuntime } from "./composable-test-server.js";
+import { createEventsInterceptor } from "./events.js";
 import {
   ModernTaskRuntime,
   createModernTaskInterceptor,
@@ -494,9 +496,16 @@ export class TestServerHttp {
     mcpMiddleware: express.RequestHandler[],
     port: number,
   ): Promise<number> {
+    // The Events runtime owns the listen-router bus when the extension is on,
+    // so a listen it serves itself (`eventsListChanged`) still carries the
+    // core change notifications the SDK publishes.
+    const eventsRuntime = getEventsRuntime(this.configWithCallback);
     const handler = createMcpHandler(
-      () => createMcpServer(this.configWithCallback),
-      { legacy: this.config.modern?.legacy ?? "stateless" },
+      (ctx) => createMcpServer(this.configWithCallback, ctx.era),
+      {
+        legacy: this.config.modern?.legacy ?? "stateless",
+        ...(eventsRuntime && { bus: eventsRuntime.bus }),
+      },
     );
     this.modernHandler = handler;
 
@@ -560,11 +569,39 @@ export class TestServerHttp {
       );
     }
 
+    // Events extension (SEP-3415): `events/*`, plus a listen that opts into
+    // `eventsListChanged`, are served ahead of the SDK handler — see events.ts.
+    const eventsInterceptor = this.createEventsInterceptor("modern");
+    if (eventsInterceptor) extraMiddleware.push(eventsInterceptor);
+
     app.post("/mcp", ...mcpMiddleware, ...extraMiddleware, route);
     app.get("/mcp", ...mcpMiddleware, route);
     app.delete("/mcp", ...mcpMiddleware, route);
 
     return this.listen(port);
+  }
+
+  /**
+   * The Events interceptor for this server's config, or `undefined` when the
+   * extension is off. One per HTTP leg, sharing the config's runtime.
+   */
+  private createEventsInterceptor(
+    era: "legacy" | "modern",
+  ): express.RequestHandler | undefined {
+    const runtime = getEventsRuntime(this.configWithCallback);
+    if (!runtime) return undefined;
+    return createEventsInterceptor(() => runtime, {
+      era,
+      describeServer: () => {
+        const probe = createMcpServer(this.configWithCallback, "modern");
+        const described = {
+          capabilities: probe.server.getCapabilities(),
+          serverInfo: { ...this.config.serverInfo },
+        };
+        void probe.close().catch(() => {});
+        return described;
+      },
+    });
   }
 
   private async startHttp(port: number): Promise<number> {
@@ -601,80 +638,94 @@ export class TestServerHttp {
     this.httpSessions = transports;
     this.mcpServersBySession = new Map();
 
+    // Events extension: on this 2025 leg the interceptor only refuses (and
+    // counts) `events/*`, which is what the legacy showcase config asserts.
+    const eventsInterceptor = this.createEventsInterceptor("legacy");
+    const legacyMiddleware = eventsInterceptor
+      ? [...mcpMiddleware, eventsInterceptor]
+      : mcpMiddleware;
+
     // Set up Express route to handle MCP requests
-    app.post("/mcp", ...mcpMiddleware, async (req: Request, res: Response) => {
-      // If middleware already sent a response (401), don't continue
-      if (res.headersSent) {
-        return;
-      }
-      // Capture headers for this request
-      this.currentRequestHeaders = extractHeaders(req);
-
-      const sessionId = req.headers["mcp-session-id"] as string | undefined;
-
-      if (sessionId) {
-        // Existing session - use the transport for this session
-        const transport = transports.get(sessionId);
-        if (!transport) {
-          res.status(404).json({ error: "Session not found" });
+    app.post(
+      "/mcp",
+      ...legacyMiddleware,
+      async (req: Request, res: Response) => {
+        // If middleware already sent a response (401), don't continue
+        if (res.headersSent) {
           return;
         }
+        // Capture headers for this request
+        this.currentRequestHeaders = extractHeaders(req);
 
-        try {
-          const webResponse = await transport.handleRequest(
-            toWebRequest(req, res),
-            {
-              parsedBody: req.body,
+        const sessionId = req.headers["mcp-session-id"] as string | undefined;
+
+        if (sessionId) {
+          // Existing session - use the transport for this session
+          const transport = transports.get(sessionId);
+          if (!transport) {
+            res.status(404).json({ error: "Session not found" });
+            return;
+          }
+
+          try {
+            const webResponse = await transport.handleRequest(
+              toWebRequest(req, res),
+              {
+                parsedBody: req.body,
+              },
+            );
+            await writeWebResponse(res, webResponse);
+          } catch (error) {
+            // If response already sent (e.g., by OAuth middleware), don't send another
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        } else {
+          // New session - create a new transport and a new McpServer (one server per connection)
+          const sessionMcpServer = createMcpServer(
+            this.configWithCallback,
+            "legacy",
+          );
+          const newTransport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => crypto.randomUUID(),
+            onsessioninitialized: (sessionId: string) => {
+              transports.set(sessionId, newTransport);
+              this.mcpServersBySession!.set(sessionId, sessionMcpServer);
             },
-          );
-          await writeWebResponse(res, webResponse);
-        } catch (error) {
-          // If response already sent (e.g., by OAuth middleware), don't send another
-          if (!res.headersSent) {
-            res.status(500).json({
-              error: error instanceof Error ? error.message : String(error),
-            });
+            onsessionclosed: async (sessionId: string) => {
+              const mcp = this.mcpServersBySession?.get(sessionId);
+              transports.delete(sessionId);
+              this.mcpServersBySession?.delete(sessionId);
+              if (mcp) await mcp.close();
+            },
+          });
+
+          // Set up message interception for this transport
+          this.setupMessageInterception(newTransport);
+
+          // Connect this session's MCP server to this transport
+          await sessionMcpServer.connect(newTransport);
+
+          try {
+            const webResponse = await newTransport.handleRequest(
+              toWebRequest(req, res),
+              { parsedBody: req.body },
+            );
+            await writeWebResponse(res, webResponse);
+          } catch (error) {
+            // If response already sent (e.g., by OAuth middleware), don't send another
+            if (!res.headersSent) {
+              res.status(500).json({
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
           }
         }
-      } else {
-        // New session - create a new transport and a new McpServer (one server per connection)
-        const sessionMcpServer = createMcpServer(this.configWithCallback);
-        const newTransport = new WebStandardStreamableHTTPServerTransport({
-          sessionIdGenerator: () => crypto.randomUUID(),
-          onsessioninitialized: (sessionId: string) => {
-            transports.set(sessionId, newTransport);
-            this.mcpServersBySession!.set(sessionId, sessionMcpServer);
-          },
-          onsessionclosed: async (sessionId: string) => {
-            const mcp = this.mcpServersBySession?.get(sessionId);
-            transports.delete(sessionId);
-            this.mcpServersBySession?.delete(sessionId);
-            if (mcp) await mcp.close();
-          },
-        });
-
-        // Set up message interception for this transport
-        this.setupMessageInterception(newTransport);
-
-        // Connect this session's MCP server to this transport
-        await sessionMcpServer.connect(newTransport);
-
-        try {
-          const webResponse = await newTransport.handleRequest(
-            toWebRequest(req, res),
-            { parsedBody: req.body },
-          );
-          await writeWebResponse(res, webResponse);
-        } catch (error) {
-          // If response already sent (e.g., by OAuth middleware), don't send another
-          if (!res.headersSent) {
-            res.status(500).json({
-              error: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-      }
-    });
+      },
+    );
 
     // Handle GET requests for SSE stream - this enables server-initiated messages
     app.get("/mcp", ...mcpMiddleware, async (req: Request, res: Response) => {
@@ -780,7 +831,10 @@ export class TestServerHttp {
     // GET handler for SSE connection (establishes the SSE stream)
     app.get("/sse", ...sseMiddleware, async (req: Request, res: Response) => {
       this.currentRequestHeaders = extractHeaders(req);
-      const sessionMcpServer = createMcpServer(this.configWithCallback);
+      const sessionMcpServer = createMcpServer(
+        this.configWithCallback,
+        "legacy",
+      );
       const sseTransport = new SSEServerTransport("/sse", res);
 
       const sessionId = sseTransport.sessionId;

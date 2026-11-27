@@ -48,11 +48,12 @@ const EXTERNALS = [
   // yoga-layout come with it, plus a `createRequire` banner for the inlined
   // CJS. The smaller tarball won.
   //
-  // What makes that tolerable is the root manifest's `react: ^19.0.0`: being
-  // open to the whole major lets npm satisfy our React and a consumer's
-  // pinned one with a single copy, so an external `ink` resolves *ours*. Narrow
-  // that range and this exemption turns back into the #1952 crash, one level
-  // up — `__tests__/tsdownConfig.test.ts` guards it.
+  // What makes that tolerable is the root manifest's `react: ^19.3.0`: it
+  // starts at the floor of Ink 8's own `>=19.3.0` peer and is open to the rest
+  // of the major, so any React npm may place `ink` beside is one our range
+  // admits too and an external `ink` resolves *ours*. Start that range
+  // anywhere else and this exemption turns back into the #1952 crash, one
+  // level up — `__tests__/tsdownConfig.test.ts` guards it.
   "ink",
   "open",
   "commander",

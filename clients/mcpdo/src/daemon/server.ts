@@ -1164,7 +1164,9 @@ export class DaemonServer {
           if (isTerminalStatus(event.detail)) end();
         };
         client.addEventListener("statusChange", onStatus);
-        const stop = outcome.start(write);
+        // `end` lets a stream finish on its own (an `events/stream` the
+        // server terminated), the same way a terminal connection status does.
+        const stop = outcome.start(write, end);
         // Terminal status is persistent state, not just an event: a
         // disconnect completing between runMethod() and the listener
         // install above would never fire statusChange again, leaving the

@@ -1497,6 +1497,86 @@ describe("OAuthNavigation", () => {
         expect(storage.getDiscoveryState).toHaveBeenCalledWith(SERVER);
       });
 
+      // #2983 — the SDK reuses cached metadata without re-running the RFC 8414
+      // §3.3 check, so the provider is what makes the opt-out revocable.
+      describe("cached metadata whose issuer does not match its URL", () => {
+        const AS_URL = "https://login.example.com/organizations/v2.0";
+        const metadata = {
+          issuer: "https://login.example.com/{tenantid}/v2.0",
+          authorization_endpoint: "https://login.example.com/authorize",
+          token_endpoint: "https://login.example.com/token",
+          response_types_supported: ["code"],
+        };
+        const cached = {
+          authorizationServerUrl: AS_URL,
+          resourceMetadataUrl: "https://mcp.example.com/prm",
+          authorizationServerMetadata: metadata,
+        };
+
+        it("is withheld with the check on, keeping the recorded authorization server", async () => {
+          const storage = makeStorage();
+          vi.mocked(storage.getDiscoveryState).mockResolvedValue(cached);
+
+          // The URL survives, so the SDK re-discovers that server — strictly.
+          await expect(makeProvider(storage).discoveryState()).resolves.toEqual(
+            {
+              authorizationServerUrl: AS_URL,
+              resourceMetadataUrl: "https://mcp.example.com/prm",
+            },
+          );
+          // Stored state is untouched: re-enabling the setting finds it.
+          expect(storage.saveDiscoveryState).not.toHaveBeenCalled();
+        });
+
+        it("is returned as stored when the server opted out of the check", async () => {
+          const storage = makeStorage();
+          vi.mocked(storage.getDiscoveryState).mockResolvedValue(cached);
+
+          await expect(
+            makeProvider(storage, vi.fn(), {
+              skipIssuerMetadataValidation: true,
+            }).discoveryState(),
+          ).resolves.toBe(cached);
+        });
+
+        it.each([
+          [
+            "an identical issuer",
+            "https://as.example.com",
+            "https://as.example.com",
+          ],
+          [
+            "a URL with a trailing slash",
+            "https://as.example.com/",
+            "https://as.example.com",
+          ],
+        ])(
+          "leaves %s alone, as the SDK's own check does",
+          async (_name, url, issuer) => {
+            const storage = makeStorage();
+            const matching = {
+              authorizationServerUrl: url,
+              authorizationServerMetadata: { ...metadata, issuer },
+            };
+            vi.mocked(storage.getDiscoveryState).mockResolvedValue(matching);
+
+            await expect(makeProvider(storage).discoveryState()).resolves.toBe(
+              matching,
+            );
+          },
+        );
+
+        it("leaves a state with no cached metadata alone", async () => {
+          const storage = makeStorage();
+          const bare = { authorizationServerUrl: AS_URL };
+          vi.mocked(storage.getDiscoveryState).mockResolvedValue(bare);
+
+          await expect(makeProvider(storage).discoveryState()).resolves.toBe(
+            bare,
+          );
+        });
+      });
+
       it("maps invalidateCredentials scopes to the matching storage clear", async () => {
         const storage = makeStorage();
         const provider = makeProvider(storage);

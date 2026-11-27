@@ -11,6 +11,23 @@
 process.stdout.setMaxListeners(100);
 process.stdin.setMaxListeners(100);
 
+// Gives Ink a terminal height without spawning a process on every render
+// (#3035). ink-testing-library's fake stdout reports `columns` (100) but no
+// `rows`, so each layout pass falls through Ink's `getWindowSize` to the
+// `terminal-size` package. With no TTY and no COLUMNS/LINES in the
+// environment, that package opens /dev/tty and then runs `tput cols` and
+// `tput lines` through `spawnSync`, synchronously, on every commit. On Linux
+// CI that is cheap. On macOS each render cost ~400ms, so a test pressing ~35
+// keys in a mounted modal ran past its 15s budget under coverage
+// (ToolTestModal's save-to-file block). `terminal-size` reads the environment
+// before spawning anything, so setting both variables answers it directly.
+// The values match what the tests already render at: 100 columns
+// (ink-testing-library's own), 24 rows (the fallback CI resolves to). Set them
+// unconditionally: a value inherited from the developer's shell would make the
+// layout depend on their terminal.
+process.env.COLUMNS = "100";
+process.env.LINES = "24";
+
 import { afterAll } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";

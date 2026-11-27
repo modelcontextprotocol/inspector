@@ -86,6 +86,7 @@ The TUI provides terminal-native tabs and panes for interacting with your MCP se
 - **Sampling and elicitation requests**: The TUI advertises `sampling` and both elicitation modes (`form` and `url`), and a server request that arrives while a call is in flight (`sampling/createMessage`, `elicitation/create`) opens a full-screen modal above everything else. Requests are answered one at a time, sampling first, through the same core queue the web client uses. A **sampling** request shows its messages, system prompt and token budget above a response form (text, model, stop reason). Submitting the form approves it. A **form elicitation** renders its requested schema with the tool form — so a multi-select field takes several values, bounds checked before the answer is sent — and submitting it accepts. In both, **Escape** opens a one-line prompt (`r` reject for sampling; `d` decline or `c` cancel for elicitation), and any other key returns to the form without losing what was typed. A **URL elicitation** shows the message and URL: `o` opens it in the browser (http/https only), **Enter** reports it done, `d` declines and **Escape** cancels ([#2829](https://github.com/modelcontextprotocol/inspector/issues/2829)).
 - **Skills**: Shown only when the connected server declares the SEP-2640 Skills extension (`io.modelcontextprotocol/skills`), since it is a *server* declaration and so only knowable after connecting. The list marks each skill with its structural verdict — `✓` conforms, `!` warnings only, `✗` an error — using a glyph as well as a colour, because this pane is read over ssh, in tmux and through `script(1)`. The detail pane shows the entry's URI, description, conformance findings and manifest. **Enter** verifies the selected skill: one `resources/read` per manifest file, each hashed against its advertised digest, plus the frontmatter cross-check that compares the served `SKILL.md`'s own frontmatter against the one the listing advertised. **`v`** verifies every skill in the listing in one run — the whole catalog, even while a `/` filter narrows the list — under the server's [catalog budget](../../docs/mcp-server-configuration.md#inspector-specific-per-server-fields); a line under the list tallies the verdicts held for the current listing (`✓` verified, `✗` failed, `…` stopped by the budget, `?` unverifiable, `·` not yet checked) ([#2590](https://github.com/modelcontextprotocol/inspector/issues/2590)). Verification is a gesture rather than a page load because SEP-2640 says hosts MUST NOT retrieve a skill's files ahead of need. The checks are the same ones the web Skills tab and the CLI's `--verify` run ([#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248)).
 - **Tasks** (`s`): Shown only when the server supports Tasks (legacy `capabilities.tasks` or the negotiated SEP-2663 extension). Lists the tasks this client created, with live status. **Enter** fetches a completed or failed task's result, `x` cancels a running one, `f` refreshes and `l` clears finished tasks. `s` does not switch here while the Auth pane is focused, where it clears OAuth state ([#2432](https://github.com/modelcontextprotocol/inspector/issues/2432)).
+- **Events** (`e`): Shown only when the connection offers the [Events extension](https://modelcontextprotocol.io/extensions/events/overview) (`io.modelcontextprotocol/events`, SEP-3415) — a server that advertises it, on a modern-era connection (set `protocolEra: "modern"` on the server's entry). The list is the server's event types (every page of `events/list`; a type with an invalid `x-mcp-header` annotation is left out), with `●` on a type that has a live subscription; a type the server removes stays listed, marked `(removed)`, while a subscription to it remains, so its termination and log can still be read. The detail pane shows the type's description, delivery modes and input schema, its subscriptions — mode, status, the cursor it would resume from, the granted heartbeat or next poll interval, counts, and how it ended — and its occurrence log, where each payload is shown as escaped JSON only. **Enter** opens the subscribe dialog: choose poll or push (only the modes the type advertises) and fill in its arguments. `x` stops the selected type's live subscriptions, `l` clears the occurrence log. Polling cadence, push heartbeats, reconnecting from the last cursor, dedup, payload validation and termination handling are the shared core subscription engine's. Webhook-only types are listed but cannot be subscribed to from the TUI. `e` does not switch here while the Info pane is focused, where it edits the roots ([#3032](https://github.com/modelcontextprotocol/inspector/issues/3032)).
 - **Protocol**: View JSON-RPC request/response/notification history (matches the web Protocol monitor).
 - **Network**: View HTTP fetch traffic for SSE / Streamable HTTP servers (matches the web Network monitor).
 - **Console**: View stdio stderr from the connected server process (matches the web Console monitor).
@@ -162,8 +163,9 @@ is looser than ours in every case here:
 
 | Package | Its `react` peer | Placed beside a different React when… |
 | --- | --- | --- |
-| `ink-form`, `ink-scroll-view` | `">=18"` | the consumer has React 18 |
-| `ink` | `">=19"` | the consumer pins React 19.0 (our `^19.2.4` then nests) |
+| `ink-form` | `">=18"` | the consumer has React 18 |
+| `ink-scroll-view` | `">=19.2.0"` | the consumer pins React 19.2 (our `^19.3.0` then nests) |
+| `ink` | `">=19.3.0"` | the consumer pins React 19.3.0 and our range starts higher (a `^19.3.1` then nests) |
 
 Either way the bundle renders through one React while the external package calls
 hooks on another, whose dispatcher is null — so opening a tool test form (or any
@@ -180,7 +182,7 @@ React-18-era v5 that `ink-form` asks for.
 
 #### Why `ink` itself is the exception
 
-`ink` is external for **cost**, not because its `">=19"` peer makes it safe — it
+`ink` is external for **cost**, not because its `">=19.3.0"` peer makes it safe — it
 does not, and an earlier revision of this section wrongly claimed it did.
 Bundling `ink` works (it was built and verified against both consumer repros)
 but adds ~1.4 MB, since `react-reconciler` and `yoga-layout` come with it, plus
@@ -190,18 +192,22 @@ interop shim throws `Dynamic require of "x" is not supported` without a real
 `require` in scope. A 602 KB bundle beat a 2 MB one.
 
 What makes the exemption tolerable is a **separate lever**: the root manifest
-declares `react: "^19.0.0"` — open to the whole major, rather than pinned at the
-version we happen to develop against. That lets npm satisfy our React and a
-consumer's pinned React 19.x with a single copy, so an external `ink` resolves
-*ours*. Verified against a consumer pinning `react@19.0.0` alongside `ink@6.8.0`
-— the case that splits under a narrower range:
+declares `react: "^19.3.0"` — starting at the floor of `ink`'s own peer range
+(Ink 8 declares `>=19.3.0`) and open to the rest of the major, rather than
+pinned at the version we happen to develop against. Any React npm may place
+`ink` beside is therefore one our range admits too, so an external `ink`
+resolves *ours*: a consumer on React 19.3 or later shares its copy with both,
+and one on an older React gets ours nested with `ink` beside it. Originally
+verified against a consumer pinning `react@19.0.0` alongside `ink@6.8.0` (when
+both floors were 19.0.0), and re-checked for `ink@8.0.0` against consumers
+pinning `react@19.0.0`, `19.2.0` and `19.3.0` (#2984):
 
 ```
 bundle react   node_modules/react/index.js
 ink -> react   node_modules/react/index.js   # same copy
 ```
 
-Narrow that range and the exemption turns straight back into #1952, one level
+Start that range anywhere else and the exemption turns straight back into #1952, one level
 up — breaking TUI startup rather than just its forms. `tsdownConfig.test.ts` pins
 the root range to `ink`'s own peer floor so it can't drift silently. The
 residual after all this is a React **20**-era consumer that also depends on

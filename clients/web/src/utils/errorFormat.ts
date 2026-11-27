@@ -10,6 +10,7 @@
 // rule each call site has to remember.
 
 import { redactUrlsInText } from "@inspector/core/mcp/fetchTracking.js";
+import { eventsErrorName } from "@inspector/core/extension/events/constants.js";
 
 export function errorMessage(err: unknown): string {
   return redactUrlsInText(err instanceof Error ? err.message : String(err));
@@ -27,16 +28,31 @@ export function errorCodeOf(err: unknown): number | undefined {
   return undefined;
 }
 
+// The spec name of a JSON-RPC error code the Inspector names in error text, or
+// undefined. Today that is SEP-3415's general-purpose codes (`-32023 NotFound`
+// … `-32027 CallbackEndpointError`, #3028), which a server's `message` is free
+// not to spell out.
+export function namedErrorCode(code: unknown): string | undefined {
+  return typeof code === "number" ? eventsErrorName(code) : undefined;
+}
+
 // Pretty-print a thrown error for the URL-elicitation details modal: a ProtocolError
 // carries a `code`/`data` worth showing alongside the message, so include them
-// when present; otherwise fall back to the plain message.
+// when present; otherwise fall back to the plain message. A code the spec names
+// gains its `name`, so `-32024` reads as `Forbidden` without a lookup.
 export function formatErrorDetails(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as { code?: unknown; message?: unknown; data?: unknown };
     if (e.code !== undefined || e.data !== undefined) {
+      const name = namedErrorCode(e.code);
       return redactUrlsInText(
         JSON.stringify(
-          { code: e.code, message: e.message, data: e.data },
+          {
+            code: e.code,
+            ...(name !== undefined && { name }),
+            message: e.message,
+            data: e.data,
+          },
           null,
           2,
         ),

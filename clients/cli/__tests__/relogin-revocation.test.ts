@@ -58,7 +58,7 @@ afterEach(() => {
 });
 
 /** Seed an OAuth store holding a revocable grant for {@link SERVER_URL}. */
-function seedStore(): void {
+function seedStore(issuer: string = AS_ISSUER): void {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "cli-relogin-revoke-e2e-"));
   const file = path.join(dir, "oauth.json");
   fs.writeFileSync(
@@ -68,9 +68,9 @@ function seedStore(): void {
         // Issuer-bound (SEP-2352) and matching the cached metadata: an unkeyed
         // grant records no authorization server and is deliberately refused.
         [SERVER_URL]: {
-          activeIssuer: AS_ISSUER,
+          activeIssuer: issuer,
           byIssuer: {
-            [AS_ISSUER]: {
+            [issuer]: {
               tokens: {
                 access_token: "a",
                 token_type: "Bearer",
@@ -79,10 +79,10 @@ function seedStore(): void {
             },
           },
           serverMetadata: {
-            issuer: AS_ISSUER,
-            authorization_endpoint: `${AS_ISSUER}/authorize`,
-            token_endpoint: `${AS_ISSUER}/token`,
-            revocation_endpoint: REVOKE_URL,
+            issuer,
+            authorization_endpoint: `${issuer}/authorize`,
+            token_endpoint: `${issuer}/token`,
+            revocation_endpoint: `${issuer}/revoke`,
             response_types_supported: ["code"],
           },
         },
@@ -100,18 +100,24 @@ function seedStore(): void {
  * Answer the revocation endpoint with `status` and refuse everything else, so
  * the run stops at the connect instead of reaching the network.
  */
-function stubFetch(status = 200): ReturnType<typeof vi.spyOn> {
+function stubFetch(
+  status = 200,
+  revokeUrl: string = REVOKE_URL,
+): ReturnType<typeof vi.spyOn> {
   return vi.spyOn(globalThis, "fetch").mockImplementation((input) => {
-    if (String(input instanceof Request ? input.url : input) === REVOKE_URL) {
+    if (String(input instanceof Request ? input.url : input) === revokeUrl) {
       return Promise.resolve(new Response(null, { status }));
     }
     return Promise.reject(new Error("network blocked in test"));
   }) as ReturnType<typeof vi.spyOn>;
 }
 
-function revocationCalls(spy: { mock: { calls: unknown[][] } }): unknown[][] {
+function revocationCalls(
+  spy: { mock: { calls: unknown[][] } },
+  revokeUrl: string = REVOKE_URL,
+): unknown[][] {
   return spy.mock.calls.filter(
-    (call) => String(call[0] as string) === REVOKE_URL,
+    (call) => String(call[0] as string) === revokeUrl,
   );
 }
 
@@ -151,6 +157,33 @@ describe("--relogin token revocation", () => {
     ]);
 
     expect(revocationCalls(fetchSpy)).toHaveLength(1);
+  });
+
+  // #2985: this revocation runs before any InspectorClient exists, so the
+  // helper has to carry the custom headers itself — to a revocation endpoint
+  // on the server's own origin, and to no other.
+  it.each([
+    ["sends custom headers to a same-origin", "https://example.com", "staging"],
+    ["sends no custom headers to a cross-origin", AS_ISSUER, null],
+  ])("%s revocation endpoint", async (_name, issuer, expected) => {
+    seedStore(issuer);
+    const revokeUrl = `${issuer}/revoke`;
+    const fetchSpy = stubFetch(200, revokeUrl);
+
+    await runCli([
+      "--relogin",
+      "--server-url",
+      SERVER_URL,
+      "--header",
+      "X-Environment: staging",
+      "--method",
+      "tools/list",
+    ]);
+
+    const calls = revocationCalls(fetchSpy, revokeUrl);
+    expect(calls).toHaveLength(1);
+    const init = calls[0]![1] as RequestInit | undefined;
+    expect(new Headers(init?.headers).get("x-environment")).toBe(expected);
   });
 
   // Commander turns `--no-revoke` into `options.revoke === false`; nothing else

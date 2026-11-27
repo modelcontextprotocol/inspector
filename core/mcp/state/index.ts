@@ -55,3 +55,29 @@ export type {
   ManagedSkillsStateEventMap,
   SkillsPaginationState,
 } from "./managedSkillsState.js";
+export {
+  ManagedEventsState,
+  clientSupportsEvents,
+} from "./managedEventsState.js";
+export type { ManagedEventsStateEventMap } from "./managedEventsState.js";
+export { PagedEventsState } from "./pagedEventsState.js";
+export {
+  EventSubscriptionsState,
+  DEFAULT_MAX_EVENT_LOG_ENTRIES,
+  DEFAULT_EVENT_DEDUP_WINDOW,
+} from "./eventSubscriptionsState.js";
+export type {
+  EventSubscriptionsStateEventMap,
+  EventSubscriptionsStateOptions,
+  EventSubscription,
+  EventSubscriptionMode,
+  EventSubscriptionStatus,
+  EventSubscriptionTermination,
+  EventSubscriptionCounts,
+  EventSubscribeOptions,
+  EventLogEntry,
+} from "./eventSubscriptionsState.js";
+export type {
+  PagedEventsStateEventMap,
+  LoadEventsPageResult,
+} from "./pagedEventsState.js";

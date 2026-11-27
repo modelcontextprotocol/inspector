@@ -100,6 +100,25 @@ export interface LastPersistedSettings {
    * edit it just flushed — waits for that write to settle first (#2460).
    */
   isPending: (serverId: string) => boolean;
+  /**
+   * Resolves once no write for this server is in flight any more, with what
+   * the writes it waited on put on disk: the settings of the latest-issued one
+   * that landed during the wait, or `undefined` when none did (nothing was
+   * pending, or every one failed) — in which case disk is whatever it was before and the caller
+   * reads it the way it otherwise would.
+   *
+   * The value is handed over rather than left for the caller to read back
+   * through `resolve` or the `servers` list, because neither is dependable at
+   * that moment: the list only advances when the read behind the write
+   * succeeds *and* React has rendered it, and a `resolve` captured by the
+   * waiting callback answers from the list of the render that created it. A
+   * connect started right after the settings modal closes is the caller: the
+   * close only *issues* the save, so building the client straight away would
+   * use the settings from before the edit (#3007).
+   */
+  whenSettled: (
+    serverId: string,
+  ) => Promise<InspectorServerSettings | undefined>;
 }
 
 export interface SettingsWrite {
@@ -151,6 +170,14 @@ export function useLastPersistedSettings(
   const outcomesRef = useRef<Map<string, { sequence: number; ok: boolean }>>(
     new Map(),
   );
+  // Latest-issued write that reached disk, per server, and the callers waiting
+  // for that server's in-flight writes to finish (`whenSettled`). Kept apart
+  // from the records: a record is dropped as soon as the list is re-read, which
+  // can happen before a waiter is told.
+  const landedRef = useRef<
+    Map<string, { sequence: number; written: InspectorServerSettings }>
+  >(new Map());
+  const waitersRef = useRef<Map<string, Array<() => void>>>(new Map());
   // `landed` reads the list through a ref so a write pairs with the entry as
   // it stands when it *finishes*, not the one captured when it was issued.
   // Mirrored in an effect rather than assigned during render: writing a ref
@@ -183,6 +210,16 @@ export function useLastPersistedSettings(
     const pending = pendingRef.current.get(serverId) ?? new Set<number>();
     pending.add(sequence);
     pendingRef.current.set(serverId, pending);
+    // Release `whenSettled` callers once nothing is in flight for this server.
+    // Called last by `landed` and `failed`, so a waiter reads the outcome of
+    // the write that released it.
+    const releaseWaiters = () => {
+      if (pending.size > 0) return;
+      const waiters = waitersRef.current.get(serverId);
+      if (!waiters) return;
+      waitersRef.current.delete(serverId);
+      for (const release of waiters) release();
+    };
     const settle = (ok: boolean) => {
       pending.delete(sequence);
       // Keep the outcome of the latest-issued write that has reported, so an
@@ -198,19 +235,56 @@ export function useLastPersistedSettings(
         const confirmed = confirmedRef.current.get(serverId) ?? 0;
         // A write issued after this one already reported; it describes disk
         // more recently, whichever of the two happened to finish first.
-        if (confirmed > sequence) return false;
+        if (confirmed > sequence) {
+          releaseWaiters();
+          return false;
+        }
         confirmedRef.current.set(serverId, sequence);
         const entry = serversRef.current.find((s) => s.id === serverId);
         recordsRef.current.set(serverId, { written, entry });
+        landedRef.current.set(serverId, { sequence, written });
         // Settled only while nothing later is still in flight — such a write
         // will describe disk once it reports, so re-applying this value in the
         // meantime would fight it.
         for (const other of pending) if (other > sequence) return false;
+        releaseWaiters();
         return true;
       },
-      failed: () => settle(false),
+      failed: () => {
+        settle(false);
+        releaseWaiters();
+      },
     };
   }, []);
+
+  const whenSettled = useCallback(
+    (serverId: string): Promise<InspectorServerSettings | undefined> => {
+      const pending = pendingRef.current.get(serverId);
+      if (!pending || pending.size === 0) return Promise.resolve(undefined);
+      // Only a write that lands *during* the wait counts. One that landed
+      // before it — even a later-issued one whose older sibling is what is
+      // still in flight — describes disk as of then, and the list may have
+      // been re-read, or the file edited elsewhere, since.
+      const landedBefore = landedRef.current.get(serverId)?.sequence ?? 0;
+      return new Promise((resolveWait) => {
+        const waiters = waitersRef.current.get(serverId) ?? [];
+        waiters.push(() => {
+          const landed = landedRef.current.get(serverId);
+          // And only while its record is still believed. With overlapping
+          // writes one can land and then be overtaken by a fresh list read
+          // while a sibling keeps this wait open; the list is authoritative
+          // from there, exactly as it is for `resolve`.
+          const believed =
+            landed !== undefined &&
+            landed.sequence > landedBefore &&
+            recordsRef.current.get(serverId)?.written === landed.written;
+          resolveWait(believed ? landed.written : undefined);
+        });
+        waitersRef.current.set(serverId, waiters);
+      });
+    },
+    [],
+  );
 
   const lastWriteFailed = useCallback(
     (serverId: string) => outcomesRef.current.get(serverId)?.ok === false,
@@ -243,5 +317,5 @@ export function useLastPersistedSettings(
     [],
   );
 
-  return { begin, resolve, lastWriteFailed, isPending };
+  return { begin, resolve, lastWriteFailed, isPending, whenSettled };
 }

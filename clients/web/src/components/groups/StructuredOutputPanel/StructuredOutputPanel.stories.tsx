@@ -102,7 +102,22 @@ export const Large: Story = {
   },
 };
 
+/** One animation frame, so layout and `ResizeObserver` delivery have run. */
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+}
+
 // Collapsing hides the payload; expanding brings it back.
+//
+// Also the regression case for #3002. The editor here mounts inside a closed
+// `Collapse` — `display: none`, so Ace cannot measure a character — and the
+// expand is the first moment it can. Ace used to re-lay itself out from inside
+// that `ResizeObserver` callback, which the browser reports as a window
+// `error` ("ResizeObserver loop completed with undelivered notifications")
+// and the Storybook run logged as an `[Unhandled error]` outside any test.
+// Nothing failed, so nothing but this listener would notice it coming back.
 export const Collapsed: Story = {
   args: {
     structuredContent: nested,
@@ -110,18 +125,35 @@ export const Collapsed: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const toggle = canvas.getByRole("button", {
-      name: "Expand structured output",
-    });
-    await expect(toggle).toHaveAttribute("aria-expanded", "false");
-    await userEvent.click(toggle);
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Collapse structured output" }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    );
-    await waitFor(() =>
-      expect(canvasElement.textContent).toContain('"Item A"'),
-    );
+    const resizeLoopErrors: string[] = [];
+    const recordResizeLoop = (event: ErrorEvent) => {
+      if (event.message.includes("ResizeObserver")) {
+        resizeLoopErrors.push(event.message);
+      }
+    };
+    window.addEventListener("error", recordResizeLoop);
+    try {
+      const toggle = canvas.getByRole("button", {
+        name: "Expand structured output",
+      });
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(toggle);
+      await waitFor(() =>
+        expect(
+          canvas.getByRole("button", { name: "Collapse structured output" }),
+        ).toHaveAttribute("aria-expanded", "true"),
+      );
+      await waitFor(() =>
+        expect(canvasElement.textContent).toContain('"Item A"'),
+      );
+      // The error is dispatched at the end of the frame whose layout it
+      // interrupted, and the deferred re-measurement lands one frame after the
+      // reveal — so two frames past the rendered text covers both.
+      await nextFrame();
+      await nextFrame();
+      await expect(resizeLoopErrors).toEqual([]);
+    } finally {
+      window.removeEventListener("error", recordResizeLoop);
+    }
   },
 };

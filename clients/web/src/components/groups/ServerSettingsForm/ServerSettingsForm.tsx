@@ -629,6 +629,9 @@ export function ServerSettingsForm({
       requestRefreshToken: settings.oauthRequestRefreshToken ?? true,
       // Unset means the default, off — only an explicit opt-in is stored.
       scopeOnRefresh: settings.oauthScopeOnRefresh ?? false,
+      // Unset means the default, off — only an explicit opt-in is stored.
+      skipIssuerMetadataValidation:
+        settings.oauthSkipIssuerMetadataValidation ?? false,
       // Unset means the default, on — only an explicit opt-out is stored.
       revokeOnClear: settings.oauthRevokeOnClear ?? true,
     };
@@ -686,6 +689,15 @@ export function ServerSettingsForm({
     onOAuthChange({
       ...currentOAuth(),
       scopeOnRefresh: event.currentTarget.checked,
+    });
+  }
+
+  function handleSkipIssuerMetadataValidationChange(
+    event: ChangeEvent<HTMLInputElement>,
+  ): void {
+    onOAuthChange({
+      ...currentOAuth(),
+      skipIssuerMetadataValidation: event.currentTarget.checked,
     });
   }
 
@@ -1097,6 +1109,12 @@ export function ServerSettingsForm({
                 description="Includes the granted scope on the refresh-token request. Check it for authorization servers that reject a refresh without one, such as Microsoft Entra ID answering AADSTS90009 when the client and the resource are the same app registration. Leave it unchecked otherwise: some authorization servers narrow or alter the grant when a refresh carries a scope. Applies on the next connect."
                 checked={settings.oauthScopeOnRefresh ?? false}
                 onChange={handleScopeOnRefreshChange}
+              />
+              <Checkbox
+                label="Skip issuer metadata validation"
+                description="Weakens security: accepts authorization server metadata whose issuer does not match the URL it was fetched from, skipping the RFC 8414 check that guards against a document naming a different authorization server. Check it only for an authorization server you trust that is known to publish a non-matching issuer, such as Microsoft Entra ID's multi-tenant endpoints (/organizations/v2.0, /common/v2.0). Leave it unchecked otherwise. Applies on the next connect."
+                checked={settings.oauthSkipIssuerMetadataValidation ?? false}
+                onChange={handleSkipIssuerMetadataValidationChange}
               />
               <Checkbox
                 label="Revoke tokens on clear"

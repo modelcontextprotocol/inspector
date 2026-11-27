@@ -83,6 +83,8 @@ import {
   isNeverAcknowledgedSubscriptionClose,
   subscriptionFailureMessage,
   NEVER_ACKNOWLEDGED_SUBSCRIPTION_MESSAGE,
+  ackedEventsListChanged,
+  type EventsSubscriptionFilter,
 } from "./subscriptionAck.js";
 import {
   subscriptionListenRefusal,
@@ -145,6 +147,7 @@ import type {
 import type { Transport } from "@modelcontextprotocol/client";
 import type {
   RequestOptions,
+  RequestId,
   CacheableRequestOptions,
   CacheMode,
   ProgressCallback,
@@ -154,7 +157,6 @@ import type {
   InputRequests,
   InputRequiredOptions,
   McpSubscription,
-  SubscriptionFilter,
 } from "@modelcontextprotocol/client";
 import {
   ProtocolError,
@@ -199,6 +201,43 @@ import {
   getSkillsExtension,
   type SkillsExtensionSupport,
 } from "../extension/skills/conformance.js";
+import {
+  EVENTS_EXTENSION_KEY,
+  EVENTS_LIST_CHANGED_NOTIFICATION,
+  EVENTS_LIST_METHOD,
+  EVENTS_POLL_METHOD,
+  EVENTS_STREAM_METHOD,
+  EVENTS_STREAM_NOTIFICATIONS,
+  EVENTS_SUBSCRIBE_METHOD,
+  EVENTS_UNSUBSCRIBE_METHOD,
+} from "../extension/events/constants.js";
+import { redactSubscribeSecret } from "../extension/events/webhookSecret.js";
+import {
+  EventsListChangedNotificationParamsSchema,
+  ListEventsResultSchema,
+  PollEventsResultSchema,
+  StreamEventsResultSchema,
+  SubscribeEventsResultSchema,
+  UnsubscribeEventsResultSchema,
+  EventsStreamNotificationEnvelopeSchema,
+  type EventType,
+  type SubscribeEventsParams,
+  type SubscribeEventsResult,
+  type UnsubscribeEventsParams,
+  type PollEventsParams,
+  type PollEventsResult,
+  type StreamEventsParams,
+  type StreamEventsResult,
+} from "../extension/events/schemas.js";
+import {
+  getEventsExtension,
+  type EventsExtensionSupport,
+} from "../extension/events/support.js";
+import {
+  mcpParamHeadersForEvent,
+  partitionEventTypesByHeaderValidity,
+  type ExcludedEventType,
+} from "../extension/events/headers.js";
 import {
   getElicitationUiResourceUri,
   isFormElicitation,
@@ -279,6 +318,7 @@ import {
 } from "../auth/challenge.js";
 import { withOAuthEndpointOverrides } from "../auth/endpointOverrides.js";
 import { routeOAuthRequests } from "../auth/routeOAuthRequests.js";
+import { withServerOriginHeaders } from "../auth/serverOriginHeaders.js";
 import {
   withFetchRefusalReporting,
   type FetchRefusal,
@@ -452,6 +492,14 @@ interface ToolCallRequest {
   options?: { skipOutputValidation?: boolean };
 }
 
+/**
+ * The largest delay `setTimeout` accepts (2^31 - 1 ms, about 24.8 days); a
+ * larger one, `Infinity` included, fires after 1 ms instead. It stands in for
+ * "no timeout" on a request the SDK would otherwise time out at 60 s — the SDK
+ * always arms a timer — which is what a push stream needs (#3029).
+ */
+export const UNBOUNDED_REQUEST_TIMEOUT_MS = 2_147_483_647;
+
 // Backoff for reconnect-by-re-listen on the modern `subscriptions/listen` stream
 // (#1630). A `"remote"` drop schedules a re-listen after a capped exponential
 // delay (based on the count of *consecutive failed* re-lists) so a flapping
@@ -569,6 +617,14 @@ export class InspectorClient extends InspectorClientEventTarget {
   // resets, because it is still unanswered and that is what the diagnostics
   // report.
   private outstandingRequests = new Map<string | number, OutstandingRequest>();
+  // A caller waiting to learn the JSON-RPC id the SDK assigns to the request it
+  // is about to send (#3029). Set immediately before `client.request` and
+  // cleared immediately after: the SDK assigns the id and hands the frame to
+  // the transport synchronously inside that call, so the claim is consumed by
+  // `trackRequest` for exactly that request and no other.
+  private requestIdClaim:
+    | { method: string; onRequestId: (id: RequestId) => void }
+    | undefined;
   // The id of the most recently answered request per method, for
   // `markResponseRejected` (#1953). At most one id per method, so it does not
   // grow with the session.
@@ -630,6 +686,13 @@ export class InspectorClient extends InspectorClientEventTarget {
   // annotations (SEP-2243), recomputed on every aggregate tools refresh and
   // surfaced so the Tools tab can show why a tool vanished (#1632).
   private excludedTools: ExcludedTool[] = [];
+  // Event types left out of `events/list` for invalid `x-mcp-header`
+  // annotations (SEP-3415, #3028). Recomputed by every full walk.
+  private excludedEventTypes: ExcludedEventType[] = [];
+  // Whether the server echoed `eventsListChanged` in the last
+  // `notifications/subscriptions/acknowledged` (#3028). Read off the raw
+  // frame because the SDK's acknowledged-filter schema strips the field.
+  private eventsListChangedHonored = false;
   // Entries the Inspector dropped from a list result because they failed the
   // spec schema for that primitive, keyed by list method. Populated only by the
   // salvage fallback in `listAllSalvaging` — empty against a conforming server
@@ -695,6 +758,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     tools: boolean;
     resources: boolean;
     prompts: boolean;
+    events: boolean;
   };
   // Resource subscriptions. The set of subscribed URIs is the era-agnostic
   // source of truth for the UI (the `resourceSubscriptionsChange` list). How a
@@ -891,6 +955,7 @@ export class InspectorClient extends InspectorClientEventTarget {
       tools: options.listChangedNotifications?.tools ?? true,
       resources: options.listChangedNotifications?.resources ?? true,
       prompts: options.listChangedNotifications?.prompts ?? true,
+      events: options.listChangedNotifications?.events ?? true,
     };
 
     // Effective auth fetch: base fetch + tracking with category 'auth'
@@ -939,9 +1004,39 @@ export class InspectorClient extends InspectorClientEventTarget {
         : transportBase,
       getOverrides,
     );
-    const authWithOverrides = oauthBase
-      ? withOAuthEndpointOverrides(oauthBase, getOverrides)
-      : withOverrides;
+    // #2985: the server's custom headers reach the transport through its
+    // `requestInit`, which this chain never sees — so the OAuth requests the
+    // manager makes itself went out without them, and a header-routed
+    // deployment answered discovery, registration and the token request from
+    // the wrong environment. Applied to the auth chain only (the transport
+    // chain already carries them) and to the MCP server's own origin only.
+    // Read per request, from the settings the open transport was built with
+    // while there is one — a live settings save does not reach the transport
+    // until the next connect, and OAuth must not move to the new environment
+    // ahead of the MCP requests it authorizes.
+    //
+    // Applied twice, at both ends of the chain. Innermost, because the compat
+    // wrapper issues probe requests of its own from below everything above it.
+    // Outermost (where `effectiveAuthFetch` is assigned), because the tracker
+    // snapshots a request's headers as it receives them, and the Network log
+    // should show the headers that were sent. The second application is a
+    // pass-through: a header already on the request is never set again.
+    const withCustomHeaders = (fetchFn: typeof fetch) =>
+      withServerOriginHeaders(
+        fetchFn,
+        () => this.getServerUrl(),
+        // Chosen on whether a transport exists, not on whether it has a
+        // snapshot: one built with no settings has none, and must not fall
+        // through to headers saved since.
+        () =>
+          (this.baseTransport ? this.transportSettings : this.serverSettings)
+            ?.headers,
+      );
+    const authWithOverrides = withCustomHeaders(
+      oauthBase
+        ? withOAuthEndpointOverrides(oauthBase, getOverrides)
+        : withOverrides,
+    );
     // #2172: recover discovery when a plain OAuth 2.0 authorization server
     // publishes RFC 8414 metadata at `/.well-known/openid-configuration`, which
     // the SDK validates as an OpenID provider document and rejects. Wraps the
@@ -975,8 +1070,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     // `storedAuthFetch`. It also passes no `isExempt`, unlike the transport
     // chain above: every request on this chain is OAuth work, so there is
     // nothing here to exempt.
-    this.effectiveAuthFetch = this.buildEffectiveAuthFetch(
-      withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
+    this.effectiveAuthFetch = withCustomHeaders(
+      this.buildEffectiveAuthFetch(
+        withRfc8414OidcCompat(withOAuthRequestTimeout(authWithOverrides)),
+      ),
     );
 
     this.sessionId = options.sessionId;
@@ -1229,6 +1326,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     return {
       trackRequest: (message: JSONRPCRequest, origin: MessageOrigin) => {
         if (origin === "client") {
+          this.takeRequestIdClaim(message);
           this.outstandingRequests.set(message.id, {
             id: message.id,
             method: message.method,
@@ -1241,7 +1339,9 @@ export class InspectorClient extends InspectorClientEventTarget {
           timestamp: new Date(),
           direction: "request",
           origin,
-          message,
+          // The Protocol tab records an `events/subscribe` with its webhook
+          // signing secret masked (#3031); the sent message keeps it.
+          message: redactSubscribeSecret(message),
         };
         this.dispatchTypedEvent("message", entry);
       },
@@ -1302,7 +1402,10 @@ export class InspectorClient extends InspectorClientEventTarget {
         message: JSONRPCNotification,
         origin: MessageOrigin,
       ) => {
-        if (origin === "server") this.dispatchTaskProgress(message);
+        if (origin === "server") {
+          this.dispatchTaskProgress(message);
+          this.noteSubscriptionAck(message);
+        }
         const entry: MessageEntry = {
           id: crypto.randomUUID(),
           timestamp: new Date(),
@@ -1718,6 +1821,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.modernNeverAcknowledged = false;
     this.modernListenRefusal = null;
     this.modernSubscription = null;
+    this.eventsListChangedHonored = false;
     // Announced only once both have moved: a listener that ran between them
     // would see an empty set with an `active` stream — the combination this
     // helper exists to prevent, so its own dispatches must not expose it.
@@ -1792,6 +1896,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     if (this.excludedTools.length > 0) {
       this.excludedTools = [];
       this.dispatchTypedEvent("excludedToolsChange", []);
+    }
+    if (this.excludedEventTypes.length > 0) {
+      this.excludedEventTypes = [];
+      this.dispatchTypedEvent("excludedEventTypesChange", []);
     }
     // Restore the configured opt-in rather than carrying a mid-session
     // `setModernLogLevel` override into the next connection — and rather than
@@ -2248,6 +2356,47 @@ export class InspectorClient extends InspectorClientEventTarget {
           );
         }
 
+        // Events list_changed (SEP-3415, #3028). Registered only when the
+        // server's Events settings declare `listChanged` on a connection that
+        // may use the extension at all — the same config ∩ capability rule the
+        // three core lists follow. Custom (3-arg) form: the method is not one
+        // the SDK's codecs define.
+        if (
+          this.listChangedNotifications.events &&
+          this.getEventsExtension()?.listChanged
+        ) {
+          this.client.setNotificationHandler(
+            EVENTS_LIST_CHANGED_NOTIFICATION,
+            { params: EventsListChangedNotificationParamsSchema },
+            async () => {
+              this.dispatchTypedEvent("eventsListChanged");
+            },
+          );
+        }
+
+        // Push-stream notifications (SEP-3415 `events/stream`, #3029). One
+        // handler per method, each forwarding the params as an event the
+        // subscription engine routes by subscription id. Registered whenever
+        // the connection may use the extension — unlike `list_changed`, no
+        // server setting gates them, and an `events/stream` can only be open
+        // when the extension is offered.
+        if (this.getEventsExtension()) {
+          for (const method of EVENTS_STREAM_NOTIFICATIONS) {
+            this.client.setNotificationHandler(
+              method,
+              { params: EventsStreamNotificationEnvelopeSchema },
+              // The 3-argument form hands the handler the params the schema
+              // parsed, not the notification.
+              async (params) => {
+                this.dispatchTypedEvent("eventsStreamNotification", {
+                  method,
+                  params,
+                });
+              },
+            );
+          }
+        }
+
         // Resource updated notification handler (only if server supports subscriptions)
         if (this.capabilities?.resources?.subscribe === true) {
           this.client.setNotificationHandler(
@@ -2449,6 +2598,7 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.protocolEra = undefined;
     this.discoverResult = undefined;
     this.excludedTools = [];
+    this.excludedEventTypes = [];
     this.malformedListItems.clear();
     // Read as "not opted in" while disconnected. This is no longer what stops
     // it leaking into the next connection — `resetSessionState()` re-derives it
@@ -2469,6 +2619,10 @@ export class InspectorClient extends InspectorClientEventTarget {
     this.dispatchTypedEvent("protocolEraChange", this.protocolEra);
     this.dispatchTypedEvent("discoverResultChange", this.discoverResult);
     this.dispatchTypedEvent("excludedToolsChange", this.excludedTools);
+    this.dispatchTypedEvent(
+      "excludedEventTypesChange",
+      this.excludedEventTypes,
+    );
     this.dispatchTypedEvent("malformedListItemsChange", []);
   }
 
@@ -5205,6 +5359,435 @@ export class InspectorClient extends InspectorClientEventTarget {
   }
 
   /**
+   * The Events extension settings (SEP-3415) when this connection may use it —
+   * a modern era AND the server's advertisement — otherwise `undefined`. Every
+   * `events/*` request below is gated on it, which is how the Inspector keeps
+   * the spec's "MUST NOT send `events/*` to a server that has not advertised
+   * the extension" on every path, legacy connections included (#3028).
+   */
+  getEventsExtension(): EventsExtensionSupport | undefined {
+    return getEventsExtension(this.capabilities, this.protocolEra);
+  }
+
+  /**
+   * Event types the last full `events/list` walk left out for invalid
+   * `x-mcp-header` annotations, each with its reason (#3028).
+   */
+  getExcludedEventTypes(): ExcludedEventType[] {
+    return this.excludedEventTypes;
+  }
+
+  /**
+   * Whether the server echoed `eventsListChanged` in the last
+   * `subscriptions/listen` acknowledgement, i.e. agreed to send
+   * `notifications/events/list_changed` on the stream (#3028). `false` until a
+   * stream is acknowledged, and after the stream is reset.
+   */
+  isEventsListChangedHonored(): boolean {
+    return this.eventsListChangedHonored;
+  }
+
+  /** Hand an outgoing request's id to the caller that claimed it, once. */
+  private takeRequestIdClaim(message: JSONRPCRequest): void {
+    const claim = this.requestIdClaim;
+    if (claim === undefined || claim.method !== message.method) return;
+    this.requestIdClaim = undefined;
+    claim.onRequestId(message.id);
+  }
+
+  /** Record the `eventsListChanged` echo from a raw acknowledgement frame. */
+  private noteSubscriptionAck(message: JSONRPCNotification): void {
+    const honored = ackedEventsListChanged(message);
+    if (honored !== undefined) this.eventsListChangedHonored = honored;
+  }
+
+  /**
+   * Refuse locally, before anything reaches the wire, an `events/*` request the
+   * spec forbids on this connection. Throwing rather than letting the server
+   * answer `-32601` also keeps the Protocol tab honest: a request the Inspector
+   * was never allowed to send must not appear there as a server failure.
+   */
+  private assertEventsAllowed(method: string): void {
+    if (!this.client) {
+      throw new Error("Client is not connected");
+    }
+    if (!this.getEventsExtension()) {
+      throw new Error(
+        `Server did not advertise ${EVENTS_EXTENSION_KEY} on a modern-era connection; ${method} must not be sent.`,
+      );
+    }
+  }
+
+  /**
+   * Drop the event types a Streamable HTTP client MUST exclude from
+   * `events/list` for invalid `x-mcp-header` annotations, logging a warning for
+   * each (SEP-3415 applies SEP-2243's tool rule to event types). Applied on the
+   * same connections the tools rule is — modern, not stdio — since the spec
+   * scopes the annotation to the HTTP transport and lets other transports
+   * ignore it.
+   */
+  private partitionEventTypes(eventTypes: EventType[]): {
+    kept: EventType[];
+    excluded: ExcludedEventType[];
+  } {
+    if (!this.excludesInvalidXMcpHeaderTools()) {
+      return { kept: eventTypes, excluded: [] };
+    }
+    const result = partitionEventTypesByHeaderValidity(eventTypes);
+    for (const { eventType, reason } of result.excluded) {
+      this.logger.warn(
+        { eventType: eventType.name, reason },
+        "Excluded an event type from events/list: invalid x-mcp-header annotation",
+      );
+    }
+    return result;
+  }
+
+  /**
+   * One page of `events/list` (SEP-3415), with the event types that violate the
+   * `x-mcp-header` rules already removed and reported in `excluded`.
+   *
+   * An ordinary `client.request` with an explicit result schema, like
+   * `skills/list`: the SDK's era gate and capability assertion both fall
+   * through for a method neither codec defines. `events/list` carries no
+   * `Mcp-Name` (it has no `params.name`).
+   */
+  async listEvents(
+    cursor?: string,
+    metadata?: RequestMetadata,
+  ): Promise<{
+    events: EventType[];
+    nextCursor?: string;
+    excluded: ExcludedEventType[];
+  }> {
+    this.assertEventsAllowed(EVENTS_LIST_METHOD);
+    const effectiveMeta = this.mergeMeta(metadata);
+    const params: Record<string, unknown> = {
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+      // `!== undefined`, not truthiness: a cursor is opaque and `""` is legal.
+      ...(cursor !== undefined ? { cursor } : {}),
+    };
+    let response: z.infer<typeof ListEventsResultSchema>;
+    try {
+      response = await this.invokeMcpClient(
+        () => {
+          // Re-checked inside the callback because `invokeMcpClient` runs it
+          // again after an auth-recovery reconnect, and the new connection may
+          // no longer offer the extension (or may have negotiated legacy).
+          this.assertEventsAllowed(EVENTS_LIST_METHOD);
+          return this.client!.request(
+            { method: EVENTS_LIST_METHOD, params },
+            ListEventsResultSchema,
+            this.getRequestOptions(this.progressTokenOf(metadata)),
+          );
+        },
+        { method: EVENTS_LIST_METHOD },
+      );
+    } catch (err) {
+      // Attribute a rejected decode to its Protocol entry (#1953), while the
+      // correlation window is still current — the same handling `skills/get`
+      // gets, and only for a decode rejection.
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          EVENTS_LIST_METHOD,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+    const { kept, excluded } = this.partitionEventTypes(response.events);
+    return {
+      events: kept,
+      ...(response.nextCursor !== undefined && {
+        nextCursor: response.nextCursor,
+      }),
+      excluded,
+    };
+  }
+
+  /**
+   * Every page of `events/list`, walked here because the SDK has no aggregate
+   * verb for a consumer-owned method. Commits the excluded set
+   * (`excludedEventTypesChange`) only once the whole walk succeeded, so a
+   * failed walk never publishes a partial one.
+   *
+   * Bounded the same two ways the other hand-rolled walks are: `LIST_MAX_PAGES`
+   * for a server whose cursors never converge, and a repeated cursor for one
+   * stuck on a single page. Both throw rather than return a partial list.
+   */
+  async listAllEvents(options?: {
+    metadata?: RequestMetadata;
+  }): Promise<{ events: EventType[] }> {
+    this.assertEventsAllowed(EVENTS_LIST_METHOD);
+    const events: EventType[] = [];
+    const excluded: ExcludedEventType[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let pages = 0;
+    for (;;) {
+      if (pages >= LIST_MAX_PAGES) {
+        throw listPaginationExceeded(EVENTS_LIST_METHOD);
+      }
+      pages += 1;
+      const page = await this.listEvents(cursor, options?.metadata);
+      events.push(...page.events);
+      excluded.push(...page.excluded);
+      if (page.nextCursor === undefined) break;
+      if (seen.has(page.nextCursor)) {
+        throw new Error(
+          `Server repeated a pagination cursor in ${EVENTS_LIST_METHOD}; stopped to avoid an infinite walk.`,
+        );
+      }
+      seen.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+    this.excludedEventTypes = excluded;
+    this.dispatchTypedEvent("excludedEventTypesChange", excluded);
+    return { events };
+  }
+
+  /**
+   * Send one `events/*` request that names an event type (`events/poll`,
+   * `events/stream`, `events/subscribe`, `events/unsubscribe`).
+   *
+   * The shared path every subscription request goes through, so the rules the
+   * spec attaches to all four live in one place:
+   *
+   * - the connection gate ({@link assertEventsAllowed});
+   * - `params.name` taken from the event type, so the `Mcp-Name` header the
+   *   transport's fetch wrapper derives from it (`createEventsMcpNameFetch`)
+   *   always names the type the `Mcp-Param-*` headers were built from;
+   * - the `Mcp-Param-*` headers for annotated arguments, on the per-request
+   *   `headers` option the tools path uses. Only on a modern connection — the
+   *   gate already guarantees that — and harmlessly ignored on stdio.
+   *
+   * `requestOptions` lets a caller adjust the SDK options (an abort signal, or
+   * no timeout for a long-lived `events/stream`); the headers are merged in, not
+   * replaced.
+   *
+   * `onRequestId` is called with the JSON-RPC id the SDK assigned, as the
+   * request goes out and before any response or notification for it can
+   * arrive — and again, with the new id, if an auth recovery re-sends it. A
+   * push stream needs it: the server echoes that id as the subscription id on
+   * every notification of the stream (#3029).
+   */
+  async sendEventsRequest<T>(
+    method: string,
+    eventType: EventType,
+    params: Record<string, unknown>,
+    resultSchema: z.ZodType<T>,
+    options?: {
+      metadata?: RequestMetadata;
+      requestOptions?: Partial<RequestOptions>;
+      onRequestId?: (id: RequestId) => void;
+    },
+  ): Promise<T> {
+    this.assertEventsAllowed(method);
+    const effectiveMeta = this.mergeMeta(options?.metadata);
+    const args = params.arguments;
+    const argsRecord =
+      args !== null && typeof args === "object" && !Array.isArray(args)
+        ? (args as Record<string, unknown>)
+        : undefined;
+    const requestParams: Record<string, unknown> = {
+      ...params,
+      name: eventType.name,
+      ...(effectiveMeta ? { _meta: effectiveMeta } : {}),
+    };
+    // A caller's `signal` goes through `getRequestOptions`, which combines it
+    // with the ambient request signal (#1783); spreading it over the result
+    // would replace the ambient one, and a request with its timeout disabled
+    // (a push stream) could then outlive the caller that started it.
+    const { signal: callerSignal, ...overrides } =
+      options?.requestOptions ?? {};
+    const requestOptions: RequestOptions = {
+      ...this.getRequestOptions(
+        this.progressTokenOf(options?.metadata),
+        callerSignal,
+      ),
+      ...overrides,
+    };
+    const mirrored = mcpParamHeadersForEvent(eventType, argsRecord);
+    if (Object.keys(mirrored).length > 0) {
+      requestOptions.headers = { ...requestOptions.headers, ...mirrored };
+    }
+    try {
+      return await this.invokeMcpClient(
+        () => {
+          // Re-gated on every attempt, as in `listEvents`: a retry after an
+          // auth-recovery reconnect must not reach a connection without Events.
+          this.assertEventsAllowed(method);
+          const onRequestId = options?.onRequestId;
+          this.requestIdClaim = onRequestId && { method, onRequestId };
+          try {
+            return this.client!.request(
+              { method, params: requestParams },
+              resultSchema,
+              requestOptions,
+            );
+          } finally {
+            this.requestIdClaim = undefined;
+          }
+        },
+        { method },
+      );
+    } catch (err) {
+      if (isClientDecodeRejection(err)) {
+        this.markResponseRejected(
+          method,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+      throw err;
+    }
+  }
+
+  /**
+   * One `events/poll` (SEP-3415, Poll-Based Delivery): a single request, no
+   * loop. The poll runner with `nextPollMs`, the floor and the `hasMore` drain
+   * is the subscription engine's (#3026 phase 2); this is the one-shot the CLI
+   * and that engine both build on. `cursor` defaults to `null` ("start from
+   * now"), sent explicitly so the Protocol tab shows what was asked for.
+   */
+  async pollEvents(
+    eventType: EventType,
+    params: Omit<PollEventsParams, "name"> = {},
+    metadata?: RequestMetadata,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<PollEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_POLL_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.maxEvents !== undefined && { maxEvents: params.maxEvents }),
+      },
+      PollEventsResultSchema,
+      {
+        metadata,
+        // The poll runner cancels an in-flight poll when its subscription is
+        // stopped (#3029).
+        ...(options.signal && { requestOptions: { signal: options.signal } }),
+      },
+    );
+  }
+
+  /**
+   * One `events/stream` (SEP-3415, Push-Based Delivery): a request that stays
+   * open for the life of a push subscription. It resolves only when the server
+   * closes the stream (the empty `StreamEventsResult`), and rejects when it is
+   * refused (`NotFound`, `Forbidden`, …), when the connection drops, or when
+   * `signal` aborts it.
+   *
+   * - **No request timeout.** The spec says a client SHOULD NOT apply its
+   *   default timeout here — the heartbeat is the liveness signal, and the
+   *   subscription engine owns that check. The SDK has no "never" value and
+   *   arms a real timer with whatever it is given (`setTimeout` treats
+   *   `Infinity` as 1 ms), so the largest delay a timer accepts stands in for
+   *   it, and `maxTotalTimeout` and progress resets are switched off.
+   * - **Cancellation is the abort.** Aborting `signal` is all a caller does:
+   *   the SDK turns it into the transport's own signal — closing the request's
+   *   SSE stream on Streamable HTTP, `notifications/cancelled` on stdio.
+   * - **The notifications are not returned here.** They reach the client's
+   *   notification handlers and are re-dispatched as `eventsStreamNotification`;
+   *   `onSubscriptionId` tells the caller which of them are this stream's.
+   *   `cursor` defaults to `null` ("start from now"), sent explicitly.
+   */
+  async streamEvents(
+    eventType: EventType,
+    params: Omit<StreamEventsParams, "name"> = {},
+    options: {
+      signal?: AbortSignal;
+      onSubscriptionId?: (id: RequestId) => void;
+      metadata?: RequestMetadata;
+    } = {},
+  ): Promise<StreamEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_STREAM_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.heartbeatMs !== undefined && {
+          heartbeatMs: params.heartbeatMs,
+        }),
+      },
+      StreamEventsResultSchema,
+      {
+        metadata: options.metadata,
+        onRequestId: options.onSubscriptionId,
+        requestOptions: {
+          timeout: UNBOUNDED_REQUEST_TIMEOUT_MS,
+          maxTotalTimeout: undefined,
+          resetTimeoutOnProgress: false,
+          ...(options.signal && { signal: options.signal }),
+        },
+      },
+    );
+  }
+
+  /**
+   * One `events/subscribe` (SEP-3415, Webhook-Based Delivery): create a
+   * webhook subscription, or refresh the one with the same key — the call is
+   * idempotent, which is how its TTL is kept alive. Management only: the
+   * Inspector never receives the deliveries (#3031).
+   *
+   * Every field is sent as given. `cursor` defaults to `null` ("start from
+   * now"), sent explicitly as for poll and push; `ttlMs` is sent only when the
+   * caller set it, because absent ("server default") and `null` ("no expiry")
+   * mean different things. `delivery.secret` reaches the wire and nothing else:
+   * the Protocol and Network tabs record it masked.
+   */
+  async subscribeEvents(
+    eventType: EventType,
+    params: Omit<SubscribeEventsParams, "name">,
+    options: { signal?: AbortSignal; metadata?: RequestMetadata } = {},
+  ): Promise<SubscribeEventsResult> {
+    return this.sendEventsRequest(
+      EVENTS_SUBSCRIBE_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        delivery: params.delivery,
+        cursor: params.cursor ?? null,
+        ...(params.maxAgeMs !== undefined && { maxAgeMs: params.maxAgeMs }),
+        ...(params.ttlMs !== undefined && { ttlMs: params.ttlMs }),
+      },
+      SubscribeEventsResultSchema,
+      {
+        metadata: options.metadata,
+        ...(options.signal && { requestOptions: { signal: options.signal } }),
+      },
+    );
+  }
+
+  /**
+   * One `events/unsubscribe`: tear a webhook subscription down now rather than
+   * letting its TTL lapse. Resolved by the same key as the subscribe —
+   * `(name, arguments, delivery.url)` plus the server's principal — never by
+   * the server-derived id, which the spec does not accept as input.
+   */
+  async unsubscribeEvents(
+    eventType: EventType,
+    params: Omit<UnsubscribeEventsParams, "name">,
+    options: { metadata?: RequestMetadata } = {},
+  ): Promise<void> {
+    await this.sendEventsRequest(
+      EVENTS_UNSUBSCRIBE_METHOD,
+      eventType,
+      {
+        arguments: params.arguments ?? {},
+        delivery: { url: params.delivery.url },
+      },
+      UnsubscribeEventsResultSchema,
+      { metadata: options.metadata },
+    );
+  }
+
+  /**
    * Get a prompt by name
    * @param name Prompt name
    * @param args Optional prompt arguments
@@ -5637,8 +6220,8 @@ export class InspectorClient extends InspectorClientEventTarget {
    * list-change notifications — the spec models one listen stream for every
    * opted-in notification type (SEP §7.4).
    */
-  private buildSubscriptionFilter(): SubscriptionFilter {
-    const filter: SubscriptionFilter = {};
+  private buildSubscriptionFilter(): EventsSubscriptionFilter {
+    const filter: EventsSubscriptionFilter = {};
     // Omitted rather than sent empty: a listChanged-only stream (#1920) is not
     // subscribing to any resource, and `[]` would say it asked for none of a set
     // it is participating in.
@@ -5663,6 +6246,16 @@ export class InspectorClient extends InspectorClientEventTarget {
     ) {
       filter.promptsListChanged = true;
     }
+    // SEP-3415's filter field (#3028): opt in only where the server declared
+    // `listChanged` on its Events settings — "a server that did not declare
+    // `listChanged: true` omits it from the acknowledged filter", so asking
+    // anyway would only make the stream open for nothing.
+    if (
+      this.listChangedNotifications.events &&
+      this.getEventsExtension()?.listChanged
+    ) {
+      filter.eventsListChanged = true;
+    }
     return filter;
   }
 
@@ -5686,7 +6279,8 @@ export class InspectorClient extends InspectorClientEventTarget {
       (filter.resourceSubscriptions?.length ?? 0) > 0 ||
       filter.toolsListChanged === true ||
       filter.resourcesListChanged === true ||
-      filter.promptsListChanged === true
+      filter.promptsListChanged === true ||
+      filter.eventsListChanged === true
     );
   }
 
@@ -6246,6 +6840,8 @@ export class InspectorClient extends InspectorClientEventTarget {
     requestRefreshToken?: boolean;
     /** Send `scope` on the refresh-token request (#2805). */
     scopeOnRefresh?: boolean;
+    /** Skip the RFC 8414 §3.3 issuer check on AS metadata (#2983). */
+    skipIssuerMetadataValidation?: boolean;
   }): void {
     if (!this.oauthManager) {
       throw new Error(

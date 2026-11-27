@@ -56,11 +56,18 @@ export const MCPDO_SKILL_BUDGET_HINT: SkillBudgetHint = {
  * That last one is `9` only under `--require-digests` — `"dynamic"` is a
  * conforming wire form, so by default the run still succeeds and the report
  * carries `outcome: "unverifiable"` instead (#2405).
+ *
+ * ⚠️ An empty catalog is checked first, and is not a success (#2986).
+ * `allSkillsVerified([])` is vacuously true, so without this a server whose
+ * skills were all dropped at load reached `--verify` as an empty listing and
+ * the gate went green over nothing. Only `skills/list` can get here:
+ * `skills/get` always verifies exactly one skill.
  */
 export function skillVerificationExitCode(
   reports: readonly SkillVerifyReport[],
   requireDigests: boolean,
 ): number | undefined {
+  if (reports.length === 0) return EXIT_CODES.SKILL_CATALOG_EMPTY;
   if (allSkillsVerified(reports)) return undefined;
   if (anySkillFailed(reports)) return EXIT_CODES.SKILL_NONCONFORMANT;
   if (reports.some((report) => report.outcome === "incomplete"))
@@ -71,12 +78,35 @@ export function skillVerificationExitCode(
 }
 
 /**
+ * The error envelope's `code` for a `--verify` exit code, so a caller reading
+ * one never has to reconcile it against the other. Shared by the one-shot CLI
+ * and mcpdo, which both throw the exit code after writing the report.
+ */
+export function skillVerificationEnvelopeCode(exitCode: number): string {
+  switch (exitCode) {
+    case EXIT_CODES.SKILL_INCOMPLETE:
+      return "skills_incomplete";
+    case EXIT_CODES.SKILL_UNVERIFIABLE:
+      return "skills_unverifiable";
+    case EXIT_CODES.SKILL_CATALOG_EMPTY:
+      return "skills_empty";
+    default:
+      return "skills_nonconformant";
+  }
+}
+
+/**
  * A one-line human summary for stderr, so a reader who piped stdout to `jq`
  * still learns the verdict.
  */
 export function summarizeSkillVerification(
   reports: readonly SkillVerifyReport[],
 ): string {
+  // ⚠️ Never "Verified 0 skills": nothing was checked, and the run exits
+  // SKILL_CATALOG_EMPTY rather than 0 (#2986).
+  if (reports.length === 0) {
+    return "No skills to verify: skills/list returned an empty catalog, so nothing was checked.";
+  }
   // ⚠️ Counted off `outcome`, never off `ok`. `ok` means "nothing that was
   // checked is wrong", which an `incomplete` report satisfies while the walk
   // was cut short — so branching on `ok` printed "no conformance errors" one
