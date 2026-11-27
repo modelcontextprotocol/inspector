@@ -159,6 +159,15 @@ skipping it here means the first signal of a broken package arrives too late to
 stop the release. It needs network access; record its result (tarball size and
 the `pack:verify OK` line) for the ledger below.
 
+`pack:verify` is the v2 form of a rule both lines follow: **every published
+package installs and starts from a clean install of its own tarball before the
+merge.** That covers v2 because v2 publishes exactly one package. If v2 ever
+publishes a second one, that package needs the same check before this merge.
+v1 publishes four, and the root install hides any dependency only the root
+declares, so v1 runs this check by hand (v1-1). That check exists because
+`npx -y @modelcontextprotocol/inspector-server` shipped broken from 0.21.0
+through 1.0.6 (#3055).
+
 **Every contribution closed in the milestone gets driven, not read.** The bar is
 observed behavior from the running app — a rendered panel, a status attribute, a
 server's own stderr — against a real test server, through whichever surfaces the
@@ -479,6 +488,66 @@ npm ci && cmp package-lock.json /tmp/lock-before.json   # silent: npm ci left th
 
 Compare the lockfile against itself, not against `git status`: the bump is
 still uncommitted here, so the worktree is dirty by design.
+
+**Then prove every package installs and starts from its own tarball.** Run this
+on the bump branch, and get it green **before the bump PR merges**, because the
+tag lands right after the merge. ⚠️ The checks above only prove the version
+fields agree, and every other v1 check exercises the packages through the root
+install, which hoists every dependency the root declares. So a package that
+imports something only the root declares passes all of them and still fails as
+soon as someone runs it on its own. `npx -y @modelcontextprotocol/inspector-server`
+crashed this way (`ERR_MODULE_NOT_FOUND: 'node-fetch'`) in every release from
+0.21.0 through 1.0.6, and nothing caught it until 1.0.7 (#3055).
+
+There are two halves, because each catches what the other misses: a scan of the
+shipped files, and a run of each bin.
+
+```sh
+npm run build
+mkdir -p "$TMPDIR/v1pack/tgz"
+npm pack --workspaces --include-workspace-root --pack-destination "$TMPDIR/v1pack/tgz"
+
+# 1. Scan: every bare import in a package's shipped files must be in that
+#    package's own dependencies. This catches a lazy import that never fails at
+#    startup. client/dist is a Vite bundle with its dependencies inlined, so
+#    only client/bin is scanned.
+node -e '
+const fs=require("fs"),path=require("path"),builtin=new Set(require("module").builtinModules);
+const walk=(d,o=[])=>{for(const f of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,f.name);f.isDirectory()?walk(p,o):/\.m?js$/.test(f.name)&&o.push(p);}return o;};
+let bad=0;for(const [ws,dirs] of [["server",["build"]],["client",["bin"]],["cli",["build"]]]){
+ const pj=require("./"+ws+"/package.json"),dec=new Set(Object.keys({...pj.dependencies,...pj.peerDependencies}));
+ for(const d of dirs)for(const f of walk(ws+"/"+d))for(const m of fs.readFileSync(f,"utf8").matchAll(/(?:from\s*|import\s*\(\s*|require\s*\(\s*)["\x27]([^"\x27.\/][^"\x27]*)["\x27]/g)){
+  let n=m[1];if(n.startsWith("node:"))continue;n=n.startsWith("@")?n.split("/").slice(0,2).join("/"):n.split("/")[0];
+  if(!builtin.has(n)&&!dec.has(n)){console.log(ws+": undeclared "+n+" ("+f+")");bad=1;}}}
+process.exit(bad);'
+
+# 2. Run: install each tarball into its own empty directory and start its bin.
+for p in server cli client; do
+  d="$TMPDIR/v1pack/alone-$p"; mkdir -p "$d"
+  (cd "$d" && npm init -y >/dev/null && npm i "$TMPDIR/v1pack/tgz/modelcontextprotocol-inspector-$p-X.Y.Z.tgz")
+done
+# …then install all four tarballs together into a fifth directory and run its
+# mcp-inspector bin: that is the published shape.
+```
+
+The scan must print nothing and exit 0. What each run must show:
+
+| Install | Pass |
+| --- | --- |
+| `inspector-server` alone | `SERVER_PORT=<p> MCP_PROXY_AUTH_TOKEN=<t> node node_modules/@modelcontextprotocol/inspector-server/build/index.js` answers `GET /health` with `{"status":"ok"}`. Drive a release's server fix through `POST /fetch` on this install as well as on the built tree. |
+| `inspector-cli` alone | `./node_modules/.bin/mcp-inspector-cli --help` prints `Usage:` |
+| `inspector-client` alone | Fails on `Cannot find module …/@modelcontextprotocol/server/build/index.js`, and on nothing else |
+| All four together | `./node_modules/.bin/mcp-inspector` with `SERVER_PORT`/`CLIENT_PORT` set: the client serves `GET /` with 200 and the proxy `/health` is ok |
+
+⚠️ **`inspector-client` is root-only by design, so its row expects an error.**
+`bin/start.js` launches the proxy at `resolve(__dirname, "../..", "server/build/index.js")`,
+a path that exists only inside the root package, which ships `client/`, `server/`
+and `cli/` side by side. A different error there, above all
+`ERR_MODULE_NOT_FOUND` naming a package, is a missing dependency and fails the
+check.
+
+A failure is a fix PR against `v1/main`, merged **before** the bump (v1-2). Put
+the run's results in the release ledger.
 
 ### v1-2. Merge order: the bump merges last
 
