@@ -448,8 +448,11 @@ any point. The two lines publish independently under separate dist-tags, so a v1
 fix does **not** need forward-porting to reach users on
 `npx @modelcontextprotocol/inspector@v1-latest`.
 
-None of the v2 machinery above applies: no milestone-merge PR, no ledger, no
-`release:notes` script, no `package` job. v1 is a four-package npm workspace
+None of the v2 machinery above applies: no milestone-merge PR, no
+`release:notes` script, no `package` job. The release ledger is lighter: v1 has
+no milestone to sweep, so its ledger records the version-field checks, the
+standalone-package check below, and the driven fix (1.0.6 and 1.0.7 each
+published one, linked from the release notes and the v1 release issue). v1 is a four-package npm workspace
 (root, `client/`, `server/`, `cli/`) with its own, older workflow on `v1/main`.
 This procedure was reconstructed for 1.0.3 (#2753) from the earlier releases and
 that workflow, and the first attempt got the tag and the Latest flag wrong —
@@ -556,13 +559,22 @@ The scan must print nothing and exit 0. What each run must show:
 | `inspector-server` alone | `SERVER_PORT=<p> MCP_PROXY_AUTH_TOKEN=<t> node node_modules/@modelcontextprotocol/inspector-server/build/index.js` answers `GET /health` with `{"status":"ok"}`. Drive a release's server fix through `POST /fetch` on this install as well as on the built tree. |
 | `inspector-cli` alone | `./node_modules/.bin/mcp-inspector-cli --help` prints `Usage:` |
 | `inspector-client` alone | `./node_modules/.bin/mcp-inspector-client` with `SERVER_PORT`/`CLIENT_PORT`/`MCP_PROXY_AUTH_TOKEN` set: the UI serves `GET /` with 200, and the proxy it launched answers `/health`. There is no sibling `server/` in this install, so this proves the proxy came from the `inspector-server` dependency. |
-| All four together | `./node_modules/.bin/mcp-inspector` with the same variables: the UI serves `GET /` with 200 and the proxy `/health` is ok. This is the published shape. |
+| All four together | `./node_modules/.bin/mcp-inspector` with the same variables, on **different** ports: the UI serves `GET /` with 200 and the proxy `/health` is ok. This is the published shape. |
+
+⚠️ **Give each UI run its own `SERVER_PORT` and `CLIENT_PORT`, and stop the
+previous run before starting the next.** A process left over from the client
+row still answers on its ports, so a full install that failed to bind would
+borrow its 200s and pass falsely. Before counting a row, confirm its own log
+prints `Proxy server listening on localhost:<its SERVER_PORT>` and
+`MCP Inspector is up and running` with no `EADDRINUSE`, and that the process is
+still alive when you curl it.
 
 Set `MCP_AUTO_OPEN_ENABLED=false` on the two UI runs, or each one opens a
 browser tab.
 
-A failure is a fix PR against `v1/main`, merged **before** the bump (v1-2). Put
-the run's results in the release ledger.
+A failure is a fix PR against `v1/main`, merged **before** the bump (v1-2). Record
+the scan output and each row's observed result in the v1 release ledger, and
+link it from the v1 release issue.
 
 ### v1-2. Merge order: the bump merges last
 
