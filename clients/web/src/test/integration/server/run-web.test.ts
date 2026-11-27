@@ -544,6 +544,25 @@ describe("runWeb", () => {
     }
   });
 
+  it("ignores MCP_CATALOG_PATH when --config is given (#3021)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "run-web-config-"));
+    const configPath = join(dir, "mcp.json");
+    await writeFile(configPath, JSON.stringify({ mcpServers: {} }));
+    process.env.MCP_CATALOG_PATH = join(dir, "env-catalog.json");
+
+    try {
+      void runWeb(["node", "run-web", "--config", configPath]);
+      await expectServerStarted(startHonoServer);
+
+      expect(startHonoServer.mock.calls[0]?.[0]).toMatchObject({
+        mcpConfigPath: configPath,
+        writable: false,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("notes that --server is ignored alongside --config", async () => {
     const dir = await mkdtemp(join(tmpdir(), "run-web-config-"));
     const configPath = join(dir, "mcp.json");

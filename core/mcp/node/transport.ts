@@ -20,10 +20,12 @@ import { createProxyFetch } from "./proxyFetch.js";
 import { createGuardedFetch } from "./fetchGuard.js";
 import { exemptMcpEndpoint } from "../../auth/requestTimeout.js";
 import { routeOAuthRequests } from "../../auth/routeOAuthRequests.js";
+import { createEventsMcpNameFetch } from "../../extension/events/headers.js";
 import { createNotificationHeadersFetch } from "./notificationHeadersFetch.js";
 import { createSuppressNotificationStreamFetch } from "./suppressNotificationStreamFetch.js";
 import { createCookieJarWrapper } from "./cookieJarFetch.js";
 import { createSseLineCapFetch } from "./sseLineCapFetch.js";
+import { createOriginScopedHeadersFetch } from "./originScopedHeadersFetch.js";
 
 /**
  * Build the wire `headers` record from `settings.headers`, dropping rows with
@@ -96,6 +98,14 @@ export function createTransportNode(
   // backend (`core/mcp/remote/node/server.ts`), which calls this directly,
   // and it routes OAuth through the destination guard (#2749).
   const baseFetch = optionsFetchFn ?? createBackendBaseFetch(config);
+  // #2983: the per-server, security-weakening opt-out of the RFC 8414 §3.3
+  // issuer check, for the `auth()` the SDK transport runs itself on a 401.
+  // Spread into the SSE and streamable-HTTP transports; absent unless the
+  // setting is explicitly `true`, which leaves the SDK's check on.
+  const skipIssuerMetadataValidation =
+    settings?.oauthSkipIssuerMetadataValidation === true
+      ? { skipIssuerMetadataValidation: true }
+      : {};
   // Purely passive, so — unlike proxying and interception — it is safe to
   // apply to any fetch, including a caller's explicit one.
   const withChallengeObserver = (inner: typeof fetch): typeof fetch =>
@@ -210,9 +220,17 @@ export function createTransportNode(
 
     const transport = new SSEClientTransport(url, {
       authProvider,
+      ...skipIssuerMetadataValidation,
       eventSourceInit,
       requestInit,
-      fetch: fetchWithOptionalAuthIntercept,
+      // #3018: the SDK merges `requestInit` into the OAuth requests it makes
+      // itself; this takes the configured headers back off any that leave the
+      // server's origin — see originScopedHeadersFetch.ts.
+      fetch: createOriginScopedHeadersFetch(
+        fetchWithOptionalAuthIntercept,
+        url.origin,
+        requestInit.headers,
+      ),
     });
 
     return { transport };
@@ -235,8 +253,12 @@ export function createTransportNode(
     // should not show a request the server never saw (#2317). They touch
     // disjoint requests (notification POSTs vs. the endpoint's SSE GET), so
     // their relative order is free.
-    const stampedFetch = createNotificationHeadersFetch(
-      fetchWithOptionalAuthIntercept,
+    // `Mcp-Name` on `events/*` requests (SEP-3415, #3028): the SDK derives
+    // it only for the core methods it knows, and refuses it on the
+    // per-request `headers` option — see core/extension/events/headers.ts.
+    // Stamped next to the notification headers so the tracker records it.
+    const stampedFetch = createEventsMcpNameFetch(
+      createNotificationHeadersFetch(fetchWithOptionalAuthIntercept),
     );
     const httpFetch =
       settings?.suppressNotificationStream === true
@@ -247,8 +269,16 @@ export function createTransportNode(
     // `Accept-Language` (#2987) — see languageMirroringTransport.ts.
     const transport = new LanguageMirroringStreamableHTTPClientTransport(url, {
       authProvider,
+      ...skipIssuerMetadataValidation,
       requestInit,
-      fetch: httpFetch,
+      // #3018: the SDK merges `requestInit` into the OAuth requests it makes
+      // itself; this takes the configured headers back off any that leave the
+      // server's origin — see originScopedHeadersFetch.ts.
+      fetch: createOriginScopedHeadersFetch(
+        httpFetch,
+        url.origin,
+        requestInit.headers,
+      ),
       // SEP-2350: how the transport reacts to a `403 insufficient_scope`
       // challenge. Defaults to the SDK's `reauthorize` when unset.
       ...(settings?.oauthOnInsufficientScope && {

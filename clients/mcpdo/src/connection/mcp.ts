@@ -16,6 +16,7 @@ import {
   loadServerEntries,
   parseHeaderPair,
   parseKeyValuePair as parseEnvPair,
+  resolveCatalogPath,
   selectServerEntry,
 } from "@inspector/core/mcp/node/index.js";
 import { type LoggingLevel } from "@modelcontextprotocol/client";
@@ -95,6 +96,7 @@ import {
 import {
   assertJsonRoundTrips,
   parseToolCallPositionals,
+  resolveEventArgs,
   resolveToolCallArgs,
 } from "./parse-tool-args.js";
 import { resolveCommandPath } from "./resolve-command.js";
@@ -427,9 +429,11 @@ export async function runMcp(argv?: string[]): Promise<void> {
     )
     .action(async () => {
       const opts = program.opts<GlobalOpts>();
-      const envCatalog = process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+        }),
         configPath: opts.config?.trim() || undefined,
       };
       const entries = await listServerEntries(serverOptions);
@@ -462,9 +466,11 @@ export async function runMcp(argv?: string[]): Promise<void> {
     )
     .action(async (name: string | undefined) => {
       const opts = program.opts<GlobalOpts>();
-      const envCatalog = process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+        }),
         configPath: opts.config?.trim() || undefined,
       };
       const explicitName = stripAt(name?.trim() || undefined);
@@ -663,9 +669,12 @@ function registerConnect(program: CommandType): void {
         );
       }
 
-      const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
       const serverOptions = {
-        catalogPath: opts.catalog?.trim() || envCatalog,
+        catalogPath: resolveCatalogPath({
+          catalog: opts.catalog?.trim(),
+          config: opts.config,
+          adHoc,
+        }),
         configPath: opts.config?.trim() || undefined,
         target: adHoc ? (rest.length > 0 ? rest : undefined) : undefined,
         transport: cmdOpts.transport as "sse" | "http" | "stdio" | undefined,
@@ -817,9 +826,11 @@ function registerConnect(program: CommandType): void {
  * live marker, so `auth/list` / `auth/clear` keep working with the daemon down.
  */
 async function collectAuthNameIndex(opts: GlobalOpts): Promise<AuthNameIndex> {
-  const envCatalog = process.env.MCP_CATALOG_PATH;
   const serverOptions = {
-    catalogPath: opts.catalog?.trim() || envCatalog,
+    catalogPath: resolveCatalogPath({
+      catalog: opts.catalog?.trim(),
+      config: opts.config,
+    }),
     configPath: opts.config?.trim() || undefined,
   };
   const entries = await listServerEntries(serverOptions);
@@ -1681,6 +1692,53 @@ function registerRpcCommands(program: CommandType): void {
             metadata: o.metadata,
           });
         });
+        break;
+      case "events/poll":
+      case "events/stream":
+        // SEP-3415 (#3032). The arguments take the same two shapes as a tool
+        // call's. `events/poll` is one poll: pass the `cursor` it returns back
+        // as `--cursor` for the next. `events/stream` holds a push
+        // subscription open on the daemon's connection until Ctrl-C, or until
+        // the server terminates it.
+        cmd
+          .argument("[eventName]", "Event type name")
+          .argument(
+            "[eventArgs...]",
+            "Subscription arguments as key:=value pairs or a JSON object",
+          )
+          .option("--event-name <name>", "Event type name")
+          .option(
+            "--event-arg <pairs...>",
+            "Subscription argument as key=value pair (alternative to key:=value positionals)",
+            parseKeyValue,
+            {},
+          )
+          .option(
+            "--cursor <cursor>",
+            method === "events/poll"
+              ? "Where to poll from: the cursor the previous poll returned (omitted: start from now)"
+              : "Where to resume the stream from (omitted: start from now)",
+          );
+        cmd.action(
+          async (
+            eventNamePos: string | undefined,
+            eventArgsPos: string[] | undefined,
+            o,
+          ) => {
+            const { eventName, eventArgs } = resolveEventArgs({
+              eventNameFlag: o.eventName as string | undefined,
+              eventNamePos,
+              eventArgsPos,
+              eventArgFlag: (o.eventArg ?? {}) as Record<string, JsonValue>,
+            });
+            await runRpc(program, method, {
+              eventName,
+              eventArgs,
+              cursor: o.cursor as string | undefined,
+              metadata: o.metadata,
+            });
+          },
+        );
         break;
       case "prompts/get":
         cmd

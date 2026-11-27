@@ -20,7 +20,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -48,6 +48,22 @@ const launcherEntry = resolve(repoRoot, "clients/launcher/build/index.js");
 export function createTempCatalog() {
   const dir = mkdtempSync(join(tmpdir(), "smoke-web-catalog-"));
   return { dir, path: join(dir, "catalog.json") };
+}
+
+/**
+ * Write `catalog` as the run's catalog file before the server starts.
+ *
+ * The deep link carries only a transport and a URL, so a server setting it
+ * cannot express — the protocol era a modern-only extension needs (the Events
+ * smoke, #3030) — is seeded here under the deep link's fixed server id
+ * (`deep-link`). The deep link then finds that row with a matching config and
+ * connects it as stored, settings included, instead of adding a fresh one.
+ *
+ * @param {string} catalogPath  from {@link createTempCatalog}
+ * @param {object} catalog  an `mcp.json` object (`{ mcpServers: {...} }`)
+ */
+export function seedTempCatalog(catalogPath, catalog) {
+  writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
 }
 
 /**
@@ -142,11 +158,22 @@ export async function teardownWebServer({
  * @param {string} opts.token  value injected as MCP_INSPECTOR_API_TOKEN
  * @param {string} [opts.label]  prefix for teardown warnings (the temp dir's own
  *   prefix is fixed, so every run's dir is greppable as `smoke-web-catalog-*`)
+ * @param {object} [opts.catalog]  an `mcp.json` object to start the catalog
+ *   from, instead of the empty first-run catalog — for a smoke whose server
+ *   needs a per-server setting the deep link cannot carry (see
+ *   {@link seedTempCatalog})
  */
-export function startProdWebServer({ host, port, token, label = "smoke:web" }) {
+export function startProdWebServer({
+  host,
+  port,
+  token,
+  label = "smoke:web",
+  catalog,
+}) {
   const baseUrl = `http://${host}:${port}`;
 
   const { dir: catalogDir, path: catalogPath } = createTempCatalog();
+  if (catalog !== undefined) seedTempCatalog(catalogPath, catalog);
 
   const child = spawn(process.execPath, [launcherEntry, "--web"], {
     env: buildWebServerEnv({ host, port, token, catalogPath }),

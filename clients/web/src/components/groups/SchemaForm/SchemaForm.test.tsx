@@ -3996,3 +3996,198 @@ describe("SchemaForm array-of-object fields (#2561)", () => {
     expect(getAceTextByLabel(/items/)).toContain("7");
   });
 });
+
+// Type-to-filter on the enum pickers (#2982). The typed text narrows the list
+// and nothing else: every value reported comes from the schema's own options.
+describe("SchemaForm enum pickers filter as you type", () => {
+  function Harness({
+    schema,
+    onChange,
+  }: {
+    schema: InspectorFormSchema;
+    onChange: (values: Record<string, unknown>) => void;
+  }) {
+    const [values, setValues] = useState<Record<string, unknown>>({});
+    return (
+      <SchemaForm
+        schema={schema}
+        values={values}
+        onChange={(next) => {
+          setValues(next);
+          onChange(next);
+        }}
+      />
+    );
+  }
+
+  function optionNames(): (string | null)[] {
+    return screen
+      .queryAllByRole("option", { hidden: true })
+      .map((option) => option.textContent);
+  }
+
+  const methodNames = ["listTools", "callTool", "listPrompts", "getPrompt"];
+
+  it("narrows a string enum by a case-insensitive fragment and picks with the keyboard", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={{
+          type: "object",
+          properties: {
+            method: { type: "string", title: "Method", enum: methodNames },
+          },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Method" });
+    await user.click(input);
+    expect(optionNames()).toEqual(methodNames);
+
+    // Lower-case, and from the middle of the names it matches.
+    await user.type(input, "prompt");
+    expect(optionNames()).toEqual(["listPrompts", "getPrompt"]);
+    // Typing is filtering only — nothing has been submitted yet.
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ method: "getPrompt" });
+    expect(input).toHaveValue("getPrompt");
+  });
+
+  it("reports no match without submitting the typed text", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={{
+          type: "object",
+          properties: {
+            method: { type: "string", title: "Method", enum: methodNames },
+          },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Method" });
+    await user.click(input);
+    await user.type(input, "zzz");
+    expect(optionNames()).toEqual([]);
+    expect(screen.getByText("No matching options")).toBeInTheDocument();
+    await user.keyboard("{Enter}");
+    expect(onChange).not.toHaveBeenCalled();
+
+    // Clearing the search brings the whole list back.
+    await user.clear(input);
+    expect(optionNames()).toEqual(methodNames);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("filters a string oneOf by its option titles", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={{
+          type: "object",
+          properties: {
+            size: {
+              type: "string",
+              title: "Size",
+              oneOf: [
+                { const: "s", title: "Small" },
+                { const: "m", title: "Medium" },
+                { const: "l", title: "Large" },
+              ],
+            },
+          },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Size" });
+    await user.click(input);
+    await user.type(input, "MED");
+    expect(optionNames()).toEqual(["Medium"]);
+    await user.click(screen.getByRole("option", { name: "Medium" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ size: "m" });
+  });
+
+  it("keeps earlier picks while an enum array is searched again", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={{
+          type: "object",
+          properties: {
+            methods: {
+              type: "array",
+              title: "Methods",
+              items: { type: "string", enum: methodNames },
+            },
+          },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Methods" });
+    await user.click(input);
+    await user.type(input, "CALL");
+    expect(optionNames()).toEqual(["callTool"]);
+    await user.click(screen.getByRole("option", { name: "callTool" }));
+    expect(onChange).toHaveBeenLastCalledWith({ methods: ["callTool"] });
+    // Picking ends that search, so the next one starts from the full list.
+    expect(input).toHaveValue("");
+
+    await user.type(input, "getp");
+    expect(optionNames()).toEqual(["getPrompt"]);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith({
+      methods: ["callTool", "getPrompt"],
+    });
+
+    // A search that is typed and then cleared changes no selection.
+    await user.type(input, "zzz");
+    expect(screen.getByText("No matching options")).toBeInTheDocument();
+    await user.clear(input);
+    expect(onChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("filters an anyOf array by its option titles", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderWithMantine(
+      <Harness
+        schema={{
+          type: "object",
+          properties: {
+            tags: {
+              type: "array",
+              title: "Tags",
+              items: {
+                anyOf: [
+                  { const: "a", title: "Alpha" },
+                  { const: "b", title: "Beta" },
+                  { const: "g", title: "Gamma" },
+                ],
+              },
+            },
+          },
+        }}
+        onChange={onChange}
+      />,
+    );
+    const input = screen.getByRole("textbox", { name: "Tags" });
+    await user.click(input);
+    await user.type(input, "et");
+    expect(optionNames()).toEqual(["Beta"]);
+    await user.click(screen.getByRole("option", { name: "Beta" }));
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith({ tags: ["b"] });
+  });
+});

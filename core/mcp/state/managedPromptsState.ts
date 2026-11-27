@@ -27,7 +27,7 @@ export class ManagedPromptsState extends ManagedListState<
       listMethod: "prompts/list",
       changeEvent: "promptsChange",
       listChangedEvent: "promptsListChanged",
-      capabilityKey: "prompts",
+      supported: "prompts",
       deferWhenPaginated: true,
       supportsIndicator: true,
       debounceMs,

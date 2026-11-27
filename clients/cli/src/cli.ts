@@ -38,6 +38,7 @@ import {
   type OutputFileFormat,
 } from "@inspector/core/cli/handlers/output-file.js";
 import { clearStoredAuthForRelogin } from "./clear-stored-auth-for-relogin.js";
+import { withServerOriginHeaders } from "@inspector/core/auth/serverOriginHeaders.js";
 import {
   createCliOAuthFetch,
   oauthDebugNavigationHook,
@@ -55,6 +56,7 @@ import {
   parseKeyValuePair as parseEnvPair,
   parseHeaderPair,
   parseProtocolEra,
+  resolveCatalogPath,
   skillCatalogLimitParser,
 } from "@inspector/core/mcp/node/index.js";
 import type { JsonValue } from "@inspector/core/mcp/index.js";
@@ -284,6 +286,7 @@ async function callMethod(
     // must not start failing because an authorization server is unreachable.
     const revocation = await clearStoredAuthForRelogin(serverConfig.url, {
       revoke: revoke && serverSettings?.oauthRevokeOnClear !== false,
+      ...(serverSettings && { headers: serverSettings.headers }),
     });
     // A warning, not the result — `--quiet` drops it (#2435). The relogin
     // itself still happened; only the advisory line is suppressed.
@@ -714,6 +717,11 @@ export interface RefreshStoredAuthDeps {
   warn?: WarningSink;
   /** `--oauth-debug` (#2844): trace the discovery and refresh grant. */
   oauthDebug?: boolean;
+  /**
+   * The run's `--header` values (#2985), sent with the discovery and refresh
+   * requests that go to the server's own origin.
+   */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -756,13 +764,24 @@ export async function refreshStoredAuthToken(
   // can swallow one and fall back to the next URL. `--oauth-debug` (#2844)
   // traces just above that, as on the connect path, so each request is shown
   // as it goes on the wire.
+  //
+  // #2985: this path runs outside `InspectorClient` too, so the custom headers
+  // are added here — above the trace, so `--oauth-debug` shows them.
   const storedAuthFetch = withRfc8414OidcCompat(
     withOAuthRequestTimeout(
-      traceCliOAuthFetch(
-        withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
-          writeFetchRefusalWarning(refusal, deps.warn),
+      withServerOriginHeaders(
+        traceCliOAuthFetch(
+          withFetchRefusalReporting(createGuardedFetch(), (refusal) =>
+            writeFetchRefusalWarning(refusal, deps.warn),
+          ),
+          deps.oauthDebug === true,
         ),
-        deps.oauthDebug === true,
+        () => serverUrl,
+        () =>
+          Object.entries(deps.headers ?? {}).map(([key, value]) => ({
+            key,
+            value,
+          })),
       ),
     ),
   );
@@ -1153,6 +1172,7 @@ function isHeaderToken(arg: string): boolean {
 const VARIADIC_VALUE_SHAPES: ReadonlyMap<string, (arg: string) => boolean> =
   new Map([
     ["--tool-arg", isKeyValueToken],
+    ["--event-arg", isKeyValueToken],
     ["--prompt-args", isKeyValueToken],
     ["--metadata", isKeyValueToken],
     ["--tool-metadata", isKeyValueToken],
@@ -1327,7 +1347,14 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--cursor <cursor>",
-      "Opaque pagination cursor (for resources/directory/read; pass back the nextCursor from the previous page).",
+      "Opaque cursor. For resources/directory/read, pass back the nextCursor from the previous page; for events/poll, pass back the cursor the previous poll returned (omitted: start from now).",
+    )
+    .option("--event-name <name>", "Event type name (for events/poll)")
+    .option(
+      "--event-arg <pairs...>",
+      "Event subscription argument as key=value pair (for events/poll)",
+      parseKeyValuePair,
+      {},
     )
     .option(
       "--prompt-name <promptName>",
@@ -1398,7 +1425,7 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     )
     .option(
       "--verify",
-      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails or 8 if any could not be fully checked within the read bounds. Use with --method skills/list or --method skills/get.",
+      "Run the SEP-2640 conformance and digest checks over the skills returned, emit one JSON report per skill on stdout, and exit 7 if any fails, 8 if any could not be fully checked within the read bounds, or 13 if skills/list returned no skills to check. Use with --method skills/list or --method skills/get.",
     )
     .option(
       "--require-digests",
@@ -1713,6 +1740,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     method?: string;
     toolName?: string;
     toolArg?: Record<string, JsonValue>;
+    eventName?: string;
+    eventArg?: Record<string, JsonValue>;
     uri?: string;
     promptName?: string;
     promptArgs?: Record<string, string>;
@@ -2053,19 +2082,21 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     return { shortCircuit: true };
   }
 
-  // Honour MCP_CATALOG_PATH only when no ad-hoc target is given. Applying it
+  // Honour MCP_CATALOG_PATH only when no other source is named. Applying it
   // unconditionally meant a homespace that exports the env var could never run
-  // `--server-url …` (serverSourceConflict rejects catalog + ad-hoc).
+  // `--server-url …` (#1573) or `--config <file>` (#3021): serverSourceConflict
+  // rejects catalog + ad-hoc and catalog + config.
   const adHoc =
     targetArgs.length > 0 ||
     Boolean(options.transport) ||
     Boolean(options.serverUrl?.trim());
-  const envCatalog = adHoc ? undefined : process.env.MCP_CATALOG_PATH;
 
   const serverOptions = {
-    // `?.trim() ||` (not `??`) so an explicit empty `--catalog ""` still falls
-    // back to MCP_CATALOG_PATH — keeps CLI and TUI flag resolution identical.
-    catalogPath: options.catalog?.trim() || envCatalog,
+    catalogPath: resolveCatalogPath({
+      catalog: options.catalog?.trim(),
+      config: options.config,
+      adHoc,
+    }),
     configPath: options.config?.trim() || undefined,
     target: targetArgs.length > 0 ? targetArgs : undefined,
     transport: options.transport,
@@ -2147,6 +2178,9 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
               // every other advisory line (#2435, #2846).
               ...(options.quiet === true && { warn: discardWarning }),
               oauthDebug: options.oauthDebug === true,
+              ...(options.header && {
+                headers: options.header as Record<string, string>,
+              }),
             },
           );
         } catch (err) {
@@ -2262,6 +2296,8 @@ async function parseArgs(argv?: string[]): Promise<ParseResult> {
     verify: options.verify === true,
     requireDigests: options.requireDigests === true,
     cursor: options.cursor,
+    eventName: options.eventName,
+    eventArgs: options.eventArg,
     format: options.format,
     quiet: options.quiet === true,
     output: options.output,

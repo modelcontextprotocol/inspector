@@ -7,6 +7,7 @@ export type TabType =
   | "skills"
   | "tools"
   | "tasks"
+  | "events"
   | "messages"
   | "requests"
   | "logging";
@@ -38,6 +39,10 @@ export const tabs: { id: TabType; label: string; accelerator: string }[] = [
   // `s` locally to "clear OAuth state", so App suppresses this accelerator
   // while the Auth pane holds focus — the same carve-out the step-up `a` gets.
   { id: "tasks", label: "Tasks", accelerator: "s" },
+  // `e`, the word's first letter. InfoTab binds `e` locally to "edit roots",
+  // so App suppresses this accelerator while the Info pane holds focus — the
+  // same carve-out Tasks' `s` gets on the Auth tab (#3032).
+  { id: "events", label: "Events", accelerator: "e" },
   { id: "messages", label: "Protocol", accelerator: "p" },
   { id: "requests", label: "Network", accelerator: "n" },
   { id: "logging", label: "Console", accelerator: "o" },
@@ -59,6 +64,11 @@ export interface TabVisibility {
    * `capabilities.tasks` or the negotiated SEP-2663 extension (#2432).
    */
   showTasks?: boolean;
+  /**
+   * Shown only when the connection offers the Events extension: a server that
+   * advertised it, on a modern-era connection (#3032).
+   */
+  showEvents?: boolean;
 }
 
 /**
@@ -76,6 +86,7 @@ export function visibleTabs(v: TabVisibility): typeof tabs {
     if (tab.id === "skills") return v.showSkills;
     if (tab.id === "subscriptions") return v.showSubscriptions ?? false;
     if (tab.id === "tasks") return v.showTasks ?? false;
+    if (tab.id === "events") return v.showEvents ?? false;
     return true;
   });
 }

@@ -207,6 +207,9 @@ export function ServerSettingsModal({
         oauth.requestRefreshToken === false ? false : undefined,
       // #2805: the inverse — `undefined` means off, so only the opt-in persists.
       oauthScopeOnRefresh: oauth.scopeOnRefresh === true ? true : undefined,
+      // #2983: same shape — `undefined` means off, so only the opt-in persists.
+      oauthSkipIssuerMetadataValidation:
+        oauth.skipIssuerMetadataValidation === true ? true : undefined,
       // #2144: same shape — `undefined` means on, so only the opt-out persists.
       oauthRevokeOnClear: oauth.revokeOnClear === false ? false : undefined,
     });

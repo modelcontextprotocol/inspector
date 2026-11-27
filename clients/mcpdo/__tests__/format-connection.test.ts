@@ -1299,6 +1299,25 @@ describe("writeConnectionOutput", () => {
     expect(stderr).toBe("1 of 1 skill failed verification.\n");
   });
 
+  it("labels the envelope for an empty catalog (#2986)", async () => {
+    await expect(
+      writeConnectionOutput(
+        { format: "json" },
+        {
+          kind: "ndjson",
+          variant: "skill-verify",
+          lines: [],
+          summary: "No skills to verify.",
+          exitCode: EXIT_CODES.SKILL_CATALOG_EMPTY,
+        },
+      ),
+    ).rejects.toMatchObject({
+      exitCode: EXIT_CODES.SKILL_CATALOG_EMPTY,
+      envelope: { code: "skills_empty" },
+    });
+    expect(stderr).toBe("No skills to verify.\n");
+  });
+
   it("formats every admin/stream payload kind", async () => {
     const kinds = [
       {

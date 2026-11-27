@@ -486,6 +486,36 @@ describe("path-hosted MCP servers (#2110)", () => {
         { fetchFn },
       );
     });
+
+    it("forwards the issuer-check opt-out only when it is exactly true (#2983)", async () => {
+      const { discoverAuthorizationServerMetadata } =
+        await import("@modelcontextprotocol/client");
+      vi.mocked(discoverAuthorizationServerMetadata).mockResolvedValue(
+        metadata,
+      );
+
+      await discoverAuthorizationServerMetadataForServer(
+        pathServerUrl,
+        undefined,
+        undefined,
+        { skipIssuerValidation: true },
+      );
+      expect(discoverAuthorizationServerMetadata).toHaveBeenLastCalledWith(
+        new URL(pathServerUrl),
+        { fetchFn: undefined, skipIssuerValidation: true },
+      );
+
+      await discoverAuthorizationServerMetadataForServer(
+        pathServerUrl,
+        undefined,
+        undefined,
+        { skipIssuerValidation: false },
+      );
+      expect(discoverAuthorizationServerMetadata).toHaveBeenLastCalledWith(
+        new URL(pathServerUrl),
+        { fetchFn: undefined },
+      );
+    });
   });
 
   it("discoverScopes reaches a path-hosted authorization server", async () => {

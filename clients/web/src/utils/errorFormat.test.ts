@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { errorCodeOf, errorMessage, formatErrorDetails } from "./errorFormat";
+import {
+  errorCodeOf,
+  errorMessage,
+  formatErrorDetails,
+  namedErrorCode,
+} from "./errorFormat";
 
 describe("errorMessage", () => {
   it("returns an Error's message", () => {
@@ -91,6 +96,19 @@ describe("formatErrorDetails", () => {
     });
   });
 
+  it("adds the spec name of a SEP-3415 code (#3028)", () => {
+    const err = Object.assign(new Error("Access revoked"), {
+      code: -32024,
+      data: { reason: "x" },
+    });
+    expect(JSON.parse(formatErrorDetails(err))).toEqual({
+      code: -32024,
+      name: "Forbidden",
+      message: "Access revoked",
+      data: { reason: "x" },
+    });
+  });
+
   it("pretty-prints when only `data` is present", () => {
     expect(
       JSON.parse(formatErrorDetails({ data: [1, 2], message: "m" })),
@@ -106,5 +124,15 @@ describe("formatErrorDetails", () => {
   it("falls back to String() for a non-object", () => {
     expect(formatErrorDetails("boom")).toBe("boom");
     expect(formatErrorDetails(null)).toBe("null");
+  });
+});
+
+describe("namedErrorCode (#3028)", () => {
+  it("names the SEP-3415 codes and nothing else", () => {
+    expect(namedErrorCode(-32023)).toBe("NotFound");
+    expect(namedErrorCode(-32027)).toBe("CallbackEndpointError");
+    expect(namedErrorCode(-32602)).toBeUndefined();
+    expect(namedErrorCode("-32023")).toBeUndefined();
+    expect(namedErrorCode(undefined)).toBeUndefined();
   });
 });

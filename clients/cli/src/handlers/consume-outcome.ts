@@ -2,10 +2,8 @@ import {
   awaitableError,
   awaitableLog,
 } from "@inspector/core/cli/utils/awaitable-log.js";
-import {
-  CliExitCodeError,
-  EXIT_CODES,
-} from "@inspector/core/cli/error-handler.js";
+import { CliExitCodeError } from "@inspector/core/cli/error-handler.js";
+import { skillVerificationEnvelopeCode } from "@inspector/core/cli/handlers/skills-verify.js";
 import { emitResult } from "./emit-result.js";
 import type {
   MethodArgs,
@@ -55,12 +53,7 @@ export async function consumeMethodOutcome(
       throw new CliExitCodeError(outcome.exitCode, outcome.summary ?? "", {
         // The envelope's `code` follows the exit code, so a caller reading one
         // never has to reconcile it against the other.
-        code:
-          outcome.exitCode === EXIT_CODES.SKILL_INCOMPLETE
-            ? "skills_incomplete"
-            : outcome.exitCode === EXIT_CODES.SKILL_UNVERIFIABLE
-              ? "skills_unverifiable"
-              : "skills_nonconformant",
+        code: skillVerificationEnvelopeCode(outcome.exitCode),
       });
     }
     return;

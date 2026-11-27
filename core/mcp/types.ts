@@ -260,6 +260,14 @@ export type StoredMCPServer = MCPServerConfig & {
      */
     scopeOnRefresh?: boolean;
     /**
+     * Whether the RFC 8414 §3.3 issuer check on the authorization server's
+     * metadata document is skipped. Defaults to `false`; only `true` is written
+     * to disk. **Security-weakening** — see
+     * {@link InspectorServerSettings.oauthSkipIssuerMetadataValidation}.
+     * Inspector-specific. (#2983)
+     */
+    skipIssuerMetadataValidation?: boolean;
+    /**
      * Whether clearing this server's OAuth state also revokes the grant at the
      * authorization server (RFC 7009). Defaults to `true`; only `false` is
      * written to disk, so an entry that never touched the setting keeps a
@@ -737,6 +745,12 @@ export interface OAuthSettings {
    */
   scopeOnRefresh?: boolean;
   /**
+   * Whether the RFC 8414 §3.3 issuer check on authorization-server metadata is
+   * skipped (#2983, security-weakening). Optional for the same reason as
+   * `authorizationParams`; `undefined` means the default, off.
+   */
+  skipIssuerMetadataValidation?: boolean;
+  /**
    * Whether clearing the stored OAuth state revokes the grant at the
    * authorization server (#2144). Optional for the same reason as
    * `authorizationParams`; `undefined` means the default, on.
@@ -986,6 +1000,24 @@ export interface InspectorServerSettings {
    * the rest of the OAuth block.
    */
   oauthScopeOnRefresh?: boolean;
+  /**
+   * Whether the Inspector skips the RFC 8414 §3.3 check that the `issuer` in
+   * the authorization server's metadata document matches the URL the document
+   * was fetched for (#2983). `undefined` (the default) means off — the check
+   * runs. Persisted as `oauth.skipIssuerMetadataValidation` only when on.
+   *
+   * **Security-weakening.** The check is what stops a metadata document served
+   * for one authorization server from naming another, so this is for an
+   * authorization server known to publish a non-matching `issuer` and nothing
+   * else: Microsoft Entra ID's multi-tenant endpoints (`/organizations/v2.0`,
+   * `/common/v2.0`) answer with the literal template
+   * `https://login.microsoftonline.com/{tenantid}/v2.0`. Per server, never
+   * global, and never turned on automatically. It reaches metadata discovery
+   * only — the RFC 9207 `iss` check on the authorization response and the
+   * SEP-2352 callback binding are unaffected. Read at connect time like the
+   * rest of the OAuth block.
+   */
+  oauthSkipIssuerMetadataValidation?: boolean;
   /**
    * Whether clearing this server's stored OAuth state also revokes the grant
    * at the authorization server, per RFC 7009 (#2144). `undefined` (the
@@ -1439,11 +1471,14 @@ export interface InspectorClientOptions {
    * Whether to enable listChanged notification handlers (default: true)
    * If enabled, InspectorClient will subscribe to list_changed notifications and fire
    * corresponding events (toolsListChanged, resourcesListChanged, promptsListChanged).
+   * `events` opts into `notifications/events/list_changed` (`eventsListChanged`)
+   * on a server whose Events extension declares `listChanged` (#3028).
    */
   listChangedNotifications?: {
     tools?: boolean;
     resources?: boolean;
     prompts?: boolean;
+    events?: boolean;
   };
 
   /**
@@ -1520,6 +1555,11 @@ export interface InspectorClientOptions {
     requestRefreshToken?: boolean;
     /** Send `scope` on the refresh-token request (#2805). Defaults to `false`. */
     scopeOnRefresh?: boolean;
+    /**
+     * Skip the RFC 8414 §3.3 issuer check on authorization-server metadata
+     * (#2983). Security-weakening; defaults to `false`.
+     */
+    skipIssuerMetadataValidation?: boolean;
   };
 
   /**

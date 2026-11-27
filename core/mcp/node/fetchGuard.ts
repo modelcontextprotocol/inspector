@@ -11,8 +11,9 @@
  *  - **Scheme:** `http:` and `https:` only, on every hop.
  *  - **Destinations:** link-local and metadata addresses only —
  *    `169.254.0.0/16`, the cloud metadata services that sit outside it
- *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped IPv6 forms of all of
- *    those, `fe80::/10` and `fd00:ec2::254` ({@link isBlockedAddress}).
+ *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped and NAT64 IPv6
+ *    forms of all of those, `fe80::/10` and `fd00:ec2::254`
+ *    ({@link isBlockedAddress}).
  *    Loopback, RFC 1918 and CGNAT space stay reachable on purpose: local and
  *    LAN MCP servers and authorization servers are legitimate targets.
  *  - **Redirects:** followed here, with `redirect: "manual"`, so each hop is
@@ -128,6 +129,10 @@ const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
  *    fixed address *outside* link-local, so the range above misses them
  *  - `::ffff:` IPv4-mapped forms of every IPv4 address above, in both the
  *    dotted and the hex serialization
+ *  - NAT64 forms of the same addresses, under the RFC 6052 well-known prefix
+ *    `64:ff9b::/96` and the RFC 8215 local-use prefix `64:ff9b:1::/48`
+ *    ({@link nat64EmbeddedIpv4s}): on a host with NAT64 egress,
+ *    `64:ff9b::a9fe:a9fe` *is* `169.254.169.254`
  *  - `fe80::/10` (IPv6 link-local)
  *  - `fd00:ec2::254` (the AWS IPv6 IMDS)
  *
@@ -135,6 +140,11 @@ const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
  * enclosing range: `100.100.100.200` sits in `100.64.0.0/10`, the CGNAT block
  * Tailscale also uses (its MagicDNS resolver is `100.100.100.100`), and a
  * tailnet MCP or authorization server is as legitimate a target as a LAN one.
+ *
+ * Every IPv6 form is matched on its parsed value ({@link ipv6Groups}), not
+ * its spelling, so the non-canonical spellings `isIP` accepts — leading
+ * zeros, an uncompressed run of zero groups, uppercase, a dotted tail — are
+ * caught as well as the canonical one.
  *
  * Anything that is not an IP address returns `false`; names are resolved
  * before they are checked.
@@ -147,22 +157,99 @@ export function isBlockedAddress(ip: string): boolean {
   }
   if (kind !== 6) return false;
 
-  const addr = ip.toLowerCase();
-  const mapped = /^::ffff:(.+)$/.exec(addr);
-  if (mapped) {
-    const tail = mapped[1];
-    if (isIP(tail) === 4) return isBlockedAddress(tail);
-    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
-    if (hex) {
-      const high = parseInt(hex[1], 16);
-      const low = parseInt(hex[2], 16);
-      return isBlockedAddress(
-        `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
-      );
-    }
+  const groups = ipv6Groups(ip);
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
+  // ::ffff:0:0/96, the IPv4-mapped range, carries an IPv4 address in the low
+  // 32 bits; the verdict is that address's.
+  const highZero = g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0;
+  if (highZero && g5 === 0xffff) {
+    return isBlockedAddress(`${g6 >> 8}.${g6 & 0xff}.${g7 >> 8}.${g7 & 0xff}`);
   }
-  if (/^fe[89ab]/.test(addr)) return true; // fe80::/10
-  return addr === "fd00:ec2::254";
+  // A NAT64 address is blocked if any IPv4 address it may embed is.
+  const embedded = nat64EmbeddedIpv4s(groups);
+  if (embedded !== undefined) {
+    return embedded.some((ipv4) => isBlockedAddress(ipv4));
+  }
+  if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10
+  // fd00:ec2::254
+  return (
+    g0 === 0xfd00 &&
+    g1 === 0xec2 &&
+    g2 === 0 &&
+    g3 === 0 &&
+    g4 === 0 &&
+    g5 === 0 &&
+    g6 === 0 &&
+    g7 === 0x254
+  );
+}
+
+/**
+ * Where RFC 6052 §2.2 puts the embedded IPv4 address, as byte offsets into
+ * the IPv6 address, for a NAT64 prefix of each length. Byte 8 (bits 64-71)
+ * is the reserved `u` octet, which every layout skips.
+ */
+const NAT64_LAYOUT_96: readonly number[] = [12, 13, 14, 15];
+const NAT64_LOCAL_USE_LAYOUTS: readonly (readonly number[])[] = [
+  [6, 7, 9, 10], // /48: two octets before `u`, two after
+  [7, 9, 10, 11], // /56: one octet before `u`, three after
+  [9, 10, 11, 12], // /64: all four after `u`
+  NAT64_LAYOUT_96, // /96: the low 32 bits
+];
+
+/**
+ * The IPv4 addresses a NAT64 address (as {@link ipv6Groups}) may embed, or
+ * `undefined` when it is not a NAT64 address.
+ *
+ *  - `64:ff9b::/96`, the RFC 6052 well-known prefix, is a /96 by definition,
+ *    so it embeds one address, in the low 32 bits.
+ *  - `64:ff9b:1::/48`, the RFC 8215 local-use prefix, exists for exactly this
+ *    translation and has no other use. An operator carves a NAT64 prefix of
+ *    any RFC 6052 length from /48 to /96 out of it, and which one it chose is
+ *    not recoverable from the address, so every layout is decoded and the
+ *    caller blocks the address if any decoding is blocked. That fails closed
+ *    on the ambiguity without blocking the whole /48, which would cut off
+ *    every destination behind such a translator. The cost is a rare false
+ *    refusal, where another layout's decoding of a public destination lands
+ *    in a blocked range (`a.169.254.d` under /48 reads as `169.254.d.0`
+ *    under /56).
+ */
+function nat64EmbeddedIpv4s(groups: readonly number[]): string[] | undefined {
+  const [g0, g1, g2, g3, g4, g5] = groups;
+  if (g0 !== 0x64 || g1 !== 0xff9b) return undefined;
+  const bytes = groups.flatMap((g) => [g >> 8, g & 0xff]);
+  const decode = (offsets: readonly number[]): string =>
+    offsets.map((offset) => bytes[offset]).join(".");
+  if (g2 === 1) return NAT64_LOCAL_USE_LAYOUTS.map(decode);
+  if (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    return [decode(NAT64_LAYOUT_96)];
+  }
+  return undefined;
+}
+
+/**
+ * The eight 16-bit groups of an address `isIP` has already accepted as IPv6,
+ * whatever its spelling: a zone index is dropped, a dotted IPv4 tail becomes
+ * the last two groups, and a `::` expands to the zero groups it stands for.
+ */
+function ipv6Groups(ip: string): number[] {
+  let addr = ip.replace(/%.*$/, "");
+  const lastColon = addr.lastIndexOf(":");
+  const tail = addr.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const [a, b, c, d] = tail.split(".").map(Number);
+    const high = ((a << 8) | b).toString(16);
+    const low = ((c << 8) | d).toString(16);
+    addr = `${addr.slice(0, lastColon + 1)}${high}:${low}`;
+  }
+  const toGroups = (part: string): number[] =>
+    part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+  const halves = addr.split("::");
+  if (halves.length === 1) return toGroups(addr);
+  const head = toGroups(halves[0]);
+  const rest = toGroups(halves[1]);
+  const zeros = new Array<number>(8 - head.length - rest.length).fill(0);
+  return [...head, ...zeros, ...rest];
 }
 
 /** Throws a {@link FetchTargetError} naming the first blocked address. */
@@ -272,13 +359,23 @@ function hopFetchFor(
 // Redirect hops
 // ---------------------------------------------------------------------------
 
-/** Headers that carry credentials and must not cross an origin boundary. */
-const CREDENTIAL_HEADERS: ReadonlySet<string> = new Set([
-  "authorization",
-  "proxy-authorization",
-  "cookie",
-  "cookie2",
-  "www-authenticate",
+/**
+ * The only headers a hop to another origin keeps: content negotiation and
+ * protocol identification, none of which says anything about the user.
+ *
+ * An allowlist rather than a list of credential names, because a credential
+ * has no fixed name. `Authorization` and `Cookie` are the standard ones, but
+ * a server's custom headers ride OAuth requests to that server's own origin
+ * (#2985) and routinely hold one under a name of the user's choosing
+ * (`X-API-Key`). A redirect off that origin is a destination the server
+ * chose, so everything not on this list stays behind.
+ */
+export const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "mcp-protocol-version",
+  "user-agent",
 ]);
 
 /**
@@ -317,13 +414,15 @@ export function normalizeFetchHeaders(raw: unknown): Record<string, string> {
   return headers;
 }
 
-function withoutHeaders(
+/** `headers` restricted to (`keep`) or stripped of (`!keep`) `names`. */
+function filterHeaders(
   headers: Record<string, string>,
   names: ReadonlySet<string>,
+  keep: boolean,
 ): Record<string, string> {
   const kept: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
-    if (!names.has(name.toLowerCase())) kept[name] = value;
+    if (names.has(name.toLowerCase()) === keep) kept[name] = value;
   }
   return kept;
 }
@@ -345,7 +444,8 @@ function rewritesToGet(status: number, method: string): boolean {
  * library also took away:
  *
  *  - **Credentials stay with their origin.** A hop that changes scheme, host
- *    or port drops {@link CREDENTIAL_HEADERS}, compared case-insensitively.
+ *    or port keeps only {@link CROSS_ORIGIN_HEADERS}, compared
+ *    case-insensitively.
  *  - **Method and body** follow {@link rewritesToGet}; a dropped body takes
  *    {@link BODY_HEADERS} with it.
  *  - **A body never crosses an origin.** A cross-origin hop still carrying a
@@ -367,11 +467,11 @@ export function nextRedirectRequest(
   let headers = { ...current.headers };
   const crossOrigin = url.origin !== current.url.origin;
 
-  if (crossOrigin) headers = withoutHeaders(headers, CREDENTIAL_HEADERS);
+  if (crossOrigin) headers = filterHeaders(headers, CROSS_ORIGIN_HEADERS, true);
   if (rewritesToGet(status, method)) {
     method = "GET";
     body = undefined;
-    headers = withoutHeaders(headers, BODY_HEADERS);
+    headers = filterHeaders(headers, BODY_HEADERS, false);
   }
   // `!= null`: the body arrives as JSON, so "no body" can be null as well as
   // undefined. An empty string is still a body the caller chose to send.

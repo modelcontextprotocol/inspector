@@ -8,7 +8,7 @@ The catalogue below is the reference. For how to build and run one, use the `/te
 - **As a subprocess** — `test-servers/build/test-server-stdio.js` is spawned as a real stdio child (used by the CLI smoke and stdio integration tests).
   Started with `--crashable` (`getCrashableTestMcpServerCommand()`), it also serves a `crash_server` tool that exits the process at a point the test picks, for exercising the client's mid-session crash handling. That tool is deliberately absent from the presets: it calls `process.exit`, which in-process would end the test runner.
 
-Configure a server declaratively with a JSON config (see `test-servers/configs/*.json`) selecting presets, then load it via `--config`. Because the servers are spawned as real subprocesses, the build output must exist first:
+Configure a server declaratively with a JSON config (see `test-servers/configs/*.json`) selecting presets, then load it via `--config`. The file format is documented in the [Config reference](#config-reference). Because the servers are spawned as real subprocesses, the build output must exist first:
 
 ```bash
 npm run test-servers:build   # (from clients/web) → tsc -p test-servers, emits test-servers/build/
@@ -24,6 +24,265 @@ A streamable-HTTP server can also serve the **modern (2026-07-28) protocol era**
 - Or pass `modern` on the `ServerConfig` for an in-process `createTestServerHttp`.
 
 This is what lets an Inspector connection negotiating `protocolEra: "auto" | "modern"` reach the modern leg (populated `server/discover`, sessionless). See `test-servers/configs/modern-http.json`.
+
+## Config reference
+
+A config file is one JSON or YAML document describing one server. This section documents the file format so you can write a config of your own — to test another MCP client or SDK, say — without reading the TypeScript.
+
+**The source types are the authoritative definitions; this section is a guide to them.** Where the two disagree, the source is right and this page is stale:
+
+- [`test-servers/src/load-config.ts`](../test-servers/src/load-config.ts) — the file's shape (`ConfigFile`, `ConfigFileOAuth`, `PresetRef`) and what is validated at load.
+- [`test-servers/src/composable-test-server.ts`](../test-servers/src/composable-test-server.ts) — `ServerConfig`, the in-process equivalent, whose doc comments explain each option in full.
+- [`test-servers/src/preset-registry.ts`](../test-servers/src/preset-registry.ts) — every preset name and the `params` it reads.
+- [`test-servers/src/resolve-config.ts`](../test-servers/src/resolve-config.ts) — how a file becomes a `ServerConfig`.
+
+### Running a config
+
+```bash
+# from the repository root
+(cd clients/web && npm run test-servers:build)
+node test-servers/build/server-composable.js --config path/to/my-server.json
+```
+
+The format is inferred from the extension (`.json`, `.yaml`, `.yml`); pass `--json` or `--yaml` for a file with any other name. An HTTP server prints its URL on stderr (`Composable server listening at http://127.0.0.1:<port>/mcp`, or `/sse` for the SSE transport); a stdio server speaks MCP on stdin/stdout and prints nothing.
+
+The smallest config is [`test-servers/configs/demo.json`](../test-servers/configs/demo.json), a stdio server offering two tools. Copy it and edit the `tools` list to choose your own — `tools/list` before and after is a quick check that your file is the one that loaded:
+
+```json
+{
+  "serverInfo": { "name": "composable-demo", "version": "1.0.0" },
+  "tools": [{ "preset": "echo" }, { "preset": "get_temp" }],
+  "transport": { "type": "stdio" }
+}
+```
+
+⚠️ **Only part of the file is validated.** `loadConfig` checks `serverInfo`, `transport` and the `oauth` rules noted below, and an unknown preset name fails at startup. Everything else is cast to its type unchecked, so a misspelled top-level key is ignored silently rather than reported.
+
+### Top-level keys
+
+Only `serverInfo` and `transport` are required.
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `serverInfo` | `{ name, version }` | **Required.** The implementation info the server reports. |
+| `transport` | object | **Required.** See [`transport`](#transport). |
+| `tools` | preset refs | Tools to register. See [Presets](#presets). An entry may itself be an array of refs, which is flattened. |
+| `resources` | preset refs | Static resources to register. |
+| `resourceTemplates` | preset refs | Resource templates to register. |
+| `prompts` | preset refs | Prompts to register. |
+| `oauth` | object | Protect the server with OAuth. HTTP transports only. See [`oauth`](#oauth). |
+| `logging` | boolean | Advertise the `logging` capability. Default `false`. |
+| `listChanged` | `{ tools?, resources?, prompts? }` | Advertise `listChanged` per list, so the list-mutating tool presets send `list_changed` notifications. Default all `false`. |
+| `subscriptions` | boolean | Advertise `resources.subscribe`. Default `false`. |
+| `broadcastResourceUpdates` | boolean | Share resource updates across sessions, so one `update_resource` call notifies every subscribed session rather than only its caller. |
+| `tasks` | `{ list?, cancel? }` | Advertise the legacy tasks capability. Pair with the task tool presets. |
+| `tasksExtension` | boolean | Advertise the modern `io.modelcontextprotocol/tasks` extension and register its `modern_task` / `modern_input_task` tools. Pair with `transport.modern`. |
+| `skills` | boolean | Advertise the Skills extension and serve the fixture skills. See [Skills](#skills-sep-2640). |
+| `skillsRequireClientExtension` | boolean | With `skills`, refuse the skills methods to a client that did not declare the extension. |
+| `events` | boolean \| object | Serve the Events extension (`io.modelcontextprotocol/events`) and register its control tools. HTTP only. See [Events (SEP-3415)](#events-sep-3415). |
+| `appElicitation` | boolean | Advertise the MCP Apps UI extension with its nested `elicitation` setting. See [App-rendered form elicitations](#app-rendered-form-elicitations). |
+| `maxPageSize` | `{ tools?, resources?, resourceTemplates?, prompts? }` | Paginate each named list at this page size. Unset means the list is not paginated. |
+| `emptyStringCursor` | boolean | Hand out `""` as the cursor for page two of every paginated list. See [The empty-string cursor](#the-empty-string-cursor). |
+| `duplicateToolNames` | string[] | Registered tool names to emit twice in `tools/list`. See [Duplicate tool names](#duplicate-tool-names). |
+| `duplicateResourceUris` | string[] | URIs to emit twice in `resources/list`. See [Duplicate resource URIs](#duplicate-resource-uris). |
+| `rawToolSchemas` | `{ [tool]: { inputSchema?, outputSchema? } }` | Replace a registered tool's *advertised* schemas with a raw JSON Schema document. See [Unportable tool schemas](#unportable-tool-schemas). |
+| `extensionGatedTools` | `{ [extensionId]: tool }` | Show a tool in `tools/list` only to a client that declared the extension. Legacy era only. See [Advertised extensions](#advertised-extensions). |
+
+### `transport`
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `type` | `"stdio"` \| `"streamable-http"` \| `"sse"` | **Required.** Streamable HTTP is served at `/mcp`, the legacy SSE transport at `/sse`. |
+| `port` | number | HTTP only. The port to listen on; if it is taken, the server walks upward to the next free one, so read the printed URL. Omitted, the OS assigns a port. |
+| `modern` | boolean \| object | Serve the modern (2026-07-28) protocol era. Valid only with `"streamable-http"` — any other `type` fails at load. See [Serving the modern protocol era](#serving-the-modern-protocol-era). |
+
+`modern: true` is shorthand for `modern: {}`. The object form takes:
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `legacy` | `"stateless"` \| `"reject"` | What a legacy-era request gets. `"stateless"` (the default) serves it per request, so both eras connect; `"reject"` answers it with the unsupported-protocol-version error, for a modern-only server. |
+| `injectSpecErrors` | boolean | Answer the `trigger_*` tool presets with real spec error codes and HTTP statuses. See [Network tab](#network-tab--standardized-headers-and-error-taxonomy). |
+| `neverAcknowledgeSubscriptions` | boolean \| `"after-first"` | Answer `subscriptions/listen` with a bare result instead of an acknowledgement. See [A listen that is never acknowledged](#a-listen-that-is-never-acknowledged). |
+| `refuseSubscriptionsListen` | number | Answer every `subscriptions/listen` with this bare HTTP status. See [A listen refused over HTTP](#a-listen-refused-over-http). |
+
+### Presets
+
+Every entry under `tools`, `resources`, `resourceTemplates` and `prompts` is a **preset ref** naming a ready-made fixture:
+
+```json
+{ "preset": "numbered_tools", "params": { "count": 12 }, "requiredScopes": ["tools:read"] }
+```
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `preset` | string | **Required.** A name from the lists below. An unknown name fails at startup. |
+| `params` | object | Options for the presets that take them (table below). Others ignore it. |
+| `requiredScopes` | string[] | OAuth scopes a token must carry to use this item. See [Per-preset scopes](#per-preset-scopes). |
+
+A preset is looked up within the list it appears in, so a tool preset named under `resources` is an unknown preset. The names, by kind:
+
+**Tools**
+
+| Group | Presets |
+| --- | --- |
+| General | `echo`, `add`, `get_sum`, `get_temp`, `get_temp_extra`, `get_weather`, `get_env` (also spelled `get-env`), `list_items`, `get_annotated_message`, `localized_greeting`, `write_to_stderr`, `send_notification`, `send_progress`, `slow_task`, `numbered_tools` |
+| Argument-schema shapes | `record_shipment` (also spelled `nullable_fields`), `record_shipment_by`, `invalid_header_tool` |
+| Server-to-client requests (legacy era) | `collect_sample`, `list_roots`, `collect_elicitation`, `submit_ticket`, `collect_url_elicitation`, `url_elicitation_form` |
+| MRTR (modern era) | `mrtr_confirm`, `mrtr_two_step`, `mrtr_roots`, `mrtr_sample`, `mrtr_loop`, `mrtr_edge`, `mrtr_empty`, `mrtr_app_choose_option` |
+| Spec-error triggers (need `transport.modern.injectSpecErrors`) | `trigger_header_mismatch`, `trigger_missing_capability`, `trigger_unsupported_version`, `trigger_method_not_found`, `trigger_invalid_params` |
+| List mutation (pair with `listChanged` / `subscriptions`) | `add_tool`, `remove_tool`, `add_resource`, `remove_resource`, `update_resource`, `add_prompt`, `remove_prompt` |
+| Legacy tasks (pair with `tasks`) | `simple_task`, `progress_task`, `elicitation_task`, `sampling_task`, `optional_task`, `forbidden_task`, `immediate_return_task` |
+| MCP Apps | `mcp_app_demo`, `app_choose_option` |
+
+**Resources** — `architecture`, `test_cwd`, `test_env`, `test_argv`, `numbered_resources`, `rfc6570_base`, `mcp_app_demo_widget`, `choose_option_app`
+
+**Resource templates** — `file`, `user`, `numbered_resource_templates`, `rfc6570_templates`
+
+**Prompts** — `simple_prompt`, `args_prompt`, `numbered_prompts`
+
+The presets that read `params`:
+
+| Preset | `params` |
+| --- | --- |
+| `numbered_tools` | `count` — how many tools to register (default 5) |
+| `numbered_resources`, `numbered_resource_templates`, `numbered_prompts` | `count` — how many to register (default 3) |
+| `send_progress` | `name` — the tool's name |
+| `simple_task` | `name`; `delayMs` — how long the task runs (default 1000) |
+| `progress_task` | `name`; `delayMs` (default 2000); `progressUnits` — how many progress notifications it sends (default 5) |
+| `elicitation_task` | `name` |
+| `sampling_task` | `name`; `samplingText` — the prompt it sends for sampling |
+| `optional_task` | `name`; `delayMs` (default 500) |
+| `forbidden_task`, `immediate_return_task` | `name`; `delayMs` (default 100) |
+| `mcp_app_demo_widget` | `domain` — the value for the resource's `_meta.ui.domain` |
+
+A numeric param that is missing, zero or not a number takes its default. `name` is what lets one config register the same preset twice.
+
+### `oauth`
+
+An `oauth` block puts the server behind OAuth 2.1 bearer tokens. It is rejected at load on a `stdio` transport, and `enabled` must be `true` whenever the block is present.
+
+`mode` picks one of two shapes:
+
+- **`combined`** (the default) — the test server is both the MCP resource server and its own authorization server. It serves the authorization-server metadata, a consent page at `/oauth/authorize`, `/oauth/token`, and optionally `/oauth/revoke` and `/oauth/register`. Tokens are opaque strings held in memory, so they do not survive a restart.
+- **`protected-resource`** — the test server is the MCP resource server only. Its protected-resource metadata points at one or more **external** authorization servers, it serves no authorization endpoints of its own, and it accepts JWT access tokens it verifies against that server's JWKS. This is the shape for testing against a real identity provider, including enterprise-managed authorization (see [`xaa-ema-http.json`](../test-servers/configs/xaa-ema-http.json)).
+
+Both modes serve the RFC 9728 protected-resource metadata document, at `/.well-known/oauth-protected-resource` unless moved.
+
+**General**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `enabled` | `true` | **Required.** Any other value fails at load. |
+| `mode` | `"combined"` \| `"protected-resource"` | Default `"combined"`. |
+| `requireAuth` | boolean | Require a bearer token on the MCP endpoint. Default `false` — the OAuth endpoints are served but the MCP endpoint answers anyone, so **set it to `true`** for a server that should actually issue a 401. |
+| `scopesSupported` | string[] | The `scopes_supported` list in both metadata documents. Default `["mcp"]`. |
+| `resource` | string | The `resource` identifier in the protected-resource metadata. Default: the root of the origin the request arrived on (`http://localhost:8080/`). |
+
+**Discovery overrides**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `resourceMetadataPath` | string | Serve the protected-resource metadata from this path *instead of* the well-known one, and advertise it on every 401 as `WWW-Authenticate: Bearer resource_metadata="…"`. See [OAuth `resource_metadata` at a non-default path](#oauth-resource_metadata-at-a-non-default-path). |
+| `asMetadataPath` | string | `combined` only. Serve the RFC 8414 authorization-server metadata from this path *instead of* `/.well-known/oauth-authorization-server`. See [Plain OAuth 2.0 metadata at the OIDC well-known path](#plain-oauth-20-metadata-at-the-oidc-well-known-path). |
+| `issuerUrl` | string (URL) | `combined` only. The `issuer` the metadata reports, and the base of the endpoint URLs it advertises. Default: the origin the request arrived on. |
+
+Both paths must be origin-relative (`/custom/protected-resource`) with no query or fragment; anything else fails at load.
+
+**Token validation (`protected-resource` mode)**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `authorizationServers` | string[] | **Required in this mode.** The external authorization server URLs, published as `authorization_servers`. |
+| `accessTokenIssuers` | string[] | The JWT `iss` values accepted. Default: `authorizationServers`. |
+| `jwksUri` | string | Where to fetch the signing keys. Omitted, it is discovered from the first authorization server's metadata (`jwks_uri`), and that document's `issuer` is accepted too. |
+| `resourceAudience` | string | When set, the JWT `aud` must match this value. Unset, `aud` is not checked. |
+
+A token's granted scopes are read from the first of these claims present in the accepted form: `scope` as a space-delimited string, then `scp` as an array of strings, then `scopes` as an array of strings. Any other shape — a space-delimited string `scp`, for one — is read as no scopes at all, so every `requiredScopes` check then fails with `insufficient_scope`.
+
+**Client registration (`combined` mode)**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `supportDCR` | boolean | Serve Dynamic Client Registration at `/oauth/register` and advertise it. Default `false`. |
+| `supportCIMD` | boolean | Accept a URL as `client_id`, fetching the Client ID Metadata Document it names, and advertise `client_id_metadata_document_supported`. Default `false`. |
+| `staticClients` | `{ clientId, clientSecret?, redirectUris? }[]` | Pre-registered clients. A client with no `redirectUris` may use any redirect URI. |
+| `clientMetadata` | `{ redirectUris, clientName?, scope? }` | With `supportCIMD`, serve a client metadata document from this server, so its URL is a usable `client_id`. `redirectUris` must list the callback of the client under test. See [URL-based client IDs](#url-based-client-ids-cimd--sep-991). |
+| `clientMetadataPath` | string | Where to serve `clientMetadata`. Default `/client-metadata.json`. Origin-relative, like the discovery paths. |
+
+A client is looked up in that order — static, then dynamically registered, then CIMD — and an unknown `client_id` is refused with `invalid_client`. With none of the three configured, no client can authorize.
+
+**Tokens (`combined` mode)**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `tokenExpirationSeconds` | number | The `expires_in` the token response reports. Default `3600`. **Advertised only** — the server does not expire the token itself, so a request carrying it still succeeds after that time. |
+| `supportRefreshTokens` | boolean | Issue a refresh token with each access token. Default `true`. |
+| `supportRevocation` | boolean | Serve and advertise the RFC 7009 revocation endpoint at `/oauth/revoke`. Default `true`. See [Revoking tokens on clear](#revoking-tokens-on-clear-rfc-7009). |
+
+**Stalled endpoints**
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `stallEndpoints` | string[] | Endpoints that accept the request and withhold the response, for testing a client's request timeouts: any of `protected-resource-metadata`, `as-metadata`, `authorize`, `token`, `revoke`, `register`. Naming an unknown endpoint, or one this config does not serve, fails at startup. See [An OAuth endpoint that never answers](#an-oauth-endpoint-that-never-answers). |
+| `stallMs` | number | Answer a stalled endpoint after this many milliseconds. Default `0`, which means never. |
+
+#### Per-preset scopes
+
+`requiredScopes` on a preset ref gates that one item: with `requireAuth` on, a `tools/call`, `resources/read` or `prompts/get` for it from a token missing any of the listed scopes is answered `403` with `WWW-Authenticate: Bearer error="insufficient_scope", scope="<missing scopes>"`, which is the challenge a client's scope step-up flow responds to. Listing is not gated — the item still appears in `tools/list`. Without `requireAuth`, `requiredScopes` has no effect.
+
+#### Example: `combined` mode
+
+One process that is both the MCP server and the authorization server — the quickest way to exercise a client's whole authorization-code flow, discovery included:
+
+```json
+{
+  "serverInfo": { "name": "my-oauth-server", "version": "1.0.0" },
+  "tools": [
+    { "preset": "echo" },
+    { "preset": "get_temp", "requiredScopes": ["weather:read"] }
+  ],
+  "transport": { "type": "streamable-http", "port": 8190 },
+  "oauth": {
+    "enabled": true,
+    "mode": "combined",
+    "requireAuth": true,
+    "scopesSupported": ["mcp", "weather:read"],
+    "supportDCR": true
+  }
+}
+```
+
+- `requireAuth` makes an unauthenticated request to `http://localhost:8190/mcp` a `401`, which starts discovery.
+- `supportDCR` lets the client register itself; swap it for `staticClients` or `supportCIMD` to test those paths.
+- `echo` needs only a valid token. `get_temp` also needs `weather:read`, so a client that authorized for `mcp` alone gets the `insufficient_scope` challenge when it calls it.
+- Refresh tokens and revocation are on by default; add `"supportRefreshTokens": false` or `"supportRevocation": false` to test a server without them.
+
+#### Example: `protected-resource` mode
+
+The MCP server alone, trusting tokens from an authorization server you run elsewhere:
+
+```json
+{
+  "serverInfo": { "name": "my-resource-server", "version": "1.0.0" },
+  "tools": [{ "preset": "echo", "requiredScopes": ["tools:read"] }],
+  "transport": { "type": "streamable-http", "port": 8191 },
+  "oauth": {
+    "enabled": true,
+    "mode": "protected-resource",
+    "requireAuth": true,
+    "authorizationServers": ["https://auth.example.com"],
+    "jwksUri": "https://auth.example.com/jwks",
+    "scopesSupported": ["tools:read"],
+    "resource": "http://localhost:8191/",
+    "resourceAudience": "http://localhost:8191/"
+  }
+}
+```
+
+- `authorizationServers` is what the client discovers and authorizes against; replace `https://auth.example.com` with your own.
+- `jwksUri` is optional when that server publishes `jwks_uri` in its metadata.
+- `resource` and `resourceAudience` together pin the token to this server: the first is the identifier the client requests a token for, the second is the `aud` the server then insists on.
+- The server fetches the keys on the first authenticated request, not at startup, so an unreachable authorization server shows up as a `401` on every token rather than as a startup failure.
 
 ## Showcase configs
 
@@ -68,6 +327,148 @@ as a missing capability rather than an error.
 | `cancellation-modern-http.json` **(modern era)**           | Cancelling a call by closing its response stream    | [#2140](https://github.com/modelcontextprotocol/inspector/issues/2140) |
 | `skills-http.json` **(either era)** | Skills tab: `skills/list`, `resources/directory/read`, digest verification, the frontmatter cross-check, and the non-conforming cases | [#2234](https://github.com/modelcontextprotocol/inspector/issues/2234), [#2248](https://github.com/modelcontextprotocol/inspector/issues/2248) |
 | `skills-strict-{legacy,modern}-http.json` **(era per file)** | The same skills, served only to a client that **declared** `io.modelcontextprotocol/skills` itself (SEP-2133) | [#2373](https://github.com/modelcontextprotocol/inspector/issues/2373) |
+| `events-modern-http.json` **(modern era)** | Events extension: `events/list`, poll, push, webhook management, `list_changed`, and every failure preset | [#3027](https://github.com/modelcontextprotocol/inspector/issues/3027) |
+| `events-legacy-http.json` **(legacy era)** | A legacy server that (non-conformantly) advertises Events, to prove the client never sends `events/*` on a legacy connection | [#3027](https://github.com/modelcontextprotocol/inspector/issues/3027) |
+
+## Events (SEP-3415)
+
+`events-modern-http.json` (port 3250, **modern era**) sets `"events": true`. No
+SDK implements the Events extension, so `test-servers/src/events.ts` serves it
+directly against the spec, as Express middleware ahead of the SDK handler. It
+advertises `capabilities.extensions["io.modelcontextprotocol/events"] =
+{ listChanged: true }` to a modern `server/discover` only, and serves it over
+HTTP only.
+
+`events` is `true` or an object:
+
+| Key | Type | What it does |
+| --- | --- | --- |
+| `listChanged` | boolean | Declare `listChanged` and honor `eventsListChanged` on a listen. Default `true`. With `false`, the listen ack omits `eventsListChanged`. |
+| `nextPollMs` | number | The `nextPollMs` every poll result recommends. Default `1000`. |
+| `advertiseOnLegacy` | boolean | Also advertise the extension in a legacy `initialize` result. A conformant server never does; the legacy config sets it. Default `false`. |
+| `maxStreams` | number | Open push streams before `events/stream` answers `ResourceExhausted` (`-32025`). Default `16`. |
+| `maxWebhookSubscriptions` | number | Webhook subscriptions before `events/subscribe` answers `ResourceExhausted`. Default `16`. |
+
+### Event types
+
+Five built-in types, two per `events/list` page (three pages). The names are
+stable and exported as `EVENT_TYPE_NAMES`.
+
+| Name | `delivery` | Notes |
+| --- | --- | --- |
+| `email.received` | `poll` | Argument `from`. |
+| `build.finished` | `push` | **Emit-only:** no replay, and `cursor` is **omitted** everywhere (absent means `null`). |
+| `incident.created` | `poll`, `push`, `webhook` | Arguments `severity` (`P1`–`P4`) and `service`. Carries `_meta`. |
+| `deploy.completed` | `poll`, `push` | `region` is annotated `x-mcp-header: "Region"`, so requests need `Mcp-Param-Region`. |
+| `invalid.header` | `poll` | Its annotation (`"Bad Header"`) is not an RFC 9110 token. A client MUST exclude it from the list. |
+
+An occurrence matches a subscription when every argument that names a key of
+the payload equals it. Arguments that the payload does not carry do not filter.
+Cursors are `cur_<n>`, and a cursor the server never issued is `InvalidParams`.
+
+### Methods
+
+- **`events/poll`:** a `null` or absent cursor returns no events and the
+  current cursor. `maxEvents` (default 10, 1–100) caps a page and sets
+  `hasMore`. `maxAgeMs` skips older occurrences and reports `truncated: true`.
+- **`events/stream`:** an SSE response. `notifications/events/active` comes
+  first, with the granted `heartbeatMs` (default 30000, clamped to 100–60000).
+  Any backlog after the supplied cursor comes next, then live events. A
+  heartbeat is sent whenever `heartbeatMs` passes without another message.
+  Every notification carries `_meta["io.modelcontextprotocol/subscriptionId"]`,
+  which is the request id. Aborting the request releases the stream, and so
+  does `notifications/cancelled` with its request id. A server-initiated close
+  sends a final `{ resultType: "complete" }` result frame.
+- **`events/subscribe` / `events/unsubscribe`:** webhook **management only**.
+  Nothing is ever POSTed. The URL must be `https` and must not be a private or
+  loopback host. The secret must be `whsec_` + base64 of 24–64 bytes, and
+  `delivery.mode` must be `"webhook"`. Otherwise the answer is `InvalidParams`.
+  `ttlMs` defaults to one hour and is clamped to 1 minute–1 day, and
+  `ttlMs: null` grants `refreshBefore: null`. A refresh with the same key
+  returns the same `id` and a canned `deliveryStatus`: a URL path containing
+  `/failing` reports suspended delivery, `/throttled` reports rate-limiting,
+  and any other path is healthy. A host whose first label is a reason category
+  written with dashes (`https://challenge-failed.example.com/…`,
+  `connection-refused.`, `timeout.`, `tls-error.`, `http-4xx.`, `http-5xx.`)
+  answers `CallbackEndpointError` (`-32027`) with that `data.reason`. ⚠️ The
+  fixture accepts an unauthenticated caller. A real server answers `Forbidden`.
+- **Routing headers:** every method except `events/list` requires `Mcp-Name`
+  equal to `params.name`. The Base64 sentinel form is accepted. Each annotated
+  argument that has a value needs its `Mcp-Param-*` header. A missing or
+  mismatched header is HTTP 400 `HeaderMismatch` (`-32020`).
+- **`subscriptions/listen`:** a listen whose filter sets
+  `eventsListChanged: true` is served by the fixture. The ack echoes it and
+  `notifications/events/list_changed` arrives on that stream. The core filter
+  fields are honored there too. A listen without it goes to the SDK unchanged.
+- **Era:** an `events/*` request without a modern per-request envelope gets
+  `-32601` and is counted as `legacyRequests`.
+
+### Control tools
+
+Registered whenever `events` is on, so a config does not list them.
+
+| Tool | Arguments | What it does |
+| --- | --- | --- |
+| `emit_event` | `name`, `data?`, `count?`, `ageMs?`, `eventId?` | Emit occurrences. Matching push streams get them live, and later polls return them. `ageMs` backdates the timestamp (for `maxAgeMs`). An explicit `eventId` can be repeated, to test dedup. |
+| `add_event_type` | `name?` (default `dynamic.added`), `delivery?` (default `["poll","push"]`) | Add or replace a type and send `list_changed`. |
+| `remove_event_type` | `name` | Remove a type. Its push streams are terminated with `NotFound` `{kind:"event"}`, its webhooks are dropped, a later poll answers `NotFound`, and `list_changed` is sent. |
+| `inject_event_failure` | `preset`, `name?`, `method?`, `count?` | Trigger a failure preset (below). |
+| `get_event_stats` | — | `requests` by method, `legacyRequests`, `errors`, `openStreams`, `listenStreams`, `webhookSubscriptions` and `emitted`, as `structuredContent`. |
+
+### Failure presets
+
+Pass these as `inject_event_failure`'s `preset`. They are exported as
+`EVENT_FAILURE_PRESETS`.
+
+| Preset | Effect |
+| --- | --- |
+| `error_invalid_params` | The next `events/*` request fails once with `-32602`. `method` and `name` narrow which request. |
+| `error_not_found` | The same, with `NotFound` `-32023` `{kind:"event"}`. |
+| `error_forbidden` | The same, with `Forbidden` `-32024`. |
+| `error_resource_exhausted` | The same, with `ResourceExhausted` `-32025` `{limit:"subscriptions"}`. |
+| `error_unsupported` | The same, with `Unsupported` `-32026` `{feature:"deliveryMode"}`. |
+| `error_callback_endpoint` | The same, with `CallbackEndpointError` `-32027` `{reason:"challenge_failed"}`. |
+| `terminate_forbidden` | Open push streams (for `name`, or all of them) get `notifications/events/terminated` with `Forbidden`, then the final frame. The next poll fails with `Forbidden`. |
+| `terminate_schema_changed` | The same, with `Unsupported` `{feature:"payloadSchema", reason:"schema_changed"}`. |
+| `stream_error` | Open push streams get a transient `notifications/events/error` (`-32603`) and stay open. |
+| `stall_stream` | Open push streams (for `name`, or all of them) go silent — no heartbeat, event or final frame — but stay open, so a client's heartbeat liveness check has to notice and reconnect. Only the client's abort releases one. |
+| `gap` | History is dropped, for `name` only when it is given and otherwise for every type. The affected push streams get a fresh `active` with `truncated: true`, and a poll from an older cursor returns `truncated: true`. |
+| `backlog` | Emit `count` (default 25) occurrences of `name` (default `incident.created`), so a poll with `maxEvents` drains through `hasMore`. |
+
+`NotFound` after removal comes from `remove_event_type`, not from a preset.
+
+### The legacy config
+
+`events-legacy-http.json` (port 3251, **legacy era**) sets
+`"events": { "advertiseOnLegacy": true }`. It advertises the extension in
+`initialize`, which no conformant server does. Seeing the capability, the
+Inspector must still send no `events/*` request, because the extension
+requires a modern connection. Any request that does arrive is answered
+`-32601` and counted. Call `get_event_stats` and check that
+`legacyRequests` is `0`.
+
+### Running it by hand
+
+```sh
+node test-servers/build/server-composable.js --config test-servers/configs/events-modern-http.json
+```
+
+Connect with **Protocol Era = Modern**. Until the Events tab lands, drive it
+from the Tools tab with the control tools, and watch the Protocol and Network
+tabs. The python-sdk `examples/stories/events` server is a second, independent
+target for interop checks.
+
+To exercise **webhook management** in the Events tab
+([#3031](https://github.com/modelcontextprotocol/inspector/issues/3031)), pick
+`incident.created`, choose **Webhook**, and use the URL to choose the
+fixture's canned outcome: `https://hooks.example.com/in` verifies and reports
+healthy delivery on **Refresh now**, a path containing `/failing` or
+`/throttled` reports suspended or rate-limited delivery, and a host such as
+`https://challenge-failed.example.com/hook` ends the subscribe with
+`CallbackEndpointError`. A `ttlMs` below a minute is clamped up to one, and
+**No expiry** is granted `refreshBefore: null`. To see the `Forbidden` message a
+real server gives an unauthenticated caller, arm `inject_event_failure` with
+`preset: "error_forbidden"` and `method: "events/subscribe"` first.
 
 ## Skills (SEP-2640)
 

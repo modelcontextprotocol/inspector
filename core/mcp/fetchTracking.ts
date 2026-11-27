@@ -1,4 +1,5 @@
 import type { FetchRequestEntryBase, FetchStreamState } from "./types.js";
+import { redactWebhookSecrets } from "../extension/events/webhookSecret.js";
 
 /**
  * Header names whose values are replaced with `REDACTED_HEADER_VALUE` before a
@@ -417,16 +418,21 @@ export function redactBody(
   // JSON bodies — either explicitly typed, or (when the content-type is
   // missing/other) any string that parses as a JSON object/array. A bare
   // JSON scalar has no field names, so it can't carry a sensitive key.
+  //
+  // A webhook signing secret (`events/subscribe`'s `delivery.secret`, #3031)
+  // is masked by its `whsec_` shape rather than by a field name: the name
+  // `secret` is too generic to add to the set above without masking unrelated
+  // response data, and the prefix is what makes the value a credential.
   try {
     const parsed: unknown = JSON.parse(body);
     if (parsed !== null && typeof parsed === "object") {
-      return JSON.stringify(redactJsonValue(parsed));
+      return redactWebhookSecrets(JSON.stringify(redactJsonValue(parsed)));
     }
   } catch {
-    // Not JSON — fall through and leave as-is.
+    // Not JSON — fall through, masking only a webhook secret.
   }
 
-  return body;
+  return redactWebhookSecrets(body);
 }
 
 /**

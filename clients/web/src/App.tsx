@@ -79,6 +79,7 @@ import type {
   ServerListProps,
   ShellProps,
   SkillsPanelProps,
+  EventsPanelProps,
   TasksPanelProps,
   ToolsPanelProps,
 } from "./components/views/InspectorView/types";
@@ -137,6 +138,7 @@ import { OutputValidationToastMessage } from "./components/elements/Toasts/Outpu
 import { ReAuthBannerBar } from "./components/groups/ReAuthBanner/ReAuthBannerBar";
 import { errorMessage } from "./utils/errorFormat";
 import { runWebLoadTest, type RunLoadTest } from "./lib/loadTest";
+import { generateWebhookSecret } from "@inspector/core/extension/events/webhookSecret.js";
 
 /**
  * Terminates a dispatched handler's promise by reporting the failure, for the
@@ -202,6 +204,11 @@ function App() {
     string | undefined
   >(undefined);
   const [clientSettingsOpen, setClientSettingsOpen] = useState(false);
+  // The signing secret the next Events webhook subscribe sends (#3031). Held
+  // here, not in the Events tab's lifted UI state, because that state is
+  // snapshotted to sessionStorage across an OAuth redirect; generated from the
+  // CSPRNG, never typed, and regenerated only on request.
+  const [webhookSecret, setWebhookSecret] = useState(generateWebhookSecret);
   const [connectionInfoModalOpen, setConnectionInfoModalOpen] = useState(false);
   const closeConnectionInfoModal = useCallback(
     () => setConnectionInfoModalOpen(false),
@@ -484,6 +491,14 @@ function App() {
     skillsPageCount,
     skillsLoadError,
     refreshSkills,
+    eventsPagination,
+    excludedEventTypes,
+    eventsListChanged,
+    clearEventsListChanged,
+    refreshEvents,
+    loadEventsPage,
+    eventSubscriptions,
+    eventLog,
     subscriptions,
     subscriptionStreamState,
     messages,
@@ -930,6 +945,8 @@ function App() {
     onLoadMoreTools,
     onLoadMorePrompts,
     onLoadMoreResources,
+    onRefreshEvents,
+    onLoadMoreEvents,
   } = useServerCommands({
     sessionRef,
     servers,
@@ -964,6 +981,10 @@ function App() {
     loadToolsPage,
     loadPromptsPage,
     loadResourcesPage,
+    eventsPagination,
+    refreshEvents,
+    clearEventsListChanged,
+    loadEventsPage,
     lastPersistedSettings,
     applyLiveServerSettings,
     updateServerSettings,
@@ -1100,6 +1121,14 @@ function App() {
     canLoadMore: resourcesPagination.canLoadMore,
     loadedPages: resourcesPagination.loadedPages,
     onLoadMore: onLoadMoreResources,
+  };
+  const eventsPaginationControls: ListPaginationControlsProps = {
+    paginated: eventsPagination.paginated,
+    onPaginatedChange: onTogglePaginatedLists,
+    canLoadMore: eventsPagination.canLoadMore,
+    loadedPages: eventsPagination.loadedPages,
+    loaded: eventsPagination.loaded,
+    onLoadMore: onLoadMoreEvents,
   };
 
   // Clear / Export / Replay for the four log-ish views (Logs, Protocol,
@@ -1973,6 +2002,39 @@ function App() {
       : {}),
   };
 
+  // Events (SEP-3415, #3030). The subscription engine is per session, so the
+  // actions read the live one; with none (between sessions) a subscribe has
+  // nothing to run on and says so, and the rest have nothing to act on.
+  const eventSubscriptionsState = stores?.eventSubscriptionsState ?? null;
+  const eventsPanelProps: EventsPanelProps = {
+    eventTypes: eventsPagination.items,
+    excludedEventTypes,
+    eventsListChanged,
+    eventsLoadError: eventsPagination.error,
+    eventsPagination: eventsPaginationControls,
+    eventSubscriptions,
+    eventLog,
+    eventsUi: ui.eventsUi,
+    onEventsUiChange: setUi.setEventsUi,
+    onRefreshEvents,
+    onSubscribeEvent: (eventType, options) => {
+      if (!eventSubscriptionsState) throw new Error("Not connected.");
+      eventSubscriptionsState.subscribe(eventType, options);
+    },
+    onStopEventSubscription: (id) => eventSubscriptionsState?.stop(id),
+    onResumeEventSubscription: (id) => {
+      eventSubscriptionsState?.resubscribe(id);
+    },
+    onRemoveEventSubscription: (id) => eventSubscriptionsState?.remove(id),
+    onClearEventLog: () => eventSubscriptionsState?.clearLog(),
+    webhookSecret,
+    onRegenerateWebhookSecret: () => setWebhookSecret(generateWebhookSecret()),
+    getWebhookSecret: (id) => eventSubscriptionsState?.getWebhookSecret(id),
+    onRefreshWebhook: (id) => {
+      eventSubscriptionsState?.refreshWebhook(id);
+    },
+  };
+
   const tasksPanelProps: TasksPanelProps = {
     tasks,
     progressByTaskId,
@@ -2047,6 +2109,7 @@ function App() {
           resources={resourcesPanelProps}
           apps={appsPanelProps}
           skills={skillsPanelProps}
+          events={eventsPanelProps}
           tasks={tasksPanelProps}
           logs={logsPanelProps}
           protocol={protocolPanelProps}

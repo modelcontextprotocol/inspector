@@ -2,6 +2,7 @@ import type { ClientCapabilities } from "@modelcontextprotocol/client";
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { TASKS_EXTENSION_KEY } from "../extension/tasks/constants.js";
 import { SKILLS_EXTENSION_KEY } from "../extension/skills/schemas.js";
+import { EVENTS_EXTENSION_KEY } from "../extension/events/constants.js";
 
 /**
  * Extension identifier for SEP-2350 enterprise-managed authorization. Advertised
@@ -114,6 +115,20 @@ export const ADVERTISABLE_EXTENSIONS: readonly AdvertisableExtension[] = [
     // by default for that reason; turning it off is how to check a server's
     // refusal path. Declared with no settings: SEP-2640 defines none for the
     // client side. (#2373)
+    defaultAdvertised: true,
+  },
+  {
+    key: EVENTS_EXTENSION_KEY,
+    label: "Events (io.modelcontextprotocol/events)",
+    // The Events extension (SEP-3415, #3028). A client MAY declare it, with an
+    // empty settings object, in its per-request capabilities to say it
+    // understands the extension; the spec defines no client settings. Default
+    // on, like Skills, because the Inspector does send `events/*` once the
+    // server advertises its half — and turning it off is how to check whether a
+    // server makes its offer depend on the client's declaration. The server's
+    // own advertisement gates every request regardless (see
+    // `core/extension/events/support.ts`). Harmless on legacy: extensions are
+    // ignored there, and the Inspector never sends `events/*` on that era.
     defaultAdvertised: true,
   },
 ];

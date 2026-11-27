@@ -362,6 +362,44 @@ describe("refreshStoredAuthToken", () => {
     }
   });
 
+  // #2985: this refresh runs outside InspectorClient, so it carries the run's
+  // custom headers itself — to a token endpoint on the server's own origin.
+  it("sends the custom headers to a same-origin token endpoint", async () => {
+    let seen: string | string[] | undefined;
+    const tokenServer: Server = createServer((req, res) => {
+      seen = req.headers["x-environment"];
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(freshTokens));
+    });
+    await new Promise<void>((resolve) => tokenServer.listen(0, resolve));
+    const addr = tokenServer.address();
+    const base =
+      typeof addr === "object" && addr ? `http://127.0.0.1:${addr.port}` : "";
+    const path = writeOAuthFixture({
+      [`${base}/mcp`]: {
+        tokens: { refresh_token: "old-refresh", token_type: "Bearer" },
+        clientInformation: { client_id: "cid", client_secret: "sec" },
+        serverMetadata: {
+          issuer: base,
+          token_endpoint: `${base}/token`,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          token_endpoint_auth_methods_supported: ["client_secret_post"],
+        },
+      },
+    });
+    try {
+      const token = await refreshStoredAuthToken(`${base}/mcp`, path, {
+        headers: { "X-Environment": "staging" },
+      });
+      expect(token).toBe("refreshed-access-token");
+      expect(seen).toBe("staging");
+    } finally {
+      rmSync(path, { force: true });
+      await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
+    }
+  });
+
   it("surfaces a refresh-grant failure as AUTH_REQUIRED (refresh_failed)", async () => {
     const path = writeOAuthFixture({
       [SERVER]: {
@@ -598,8 +636,10 @@ describe("--use-stored-auth", () => {
     // talk to (the MCP test server accepts any bearer, so a successful connect
     // proves the refreshed token was injected).
     let tokenRequests = 0;
+    let tokenServerSawHeader = false;
     const tokenServer: Server = createServer((req, res) => {
       tokenRequests += 1;
+      tokenServerSawHeader ||= "x-environment" in req.headers;
       res.writeHead(200, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
@@ -635,6 +675,8 @@ describe("--use-stored-auth", () => {
           "--server-url",
           serverUrl,
           "--use-stored-auth",
+          "--header",
+          "X-Environment: staging",
           "--method",
           "tools/list",
         ],
@@ -644,6 +686,10 @@ describe("--use-stored-auth", () => {
       expect(tokenRequests).toBeGreaterThan(0);
       const last = server.getRecordedRequests().at(-1)!;
       expect(last.headers?.authorization).toBe("Bearer refreshed-access-token");
+      // #2985: a custom header goes to the MCP server and to OAuth endpoints
+      // on its origin — this token endpoint is on another (a different port).
+      expect(last.headers?.["x-environment"]).toBe("staging");
+      expect(tokenServerSawHeader).toBe(false);
       // Rotation persisted so a subsequent run reuses the new refresh token —
       // asserted through a joined read (tokens live in the secret store).
       const persisted = await readOAuthStore(fixture);

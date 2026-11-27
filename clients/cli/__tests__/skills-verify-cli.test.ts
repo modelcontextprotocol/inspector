@@ -255,6 +255,32 @@ describe("consumeMethodOutcome NDJSON summary and exit code (#2248)", () => {
     });
   });
 
+  it("labels the envelope for an EMPTY catalog (#2986)", async () => {
+    const streams = captureStreams();
+    let thrown: unknown;
+    try {
+      await consumeMethodOutcome(
+        {
+          kind: "ndjson",
+          lines: [],
+          summary: "nothing to verify",
+          exitCode: EXIT_CODES.SKILL_CATALOG_EMPTY,
+        },
+        {},
+      );
+    } catch (err) {
+      thrown = err;
+    } finally {
+      streams.restore();
+    }
+    expect(streams.stdout).toBe("");
+    expect(streams.stderr).toContain("nothing to verify");
+    expect(thrown).toMatchObject({
+      exitCode: EXIT_CODES.SKILL_CATALOG_EMPTY,
+      envelope: { code: "skills_empty" },
+    });
+  });
+
   it("leaves an --app-info NDJSON outcome unchanged", async () => {
     // No summary, no exit code — the field is additive and the older caller
     // must behave exactly as before.

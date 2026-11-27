@@ -59,7 +59,8 @@ row, never by the caller's category.
   process:
   - **A script.** `scripts/smoke-web-elicitation.mjs` spawns it directly;
     `scripts/lib/mcp-app-flow.mjs` (`startMcpAppServer`) does it for
-    `smoke:web:app`, `smoke:web:tabs` and `pack:verify`. These are automated and
+    `smoke:web:app`, `smoke:web:tabs`, `smoke:web:events` and `pack:verify`.
+    These are automated and
     config-driven, and the whole of this skill applies to them. ⚠️ **Not every
     smoke is here** — `smoke:cli` and `smoke:tui` use the two shapes above and
     pick no config at all.
@@ -269,12 +270,30 @@ usually looks like a missing capability rather than an error.
 | OAuth token revocation on clear | `oauth-revocation-http.json` (legacy) |
 | A token endpoint the SDK refuses  | `oauth-insecure-token-endpoint-http.json` (legacy) |
 | Cancelling a call mid-flight | `cancellation-modern-http.json` (modern) |
+| The Events extension (poll, push, webhook, `list_changed`, failure presets) | `events-modern-http.json` (modern); `events-legacy-http.json` (legacy, proves no `events/*` is sent) |
 | A resource update reaching every subscribed session (`--load-subscribe`) | `subscriptions-broadcast-http.json` (legacy) |
+
+The Events fixture is driven by its **control tools**, which `"events": true`
+registers by itself: `emit_event`, `add_event_type`, `remove_event_type`,
+`inject_event_failure` and `get_event_stats`. Its failure modes are the
+`preset` values of `inject_event_failure`. The `error_*` presets
+(`error_invalid_params`, `error_not_found`, `error_forbidden`,
+`error_resource_exhausted`, `error_unsupported`, `error_callback_endpoint`)
+fail the next `events/*` request once. The others are `terminate_forbidden`,
+`terminate_schema_changed`, `stream_error`, `gap` and `backlog`. The event
+type names, the methods' behavior and what each preset does are in the
+**Events (SEP-3415)** section of `docs/test-servers.md`. In code, import
+`EVENT_TYPE_NAMES`, `EVENT_FAILURE_PRESETS` and `EVENTS_CONTROL_TOOL_NAMES`
+from the test-server barrel rather than retyping the strings.
 
 ## Adding a config or preset
 
 - Presets live in `test-servers/src/preset-registry.ts`; configs in
   `test-servers/configs/*.json`.
+- The config file format — every key, the `oauth` block, the preset names and
+  their `params` — is the **Config reference** section of
+  `docs/test-servers.md`. A new config key, `oauth` option, preset or preset
+  param gets its row there in the same change.
 - A new showcase config gets a row in `docs/test-servers.md` saying what to do
   and what the broken build did — the "what it looked like broken" half is what
   makes the fixture reproducible later.

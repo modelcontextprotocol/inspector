@@ -134,6 +134,30 @@ describe("runner client auth options", () => {
     expect(buildRunnerClientAuthOptions({}, base).oauth).toBeUndefined();
   });
 
+  it("forwards the per-server issuer-check opt-out only when on (#2983)", () => {
+    const base: InspectorServerSettings = {
+      requestTimeout: 0,
+      connectionTimeout: 0,
+      taskTtl: 60000,
+      maxFetchRequests: 10,
+      metadata: {},
+      headers: [],
+      env: [],
+      roots: [],
+    };
+    expect(
+      buildRunnerClientAuthOptions(
+        {},
+        { ...base, oauthSkipIssuerMetadataValidation: true },
+      ).oauth?.skipIssuerMetadataValidation,
+    ).toBe(true);
+    // Off (the default) forwards nothing, so the SDK's check stays on.
+    expect(buildRunnerClientAuthOptions({}, base).oauth).toBeUndefined();
+    expect(
+      buildRunnerClientAuthOptions({}, { ...base, oauthClientId: "cid" }).oauth,
+    ).not.toHaveProperty("skipIssuerMetadataValidation");
+  });
+
   // #2018 — the CLI/TUI leg picks the authorization parameters up from the same
   // per-server settings the web leg reads, so all three clients agree.
   it("buildRunnerClientAuthOptions forwards custom authorization params", () => {

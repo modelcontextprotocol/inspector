@@ -85,7 +85,7 @@ Each client has its own README with client-specific detail:
 | [Architecture](./docs/architecture.md) | The `@inspector/core` shared package, and the web client's "dumb components" + Storybook approach |
 | [Testing and the quality gate](./docs/quality-gate.md) | What each `validate` / `coverage` / `smoke` / `verify:*` script covers, the GitHub-CI-vs-local-gate split, and the supported browsers |
 | [Writing a skill](./docs/skill-authoring.md) | How to write a skill description that actually fires, and eval cases that measure it — the case shapes that work, and the tuning loop |
-| [Test servers](./docs/test-servers.md) | The composable test servers and the showcase config for every feature — what to run, what to click, and what the broken build did |
+| [Test servers](./docs/test-servers.md) | The composable test servers, the config file reference for writing your own, and the showcase config for every feature — what to run, what to click, and what the broken build did |
 | [Publishing](./docs/publishing.md) | What ships in the tarball, the packaging invariants, and `pack:verify` |
 | [Migrating from tsup to tsdown](./docs/tsdown-migration.md) | Why the client bundles moved to tsdown, the option mapping, the gotchas that don't fail a build, and what each client's migration measured |
 | [Serving the web UI over HTTPS](./docs/tls.md) | `INSPECTOR_TLS_KEY_PATH` / `INSPECTOR_TLS_CERT_PATH`, a trusted local mkcert setup, custom hostnames and `ALLOWED_ORIGINS`, and `NODE_EXTRA_CA_CERTS` for outbound private-CA servers |

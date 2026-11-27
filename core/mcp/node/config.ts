@@ -385,6 +385,43 @@ export function serverSourceConflict(flags: ServerSourceFlags): string | null {
   return null;
 }
 
+export interface CatalogPathFlags {
+  /** The explicit `--catalog` flag value, as parsed. */
+  catalog?: string;
+  /** The explicit `--config` flag value, as parsed. */
+  config?: string;
+  /** Whether an ad-hoc target (command, `--server-url`, `--transport`) was given. */
+  adHoc?: boolean;
+}
+
+/**
+ * Resolve the writable catalog path a runner should use, from the explicit
+ * `--catalog` flag and the ambient `MCP_CATALOG_PATH` env var.
+ *
+ * The env var only relocates the DEFAULT catalog, so it must never behave like
+ * an explicit `--catalog`: when the invocation already names another source —
+ * a read-only `--config` file (#3021) or, where the caller passes it, an
+ * ad-hoc target (#1573) — the env var is ignored, and `serverSourceConflict`
+ * never sees a catalog the user did not ask for. An explicit `--catalog`
+ * always wins and is returned as-is, so `--catalog` + `--config` still fails
+ * as mutually exclusive. A blank flag (`--catalog ""`) counts as absent and
+ * falls back to the env var, as the CLI and TUI have always done.
+ *
+ * Values are trimmed only to test for presence; the path returned is the one
+ * given, untouched, so a path that genuinely ends in whitespace still names
+ * the same file. Callers that normalize their own flags (the CLI, TUI and
+ * mcpdo trim `--catalog`) do so before calling.
+ */
+export function resolveCatalogPath(
+  flags: CatalogPathFlags,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (flags.catalog?.trim()) return flags.catalog;
+  if (flags.config?.trim() || flags.adHoc) return undefined;
+  const fromEnv = env.MCP_CATALOG_PATH;
+  return fromEnv?.trim() ? fromEnv : undefined;
+}
+
 /**
  * Public catalog/config loader for runners that need the raw server map (e.g.
  * the TUI, which derives per-server settings via `mcpConfigToServerEntries`).

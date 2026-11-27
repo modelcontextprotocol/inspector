@@ -264,7 +264,7 @@ function utf8ToBase64(s: string): string {
  * already a safe plain-ASCII field value passes through unchanged; anything
  * else is wrapped as `=?base64?{b64-of-utf8}?=`.
  */
-function encodeMcpParamValue(value: string): string {
+export function encodeMcpParamValue(value: string): string {
   return needsBase64(value)
     ? `${BASE64_SENTINEL_PREFIX}${utf8ToBase64(value)}${BASE64_SENTINEL_SUFFIX}`
     : value;

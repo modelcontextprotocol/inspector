@@ -866,6 +866,60 @@ describe("RemoteClientTransport", () => {
       await rejection;
       await transport.close();
     });
+
+    it("waits with no timeout for an events/stream, which runs until the subscription ends (#3029)", async () => {
+      const { fetchFn, getSse, getSentId } = backendHoldingSend();
+      const transport = new RemoteClientTransport(
+        { baseUrl, fetchFn, sseResponseTimeoutMs: TIMEOUT_MS },
+        config,
+      );
+      await transport.start();
+
+      let settled = false;
+      const sent = transport.send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "events/stream",
+        params: { name: "build.finished", cursor: null },
+      });
+      void sent.then(() => (settled = true));
+      await flushSse();
+
+      // Far past the relay budget, with no progress to re-arm it.
+      await vi.advanceTimersByTimeAsync(TIMEOUT_MS * 20);
+      expect(settled).toBe(false);
+
+      // The server's final frame still ends the wait.
+      getSse().pushMessage({ jsonrpc: "2.0", id: getSentId(), result: {} });
+      await flushSse();
+      await expect(sent).resolves.toBeUndefined();
+      await transport.close();
+    });
+
+    it("releases a request's wait when it is cancelled, since no answer will come (#3029)", async () => {
+      const { fetchFn } = backendHoldingSend();
+      const transport = new RemoteClientTransport(
+        { baseUrl, fetchFn, sseResponseTimeoutMs: TIMEOUT_MS },
+        config,
+      );
+      await transport.start();
+
+      const sent = transport.send({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "events/stream",
+        params: { name: "build.finished", cursor: null },
+      });
+      await flushSse();
+      await transport.send({
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { requestId: 7, reason: "stopped" },
+      });
+
+      await expect(sent).resolves.toBeUndefined();
+      await transport.close();
+    });
   });
 });
 

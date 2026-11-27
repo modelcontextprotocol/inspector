@@ -18,6 +18,7 @@ import {
   parseKeyValuePair,
   parseHeaderPair,
   parseProtocolEra,
+  resolveCatalogPath,
   type ServerConfigOptions,
 } from "../../../core/mcp/node/config.ts";
 import { adHocServerName } from "../../../core/mcp/serverList.ts";
@@ -123,7 +124,12 @@ export async function runWeb(argv: string[]): Promise<number> {
   // `initialMcpConfig` stays populated for the ad-hoc case only so the legacy
   // GET /api/config defaults survive; the catalog path / in-memory list is what
   // the UI's server list actually reads.
-  const catalogPath = opts.catalog ?? process.env.MCP_CATALOG_PATH;
+  // MCP_CATALOG_PATH only relocates the default catalog: `--config` alone must
+  // not read it as an explicit `--catalog` and trip the conflict below (#3021).
+  const catalogPath = resolveCatalogPath({
+    catalog: opts.catalog,
+    config: opts.config,
+  });
   const hasCatalog = !!catalogPath;
   const hasConfig = !!opts.config;
   const hasHeaders = !!opts.header && Object.keys(opts.header).length > 0;

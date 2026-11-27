@@ -39,6 +39,10 @@ import type {
 } from "./types.js";
 import { oauthTokensToRemoteAuthState } from "./types.js";
 import { progressTokenOf, waitForProgressToken } from "./progressToken.js";
+import {
+  cancelledRequestIdOf,
+  isUnboundedStreamRequest,
+} from "./streamRequests.js";
 
 export interface AuthRecoveryHandlers {
   handleAuthChallenge(
@@ -747,6 +751,20 @@ export class RemoteClientTransport implements Transport {
     wait.resolve();
   }
 
+  /**
+   * Resolve a pending wait without its response: the request was cancelled,
+   * and a cancelled request is not answered (#3029). Resolving rather than
+   * rejecting keeps the original send from reading as a failed one.
+   */
+  private releaseSseResponseWait(requestId: string | number): void {
+    const wait = this.sseResponseWaits.get(requestId);
+    if (!wait) {
+      return;
+    }
+    this.sseResponseWaits.delete(requestId);
+    wait.resolve();
+  }
+
   private cancelSseResponseWait(requestId: string | number): void {
     const wait = this.sseResponseWaits.get(requestId);
     if (!wait) {
@@ -763,10 +781,19 @@ export class RemoteClientTransport implements Transport {
     this.sseResponseWaits.clear();
   }
 
-  private waitForSseResponse(requestId: string | number): Promise<void> {
+  /**
+   * Wait for `requestId`'s response on the event channel, for at most
+   * `timeoutMs` (re-armed by progress); `0` waits with no timeout, for an
+   * unbounded stream request (#3029).
+   */
+  private waitForSseResponse(
+    requestId: string | number,
+    timeoutMs: number,
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout>;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       const arm = () => {
+        if (timeoutMs <= 0) return;
         timer = setTimeout(() => {
           this.sseResponseWaits.delete(requestId);
           // The SDK's own per-request timeout shape, not a plain `Error`:
@@ -778,10 +805,10 @@ export class RemoteClientTransport implements Transport {
           // reach the user as a bare timeout on the web client alone.
           reject(
             new SdkError(SdkErrorCode.RequestTimeout, "Request timed out", {
-              timeout: this.sseResponseTimeoutMs,
+              timeout: timeoutMs,
             }),
           );
-        }, this.sseResponseTimeoutMs);
+        }, timeoutMs);
       };
       arm();
       this.sseResponseWaits.set(requestId, {
@@ -817,8 +844,16 @@ export class RemoteClientTransport implements Transport {
     const requestId = requestIdForMessage(message);
     let sseWait: Promise<void> | undefined;
     if (requestId !== undefined) {
-      sseWait = this.waitForSseResponse(requestId);
+      sseWait = this.waitForSseResponse(
+        requestId,
+        isUnboundedStreamRequest(message) ? 0 : this.sseResponseTimeoutMs,
+      );
       void sseWait.catch(() => {});
+    }
+    // A cancelled request gets no answer, so stop waiting for one (#3029).
+    const cancelledId = cancelledRequestIdOf(message);
+    if (cancelledId !== undefined) {
+      this.releaseSseResponseWait(cancelledId);
     }
 
     let json: RemoteSendResponse;

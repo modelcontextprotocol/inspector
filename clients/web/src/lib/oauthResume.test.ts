@@ -20,6 +20,7 @@ import {
   EMPTY_RESOURCES_UI,
   EMPTY_APPS_UI,
   EMPTY_SKILLS_UI,
+  EMPTY_EVENTS_UI,
   EMPTY_TASKS_UI,
   EMPTY_LOGS_UI,
   EMPTY_PROTOCOL_UI,
@@ -140,6 +141,7 @@ describe("oauthResume", () => {
       resourcesUi: EMPTY_RESOURCES_UI,
       appsUi: EMPTY_APPS_UI,
       skillsUi: EMPTY_SKILLS_UI,
+      eventsUi: EMPTY_EVENTS_UI,
       tasksUi: EMPTY_TASKS_UI,
       logsUi: EMPTY_LOGS_UI,
       protocolUi: EMPTY_PROTOCOL_UI,
@@ -152,6 +154,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -182,6 +185,7 @@ describe("oauthResume", () => {
         setResourcesUi: vi.fn(),
         setAppsUi: vi.fn(),
         setSkillsUi: vi.fn(),
+        setEventsUi: vi.fn(),
         setTasksUi: vi.fn(),
         setLogsUi: vi.fn(),
         setProtocolUi: vi.fn(),
@@ -280,6 +284,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -615,6 +620,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -630,6 +636,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -651,6 +658,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -663,6 +671,7 @@ describe("oauthResume", () => {
         Resources: EMPTY_RESOURCES_UI,
         Apps: EMPTY_APPS_UI,
         Skills: EMPTY_SKILLS_UI,
+        Events: EMPTY_EVENTS_UI,
         Tasks: EMPTY_TASKS_UI,
         Logs: EMPTY_LOGS_UI,
         Protocol: EMPTY_PROTOCOL_UI,
@@ -675,6 +684,7 @@ describe("oauthResume", () => {
     expect(setters.setResourcesUi).toHaveBeenCalledWith(EMPTY_RESOURCES_UI);
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
     expect(setters.setSkillsUi).toHaveBeenCalledWith(EMPTY_SKILLS_UI);
+    expect(setters.setEventsUi).toHaveBeenCalledWith(EMPTY_EVENTS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
     expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);
@@ -698,6 +708,7 @@ describe("oauthResume", () => {
         setResourcesUi: vi.fn(),
         setAppsUi: vi.fn(),
         setSkillsUi,
+        setEventsUi: vi.fn(),
         setTasksUi: vi.fn(),
         setLogsUi: vi.fn(),
         setProtocolUi: vi.fn(),
@@ -714,6 +725,7 @@ describe("oauthResume", () => {
       setResourcesUi: vi.fn(),
       setAppsUi: vi.fn(),
       setSkillsUi: vi.fn(),
+      setEventsUi: vi.fn(),
       setTasksUi: vi.fn(),
       setLogsUi: vi.fn(),
       setProtocolUi: vi.fn(),
@@ -726,6 +738,7 @@ describe("oauthResume", () => {
         Resources: undefined,
         Apps: undefined,
         Skills: undefined,
+        Events: undefined,
         Tasks: undefined,
         Logs: undefined,
         Protocol: undefined,
@@ -738,6 +751,7 @@ describe("oauthResume", () => {
     expect(setters.setResourcesUi).toHaveBeenCalledWith(EMPTY_RESOURCES_UI);
     expect(setters.setAppsUi).toHaveBeenCalledWith(EMPTY_APPS_UI);
     expect(setters.setSkillsUi).toHaveBeenCalledWith(EMPTY_SKILLS_UI);
+    expect(setters.setEventsUi).toHaveBeenCalledWith(EMPTY_EVENTS_UI);
     expect(setters.setTasksUi).toHaveBeenCalledWith(EMPTY_TASKS_UI);
     expect(setters.setLogsUi).toHaveBeenCalledWith(EMPTY_LOGS_UI);
     expect(setters.setProtocolUi).toHaveBeenCalledWith(EMPTY_PROTOCOL_UI);

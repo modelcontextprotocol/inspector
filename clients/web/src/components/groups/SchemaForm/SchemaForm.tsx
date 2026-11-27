@@ -72,6 +72,21 @@ const FieldDescription = Text.withProps({
 // Indented column for a nested object's sub-fields.
 const IndentedStack = Stack.withProps({ gap: "sm", pl: "md" });
 
+// The pickers for a field whose schema enumerates its values (#2982). An enum
+// can run to hundreds of entries, so both filter as you type — Mantine's
+// default filter, a case-insensitive substring match on the option label. The
+// typed text only narrows the list: `onChange` still reports nothing but the
+// schema's own options, so it can never reach the submitted arguments.
+const NO_MATCHING_OPTIONS = "No matching options";
+const EnumSelect = Select.withProps({
+  searchable: true,
+  nothingFoundMessage: NO_MATCHING_OPTIONS,
+});
+const EnumMultiSelect = MultiSelect.withProps({
+  searchable: true,
+  nothingFoundMessage: NO_MATCHING_OPTIONS,
+});
+
 // The picker for a root `oneOf`/`anyOf` (#2123). Not clearable: one branch is
 // always in effect, so "no branch" is not a state the arguments can be in.
 const BranchSelect = Select.withProps({
@@ -1507,7 +1522,7 @@ export function SchemaForm({
     // string with enum
     if (fieldSchema.type === "string" && fieldSchema.enum) {
       return (
-        <Select
+        <EnumSelect
           key={fieldName}
           label={label}
           description={description}
@@ -1528,7 +1543,7 @@ export function SchemaForm({
     if (fieldSchema.type === "string" && oneOfData) {
       const data = oneOfData;
       return (
-        <Select
+        <EnumSelect
           key={fieldName}
           label={label}
           description={description}
@@ -1739,7 +1754,7 @@ export function SchemaForm({
     if (fieldSchema.type === "array" && isStringEnum(itemsEnum)) {
       const data = toEnumData(itemsEnum, fieldSchema.items?.enumNames);
       return (
-        <MultiSelect
+        <EnumMultiSelect
           key={fieldName}
           label={label}
           description={description}
@@ -1759,7 +1774,7 @@ export function SchemaForm({
     if (fieldSchema.type === "array" && itemsAnyOfData) {
       const data = itemsAnyOfData;
       return (
-        <MultiSelect
+        <EnumMultiSelect
           key={fieldName}
           label={label}
           description={description}

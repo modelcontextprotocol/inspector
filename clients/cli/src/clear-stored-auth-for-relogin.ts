@@ -11,6 +11,10 @@ import {
   type TokenRevocationOutcome,
 } from "@inspector/core/auth/revocation.js";
 import { createGuardedFetch } from "@inspector/core/mcp/node/fetchGuard.js";
+import {
+  withServerOriginHeaders,
+  type CustomHeaderRow,
+} from "@inspector/core/auth/serverOriginHeaders.js";
 
 /** Same canonicalisation as CLI `normalizeServerUrl` (avoid cycles). */
 function normalizeServerUrl(serverUrl: string): string {
@@ -41,6 +45,12 @@ export async function clearStoredAuthForRelogin(
      * so the exhaustion path can be exercised without a five-second test.
      */
     budgetMs?: number;
+    /**
+     * The server's custom headers (#2985). This revocation runs before any
+     * `InspectorClient` exists, so nothing else carries them to a revocation
+     * endpoint on the server's own origin.
+     */
+    headers?: readonly CustomHeaderRow[];
   },
 ): Promise<TokenRevocationOutcome | undefined> {
   if (!serverUrl?.trim()) return undefined;
@@ -79,7 +89,18 @@ export async function clearStoredAuthForRelogin(
 
   return options?.revoke === false
     ? undefined
-    : sendPlans(plans, options?.budgetMs ?? DEFAULT_REVOCATION_TIMEOUT_MS);
+    : sendPlans(
+        plans,
+        options?.budgetMs ?? DEFAULT_REVOCATION_TIMEOUT_MS,
+        withServerOriginHeaders(
+          // Revocation endpoints come from authorization-server metadata, so
+          // they get the same destination guard as the rest of OAuth (#2749);
+          // proxy-aware too.
+          createGuardedFetch(),
+          () => raw,
+          () => options?.headers,
+        ),
+      );
 }
 
 /**
@@ -112,10 +133,8 @@ export async function clearStoredAuthForRelogin(
 async function sendPlans(
   plans: OAuthRevocationPlan[],
   budgetMs: number,
+  fetchFn: typeof fetch,
 ): Promise<TokenRevocationOutcome | undefined> {
-  // Revocation endpoints come from authorization-server metadata, so they get
-  // the same destination guard as the rest of OAuth (#2749); proxy-aware too.
-  const fetchFn = createGuardedFetch();
   // Monotonic and epsilon-floored for the same reasons as the shared deadline
   // inside `executeOAuthRevocation` — see MIN_REVOCATION_REQUEST_BUDGET_MS.
   const deadlineAt = performance.now() + budgetMs;

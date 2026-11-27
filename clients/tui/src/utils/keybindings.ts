@@ -142,6 +142,13 @@ export const TAB_BINDINGS: Readonly<Record<TabType, readonly KeyBinding[]>> = {
     { keys: "Enter", action: "Subscribe to or unsubscribe from the resource" },
     ...PANE_SCROLL,
   ],
+  events: [
+    { keys: "↑/↓", action: "Select an event type (list focused)" },
+    { keys: "Enter", action: "Subscribe to the event type (poll or push)" },
+    { keys: "x", action: "Stop the selected type's live subscriptions" },
+    { keys: "l", action: "Clear the occurrence log" },
+    ...PANE_SCROLL,
+  ],
   tasks: [
     { keys: "↑/↓", action: "Select a task (list focused)" },
     { keys: "Enter", action: "Fetch the task's result" },

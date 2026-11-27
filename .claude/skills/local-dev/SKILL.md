@@ -309,8 +309,9 @@ another, and the TUI crashes on the first hook (#1952).
 a `createRequire` banner). ⚠️ **Never justify that exemption by a peer range** —
 it briefly read "its `">=19"` peer keeps npm honest", which is false: a consumer
 pinning React 19.0 satisfies `">=19"` while a narrower range of ours nests
-underneath. What makes it safe is the _root `react` range staying open to the
-whole major_, so npm can dedupe. `clients/tui/__tests__/tsdownConfig.test.ts`
+underneath. What makes it safe is the _root `react` range starting at `ink`'s
+own peer floor and staying open to the rest of the major_ (`^19.3.0` against
+Ink 8's `>=19.3.0`), so npm can dedupe. `clients/tui/__tests__/tsdownConfig.test.ts`
 enforces the whole split, the exemption included.
 
 ### Why a version skew is worth aligning rather than working around

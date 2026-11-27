@@ -41,6 +41,10 @@ import {
 } from "../../../auth/fetchRefusal.js";
 import { redactUrlQuery } from "../../fetchTracking.js";
 import { isRateLimitError } from "../../rateLimit.js";
+import {
+  cancelledRequestIdOf,
+  isUnboundedStreamRequest,
+} from "../streamRequests.js";
 import { terminateSessionBestEffort } from "../../sessionTermination.js";
 import type {
   RemoteConnectRequest,
@@ -1198,9 +1202,22 @@ export function createRemoteApp(
     const requestId = requestIdForSendWait(message);
     let responseWait: Promise<void> | undefined;
     if (requestId !== undefined) {
-      responseWait = session.waitForRequestResponse(requestId);
+      // An `events/stream` is held open for as long as the subscription runs,
+      // so its wait has no timeout; the browser's abort, a cancellation or the
+      // server's final frame ends it (#3029).
+      responseWait = session.waitForRequestResponse(
+        requestId,
+        isUnboundedStreamRequest(message) ? 0 : undefined,
+      );
       // Auth errors may reject the wait via onerror while send() also throws.
       void responseWait.catch(() => {});
+    }
+    // A cancelled request gets no answer: release the `/api/mcp/send` still
+    // holding open for it, which for an unbounded stream would otherwise never
+    // return (#3029).
+    const cancelledId = cancelledRequestIdOf(message);
+    if (cancelledId !== undefined) {
+      session.releaseRequestWait(cancelledId);
     }
 
     // #2140: this route is held open for the whole call, so the browser
@@ -1937,6 +1954,7 @@ export function createRemoteApp(
     enterpriseManaged?: boolean;
     requestRefreshToken?: boolean;
     scopeOnRefresh?: boolean;
+    skipIssuerMetadataValidation?: boolean;
     revokeOnClear?: boolean;
   } => {
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
@@ -1977,6 +1995,13 @@ export function createRemoteApp(
     if (
       o.scopeOnRefresh !== undefined &&
       typeof o.scopeOnRefresh !== "boolean"
+    ) {
+      return false;
+    }
+    // #2983 — shape only; the read side keeps just an explicit `true`.
+    if (
+      o.skipIssuerMetadataValidation !== undefined &&
+      typeof o.skipIssuerMetadataValidation !== "boolean"
     ) {
       return false;
     }
@@ -2123,7 +2148,7 @@ export function createRemoteApp(
       if ("oauth" in valObj && !isOauthObject(valObj.oauth)) {
         logWarn(
           { route: "/api/servers", id, droppedKey: "oauth" },
-          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, scopeOnRefresh?, revokeOnClear? }`.",
+          "Dropping malformed `oauth` field — expected `{ clientId?, clientSecret?, scopes?, authorizationParams?, authorizationUrl?, tokenUrl?, enterpriseManaged?, onInsufficientScope?, requestRefreshToken?, scopeOnRefresh?, skipIssuerMetadataValidation?, revokeOnClear? }`.",
         );
         delete valObj.oauth;
       }
@@ -2474,6 +2499,15 @@ export function createRemoteApp(
       };
     }
     if (
+      obj.oauthSkipIssuerMetadataValidation !== undefined &&
+      typeof obj.oauthSkipIssuerMetadataValidation !== "boolean"
+    ) {
+      return {
+        ok: false,
+        error: "settings.oauthSkipIssuerMetadataValidation must be a boolean",
+      };
+    }
+    if (
       obj.oauthRevokeOnClear !== undefined &&
       typeof obj.oauthRevokeOnClear !== "boolean"
     ) {
@@ -2630,6 +2664,10 @@ export function createRemoteApp(
     // #2805: the default is off, so only the opt-in travels.
     if (obj.oauthScopeOnRefresh === true) {
       value.oauthScopeOnRefresh = true;
+    }
+    // #2983: off by default, so only the opt-in travels.
+    if (obj.oauthSkipIssuerMetadataValidation === true) {
+      value.oauthSkipIssuerMetadataValidation = true;
     }
     // #2144: same shape — the default is on, so only the opt-out travels.
     if (obj.oauthRevokeOnClear === false) {
