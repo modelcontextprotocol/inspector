@@ -159,6 +159,15 @@ skipping it here means the first signal of a broken package arrives too late to
 stop the release. It needs network access; record its result (tarball size and
 the `pack:verify OK` line) for the ledger below.
 
+`pack:verify` is the v2 form of a rule both lines follow: **every published
+package installs and starts from a clean install of its own tarball before the
+merge.** That covers v2 because v2 publishes exactly one package. If v2 ever
+publishes a second one, that package needs the same check before this merge.
+v1 publishes four, and the root install hides any dependency only the root
+declares, so v1 runs this check by hand (v1-1). That check exists because
+`npx -y @modelcontextprotocol/inspector-server` shipped broken from 0.21.0
+through 1.0.6 (#3055).
+
 **Every contribution closed in the milestone gets driven, not read.** The bar is
 observed behavior from the running app — a rendered panel, a status attribute, a
 server's own stderr — against a real test server, through whichever surfaces the
@@ -439,8 +448,11 @@ any point. The two lines publish independently under separate dist-tags, so a v1
 fix does **not** need forward-porting to reach users on
 `npx @modelcontextprotocol/inspector@v1-latest`.
 
-None of the v2 machinery above applies: no milestone-merge PR, no ledger, no
-`release:notes` script, no `package` job. v1 is a four-package npm workspace
+None of the v2 machinery above applies: no milestone-merge PR, no
+`release:notes` script, no `package` job. The release ledger is lighter: v1 has
+no milestone to sweep, so its ledger records the version-field checks, the
+standalone-package check below, and the driven fix (1.0.6 and 1.0.7 each
+published one, linked from the release notes and the v1 release issue). v1 is a four-package npm workspace
 (root, `client/`, `server/`, `cli/`) with its own, older workflow on `v1/main`.
 This procedure was reconstructed for 1.0.3 (#2753) from the earlier releases and
 that workflow, and the first attempt got the tag and the Latest flag wrong —
@@ -461,24 +473,114 @@ uncontrolled dependency update (seen on 1.0.2, #2080). The edits are:
 
 - `version` in the **four** `package.json` files: root, `client/`, `server/`,
   `cli/`.
-- The **three** `@modelcontextprotocol/inspector-{cli,client,server}` ranges in
-  the root `package.json` `dependencies` (`^X.Y.Z`).
-- The **eight** matching fields in `package-lock.json`: the top-level
+- The **four** workspace ranges (`^X.Y.Z`): the three
+  `@modelcontextprotocol/inspector-{cli,client,server}` ranges in the root
+  `package.json` `dependencies`, and the `@modelcontextprotocol/inspector-server`
+  range in `client/package.json` (since 1.0.7, #3059: the client launches the
+  server through it when installed on its own).
+- The **nine** matching fields in `package-lock.json`: the top-level
   `version`, `packages[""].version`, the three ranges under
-  `packages[""].dependencies`, and `packages["cli"|"client"|"server"].version`.
+  `packages[""].dependencies`, the one under `packages["client"].dependencies`,
+  and `packages["cli"|"client"|"server"].version`.
   The `node_modules/@modelcontextprotocol/inspector-*` entries are workspace
   links with no version, so they need no edit.
 
 Then prove the edit is complete and touched nothing else:
 
 ```sh
-npm run check-version                       # every version field agrees
+npm run check-version                       # every version field and workspace range agrees
 cp package-lock.json /tmp/lock-before.json
 npm ci && cmp package-lock.json /tmp/lock-before.json   # silent: npm ci left the lockfile alone
 ```
 
 Compare the lockfile against itself, not against `git status`: the bump is
 still uncommitted here, so the worktree is dirty by design.
+
+**Then prove every package installs and starts from its own tarball.** Run this
+on the bump branch, and get it green **before the bump PR merges**, because the
+tag lands right after the merge. ⚠️ The checks above only prove the version
+fields agree, and every other v1 check exercises the packages through the root
+install, which hoists every dependency the root declares. So a package that
+imports something only the root declares passes all of them and still fails as
+soon as someone runs it on its own. `npx -y @modelcontextprotocol/inspector-server`
+crashed this way (`ERR_MODULE_NOT_FOUND: 'node-fetch'`) in every release from
+0.21.0 through 1.0.6, and nothing caught it until 1.0.7 (#3055). The client was
+worse: `bin/start.js` reached the proxy and its own UI server through
+`../../server` and `../../client`, paths that exist only inside the root package,
+so from its layout `npx @modelcontextprotocol/inspector-client` could not have
+started at all (#3059).
+
+There are two halves, because each catches what the other misses: a scan of the
+shipped files, and a run of each bin.
+
+```sh
+npm run build
+# A fresh root every run. A reused directory keeps the previous run's
+# node_modules, which can supply exactly the dependency this check is looking for.
+R=$(mktemp -d "${TMPDIR:-/tmp}/v1pack.XXXXXX"); mkdir "$R/tgz"
+npm pack --workspaces --include-workspace-root --pack-destination "$R/tgz"
+
+# 1. Scan: every bare import in a package's shipped files must be in that
+#    package's own dependencies. This catches a lazy import that never fails at
+#    startup. The patterns are the statement-shaped ones in
+#    scripts/lib/bundle-bare-imports.mjs (static import/export … from, side-effect
+#    import, dynamic import()), plus require(). They are anchored to the start of
+#    a line, so the word `from` in a comment is not read as an import.
+#    client/dist is a Vite bundle with its dependencies inlined, so only
+#    client/bin is scanned.
+node -e '
+const fs=require("fs"),path=require("path"),{isBuiltin}=require("module");
+const P=[/^(?:import|export)\b[^;]*?\bfrom\s*["\x27]([^"\x27]+)["\x27]/gm,/^import\s*["\x27]([^"\x27]+)["\x27]/gm,/\bimport\(\s*["\x27]([^"\x27]+)["\x27]\s*\)/g,/\brequire\(\s*["\x27]([^"\x27]+)["\x27]\s*\)/g];
+const walk=(d,o=[])=>{for(const f of fs.readdirSync(d,{withFileTypes:true})){const p=path.join(d,f.name);f.isDirectory()?walk(p,o):/\.[cm]?js$/.test(f.name)&&o.push(p);}return o;};
+let bad=0;for(const [ws,dirs] of [["server",["build"]],["client",["bin"]],["cli",["build"]]]){
+ const pj=require("./"+ws+"/package.json"),dec=new Set(Object.keys({...pj.dependencies,...pj.peerDependencies}));
+ for(const d of dirs)for(const f of walk(ws+"/"+d)){const s=fs.readFileSync(f,"utf8");for(const re of P)for(const m of s.matchAll(re)){
+  const x=m[1];if(x.startsWith(".")||x.startsWith("/")||x.includes(":")||isBuiltin(x))continue;
+  const n=x.startsWith("@")?x.split("/").slice(0,2).join("/"):x.split("/")[0];
+  if(!dec.has(n)){console.log(ws+": undeclared "+n+" ("+f+")");bad=1;}}}}
+process.exit(bad);'
+
+# 2. Run: install each tarball into its own empty directory and start its bin.
+#    The client depends on inspector-server@^X.Y.Z, which is not on npm until
+#    the release publishes, so its install takes the server tarball alongside it:
+#    exactly what npm resolves once both are published.
+#    ⚠️ That tarball would also mask a client that never declared the
+#    dependency: it lands in node_modules either way, and the scan cannot see
+#    start.js reach it through createRequire(…).resolve(…). So assert the
+#    declaration and its range first, and stop if it is missing.
+node -e 'const d=require("./client/package.json").dependencies?.["@modelcontextprotocol/inspector-server"];
+if(d!=="^X.Y.Z"){console.error("client/package.json must depend on @modelcontextprotocol/inspector-server ^X.Y.Z, has "+d);process.exit(1)}'
+T="$R/tgz/modelcontextprotocol-inspector"
+inst() { mkdir "$R/$1" && (cd "$R/$1" && npm init -y >/dev/null && shift && npm i "$@"); }
+inst alone-server "$T-server-X.Y.Z.tgz"
+inst alone-cli    "$T-cli-X.Y.Z.tgz"
+inst alone-client "$T-client-X.Y.Z.tgz" "$T-server-X.Y.Z.tgz"
+inst full         "$T-X.Y.Z.tgz" "$T-server-X.Y.Z.tgz" "$T-client-X.Y.Z.tgz" "$T-cli-X.Y.Z.tgz"
+```
+
+The scan must print nothing and exit 0. What each run must show:
+
+| Install | Pass |
+| --- | --- |
+| `inspector-server` alone | `SERVER_PORT=<p> MCP_PROXY_AUTH_TOKEN=<t> node node_modules/@modelcontextprotocol/inspector-server/build/index.js` answers `GET /health` with `{"status":"ok"}`. Drive a release's server fix through `POST /fetch` on this install as well as on the built tree. |
+| `inspector-cli` alone | `./node_modules/.bin/mcp-inspector-cli --help` prints `Usage:` |
+| `inspector-client` alone | `./node_modules/.bin/mcp-inspector-client` with `SERVER_PORT`/`CLIENT_PORT`/`MCP_PROXY_AUTH_TOKEN` set: the UI serves `GET /` with 200, and the proxy it launched answers `/health`. There is no sibling `server/` in this install, so this proves the proxy came from the `inspector-server` dependency. |
+| All four together | `./node_modules/.bin/mcp-inspector` with the same variables, on **different** ports: the UI serves `GET /` with 200 and the proxy `/health` is ok. This is the published shape. |
+
+⚠️ **Give each UI run its own `SERVER_PORT` and `CLIENT_PORT`, and stop the
+previous run before starting the next.** A process left over from the client
+row still answers on its ports, so a full install that failed to bind would
+borrow its 200s and pass falsely. Before counting a row, confirm its own log
+prints `Proxy server listening on localhost:<its SERVER_PORT>` and
+`MCP Inspector is up and running` with no `EADDRINUSE`, and that the process is
+still alive when you curl it.
+
+Set `MCP_AUTO_OPEN_ENABLED=false` on the two UI runs, or each one opens a
+browser tab.
+
+A failure is a fix PR against `v1/main`, merged **before** the bump (v1-2). Record
+the scan output and each row's observed result in the v1 release ledger, and
+link it from the v1 release issue.
 
 ### v1-2. Merge order: the bump merges last
 
