@@ -604,6 +604,7 @@ export async function runMethod(
       return eventsStreamOutcome(inspectorClient, eventType, {
         arguments: args.eventArgs,
         cursor: args.cursor,
+        metadata: args.metadata,
       });
     } else if (args.method === "roots/list") {
       result = { roots: inspectorClient.getRoots() };

@@ -354,6 +354,29 @@ describe("events/stream through runMethod (#3032)", () => {
     expect(end).not.toHaveBeenCalled();
   });
 
+  it("sends --metadata on the events/stream request, not only on the lookup (#3062)", async () => {
+    const url = await startFixture();
+    const client = await connect(url);
+    const stream = vi.spyOn(client, "streamEvents");
+    const list = vi.spyOn(client, "listAllEvents");
+    const metadata = { "com.example/trace": "abc" };
+    const outcome = await runMethod(client, {
+      method: "events/stream",
+      eventName: EVENT_TYPE_NAMES.allModes,
+      metadata,
+    });
+    if (outcome.kind !== "stream") throw new Error("expected a stream");
+    const lines: Line[] = [];
+    const stop = outcome.start((line) => lines.push(line as Line));
+    await vi.waitFor(() =>
+      expect(lines.some((l) => l.type === "active")).toBe(true),
+    );
+    expect(list.mock.calls[0]![0]).toMatchObject({ metadata });
+    expect(stream).toHaveBeenCalled();
+    expect(stream.mock.calls[0]![2]).toMatchObject({ metadata });
+    stop();
+  });
+
   it("ends the stream on its own when the server terminates it", async () => {
     const url = await startFixture();
     const client = await connect(url);

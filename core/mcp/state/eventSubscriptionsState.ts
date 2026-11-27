@@ -55,6 +55,7 @@
 import type { jsonSchemaValidator } from "@modelcontextprotocol/client";
 import type { InspectorClientProtocol } from "../inspectorClientProtocol.js";
 import type { InspectorClientEventMap } from "../inspectorClientEventTarget.js";
+import type { RequestMetadata } from "../types.js";
 import {
   TypedEventTarget,
   type TypedEventGeneric,
@@ -160,6 +161,12 @@ export interface EventSubscribeOptions {
   heartbeatMs?: number;
   /** Webhook only, and required for it: where and how to deliver. */
   webhook?: EventWebhookOptions;
+  /**
+   * Request `_meta` sent on every request this subscription makes: the first
+   * poll, stream or subscribe, every reconnect and refresh, and a webhook's
+   * unsubscribe. Omitted on a resume, the previous run's metadata is kept.
+   */
+  metadata?: RequestMetadata;
 }
 
 /** What a webhook subscription is created with. */
@@ -303,6 +310,8 @@ interface Entry {
   seen: Set<string>;
   /** Webhook: the signing secret, kept off the snapshot. */
   secret?: string;
+  /** Request `_meta` for every request this subscription sends (#3062). */
+  metadata?: RequestMetadata;
 }
 
 export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptionsStateEventMap> {
@@ -475,11 +484,15 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         reconnects: 0,
       },
     };
+    // A resume keeps the metadata its first run was started with, unless the
+    // caller passes new metadata.
+    const metadata = options.metadata ?? existing?.metadata;
     const entry: Entry = {
       snapshot,
       runner: undefined,
       seen: existing?.seen ?? new Set(),
       ...(secret !== undefined && { secret }),
+      ...(metadata !== undefined && { metadata }),
     };
     this.entries.set(id, entry);
     this.run(entry);
@@ -626,10 +639,14 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
     };
     const unsubscribeEvents = client.unsubscribeEvents.bind(client);
     const send = (): Promise<void> =>
-      unsubscribeEvents(entry.snapshot.eventType, {
-        arguments: entry.snapshot.arguments,
-        delivery: { url: webhook.url },
-      });
+      unsubscribeEvents(
+        entry.snapshot.eventType,
+        {
+          arguments: entry.snapshot.arguments,
+          delivery: { url: webhook.url },
+        },
+        ...(entry.metadata !== undefined ? [{ metadata: entry.metadata }] : []),
+      );
     // `then(send)` also turns a synchronous throw into a rejection.
     idle.then(send).then(
       () => settle({ status: "done" }),
@@ -672,6 +689,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
       random: this.options.random,
     };
     const eventType = snapshot.eventType;
+    // Sent on every request the runner makes, reconnects and refreshes
+    // included, not only on the first one (#3062).
+    const { metadata } = entry;
+    const withMetadata = metadata !== undefined ? { metadata } : {};
     if (snapshot.mode === "webhook") {
       // `subscribe` set both for every webhook entry.
       const webhook = snapshot.webhook!;
@@ -691,7 +712,10 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         },
         cursor: snapshot.cursor,
         subscribe: (params, signal) =>
-          client.subscribeEvents!(eventType, params, { signal }),
+          client.subscribeEvents!(eventType, params, {
+            signal,
+            ...withMetadata,
+          }),
         callbacks,
       });
     } else if (snapshot.mode === "poll") {
@@ -710,7 +734,7 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
         pollFloorMs: this.options.pollFloorMs,
         // `subscribe` checked the method exists before creating the entry.
         poll: (params, signal) =>
-          client.pollEvents!(eventType, params, undefined, { signal }),
+          client.pollEvents!(eventType, params, metadata, { signal }),
         callbacks,
       });
     } else {
@@ -738,6 +762,7 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
           client.streamEvents!(eventType, params, {
             signal,
             onSubscriptionId,
+            ...withMetadata,
           }),
         routes,
         callbacks,
