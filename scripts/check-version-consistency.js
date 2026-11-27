@@ -80,25 +80,28 @@ if (uniqueVersions.length > 1) {
   console.log(`   ✅ All packages are at version: ${uniqueVersions[0]}`);
 }
 
-// Check workspace dependencies in root package.json
+// Check workspace dependencies in every package.json: the root depends on all
+// three workspaces, and inspector-client depends on inspector-server.
 const rootPackage = versions.get("package.json");
 if (rootPackage) {
   console.log("\n🔗 Checking workspace dependencies...");
   const expectedVersion = rootPackage.version;
   let dependencyErrors = false;
 
-  Object.entries(rootPackage.dependencies).forEach(([dep, version]) => {
-    if (dep.startsWith("@modelcontextprotocol/inspector-")) {
-      const expectedDepVersion = `^${expectedVersion}`;
-      if (version !== expectedDepVersion) {
-        console.error(
-          `   ❌ ${dep}: ${version} (expected ${expectedDepVersion})`,
-        );
-        dependencyErrors = true;
-      } else {
-        console.log(`   ✅ ${dep}: ${version}`);
+  versions.forEach((info, packagePath) => {
+    Object.entries(info.dependencies).forEach(([dep, version]) => {
+      if (dep.startsWith("@modelcontextprotocol/inspector-")) {
+        const expectedDepVersion = `^${expectedVersion}`;
+        if (version !== expectedDepVersion) {
+          console.error(
+            `   ❌ ${packagePath} → ${dep}: ${version} (expected ${expectedDepVersion})`,
+          );
+          dependencyErrors = true;
+        } else {
+          console.log(`   ✅ ${packagePath} → ${dep}: ${version}`);
+        }
       }
-    }
+    });
   });
 
   if (dependencyErrors) {
@@ -145,6 +148,22 @@ if (!fs.existsSync(lockPath)) {
           );
           lockFileError = true;
         }
+      });
+
+      // Workspace-to-workspace ranges in the lock file, root and workspaces alike
+      ["", ...workspacePackages.map(({ path }) => path)].forEach((path) => {
+        const deps = lockFile.packages[path]?.dependencies || {};
+        Object.entries(deps).forEach(([dep, range]) => {
+          if (
+            dep.startsWith("@modelcontextprotocol/inspector-") &&
+            range !== `^${expectedVersion}`
+          ) {
+            console.error(
+              `   ❌ lock file packages["${path}"] → ${dep}: ${range} (expected ^${expectedVersion})`,
+            );
+            lockFileError = true;
+          }
+        });
       });
     }
   } catch (error) {

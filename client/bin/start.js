@@ -5,8 +5,26 @@ import { resolve, dirname } from "path";
 import { spawnPromise, spawn } from "spawn-rx";
 import { fileURLToPath } from "url";
 import { randomBytes } from "crypto";
+import { existsSync } from "fs";
+import { createRequire } from "module";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// The proxy this launcher starts. Inside the root @modelcontextprotocol/inspector
+// package (and in the monorepo) the server is a sibling directory, ../../server.
+// Installed on its own (npx @modelcontextprotocol/inspector-client), this package
+// sits at node_modules/@modelcontextprotocol/inspector-client, where ../.. has no
+// server in it, so the server comes from its declared inspector-server
+// dependency instead (#3059).
+function resolveInspectorServerPath() {
+  const sibling = resolve(__dirname, "../..", "server", "build", "index.js");
+  if (existsSync(sibling)) {
+    return sibling;
+  }
+  return createRequire(import.meta.url).resolve(
+    "@modelcontextprotocol/inspector-server/build/index.js",
+  );
+}
 const DEFAULT_MCP_PROXY_LISTEN_PORT = "6277";
 
 // Only an explicit truthy value disables auth; unset, empty, "false", "0" and
@@ -101,13 +119,7 @@ async function startProdServer(serverOptions) {
     transport,
     serverUrl,
   } = serverOptions;
-  const inspectorServerPath = resolve(
-    __dirname,
-    "../..",
-    "server",
-    "build",
-    "index.js",
-  );
+  const inspectorServerPath = resolveInspectorServerPath();
 
   const server = spawnPromise(
     "node",
@@ -211,13 +223,10 @@ async function startProdClient(clientOptions) {
     abort,
     cancelled,
   } = clientOptions;
-  const inspectorClientPath = resolve(
-    __dirname,
-    "../..",
-    "client",
-    "bin",
-    "client.js",
-  );
+  // The UI server is the file next to this one. (It used to be reached as
+  // ../../client/bin/client.js, the same file inside the root package but a
+  // missing one when this package is installed on its own.)
+  const inspectorClientPath = resolve(__dirname, "client.js");
 
   const url = getClientUrl(
     CLIENT_PORT,
