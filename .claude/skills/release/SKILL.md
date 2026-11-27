@@ -544,6 +544,12 @@ process.exit(bad);'
 #    The client depends on inspector-server@^X.Y.Z, which is not on npm until
 #    the release publishes, so its install takes the server tarball alongside it:
 #    exactly what npm resolves once both are published.
+#    ⚠️ That tarball would also mask a client that never declared the
+#    dependency: it lands in node_modules either way, and the scan cannot see
+#    start.js reach it through createRequire(…).resolve(…). So assert the
+#    declaration and its range first, and stop if it is missing.
+node -e 'const d=require("./client/package.json").dependencies?.["@modelcontextprotocol/inspector-server"];
+if(d!=="^X.Y.Z"){console.error("client/package.json must depend on @modelcontextprotocol/inspector-server ^X.Y.Z, has "+d);process.exit(1)}'
 T="$R/tgz/modelcontextprotocol-inspector"
 inst() { mkdir "$R/$1" && (cd "$R/$1" && npm init -y >/dev/null && shift && npm i "$@"); }
 inst alone-server "$T-server-X.Y.Z.tgz"
