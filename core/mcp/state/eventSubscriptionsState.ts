@@ -293,10 +293,12 @@ export interface EventSubscriptionsStateOptions extends RunnerTiming {
   pollFloorMs?: number;
   /**
    * Re-list the event types after a contract-changing termination. Defaults to
-   * a full `listAllEvents()` walk; a host with a managed events list passes its
-   * refresh, so the list it shows is the one the offer was based on.
+   * a full `listAllEvents()` walk with the terminated subscription's request
+   * metadata (#3062); a host with a managed events list passes its refresh, so
+   * the list it shows is the one the offer was based on. It receives that
+   * metadata and may ignore it, since a shared list is not one subscription's.
    */
-  relist?: () => Promise<EventType[]>;
+  relist?: (metadata?: RequestMetadata) => Promise<EventType[]>;
 }
 
 export const DEFAULT_MAX_EVENT_LOG_ENTRIES = 1000;
@@ -876,10 +878,15 @@ export class EventSubscriptionsState extends TypedEventTarget<EventSubscriptions
   private relistAfter(entry: Entry): void {
     const relist =
       this.options.relist ??
-      (async () => (await this.requireClient().listAllEvents!()).events);
+      (async (metadata?: RequestMetadata) =>
+        (
+          await this.requireClient().listAllEvents!(
+            metadata !== undefined ? { metadata } : undefined,
+          )
+        ).events);
     let pending: Promise<EventType[]>;
     try {
-      pending = relist();
+      pending = relist(entry.metadata);
     } catch (err) {
       pending = Promise.reject(err);
     }

@@ -450,6 +450,32 @@ describe("EventSubscriptionsState (#3029)", () => {
       }
     });
 
+    it("re-lists with it after a contract-changing termination", async () => {
+      state.subscribe(typed, { mode: "push", metadata: META });
+      const first = client.lastStream();
+      client.eventPages.push({ events: [typed], excluded: [] });
+      client.notify(EVENTS_TERMINATED_NOTIFICATION, first.id, {
+        error: { code: EVENTS_ERROR_CODES.NotFound, message: "gone" },
+      });
+      await flush();
+      expect(client.listAllEvents).toHaveBeenCalledWith({ metadata: META });
+    });
+
+    it("hands it to an injected relist", async () => {
+      const relist = vi.fn(async () => [typed]);
+      const hosted = new EventSubscriptionsState(client, {
+        random: () => 0,
+        relist,
+      });
+      hosted.subscribe(typed, { mode: "push", metadata: META });
+      client.notify(EVENTS_TERMINATED_NOTIFICATION, client.lastStream().id, {
+        error: { code: EVENTS_ERROR_CODES.NotFound, message: "gone" },
+      });
+      await flush();
+      expect(relist).toHaveBeenCalledWith(META);
+      hosted.destroy();
+    });
+
     it("sends none when the caller gave none", async () => {
       state.subscribe(typed, { mode: "poll" });
       await flush();
