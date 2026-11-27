@@ -58,8 +58,9 @@ packagePaths.forEach((packagePath) => {
     const oldVersion = packageJson.version;
     packageJson.version = newVersion;
 
-    // Update workspace dependencies in root package.json
-    if (packagePath === "package.json" && packageJson.dependencies) {
+    // Update workspace dependencies in every package.json: the root depends on
+    // all three workspaces, and inspector-client depends on inspector-server.
+    if (packageJson.dependencies) {
       Object.keys(packageJson.dependencies).forEach((dep) => {
         if (dep.startsWith("@modelcontextprotocol/inspector-")) {
           packageJson.dependencies[dep] = `^${newVersion}`;
