@@ -205,6 +205,40 @@ describe("EventSubscriptionsState webhook (#3031)", () => {
     expect(state.refreshWebhook("nope")).toBe(false);
   });
 
+  it("sends request metadata on subscribe, every refresh and the unsubscribe (#3062)", async () => {
+    const META = { "com.example/trace": "abc" };
+    client.subscribeResults.push(
+      {
+        id: "sub_1",
+        refreshBefore: new Date(NOW + HOUR).toISOString(),
+        cursor: "c1",
+        truncated: false,
+      },
+      {
+        id: "sub_1",
+        refreshBefore: new Date(NOW + 2 * HOUR).toISOString(),
+        cursor: "c2",
+        truncated: false,
+      },
+    );
+    const sub = state.subscribe(hooked, {
+      mode: "webhook",
+      webhook: { url: URL_A },
+      metadata: META,
+    });
+    await flush();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(client.subscribeEvents).toHaveBeenCalledTimes(2);
+    for (const call of client.subscribeEvents.mock.calls) {
+      expect(call[2]).toMatchObject({ metadata: META });
+    }
+    state.stop(sub.id);
+    await Promise.resolve(); // the teardown is sent a microtask later
+    expect(client.unsubscribeEvents.mock.calls[0]![2]).toEqual({
+      metadata: META,
+    });
+  });
+
   describe("stop, resume, remove", () => {
     it("unsubscribes on stop, and resumes with the same secret and cursor", async () => {
       client.subscribeResults.push({
