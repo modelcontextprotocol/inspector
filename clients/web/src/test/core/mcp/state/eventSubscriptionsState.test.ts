@@ -423,6 +423,83 @@ describe("EventSubscriptionsState (#3029)", () => {
     });
   });
 
+  describe("request metadata (#3062)", () => {
+    const META = { "com.example/trace": "abc" };
+
+    it("sends it on a push stream and on every reconnect", async () => {
+      state.subscribe(typed, { mode: "push", metadata: META });
+      expect(client.streamEvents.mock.calls[0]![2]).toMatchObject({
+        metadata: META,
+      });
+      client.lastStream().reject(new Error("ECONNRESET"));
+      await flush();
+      await flush();
+      expect(client.streamEvents).toHaveBeenCalledTimes(2);
+      expect(client.streamEvents.mock.calls[1]![2]).toMatchObject({
+        metadata: META,
+      });
+    });
+
+    it("sends it on every poll", async () => {
+      state.subscribe(typed, { mode: "poll", metadata: META });
+      await flush();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(client.pollEvents.mock.calls.length).toBeGreaterThanOrEqual(2);
+      for (const call of client.pollEvents.mock.calls) {
+        expect(call[2]).toEqual(META);
+      }
+    });
+
+    it("re-lists with it after a contract-changing termination", async () => {
+      state.subscribe(typed, { mode: "push", metadata: META });
+      const first = client.lastStream();
+      client.eventPages.push({ events: [typed], excluded: [] });
+      client.notify(EVENTS_TERMINATED_NOTIFICATION, first.id, {
+        error: { code: EVENTS_ERROR_CODES.NotFound, message: "gone" },
+      });
+      await flush();
+      expect(client.listAllEvents).toHaveBeenCalledWith({ metadata: META });
+    });
+
+    it("hands it to an injected relist", async () => {
+      const relist = vi.fn(async () => [typed]);
+      const hosted = new EventSubscriptionsState(client, {
+        random: () => 0,
+        relist,
+      });
+      hosted.subscribe(typed, { mode: "push", metadata: META });
+      client.notify(EVENTS_TERMINATED_NOTIFICATION, client.lastStream().id, {
+        error: { code: EVENTS_ERROR_CODES.NotFound, message: "gone" },
+      });
+      await flush();
+      expect(relist).toHaveBeenCalledWith(META);
+      hosted.destroy();
+    });
+
+    it("sends none when the caller gave none", async () => {
+      state.subscribe(typed, { mode: "poll" });
+      await flush();
+      expect(client.pollEvents.mock.calls[0]![2]).toBeUndefined();
+      state.subscribe(typed, { mode: "push" });
+      expect(client.streamEvents.mock.calls[0]![2]?.metadata).toBeUndefined();
+    });
+
+    it("keeps it across a resume that omits it, and takes new metadata over it", async () => {
+      const sub = state.subscribe(typed, { mode: "poll", metadata: META });
+      await flush();
+      state.stop(sub.id);
+      state.subscribe(typed, { mode: "poll" });
+      await flush();
+      expect(client.pollEvents.mock.calls[1]![2]).toEqual(META);
+
+      const NEXT = { "com.example/trace": "def" };
+      state.stop(sub.id);
+      state.subscribe(typed, { mode: "poll", metadata: NEXT });
+      await flush();
+      expect(client.pollEvents.mock.calls[2]![2]).toEqual(NEXT);
+    });
+  });
+
   describe("stop, resume, remove", () => {
     it("stops a running subscription, keeps its cursor, and resumes it", async () => {
       client.pollResults.push(polled({ cursor: "kept" }));

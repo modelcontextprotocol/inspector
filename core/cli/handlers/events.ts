@@ -235,7 +235,12 @@ function activeLine(subscription: EventSubscription): Record<string, unknown> {
 export function eventsStreamOutcome(
   client: InspectorClient,
   eventType: EventType,
-  args: { arguments?: Record<string, JsonValue>; cursor?: string },
+  args: {
+    arguments?: Record<string, JsonValue>;
+    cursor?: string;
+    /** `--metadata`: sent on the stream and on every reconnect (#3062). */
+    metadata?: RequestMetadata;
+  },
 ): MethodOutcome {
   return {
     kind: "stream",
@@ -294,6 +299,7 @@ export function eventsStreamOutcome(
           arguments: eventArgs,
           // Omitted → the engine's `null` ("start from now").
           ...(args.cursor !== undefined && { cursor: args.cursor }),
+          ...(args.metadata !== undefined && { metadata: args.metadata }),
         });
       } catch (error) {
         stop();
