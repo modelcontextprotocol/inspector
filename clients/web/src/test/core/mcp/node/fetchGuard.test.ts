@@ -43,6 +43,29 @@ describe("isBlockedAddress", () => {
     "192.0.0.192",
     "::ffff:192.0.0.192",
     "::ffff:c000:c0",
+    // Non-canonical spellings `isIP` accepts are matched on their value.
+    "0:0:0:0:0:ffff:a9fe:a9fe",
+    "0000::FFFF:169.254.169.254",
+    "fe80::1%eth0",
+    // The top of fe80::/10.
+    "febf::1",
+    "fd00:0ec2:0:0:0:0:0:0254",
+    // NAT64 (RFC 6052 well-known prefix) forms of every metadata address, in
+    // the hex form WHATWG URL serializes to and the dotted form.
+    "64:ff9b::a9fe:a9fe",
+    "64:ff9b::169.254.169.254",
+    "64:ff9b::6464:64c8",
+    "64:ff9b::100.100.100.200",
+    "64:ff9b::c000:c0",
+    "64:ff9b::192.0.0.192",
+    // ...and their non-canonical spellings.
+    "64:ff9b:0:0:0:0:a9fe:a9fe",
+    "0064:ff9b:0000::a9fe:a9fe",
+    "64:FF9B::A9FE:A9FE",
+    "64:ff9b:0:0:0:0:169.254.169.254",
+    // The RFC 8215 local-use prefix, /96 layout.
+    "64:ff9b:1::a9fe:a9fe",
+    "64:ff9b:1:abcd::169.254.169.254",
   ])("blocks %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(true);
   });
@@ -68,6 +91,18 @@ describe("isBlockedAddress", () => {
     "::ffff:100.100.100.100",
     "::ffff:6464:6464",
     "192.0.0.193",
+    // NAT64 of a public address is an ordinary destination.
+    "64:ff9b::808:808",
+    "64:ff9b::8.8.8.8",
+    "64:ff9b:1::808:808",
+    // Not a NAT64 prefix: the IPv4-looking tail means nothing here.
+    "64:ff9c::a9fe:a9fe",
+    "64:ff9b:2::a9fe:a9fe",
+    "64:ff9b:0:0:1::a9fe:a9fe",
+    "2001:db8::a9fe:a9fe",
+    "fd00:ec2::",
+    // fe8::1 is group 0x0fe8, below fe80::/10.
+    "fe8::1",
   ])("allows %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(false);
   });

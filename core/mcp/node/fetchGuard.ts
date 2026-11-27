@@ -11,8 +11,9 @@
  *  - **Scheme:** `http:` and `https:` only, on every hop.
  *  - **Destinations:** link-local and metadata addresses only —
  *    `169.254.0.0/16`, the cloud metadata services that sit outside it
- *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped IPv6 forms of all of
- *    those, `fe80::/10` and `fd00:ec2::254` ({@link isBlockedAddress}).
+ *    (`100.100.100.200`, `192.0.0.192`), the IPv4-mapped and NAT64 IPv6
+ *    forms of all of those, `fe80::/10` and `fd00:ec2::254`
+ *    ({@link isBlockedAddress}).
  *    Loopback, RFC 1918 and CGNAT space stay reachable on purpose: local and
  *    LAN MCP servers and authorization servers are legitimate targets.
  *  - **Redirects:** followed here, with `redirect: "manual"`, so each hop is
@@ -128,6 +129,10 @@ const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
  *    fixed address *outside* link-local, so the range above misses them
  *  - `::ffff:` IPv4-mapped forms of every IPv4 address above, in both the
  *    dotted and the hex serialization
+ *  - NAT64 forms of the same addresses, under the RFC 6052 well-known prefix
+ *    `64:ff9b::/96` and the RFC 8215 local-use prefix `64:ff9b:1::/48`
+ *    ({@link nat64Embedded}): on a host with NAT64 egress,
+ *    `64:ff9b::a9fe:a9fe` *is* `169.254.169.254`
  *  - `fe80::/10` (IPv6 link-local)
  *  - `fd00:ec2::254` (the AWS IPv6 IMDS)
  *
@@ -135,6 +140,11 @@ const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
  * enclosing range: `100.100.100.200` sits in `100.64.0.0/10`, the CGNAT block
  * Tailscale also uses (its MagicDNS resolver is `100.100.100.100`), and a
  * tailnet MCP or authorization server is as legitimate a target as a LAN one.
+ *
+ * Every IPv6 form is matched on its parsed value ({@link ipv6Groups}), not
+ * its spelling, so the non-canonical spellings `isIP` accepts — leading
+ * zeros, an uncompressed run of zero groups, uppercase, a dotted tail — are
+ * caught as well as the canonical one.
  *
  * Anything that is not an IP address returns `false`; names are resolved
  * before they are checked.
@@ -147,22 +157,74 @@ export function isBlockedAddress(ip: string): boolean {
   }
   if (kind !== 6) return false;
 
-  const addr = ip.toLowerCase();
-  const mapped = /^::ffff:(.+)$/.exec(addr);
-  if (mapped) {
-    const tail = mapped[1];
-    if (isIP(tail) === 4) return isBlockedAddress(tail);
-    const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(tail);
-    if (hex) {
-      const high = parseInt(hex[1], 16);
-      const low = parseInt(hex[2], 16);
-      return isBlockedAddress(
-        `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`,
-      );
-    }
+  const groups = ipv6Groups(ip);
+  // ::ffff:0:0/96, the IPv4-mapped range, and the NAT64 prefixes both carry
+  // an IPv4 address in the low 32 bits; the verdict is that address's.
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
+  const highZero = g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0;
+  if ((highZero && g5 === 0xffff) || nat64Embedded(groups)) {
+    return isBlockedAddress(`${g6 >> 8}.${g6 & 0xff}.${g7 >> 8}.${g7 & 0xff}`);
   }
-  if (/^fe[89ab]/.test(addr)) return true; // fe80::/10
-  return addr === "fd00:ec2::254";
+  if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10
+  // fd00:ec2::254
+  return (
+    g0 === 0xfd00 &&
+    g1 === 0xec2 &&
+    g2 === 0 &&
+    g3 === 0 &&
+    g4 === 0 &&
+    g5 === 0 &&
+    g6 === 0 &&
+    g7 === 0x254
+  );
+}
+
+/**
+ * Whether an IPv6 address (as {@link ipv6Groups}) is a NAT64 address whose
+ * IPv4 destination is its low 32 bits.
+ *
+ *  - `64:ff9b::/96`, the RFC 6052 well-known prefix, is a /96 by definition,
+ *    so the IPv4 address is always the low 32 bits.
+ *  - `64:ff9b:1::/48`, the RFC 8215 local-use prefix, is included because it
+ *    exists for exactly this translation and has no other use: an address in
+ *    it is never a legitimate destination of its own. An operator carves a
+ *    NAT64 prefix out of it, and the /96 that RFC 6052 recommends puts the
+ *    IPv4 address in the low 32 bits as above. A shorter carve-out (/48,
+ *    /56 or /64) is not decoded, because which layout an address uses is
+ *    not recoverable from the address itself. Those layouts put the IPv4
+ *    address elsewhere (split around the reserved `u` octet for /48 and /56,
+ *    wholly after it for /64) and zero the suffix, so their low 32 bits read
+ *    as `d.0.0.0` or `0.0.0.0` and are not blocked.
+ */
+function nat64Embedded(groups: readonly number[]): boolean {
+  const [g0, g1, g2, g3, g4, g5] = groups;
+  if (g0 !== 0x64 || g1 !== 0xff9b) return false;
+  return g2 === 1 || (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0);
+}
+
+/**
+ * The eight 16-bit groups of an address `isIP` has already accepted as IPv6,
+ * whatever its spelling: a zone index is dropped, a dotted IPv4 tail becomes
+ * the last two groups, and a `::` expands to the zero groups it stands for.
+ */
+function ipv6Groups(ip: string): number[] {
+  let addr = ip.replace(/%.*$/, "");
+  const lastColon = addr.lastIndexOf(":");
+  const tail = addr.slice(lastColon + 1);
+  if (tail.includes(".")) {
+    const [a, b, c, d] = tail.split(".").map(Number);
+    const high = ((a << 8) | b).toString(16);
+    const low = ((c << 8) | d).toString(16);
+    addr = `${addr.slice(0, lastColon + 1)}${high}:${low}`;
+  }
+  const toGroups = (part: string): number[] =>
+    part === "" ? [] : part.split(":").map((g) => parseInt(g, 16));
+  const halves = addr.split("::");
+  if (halves.length === 1) return toGroups(addr);
+  const head = toGroups(halves[0]);
+  const rest = toGroups(halves[1]);
+  const zeros = new Array<number>(8 - head.length - rest.length).fill(0);
+  return [...head, ...zeros, ...rest];
 }
 
 /** Throws a {@link FetchTargetError} naming the first blocked address. */
