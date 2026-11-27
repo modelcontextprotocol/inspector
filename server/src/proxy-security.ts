@@ -54,7 +54,7 @@ const METADATA_IPV4_ADDRESSES: ReadonlySet<string> = new Set([
  *    the dotted and the hex serialization
  *  - NAT64 variants of the same addresses, under the RFC 6052 well-known
  *    prefix 64:ff9b::/96 and the RFC 8215 local-use prefix 64:ff9b:1::/48
- *    (see `isNat64Embedded`): on a host with NAT64 egress,
+ *    (see `nat64EmbeddedIpv4s`): on a host with NAT64 egress,
  *    64:ff9b::a9fe:a9fe *is* 169.254.169.254
  *  - fe80::/10  (IPv6 link-local)
  *  - fd00:ec2::254  (AWS IPv6 instance-metadata)
@@ -81,13 +81,19 @@ export function isBlockedProxyAddress(ip: string): boolean {
     const groups = ipv6Groups(ip);
     const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
 
-    // IPv4-mapped (::ffff:0:0/96) and NAT64 addresses both carry an IPv4
-    // address in the low 32 bits; the verdict is that address's.
+    // IPv4-mapped (::ffff:0:0/96) addresses carry an IPv4 address in the low
+    // 32 bits; the verdict is that address's.
     const highZero = g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0;
-    if ((highZero && g5 === 0xffff) || isNat64Embedded(groups)) {
+    if (highZero && g5 === 0xffff) {
       return isBlockedProxyAddress(
         `${g6 >> 8}.${g6 & 0xff}.${g7 >> 8}.${g7 & 0xff}`,
       );
+    }
+
+    // A NAT64 address is blocked if any IPv4 address it may embed is.
+    const embedded = nat64EmbeddedIpv4s(groups);
+    if (embedded !== undefined) {
+      return embedded.some((ipv4) => isBlockedProxyAddress(ipv4));
     }
 
     if ((g0 & 0xffc0) === 0xfe80) return true; // fe80::/10
@@ -107,26 +113,46 @@ export function isBlockedProxyAddress(ip: string): boolean {
 }
 
 /**
- * Whether an IPv6 address (as `ipv6Groups`) is a NAT64 address whose IPv4
- * destination is its low 32 bits.
- *
- *  - 64:ff9b::/96, the RFC 6052 well-known prefix, is a /96 by definition, so
- *    the IPv4 address is always the low 32 bits.
- *  - 64:ff9b:1::/48, the RFC 8215 local-use prefix, is included because it
- *    exists for exactly this translation and has no other use: an address in
- *    it is never a legitimate destination of its own. An operator carves a
- *    NAT64 prefix out of it, and the /96 that RFC 6052 recommends puts the
- *    IPv4 address in the low 32 bits as above. A shorter carve-out (/48,
- *    /56 or /64) is not decoded, because which layout an address uses is
- *    not recoverable from the address itself. Those layouts put the IPv4
- *    address elsewhere (split around the reserved `u` octet for /48 and /56,
- *    wholly after it for /64) and zero the suffix, so their low 32 bits read
- *    as `d.0.0.0` or `0.0.0.0` and are not blocked.
+ * Where RFC 6052 §2.2 puts the embedded IPv4 address, as byte offsets into
+ * the IPv6 address, for a NAT64 prefix of each length. Byte 8 (bits 64-71)
+ * is the reserved `u` octet, which every layout skips.
  */
-function isNat64Embedded(groups: readonly number[]): boolean {
+const NAT64_LAYOUT_96: readonly number[] = [12, 13, 14, 15];
+const NAT64_LOCAL_USE_LAYOUTS: readonly (readonly number[])[] = [
+  [6, 7, 9, 10], // /48: two octets before `u`, two after
+  [7, 9, 10, 11], // /56: one octet before `u`, three after
+  [9, 10, 11, 12], // /64: all four after `u`
+  NAT64_LAYOUT_96, // /96: the low 32 bits
+];
+
+/**
+ * The IPv4 addresses a NAT64 address (as `ipv6Groups`) may embed, or
+ * `undefined` when it is not a NAT64 address.
+ *
+ *  - `64:ff9b::/96`, the RFC 6052 well-known prefix, is a /96 by definition,
+ *    so it embeds one address, in the low 32 bits.
+ *  - `64:ff9b:1::/48`, the RFC 8215 local-use prefix, exists for exactly this
+ *    translation and has no other use. An operator carves a NAT64 prefix of
+ *    any RFC 6052 length from /48 to /96 out of it, and which one it chose is
+ *    not recoverable from the address, so every layout is decoded and the
+ *    caller blocks the address if any decoding is blocked. That fails closed
+ *    on the ambiguity without blocking the whole /48, which would cut off
+ *    every destination behind such a translator. The cost is a rare false
+ *    refusal, where another layout's decoding of a public destination lands
+ *    in a blocked range (`a.169.254.d` under /48 reads as `169.254.d.0`
+ *    under /56).
+ */
+function nat64EmbeddedIpv4s(groups: readonly number[]): string[] | undefined {
   const [g0, g1, g2, g3, g4, g5] = groups;
-  if (g0 !== 0x64 || g1 !== 0xff9b) return false;
-  return g2 === 1 || (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0);
+  if (g0 !== 0x64 || g1 !== 0xff9b) return undefined;
+  const bytes = groups.flatMap((g) => [g >> 8, g & 0xff]);
+  const decode = (offsets: readonly number[]): string =>
+    offsets.map((offset) => bytes[offset]).join(".");
+  if (g2 === 1) return NAT64_LOCAL_USE_LAYOUTS.map(decode);
+  if (g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) {
+    return [decode(NAT64_LAYOUT_96)];
+  }
+  return undefined;
 }
 
 /**
