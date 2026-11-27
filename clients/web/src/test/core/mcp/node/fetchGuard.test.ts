@@ -66,6 +66,17 @@ describe("isBlockedAddress", () => {
     // The RFC 8215 local-use prefix, /96 layout.
     "64:ff9b:1::a9fe:a9fe",
     "64:ff9b:1:abcd::169.254.169.254",
+    // The local-use prefix under each shorter RFC 6052 layout, worked from
+    // the §2.2 table (byte 8 is the reserved `u` octet).
+    // /48: a9.fe in bytes 6-7, a9.fe in bytes 9-10.
+    "64:ff9b:1:a9fe:a9:fe00::",
+    "64:ff9b:1:6464:64:c800::", // 100.100.100.200
+    // /56: a9 in byte 7, fe.a9.fe in bytes 9-11 (byte 6 is prefix).
+    "64:ff9b:1:a9:fe:a9fe::",
+    "64:ff9b:1:12a9:fe:a9fe::",
+    // /64: a9.fe.a9.fe in bytes 9-12 (bytes 6-7 are prefix).
+    "64:ff9b:1:0:a9:fea9:fe00:0",
+    "64:ff9b:1:beef:a9:fea9:fe00:0",
   ])("blocks %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(true);
   });
@@ -105,6 +116,15 @@ describe("isBlockedAddress", () => {
     "fe8::1",
   ])("allows %s", (ip) => {
     expect(isBlockedAddress(ip)).toBe(false);
+  });
+
+  // 8.8.8.8 under the /48 layout. Its decodings under every layout the guard
+  // reads (/48, /56, /64, /96) are all public, so it stays reachable.
+  it("allows a public address under the local-use /48 layout", () => {
+    expect(isBlockedAddress("64:ff9b:1:808:8:800::")).toBe(false);
+    for (const decoded of ["8.8.8.8", "8.8.8.0", "8.8.0.0", "0.0.0.0"]) {
+      expect(isBlockedAddress(decoded)).toBe(false);
+    }
   });
 });
 
